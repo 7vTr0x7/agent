@@ -74,7 +74,7 @@ export class DiscoveryEngine {
 
     const runId = await this.runTracker.start(registered.descriptor);
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= this.retryPolicy.attempts; attempt++) {
       try {
         const result = await this.discoveryService.discover(registered.source);
         const matchDispatch = this.matchDispatcher
@@ -128,7 +128,7 @@ export class DiscoveryEngine {
       { fetched: 0, inserted: 0, duplicates: 0 },
       "Source failed after bounded retries."
     );
-    await this.runTracker.markReviewRequired(sourceId, 3);
+    await this.runTracker.markReviewRequired(sourceId, this.retryPolicy.attempts);
 
     return { status: "FAILED" };
   }
