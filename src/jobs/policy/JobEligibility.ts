@@ -1,8 +1,12 @@
+import { assessJobRisk } from "./JobRiskPolicy";
+
 export type JobPriority = 1 | 2 | 3;
 export type JobEligibilityDecision = "ELIGIBLE" | "REJECT";
 
 export interface JobEligibilityInput {
   companyName: string;
+  title?: string;
+  description?: string;
   location: string | null;
   country: string | null;
   workplaceType: "onsite" | "remote" | "hybrid" | null;
@@ -34,48 +38,23 @@ function containsNormalized(value: string, target: string): boolean {
   return normalize(value).includes(normalize(target));
 }
 
-function isExcludedCompany(
-  companyName: string,
-  excludedCompanies: string[]
-): boolean {
-  return excludedCompanies.some((excluded) =>
-    containsNormalized(companyName, excluded)
-  );
+function isExcludedCompany(companyName: string, excludedCompanies: string[]): boolean {
+  return excludedCompanies.some((excluded) => containsNormalized(companyName, excluded));
 }
 
 function isRemote(job: JobEligibilityInput): boolean {
-  if (job.workplaceType === "remote") {
-    return true;
-  }
-
+  if (job.workplaceType === "remote") return true;
   const location = normalize(job.location ?? "");
-
-  return (
-    location.includes("remote") ||
-    location.includes("work from home") ||
-    location.includes("wfh")
-  );
+  return location.includes("remote") || location.includes("work from home") || location.includes("wfh");
 }
 
-function isBangalore(
-  job: JobEligibilityInput,
-  policy: JobSearchPolicy
-): boolean {
+function isBangalore(job: JobEligibilityInput, policy: JobSearchPolicy): boolean {
   const location = job.location ?? "";
-
-  return policy.priorityLocations.some((target) =>
-    containsNormalized(location, target)
-  );
+  return policy.priorityLocations.some((target) => containsNormalized(location, target));
 }
 
-function isTargetCountry(
-  job: JobEligibilityInput,
-  policy: JobSearchPolicy
-): boolean {
-  if (job.country) {
-    return normalize(job.country) === normalize(policy.targetCountry);
-  }
-
+function isTargetCountry(job: JobEligibilityInput, policy: JobSearchPolicy): boolean {
+  if (job.country) return normalize(job.country) === normalize(policy.targetCountry);
   return containsNormalized(job.location ?? "", policy.targetCountry);
 }
 
@@ -91,11 +70,27 @@ export function evaluateJobEligibility(
     };
   }
 
+  const risk = assessJobRisk({
+    title: job.title ?? "",
+    companyName: job.companyName,
+    description: job.description ?? ""
+  });
+
+  if (risk.level === "HIGH") {
+    return {
+      decision: "REJECT",
+      priority: null,
+      reason: `Job was rejected by the safety-risk policy: ${risk.reasons.join(" ")}`
+    };
+  }
+
   if (isBangalore(job, policy)) {
     return {
       decision: "ELIGIBLE",
       priority: 1,
-      reason: "Bangalore/Bengaluru is the highest-priority target location."
+      reason: risk.level === "MEDIUM"
+        ? "Bangalore/Bengaluru is the highest-priority target location; the listing also carries a medium-risk warning."
+        : "Bangalore/Bengaluru is the highest-priority target location."
     };
   }
 
@@ -111,7 +106,9 @@ export function evaluateJobEligibility(
     return {
       decision: "ELIGIBLE",
       priority: 3,
-      reason: "Remote role is allowed by the job-search policy."
+      reason: risk.level === "MEDIUM"
+        ? "Remote role is allowed by the job-search policy; the listing also carries a medium-risk warning."
+        : "Remote role is allowed by the job-search policy."
     };
   }
 
@@ -119,13 +116,17 @@ export function evaluateJobEligibility(
     return {
       decision: "ELIGIBLE",
       priority: 2,
-      reason: "Role is located in the target country."
+      reason: risk.level === "MEDIUM"
+        ? "Role is located in the target country; the listing also carries a medium-risk warning."
+        : "Role is located in the target country."
     };
   }
 
   return {
     decision: "ELIGIBLE",
     priority: 3,
-    reason: "Role is outside the target country but will be evaluated for candidate eligibility."
+    reason: risk.level === "MEDIUM"
+      ? "Role is outside the target country but will be evaluated for candidate eligibility; the listing also carries a medium-risk warning."
+      : "Role is outside the target country but will be evaluated for candidate eligibility."
   };
 }
