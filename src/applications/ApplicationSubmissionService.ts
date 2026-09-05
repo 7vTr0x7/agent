@@ -5,6 +5,7 @@ import { ApplicationFormFiller } from "./ApplicationFormFiller";
 import { FormFieldDetector } from "./FormFieldDetector";
 import { SubmissionSafetyGate } from "./SubmissionSafetyGate";
 import { CandidateProfile } from "../candidates/CandidateProfile";
+import { ApplicationRepository } from "./ApplicationRepository";
 
 export interface ApplicationSubmissionRequest {
   context: ApplicationContext;
@@ -24,6 +25,7 @@ export class ApplicationSubmissionService {
   constructor(
     private readonly browserSessions: BrowserSessionService,
     private readonly adapters: ApplicationAdapterRegistry,
+    private readonly applications: Pick<ApplicationRepository, "markSubmitted">,
     private readonly detector = new FormFieldDetector(),
     private readonly mapper = new ApplicationFieldMapper(),
     private readonly filler = new ApplicationFormFiller(),
@@ -67,8 +69,23 @@ export class ApplicationSubmissionService {
       }
 
       const result = await adapter.submit(session.page, request.context);
+      if (!result.submitted) {
+        return {
+          submitted: false,
+          safetyAllowed: true,
+          reason: result.reason,
+          result
+        };
+      }
+
+      await this.applications.markSubmitted(
+        request.context.applicationId,
+        result.confirmationUrl,
+        result.externalApplicationId
+      );
+
       return {
-        submitted: result.submitted,
+        submitted: true,
         safetyAllowed: true,
         reason: result.reason,
         result
