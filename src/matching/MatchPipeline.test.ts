@@ -24,7 +24,7 @@ const job: JobOpportunity = {
   employmentType: "full-time",
   description: "React and TypeScript application development.",
   postedAt: null,
-  updatedAt: new Date(),
+  sourceUpdatedAt: new Date(),
   lastSeenAt: new Date(),
   closedAt: null,
   status: "ACTIVE",
@@ -41,12 +41,7 @@ describe("MatchPipeline", () => {
       }
     };
 
-    const pipeline = new MatchPipeline(
-      new DeterministicJobMatcher(),
-      null,
-      repository
-    );
-
+    const pipeline = new MatchPipeline(new DeterministicJobMatcher(), null, repository);
     const result = await pipeline.evaluateAndPersist(job, profile);
 
     expect(result.decision).toBe("APPLY");
@@ -71,12 +66,7 @@ describe("MatchPipeline", () => {
       })
     } as unknown as SemanticJobMatcher;
 
-    const pipeline = new MatchPipeline(
-      new DeterministicJobMatcher(),
-      semantic,
-      repository
-    );
-
+    const pipeline = new MatchPipeline(new DeterministicJobMatcher(), semantic, repository);
     const result = await pipeline.evaluateAndPersist(job, profile);
 
     expect(result.semantic?.score).toBe(80);
