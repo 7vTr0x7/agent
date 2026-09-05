@@ -63,12 +63,13 @@ export class ApplicationTaskHandler {
       return;
     }
 
+    const candidateName =
+      candidateProfile.fullName ??
+      ([candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") || "Candidate");
+
     const context: ApplicationEmailContext = {
       recipient: candidateProfile.email,
-      candidateName:
-        candidateProfile.fullName ??
-        [candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") ||
-        "Candidate",
+      candidateName,
       jobTitle: prepared.application.jobTitle,
       companyName: prepared.application.companyName,
       applicationId: prepared.application.applicationId,
