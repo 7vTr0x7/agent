@@ -1,4 +1,5 @@
-import { ClaimedTask, TaskHandler } from "../../queue/TaskQueue";
+import { ClaimedTask } from "../../queue/TaskQueue";
+import { TaskHandler } from "../../queue/Worker";
 import { DiscoveryEngine } from "../engine/DiscoveryEngine";
 import { DISCOVERY_TASK_TYPE, DiscoveryTaskPayload } from "./DiscoveryTask";
 
