@@ -1,4 +1,7 @@
-import { Page } from "playwright";
+export interface ApplicationBrowserPage {
+  goto(url: string): Promise<void>;
+  url(): string;
+}
 
 export interface ApplicationContext {
   jobOpportunityId: string;
@@ -17,7 +20,10 @@ export interface ApplicationSubmissionResult {
 export interface ApplicationAdapter {
   readonly name: string;
   canHandle(url: string): boolean;
-  submit(page: Page, context: ApplicationContext): Promise<ApplicationSubmissionResult>;
+  submit(
+    page: ApplicationBrowserPage,
+    context: ApplicationContext
+  ): Promise<ApplicationSubmissionResult>;
 }
 
 export class ApplicationAdapterRegistry {
