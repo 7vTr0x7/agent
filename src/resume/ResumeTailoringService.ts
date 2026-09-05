@@ -31,13 +31,23 @@ function unique(values: readonly string[]): string[] {
   return [...new Set(values)];
 }
 
-function keywordCandidates(jobTitle: string, description: string): string[] {
+function keywordCandidates(jobTitle: string, description: string, resumeSkills: readonly string[]): string[] {
+  const normalizedJobText = normalize(`${jobTitle} ${description}`);
   const titleTokens = tokens(jobTitle);
   const descriptionTokens = tokens(description);
   const counts = new Map<string, number>();
 
   for (const token of [...titleTokens, ...descriptionTokens]) {
     counts.set(token, (counts.get(token) ?? 0) + 1);
+  }
+
+  // Preserve meaningful multi-word skills such as "React Testing Library" or
+  // "React Native" instead of reducing every requirement to single tokens.
+  for (const skill of resumeSkills) {
+    const normalizedSkill = normalize(skill);
+    if (normalizedSkill.includes(" ") && normalizedJobText.includes(normalizedSkill)) {
+      counts.set(normalizedSkill, (counts.get(normalizedSkill) ?? 0) + 2);
+    }
   }
 
   return [...counts.entries()]
@@ -64,13 +74,15 @@ function resumeCorpus(resume: ResumeProfile): string {
 }
 
 function containsKeyword(corpus: string, keyword: string): boolean {
-  return corpus.includes(` ${keyword} `) || corpus.startsWith(`${keyword} `) || corpus.endsWith(` ${keyword}`);
+  const normalizedCorpus = ` ${normalize(corpus)} `;
+  const normalizedKeyword = normalize(keyword);
+  return normalizedCorpus.includes(` ${normalizedKeyword} `);
 }
 
 function selectExperience(resume: ResumeProfile, matchedKeywords: readonly string[]): ResumeProfile["experience"] {
   const ranked = resume.experience.map((experience, index) => {
     const corpus = normalize([experience.title, ...experience.bullets].join(" "));
-    const score = matchedKeywords.reduce((total, keyword) => total + (containsKeyword(` ${corpus} `, keyword) ? 1 : 0), 0);
+    const score = matchedKeywords.reduce((total, keyword) => total + (containsKeyword(corpus, keyword) ? 1 : 0), 0);
     return { experience, index, score };
   });
 
@@ -80,8 +92,8 @@ function selectExperience(resume: ResumeProfile, matchedKeywords: readonly strin
       ...experience,
       bullets: [...experience.bullets]
         .sort((a, b) => {
-          const aScore = matchedKeywords.reduce((total, keyword) => total + (containsKeyword(` ${normalize(a)} `, keyword) ? 1 : 0), 0);
-          const bScore = matchedKeywords.reduce((total, keyword) => total + (containsKeyword(` ${normalize(b)} `, keyword) ? 1 : 0), 0);
+          const aScore = matchedKeywords.reduce((total, keyword) => total + (containsKeyword(a, keyword) ? 1 : 0), 0);
+          const bScore = matchedKeywords.reduce((total, keyword) => total + (containsKeyword(b, keyword) ? 1 : 0), 0);
           return bScore - aScore;
         })
         .slice(0, 6)
@@ -90,22 +102,27 @@ function selectExperience(resume: ResumeProfile, matchedKeywords: readonly strin
 
 export class ResumeTailoringService {
   tailor(request: ResumeTailoringRequest): ResumeTailoringResult {
-    const candidates = keywordCandidates(request.jobTitle, request.jobDescription);
+    const jobText = normalize(`${request.jobTitle} ${request.jobDescription}`);
+    const candidates = keywordCandidates(request.jobTitle, request.jobDescription, request.resume.skills);
     const corpus = ` ${resumeCorpus(request.resume)} `;
     const matchedKeywords = unique(candidates.filter((keyword) => containsKeyword(corpus, keyword))).slice(0, 40);
     const missingKeywords = unique(candidates.filter((keyword) => !containsKeyword(corpus, keyword))).slice(0, 20);
     const experience = selectExperience(request.resume, matchedKeywords);
     const relevantSkills = [...request.resume.skills]
       .sort((a, b) => {
-        const aScore = matchedKeywords.filter((keyword) => containsKeyword(` ${normalize(a)} `, keyword)).length;
-        const bScore = matchedKeywords.filter((keyword) => containsKeyword(` ${normalize(b)} `, keyword)).length;
-        return bScore - aScore;
+        const aScore = matchedKeywords.filter((keyword) => containsKeyword(a, keyword)).length;
+        const bScore = matchedKeywords.filter((keyword) => containsKeyword(b, keyword)).length;
+        return bScore - aScore || a.localeCompare(b);
       });
 
-    const titleMatch = containsKeyword(` ${normalize(request.resume.summary)} `, normalize(request.jobTitle))
-      || request.resume.experience.some((item) => normalize(item.title) === normalize(request.jobTitle));
+    const title = normalize(request.jobTitle);
+    const titleMatch = containsKeyword(request.resume.summary, title)
+      || request.resume.experience.some((item) => normalize(item.title) === title);
     const keywordCoverage = candidates.length === 0 ? 0 : matchedKeywords.length / Math.min(candidates.length, 40);
-    const skillsCoverage = request.resume.skills.length === 0 ? 0 : relevantSkills.slice(0, 12).length / Math.min(request.resume.skills.length, 12);
+    const matchedSkills = request.resume.skills.filter((skill) => jobText.includes(normalize(skill)));
+    const skillsCoverage = request.resume.skills.length === 0
+      ? 0
+      : matchedSkills.length / request.resume.skills.length;
     const atsScore = Math.round(Math.min(100, 55 + keywordCoverage * 30 + skillsCoverage * 10 + (titleMatch ? 5 : 0)));
 
     const warnings: string[] = [];
