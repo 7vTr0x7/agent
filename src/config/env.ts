@@ -4,6 +4,7 @@ export interface AppConfig {
   nodeEnv: string;
   logLevel: string;
   automationEnabled: boolean;
+  genericApplicationAdapterEnabled: boolean;
   resume: {
     tailoringEnabled: boolean;
     masterPath: string | null;
@@ -52,22 +53,21 @@ function booleanValue(name: string, value: string | undefined, fallback: boolean
 
 export function loadConfig(): AppConfig {
   const emailEnabled = booleanValue("EMAIL_ENABLED", process.env.EMAIL_ENABLED, false);
-  const resumeTailoringEnabled = booleanValue(
-    "RESUME_TAILORING_ENABLED",
-    process.env.RESUME_TAILORING_ENABLED,
-    false
-  );
+  const resumeTailoringEnabled = booleanValue("RESUME_TAILORING_ENABLED", process.env.RESUME_TAILORING_ENABLED, false);
   const gmailEnabled = booleanValue("GMAIL_ENABLED", process.env.GMAIL_ENABLED, false);
 
   return {
     nodeEnv: process.env.NODE_ENV ?? "development",
     logLevel: process.env.LOG_LEVEL ?? "info",
     automationEnabled: booleanValue("AUTOMATION_ENABLED", process.env.AUTOMATION_ENABLED, false),
+    genericApplicationAdapterEnabled: booleanValue(
+      "GENERIC_APPLICATION_ADAPTER_ENABLED",
+      process.env.GENERIC_APPLICATION_ADAPTER_ENABLED,
+      false
+    ),
     resume: {
       tailoringEnabled: resumeTailoringEnabled,
-      masterPath: resumeTailoringEnabled
-        ? required("RESUME_MASTER_PATH", process.env.RESUME_MASTER_PATH)
-        : null,
+      masterPath: resumeTailoringEnabled ? required("RESUME_MASTER_PATH", process.env.RESUME_MASTER_PATH) : null,
       outputDirectory: process.env.RESUME_OUTPUT_DIRECTORY ?? "./data/resumes"
     },
     ollama: {
