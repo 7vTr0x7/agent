@@ -2,7 +2,7 @@ import { ResendEmailSender } from "./ResendEmailSender";
 
 describe("ResendEmailSender", () => {
   it("sends the expected request payload", async () => {
-    const fetchImpl = jest.fn<typeof fetch>().mockResolvedValue(
+    const fetchImpl: typeof fetch = jest.fn().mockResolvedValue(
       new Response(JSON.stringify({ id: "email-1" }), {
         status: 200,
         headers: { "Content-Type": "application/json" }
@@ -38,7 +38,7 @@ describe("ResendEmailSender", () => {
   });
 
   it("throws when the provider rejects the request", async () => {
-    const fetchImpl = jest.fn<typeof fetch>().mockResolvedValue(
+    const fetchImpl: typeof fetch = jest.fn().mockResolvedValue(
       new Response("invalid api key", { status: 401 })
     );
 
