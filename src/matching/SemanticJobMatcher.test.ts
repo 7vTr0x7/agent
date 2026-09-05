@@ -11,12 +11,23 @@ const profile: CandidateProfile = {
 };
 
 const job: JobOpportunity = {
-  id: "job-1", canonicalId: "c", canonicalUrl: "https://example.com/job",
-  title: "Frontend Engineer", companyName: "Example", location: "Bengaluru",
-  country: "India", workplaceType: "hybrid", employmentType: "full-time",
-  description: "Build React and TypeScript applications.", postedAt: null,
-  updatedAt: null, lastSeenAt: new Date(), closedAt: null, status: "ACTIVE",
-  createdAt: new Date(), updatedAt: new Date()
+  id: "job-1",
+  canonicalId: "c",
+  canonicalUrl: "https://example.com/job",
+  title: "Frontend Engineer",
+  companyName: "Example",
+  location: "Bengaluru",
+  country: "India",
+  workplaceType: "hybrid",
+  employmentType: "full-time",
+  description: "Build React and TypeScript applications.",
+  postedAt: null,
+  sourceUpdatedAt: null,
+  lastSeenAt: new Date(),
+  closedAt: null,
+  status: "ACTIVE",
+  createdAt: new Date(),
+  updatedAt: new Date()
 };
 
 describe("SemanticJobMatcher", () => {
@@ -53,7 +64,8 @@ describe("SemanticJobMatcher", () => {
       })
     };
 
-    await expect(new SemanticJobMatcher(provider).evaluate(job, profile))
-      .rejects.toThrow("invalid JSON");
+    await expect(new SemanticJobMatcher(provider).evaluate(job, profile)).rejects.toThrow(
+      "invalid JSON"
+    );
   });
 });
