@@ -20,6 +20,7 @@ class FakeApplications {
         jobOpportunityId: "job-1",
         candidateProfileId: "candidate-1",
         url: "https://example.com/apply",
+        jobTitle: "Frontend Engineer",
         companyName: "Example Corp"
       }
     };
