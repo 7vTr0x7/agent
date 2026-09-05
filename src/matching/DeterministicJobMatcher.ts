@@ -96,12 +96,23 @@ export class DeterministicJobMatcher {
     const experienceBonus = requiredYears !== null && requiredYears <= profile.yearsExperience ? 10 : 0;
     const matchScore = Math.min(100, skillScore + titleBonus + experienceBonus);
 
-    const decision: JobDecision =
+    let decision: JobDecision =
       matchScore >= this.applyThreshold
         ? "APPLY"
         : matchScore >= this.reviewThreshold
           ? "REVIEW"
           : "REJECT";
+
+    // A preferred experience level is not a hard eligibility requirement.
+    // Keep such roles reviewable when there is otherwise meaningful evidence
+    // of fit instead of turning the preference into an accidental rejection.
+    if (
+      decision === "REJECT" &&
+      hasPreferredExperience(normalizedText) &&
+      (titleMatch || matchedSkills.length > 0)
+    ) {
+      decision = "REVIEW";
+    }
 
     return {
       matchScore,
@@ -127,6 +138,10 @@ function containsTerm(text: string, term: string): boolean {
   const normalizedTerm = normalize(term);
   if (!normalizedTerm) return false;
   return (` ${text} `).includes(` ${normalizedTerm} `);
+}
+
+function hasPreferredExperience(text: string): boolean {
+  return /\d+(?:\.\d+)?\s*\+?\s*years?(?:\s+of)?\s+experience\s+(?:preferred|desired|nice\s+to\s+have)/.test(text);
 }
 
 function extractRequiredYears(text: string): number | null {
