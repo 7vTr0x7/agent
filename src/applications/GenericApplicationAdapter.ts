@@ -1,11 +1,21 @@
 import { Page } from "playwright";
-import { ApplicationAdapter, ApplicationContext, ApplicationSubmissionResult } from "./ApplicationAdapter";
+import {
+  ApplicationAdapter,
+  ApplicationContext,
+  ApplicationSubmissionResult
+} from "./ApplicationAdapter";
 import { FormFieldDetector } from "./FormFieldDetector";
+import { VerifiedSubmissionExecutor } from "./VerifiedSubmissionExecutor";
+import { SubmissionConfirmationDetector } from "./SubmissionConfirmationDetector";
 
 export class GenericApplicationAdapter implements ApplicationAdapter {
   readonly name = "generic-form";
 
-  constructor(private readonly detector = new FormFieldDetector()) {}
+  constructor(
+    private readonly detector = new FormFieldDetector(),
+    private readonly executor = new VerifiedSubmissionExecutor(),
+    private readonly confirmationDetector = new SubmissionConfirmationDetector()
+  ) {}
 
   canHandle(url: string): boolean {
     return /^https?:\/\//i.test(url);
@@ -28,11 +38,31 @@ export class GenericApplicationAdapter implements ApplicationAdapter {
       };
     }
 
+    const execution = await this.executor.execute(page);
+    if (!execution.clicked) {
+      return {
+        submitted: false,
+        externalApplicationId: null,
+        confirmationUrl: null,
+        reason: execution.reason
+      };
+    }
+
+    const confirmation = await this.confirmationDetector.detect(page);
+    if (!confirmation.confirmed) {
+      return {
+        submitted: false,
+        externalApplicationId: null,
+        confirmationUrl: null,
+        reason: "Submit button was clicked, but application confirmation could not be verified."
+      };
+    }
+
     return {
-      submitted: false,
+      submitted: true,
       externalApplicationId: null,
-      confirmationUrl: null,
-      reason: "Application form inspected successfully; submission requires a platform-specific field mapping."
+      confirmationUrl: confirmation.confirmationUrl,
+      reason: confirmation.signal ?? "Application submission was confirmed."
     };
   }
 }
