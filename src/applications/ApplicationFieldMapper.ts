@@ -78,16 +78,21 @@ function resolveKey(field: ApplicationField): { key: ApplicationFieldKey | null;
     .filter((match) => match.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  if (matches.length === 0) return { key: null, confidence: 0 };
-  if (matches.length > 1 && matches[0].score === matches[1].score) {
-    return { key: null, confidence: matches[0].score };
+  const best = matches[0];
+  if (!best) return { key: null, confidence: 0 };
+
+  const second = matches[1];
+  if (second && best.score === second.score) {
+    return { key: null, confidence: best.score };
   }
 
-  return { key: matches[0].key, confidence: matches[0].score };
+  return { key: best.key, confidence: best.score };
 }
 
 function valueFor(profile: CandidateProfile, key: ApplicationFieldKey): string | boolean | number | null {
-  if (key === "fullName") return profile.fullName ?? [profile.firstName, profile.lastName].filter(Boolean).join(" ") || null;
+  if (key === "fullName") {
+    return profile.fullName ?? ([profile.firstName, profile.lastName].filter(Boolean).join(" ") || null);
+  }
   if (key === "resumePath") return profile.resumePath ?? null;
   return profile[key] ?? profile.standardizedAnswers?.[key] ?? null;
 }
