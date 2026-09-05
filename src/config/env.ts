@@ -4,6 +4,11 @@ export interface AppConfig {
   nodeEnv: string;
   logLevel: string;
   automationEnabled: boolean;
+  resume: {
+    tailoringEnabled: boolean;
+    masterPath: string | null;
+    outputDirectory: string;
+  };
   ollama: {
     baseUrl: string;
     model: string;
@@ -49,6 +54,11 @@ export function loadConfig(): AppConfig {
     process.env.EMAIL_ENABLED,
     false
   );
+  const resumeTailoringEnabled = booleanValue(
+    "RESUME_TAILORING_ENABLED",
+    process.env.RESUME_TAILORING_ENABLED,
+    false
+  );
 
   return {
     nodeEnv: process.env.NODE_ENV ?? "development",
@@ -58,6 +68,13 @@ export function loadConfig(): AppConfig {
       process.env.AUTOMATION_ENABLED,
       false
     ),
+    resume: {
+      tailoringEnabled: resumeTailoringEnabled,
+      masterPath: resumeTailoringEnabled
+        ? required("RESUME_MASTER_PATH", process.env.RESUME_MASTER_PATH)
+        : null,
+      outputDirectory: process.env.RESUME_OUTPUT_DIRECTORY ?? "./data/resumes"
+    },
     ollama: {
       baseUrl: (process.env.OLLAMA_BASE_URL ?? "http://localhost:11434").replace(/\/+$/, ""),
       model: process.env.OLLAMA_MODEL ?? "qwen3:8b",
