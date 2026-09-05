@@ -18,7 +18,8 @@ export class MatchTaskDispatcher {
     return this.queue.enqueue<MatchJobTaskPayload>({
       taskType: MATCH_JOB_TASK,
       payload: { jobOpportunityId, candidateProfileId },
-      priority
+      priority,
+      dedupeKey: `match:${jobOpportunityId}:${candidateProfileId}`
     });
   }
 }
