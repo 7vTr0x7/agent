@@ -9,6 +9,6 @@ export function canonicalizeJobUrl(url: string): string {
 
 export function createCanonicalJobId(url: string): string {
   return createHash("sha256")
-    .update(canonicalizeJobUrl(url).toLowerCase())
+    .update(canonicalizeJobUrl(url))
     .digest("hex");
 }
