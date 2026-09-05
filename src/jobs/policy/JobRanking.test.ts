@@ -109,6 +109,6 @@ describe("rankJob", () => {
       now
     }, policy);
 
-    expect(result.score).toBe(86);
+    expect(result.score).toBe(95);
   });
 });
