@@ -36,7 +36,7 @@ export class FollowUpDraftRepository {
           SELECT 1
           FROM gmail_messages gm
           WHERE gm.application_id = a.id
-            AND gm.classification IN ('INTERVIEW','POSITIVE','REJECTION','APPLICATION_CONFIRMATION','OTHER')
+            AND gm.classification IN ('INTERVIEW','POSITIVE','REJECTION','OTHER')
             AND gm.received_at >= COALESCE(a.last_follow_up_at, a.applied_at)
         ) AS "hasRecruiterResponse",
         a.status
