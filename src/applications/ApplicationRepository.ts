@@ -8,6 +8,7 @@ export interface PreparedApplication {
   url: string;
   jobTitle: string;
   companyName: string;
+  jobDescription: string;
 }
 
 export type PrepareApplicationResult =
@@ -38,6 +39,7 @@ export class ApplicationRepository {
         job_title: string;
         company_name: string;
         canonical_url: string;
+        job_description: string;
         has_ranking: boolean;
         has_application: boolean;
         job_id: string | null;
@@ -50,6 +52,7 @@ export class ApplicationRepository {
             jo.title AS job_title,
             jo.company_name,
             jo.canonical_url,
+            jo.description AS job_description,
             EXISTS (
               SELECT 1
               FROM job_rankings jr
@@ -144,7 +147,8 @@ export class ApplicationRepository {
           candidateProfileId,
           url: row.canonical_url,
           jobTitle: row.job_title,
-          companyName: row.company_name
+          companyName: row.company_name,
+          jobDescription: row.job_description
         }
       };
     });
