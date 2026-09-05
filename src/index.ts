@@ -31,6 +31,10 @@ import { GmailApiMailbox } from "./email/GmailApiMailbox";
 import { GmailMessageRepository } from "./email/GmailMessageRepository";
 import { GmailSyncTaskDispatcher, GmailSyncTaskHandler, SYNC_GMAIL_TASK } from "./email/GmailSyncTask";
 import { InterviewRepository } from "./email/InterviewRepository";
+import { FollowUpDraftRepository } from "./applications/FollowUpDraftRepository";
+import { FollowUpScheduler } from "./applications/FollowUpScheduler";
+import { FollowUpTaskDispatcher, PREPARE_FOLLOW_UP_TASK } from "./applications/FollowUpTask";
+import { FollowUpTaskHandler } from "./applications/FollowUpTaskHandler";
 
 const config = loadConfig();
 const logger = pino({ level: config.logLevel });
@@ -141,6 +145,16 @@ async function main(): Promise<void> {
     gmailSyncDispatcher = new GmailSyncTaskDispatcher(taskQueue);
   }
 
+  let followUpScheduler: FollowUpScheduler | undefined;
+  if (config.gmail.enabled) {
+    const followUpDrafts = new FollowUpDraftRepository(database);
+    handlers.set(PREPARE_FOLLOW_UP_TASK, new FollowUpTaskHandler(followUpDrafts));
+    followUpScheduler = new FollowUpScheduler(
+      followUpDrafts,
+      new FollowUpTaskDispatcher(taskQueue)
+    );
+  }
+
   const worker = new TaskWorker(taskQueue, handlers);
   const applicationQueue = new ApplicationQueueService(database, new ApplicationTaskDispatcher(taskQueue));
 
@@ -160,10 +174,19 @@ async function main(): Promise<void> {
     }
   };
 
+  const followUpLoop = async (): Promise<void> => {
+    if (!followUpScheduler) return;
+    while (true) {
+      const result = await followUpScheduler.runOnce();
+      if (result.queued > 0) logger.info(result, "Follow-up drafts queued");
+      await new Promise((resolve) => setTimeout(resolve, 300_000));
+    }
+  };
+
   process.once("SIGINT", () => worker.stop());
   process.once("SIGTERM", () => worker.stop());
 
-  await Promise.all([worker.run(), enqueueApplicationsLoop(), syncGmailLoop()]);
+  await Promise.all([worker.run(), enqueueApplicationsLoop(), syncGmailLoop(), followUpLoop()]);
   await database.close();
 }
 
