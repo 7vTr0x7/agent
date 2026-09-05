@@ -11,6 +11,7 @@ export interface DiscoveryResult {
   fetched: number;
   inserted: number;
   duplicates: number;
+  insertedOpportunityIds: string[];
 }
 
 interface OpportunityRow {
@@ -25,12 +26,14 @@ export class JobDiscoveryService {
 
     let inserted = 0;
     let duplicates = 0;
+    const insertedOpportunityIds: string[] = [];
 
     for (const job of jobs) {
-      const observationInserted = await this.persistJob(job);
+      const result = await this.persistJob(job);
 
-      if (observationInserted) {
+      if (result.inserted) {
         inserted++;
+        insertedOpportunityIds.push(result.opportunityId);
       } else {
         duplicates++;
       }
@@ -40,11 +43,14 @@ export class JobDiscoveryService {
       source: source.name,
       fetched: jobs.length,
       inserted,
-      duplicates
+      duplicates,
+      insertedOpportunityIds
     };
   }
 
-  private async persistJob(job: Job): Promise<boolean> {
+  private async persistJob(
+    job: Job
+  ): Promise<{ inserted: boolean; opportunityId: string }> {
     const canonicalUrl = canonicalizeJobUrl(job.url);
     const canonicalId = createCanonicalJobId(job.url);
 
@@ -127,12 +133,16 @@ export class JobDiscoveryService {
           job.source,
           "adapter",
           job.sourceJobId,
+          job.url,
           JSON.stringify(job),
           job.contentHash
         ]
       );
 
-      return observationResult.rowCount === 1;
+      return {
+        inserted: observationResult.rowCount === 1,
+        opportunityId: opportunity.id
+      };
     });
   }
 }
