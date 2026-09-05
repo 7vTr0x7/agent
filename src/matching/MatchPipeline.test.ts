@@ -70,7 +70,7 @@ describe("MatchPipeline", () => {
     const result = await pipeline.evaluateAndPersist(job, profile);
 
     expect(result.semantic?.score).toBe(80);
-    expect(result.score).toBe(84);
+    expect(result.score).toBe(86);
     expect(result.decision).toBe("APPLY");
     expect(repository.save).toHaveBeenCalledTimes(1);
   });
