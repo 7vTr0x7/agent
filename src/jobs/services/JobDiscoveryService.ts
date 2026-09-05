@@ -1,4 +1,8 @@
 import { Database } from "../../database/Database";
+import {
+  canonicalizeJobUrl,
+  createCanonicalJobId
+} from "../domain/JobCanonicalization";
 import { Job } from "../domain/Job";
 import { JobSource } from "../sources/JobSource";
 
@@ -7,6 +11,10 @@ export interface DiscoveryResult {
   fetched: number;
   inserted: number;
   duplicates: number;
+}
+
+interface OpportunityRow {
+  id: string;
 }
 
 export class JobDiscoveryService {
@@ -19,9 +27,9 @@ export class JobDiscoveryService {
     let duplicates = 0;
 
     for (const job of jobs) {
-      const result = await this.insertJob(job);
+      const observationInserted = await this.persistJob(job);
 
-      if (result) {
+      if (observationInserted) {
         inserted++;
       } else {
         duplicates++;
@@ -36,44 +44,95 @@ export class JobDiscoveryService {
     };
   }
 
-  private async insertJob(job: Job): Promise<boolean> {
-    const result = await this.database.query(
-      `
-        INSERT INTO jobs (
-          source,
-          source_job_id,
-          url,
-          title,
-          company_name,
-          location,
-          employment_type,
-          description,
-          posted_at,
-          content_hash,
-          country,
-          workplace_type,
-          updated_at
-        )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-        ON CONFLICT DO NOTHING
-      `,
-      [
-        job.source,
-        job.sourceJobId,
-        job.url,
-        job.title,
-        job.companyName,
-        job.location,
-        job.employmentType,
-        job.description,
-        job.postedAt,
-        job.contentHash,
-        job.country,
-        job.workplaceType,
-        job.updatedAt
-      ]
-    );
+  private async persistJob(job: Job): Promise<boolean> {
+    const canonicalUrl = canonicalizeJobUrl(job.url);
+    const canonicalId = createCanonicalJobId(job.url);
 
-    return result.rowCount === 1;
+    return this.database.transaction(async (client) => {
+      const opportunityResult = await client.query<OpportunityRow>(
+        `
+          INSERT INTO job_opportunities (
+            canonical_id,
+            canonical_url,
+            title,
+            company_name,
+            location,
+            country,
+            workplace_type,
+            employment_type,
+            description,
+            posted_at,
+            updated_at,
+            last_seen_at,
+            status
+          )
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),'ACTIVE')
+          ON CONFLICT (canonical_id)
+          DO UPDATE SET
+            canonical_url = EXCLUDED.canonical_url,
+            title = EXCLUDED.title,
+            company_name = EXCLUDED.company_name,
+            location = EXCLUDED.location,
+            country = EXCLUDED.country,
+            workplace_type = EXCLUDED.workplace_type,
+            employment_type = EXCLUDED.employment_type,
+            description = EXCLUDED.description,
+            posted_at = COALESCE(EXCLUDED.posted_at, job_opportunities.posted_at),
+            updated_at = EXCLUDED.updated_at,
+            last_seen_at = NOW(),
+            status = 'ACTIVE',
+            closed_at = NULL
+          RETURNING id
+        `,
+        [
+          canonicalId,
+          canonicalUrl,
+          job.title,
+          job.companyName,
+          job.location,
+          job.country,
+          job.workplaceType,
+          job.employmentType,
+          job.description,
+          job.postedAt,
+          job.updatedAt
+        ]
+      );
+
+      const opportunity = opportunityResult.rows[0];
+
+      if (!opportunity) {
+        throw new Error("Failed to persist job opportunity");
+      }
+
+      const observationResult = await client.query(
+        `
+          INSERT INTO job_observations (
+            job_opportunity_id,
+            platform,
+            source_type,
+            source_job_id,
+            source_url,
+            discovered_at,
+            observed_at,
+            raw_payload,
+            content_hash
+          )
+          VALUES ($1,$2,$3,$4,NOW(),NOW(),$5::jsonb,$6)
+          ON CONFLICT DO NOTHING
+          RETURNING id
+        `,
+        [
+          opportunity.id,
+          job.source,
+          "adapter",
+          job.sourceJobId,
+          JSON.stringify(job),
+          job.contentHash
+        ]
+      );
+
+      return observationResult.rowCount === 1;
+    });
   }
 }
