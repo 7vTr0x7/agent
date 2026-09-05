@@ -31,26 +31,39 @@ export class DeterministicJobMatcher {
   }
 
   evaluate(job: JobOpportunity, profile: CandidateProfile): DeterministicMatchResult {
-    const text = `${job.title}\n${job.description}`.toLowerCase();
-    const normalizedText = normalize(text);
+    const normalizedText = normalize(`${job.title}\n${job.description}`);
     const evidence: MatchEvidence[] = [];
 
-    const matchedSkills = profile.skills.filter((skill) =>
+    const requiredSkills = profile.skills.filter((skill) =>
       containsTerm(normalizedText, skill)
     );
-    const missingSkills = profile.skills.filter(
-      (skill) => !containsTerm(normalizedText, skill)
+    const matchedSkills = requiredSkills;
+    const missingSkills = profile.skills.filter((skill) =>
+      !containsTerm(normalizedText, skill)
     );
 
     for (const skill of matchedSkills) {
-      evidence.push({ type: "SKILL_MATCH", detail: `Candidate skill appears in job: ${skill}` });
+      evidence.push({
+        type: "SKILL_MATCH",
+        detail: `Candidate skill is relevant to the job and appears in the posting: ${skill}`
+      });
+    }
+
+    for (const skill of missingSkills) {
+      evidence.push({
+        type: "SKILL_GAP",
+        detail: `Candidate skill is not mentioned in the posting: ${skill}`
+      });
     }
 
     const titleMatch = profile.targetTitles.some((title) =>
       containsTerm(normalize(job.title), title)
     );
     if (titleMatch) {
-      evidence.push({ type: "TITLE_MATCH", detail: "Job title matches a target title." });
+      evidence.push({
+        type: "TITLE_MATCH",
+        detail: "Job title matches a candidate target title."
+      });
     }
 
     const requiredYears = extractRequiredYears(normalizedText);
@@ -58,7 +71,7 @@ export class DeterministicJobMatcher {
       if (requiredYears > profile.yearsExperience) {
         evidence.push({
           type: "HARD_BLOCKER",
-          detail: `Job requires approximately ${requiredYears}+ years; candidate has ${profile.yearsExperience}.`
+          detail: `Job explicitly requires approximately ${requiredYears}+ years; candidate has ${profile.yearsExperience}.`
         });
         return {
           matchScore: 0,
@@ -66,18 +79,14 @@ export class DeterministicJobMatcher {
           matchedSkills,
           missingSkills,
           evidence,
-          reason: "Deterministic experience requirement exceeds candidate experience."
+          reason: "Deterministic hard blocker: explicit minimum experience exceeds candidate experience."
         };
       }
 
       evidence.push({
         type: "EXPERIENCE",
-        detail: `Candidate meets the detected ${requiredYears}+ year requirement.`
+        detail: `Candidate meets the explicit ${requiredYears}+ year requirement.`
       });
-    }
-
-    for (const skill of missingSkills) {
-      evidence.push({ type: "SKILL_GAP", detail: `Candidate skill not found in job text: ${skill}` });
     }
 
     const skillScore = profile.skills.length === 0
@@ -100,14 +109,18 @@ export class DeterministicJobMatcher {
       matchedSkills,
       missingSkills,
       evidence,
-      reason: `${matchedSkills.length}/${profile.skills.length} candidate skills found; ` +
+      reason: `${matchedSkills.length}/${profile.skills.length} candidate skills appear in the job posting; ` +
         `${titleMatch ? "target title matched" : "target title not matched"}.`
     };
   }
 }
 
 function normalize(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9+#.]+/g, " ").replace(/\s+/g, " ").trim();
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9+#.]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function containsTerm(text: string, term: string): boolean {
@@ -118,8 +131,8 @@ function containsTerm(text: string, term: string): boolean {
 
 function extractRequiredYears(text: string): number | null {
   const matches = [
-    ...text.matchAll(/(?:minimum|at least|required|must have|have)\s+(\d+(?:\.\d+)?)\s*\+?\s*years?/g),
-    ...text.matchAll(/(\d+(?:\.\d+)?)\s*\+\s*years?\s+(?:of\s+)?experience/g)
+    ...text.matchAll(/(?:minimum|at least|required|must have)\s+(\d+(?:\.\d+)?)\s*\+?\s*years?(?:\s+of)?\s+experience/g),
+    ...text.matchAll(/(\d+(?:\.\d+)?)\s*\+\s*years?\s+(?:of\s+)?experience\s+(?:required|mandatory|minimum)/g)
   ];
 
   const years = matches
