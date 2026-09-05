@@ -1,4 +1,5 @@
-import { ClaimedTask, TaskHandler } from "../queue/TaskWorker";
+import { ClaimedTask } from "../queue/TaskQueue";
+import { TaskHandler } from "../queue/TaskWorker";
 import { FollowUpDraftRepository } from "./FollowUpDraftRepository";
 import { PrepareFollowUpTaskPayload } from "./FollowUpTask";
 
