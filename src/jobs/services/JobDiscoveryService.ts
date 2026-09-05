@@ -124,7 +124,7 @@ export class JobDiscoveryService {
             raw_payload,
             content_hash
           )
-          VALUES ($1,$2,$3,$4,NOW(),NOW(),$5::jsonb,$6)
+          VALUES ($1,$2,$3,$4,$5,NOW(),NOW(),$6::jsonb,$7)
           ON CONFLICT DO NOTHING
           RETURNING id
         `,
