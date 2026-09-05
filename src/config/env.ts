@@ -3,6 +3,7 @@ import "dotenv/config";
 export interface AppConfig {
   nodeEnv: string;
   logLevel: string;
+  automationEnabled: boolean;
   ollama: {
     baseUrl: string;
     model: string;
@@ -52,6 +53,11 @@ export function loadConfig(): AppConfig {
   return {
     nodeEnv: process.env.NODE_ENV ?? "development",
     logLevel: process.env.LOG_LEVEL ?? "info",
+    automationEnabled: booleanValue(
+      "AUTOMATION_ENABLED",
+      process.env.AUTOMATION_ENABLED,
+      false
+    ),
     ollama: {
       baseUrl: (process.env.OLLAMA_BASE_URL ?? "http://localhost:11434").replace(/\/+$/, ""),
       model: process.env.OLLAMA_MODEL ?? "qwen3:8b",
