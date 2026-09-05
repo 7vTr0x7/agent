@@ -57,24 +57,32 @@ function normalize(value: string | null | undefined): string {
     .trim();
 }
 
-function fieldText(field: ApplicationField): string {
-  return normalize([field.label, field.name, field.placeholder].filter(Boolean).join(" "));
+function fieldParts(field: ApplicationField): readonly string[] {
+  return [field.label, field.name, field.placeholder]
+    .filter((value): value is string => Boolean(value))
+    .map(normalize)
+    .filter(Boolean);
 }
 
 function resolveKey(field: ApplicationField): { key: ApplicationFieldKey | null; confidence: number } {
-  const text = fieldText(field);
-  if (!text) return { key: null, confidence: 0 };
+  const parts = fieldParts(field);
+  if (parts.length === 0) return { key: null, confidence: 0 };
 
   const matches = (Object.entries(FIELD_ALIASES) as [ApplicationFieldKey, readonly string[]][])
-    .map(([key, aliases]) => ({
-      key,
-      score: aliases.reduce((best, alias) => {
+    .map(([key, aliases]) => {
+      const score = aliases.reduce((best, alias) => {
         const normalizedAlias = normalize(alias);
-        if (text === normalizedAlias) return Math.max(best, 1);
-        if (text.includes(normalizedAlias)) return Math.max(best, 0.9);
-        return best;
-      }, 0)
-    }))
+        return Math.max(
+          best,
+          ...parts.map((part) => {
+            if (part === normalizedAlias) return 1;
+            if (part.includes(normalizedAlias)) return 0.9;
+            return 0;
+          })
+        );
+      }, 0);
+      return { key, score };
+    })
     .filter((match) => match.score > 0)
     .sort((a, b) => b.score - a.score);
 
