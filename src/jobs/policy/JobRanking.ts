@@ -13,6 +13,9 @@ export interface JobRankingInput {
 export interface JobRankingResult {
   score: number;
   tier: JobRankingTier | null;
+  locationScore: number;
+  matchScore: number;
+  freshnessBonus: number;
   reason: string;
 }
 
@@ -28,6 +31,9 @@ export function rankJob(
     return {
       score: 0,
       tier: null,
+      locationScore: 0,
+      matchScore: 0,
+      freshnessBonus: 0,
       reason: "Rejected jobs cannot enter the application ranking."
     };
   }
@@ -37,14 +43,23 @@ export function rankJob(
     input.deterministicMatchScore,
     input.semanticMatchScore
   );
-  const freshnessBonus = calculateFreshnessBonus(input.postedAt, input.now ?? new Date());
+  const freshnessBonus = calculateFreshnessBonus(
+    input.postedAt,
+    input.now ?? new Date()
+  );
 
-  const score = Math.min(100, Math.round(locationScore * 0.4 + matchScore * 0.5 + freshnessBonus));
+  const score = Math.min(
+    100,
+    Math.round(locationScore * 0.4 + matchScore * 0.5 + freshnessBonus)
+  );
   const tier = score >= 70 ? 1 : score >= 50 ? 2 : 3;
 
   return {
     score,
     tier,
+    locationScore,
+    matchScore,
+    freshnessBonus,
     reason: `Location priority ${input.eligibility.priority ?? 3}, match score ${matchScore}, freshness bonus ${freshnessBonus}.`
   };
 }
