@@ -24,6 +24,10 @@ export class RetryPolicy {
     this.jitterRatio = options.jitterRatio ?? 0.2;
   }
 
+  get attempts(): number {
+    return this.maxAttempts;
+  }
+
   decide(statusCode: number | undefined, attempt: number): RetryDecision {
     const classification = this.classify(statusCode);
     const retryable = classification === "TRANSIENT" || classification === "RATE_LIMIT";
