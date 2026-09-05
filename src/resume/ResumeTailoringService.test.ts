@@ -4,7 +4,7 @@ import { ResumeTailoringService } from "./ResumeTailoringService";
 const resume: ResumeProfile = {
   name: "Candidate",
   summary: "Frontend engineer building React and TypeScript applications.",
-  skills: ["React", "TypeScript", "Next.js", "Node.js", "MongoDB"],
+  skills: ["React", "TypeScript", "Next.js", "Node.js", "MongoDB", "React Testing Library"],
   experience: [
     {
       company: "Example Corp",
@@ -42,6 +42,18 @@ describe("ResumeTailoringService", () => {
     expect(result.missingKeywords).toEqual(expect.arrayContaining(["aws", "kubernetes"]));
     expect(result.skills[0]).toBe("React");
     expect(result.warnings.join(" ")).toContain("not invented");
+  });
+
+  it("recognizes supported multi-word skills from the job description", () => {
+    const result = new ResumeTailoringService().tailor({
+      resume,
+      jobTitle: "Frontend Engineer",
+      jobDescription: "Build React applications and test them with React Testing Library.",
+      sourceVersion: "master-1"
+    });
+
+    expect(result.matchedKeywords).toContain("react testing library");
+    expect(result.skills).toContain("React Testing Library");
   });
 
   it("keeps the master resume as the source of truth", () => {
