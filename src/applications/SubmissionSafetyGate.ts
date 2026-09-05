@@ -31,8 +31,8 @@ export class SubmissionSafetyGate {
       reasons.push("Company is excluded by application policy.");
     }
 
-    const fillByField = new Map(
-      input.fillResults.map((result) => [fieldIdentity(result.mapping), result])
+    const fillByField = new Map<ApplicationFieldMapping, ApplicationFieldFillResult>(
+      input.fillResults.map((result) => [result.mapping, result])
     );
 
     for (const mapping of input.mappings) {
@@ -45,7 +45,7 @@ export class SubmissionSafetyGate {
         continue;
       }
 
-      const fillResult = fillByField.get(fieldIdentity(mapping));
+      const fillResult = fillByField.get(mapping);
       if (!fillResult?.filled) {
         reasons.push(
           `Required field '${fieldName(mapping)}' was not filled successfully.`
@@ -60,12 +60,6 @@ export class SubmissionSafetyGate {
   }
 }
 
-function fieldIdentity(mapping: ApplicationFieldMapping): string {
-  return [mapping.field.name, mapping.field.label, mapping.field.placeholder]
-    .map((value) => value ?? "")
-    .join("|");
-}
-
 function fieldName(mapping: ApplicationFieldMapping): string {
-  return mapping.field.label ?? mapping.field.name || mapping.field.type;
+  return mapping.field.label ?? mapping.field.name ?? mapping.field.type;
 }
