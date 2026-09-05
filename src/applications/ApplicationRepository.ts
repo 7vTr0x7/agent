@@ -6,6 +6,7 @@ export interface PreparedApplication {
   jobOpportunityId: string;
   candidateProfileId: string;
   url: string;
+  jobTitle: string;
   companyName: string;
 }
 
@@ -34,6 +35,7 @@ export class ApplicationRepository {
         job_opportunity_id: string;
         match_decision: "APPLY" | "REJECT" | "REVIEW";
         opportunity_status: "ACTIVE" | "STALE" | "CLOSED";
+        job_title: string;
         company_name: string;
         canonical_url: string;
         has_ranking: boolean;
@@ -45,6 +47,7 @@ export class ApplicationRepository {
             jo.id AS job_opportunity_id,
             md.decision AS match_decision,
             jo.status AS opportunity_status,
+            jo.title AS job_title,
             jo.company_name,
             jo.canonical_url,
             EXISTS (
@@ -140,6 +143,7 @@ export class ApplicationRepository {
           jobOpportunityId,
           candidateProfileId,
           url: row.canonical_url,
+          jobTitle: row.job_title,
           companyName: row.company_name
         }
       };
