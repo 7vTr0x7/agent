@@ -21,6 +21,10 @@ import { EmailNotificationTaskDispatcher } from "./notifications/EmailNotificati
 import { EmailNotificationTaskHandler } from "./notifications/EmailNotificationTaskHandler";
 import { APPLY_JOB_TASK } from "./applications/ApplicationTask";
 import { SEND_APPLICATION_EMAIL_TASK } from "./notifications/EmailNotificationTask";
+import { ResumeProfileLoader } from "./resume/ResumeProfileLoader";
+import { ResumeTailoringService } from "./resume/ResumeTailoringService";
+import { ResumeArtifactRenderer } from "./resume/ResumeArtifactRenderer";
+import { TailoredResumeArtifactService } from "./resume/TailoredResumeArtifactService";
 
 const config = loadConfig();
 
@@ -52,6 +56,7 @@ async function main(): Promise<void> {
     {
       nodeEnv: config.nodeEnv,
       automationEnabled: config.automationEnabled,
+      resumeTailoringEnabled: config.resume.tailoringEnabled,
       ollamaModel: config.ollama.model,
       ollamaBaseUrl: config.ollama.baseUrl
     },
@@ -106,12 +111,23 @@ async function main(): Promise<void> {
     emailHandler = new EmailNotificationTaskHandler(notifications);
   }
 
+  let tailoredResumeArtifacts: TailoredResumeArtifactService | undefined;
+  if (config.resume.tailoringEnabled && config.resume.masterPath) {
+    tailoredResumeArtifacts = new TailoredResumeArtifactService(
+      new ResumeProfileLoader(),
+      new ResumeTailoringService(),
+      new ResumeArtifactRenderer({ outputDirectory: config.resume.outputDirectory }),
+      config.resume.masterPath
+    );
+  }
+
   const applicationTaskHandler = new ApplicationTaskHandler(
     applicationRepository,
     submissionService,
     candidateProfiles,
     excludedCompanies,
-    emailDispatcher
+    emailDispatcher,
+    tailoredResumeArtifacts
   );
 
   const handlers = new Map<string, any>([
