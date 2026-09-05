@@ -3,9 +3,14 @@ import { CandidateProfile } from "../candidates/CandidateProfile";
 import { APPLY_JOB_TASK, ApplyJobTaskPayload } from "./ApplicationTask";
 import { ApplicationRepository } from "./ApplicationRepository";
 import { ApplicationSubmissionService } from "./ApplicationSubmissionService";
+import { ApplicationEmailContext, EmailNotificationService } from "../notifications/EmailNotificationService";
 
 export interface CandidateProfileResolver {
   getById(candidateProfileId: string): Promise<CandidateProfile | null>;
+}
+
+export interface ApplicationEmailDispatcher {
+  enqueueApplicationSubmitted(context: ApplicationEmailContext): Promise<string>;
 }
 
 export class ApplicationTaskHandler {
@@ -13,7 +18,8 @@ export class ApplicationTaskHandler {
     private readonly applications: Pick<ApplicationRepository, "prepare">,
     private readonly submissions: Pick<ApplicationSubmissionService, "submit">,
     private readonly candidateProfiles: CandidateProfileResolver,
-    private readonly excludedCompanies: readonly string[] = []
+    private readonly excludedCompanies: readonly string[] = [],
+    private readonly emailDispatcher?: ApplicationEmailDispatcher
   ) {}
 
   async handle(task: ClaimedTask<ApplyJobTaskPayload>): Promise<void> {
@@ -40,7 +46,7 @@ export class ApplicationTaskHandler {
       );
     }
 
-    await this.submissions.submit({
+    const outcome = await this.submissions.submit({
       context: {
         jobOpportunityId: prepared.application.jobOpportunityId,
         candidateProfileId: prepared.application.candidateProfileId,
@@ -51,5 +57,17 @@ export class ApplicationTaskHandler {
       excludedCompanies: this.excludedCompanies,
       candidateProfile
     });
+
+    if (this.emailDispatcher && candidateProfile.email) {
+      await this.emailDispatcher.enqueueApplicationSubmitted({
+        recipient: candidateProfile.email,
+        candidateName: candidateProfile.fullName ?? [candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") || "Candidate",
+        jobTitle: prepared.application.jobTitle,
+        companyName: prepared.application.companyName,
+        applicationId: prepared.application.applicationId,
+        confirmationUrl: outcome.result?.confirmationUrl,
+        reason: outcome.submitted ? undefined : outcome.reason
+      });
+    }
   }
 }
