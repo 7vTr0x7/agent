@@ -33,7 +33,7 @@ export class ResumeArtifactRenderer {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage();
-      await page.setContent(this.toHtml(resume), { waitUntil: "load" });
+      await page.setContent(this.toHtml(resume, name), { waitUntil: "load" });
       await page.pdf({
         path: outputPath,
         format: "A4",
@@ -47,7 +47,7 @@ export class ResumeArtifactRenderer {
     return outputPath;
   }
 
-  private toHtml(resume: TailoredResume): string {
+  private toHtml(resume: TailoredResume, name: string): string {
     const experience = resume.experience.map((item) => `
       <section>
         <h3>${escapeHtml(item.title)} — ${escapeHtml(item.company)}</h3>
@@ -76,7 +76,7 @@ ul { margin: 3pt 0 5pt 16pt; padding: 0; }
 li { margin: 2pt 0; }
 .skills { margin: 0; }
 </style></head><body>
-<h1>${escapeHtml(resume.sourceVersion)}</h1>
+<h1>${escapeHtml(name)}</h1>
 <p>${escapeHtml(resume.summary)}</p>
 <h2>Skills</h2><p class="skills">${resume.skills.map(escapeHtml).join(" · ")}</p>
 <h2>Experience</h2>${experience}
