@@ -21,14 +21,6 @@ const CONFIRMATION_URL_PATTERN = /(?:thank|success|confirmation|application[-_/]
 export class SubmissionConfirmationDetector {
   async detect(page: Page): Promise<SubmissionConfirmationResult> {
     const url = page.url();
-    if (CONFIRMATION_URL_PATTERN.test(url)) {
-      return {
-        confirmed: true,
-        confirmationUrl: url,
-        signal: "Confirmation URL matched a known success pattern."
-      };
-    }
-
     const bodyText = await page.locator("body").innerText().catch(() => "");
     const normalizedText = bodyText.replace(/\s+/g, " ").trim();
     const matchingPattern = CONFIRMATION_PATTERNS.find((pattern) =>
@@ -40,6 +32,14 @@ export class SubmissionConfirmationDetector {
         confirmed: true,
         confirmationUrl: url,
         signal: "Page text matched a known application confirmation pattern."
+      };
+    }
+
+    if (CONFIRMATION_URL_PATTERN.test(url)) {
+      return {
+        confirmed: true,
+        confirmationUrl: url,
+        signal: "Confirmation URL matched a known success pattern."
       };
     }
 
