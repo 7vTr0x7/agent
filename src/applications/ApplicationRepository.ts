@@ -1,4 +1,5 @@
 import { Database } from "../database/Database";
+import { evaluateApplicationPolicy } from "./ApplicationPolicy";
 
 export interface PreparedApplication {
   applicationId: string;
@@ -13,7 +14,10 @@ export type PrepareApplicationResult =
   | { prepared: false; reason: string };
 
 export class ApplicationRepository {
-  constructor(private readonly database: Database) {}
+  constructor(
+    private readonly database: Database,
+    private readonly excludedCompanies: readonly string[] = []
+  ) {}
 
   async prepare(
     jobOpportunityId: string,
@@ -70,20 +74,17 @@ export class ApplicationRepository {
         return { prepared: false, reason: "No eligible match decision exists." };
       }
 
-      if (row.match_decision !== "APPLY") {
-        return { prepared: false, reason: "Match decision is not APPLY." };
-      }
+      const policy = evaluateApplicationPolicy({
+        matchDecision: row.match_decision,
+        opportunityStatus: row.opportunity_status,
+        hasRanking: row.has_ranking,
+        hasExistingApplication: row.has_application,
+        companyName: row.company_name,
+        excludedCompanies: this.excludedCompanies
+      });
 
-      if (row.opportunity_status !== "ACTIVE") {
-        return { prepared: false, reason: "Job opportunity is not active." };
-      }
-
-      if (!row.has_ranking) {
-        return { prepared: false, reason: "Job opportunity has no persisted ranking." };
-      }
-
-      if (row.has_application) {
-        return { prepared: false, reason: "Application already exists for this opportunity." };
+      if (policy.decision === "BLOCK") {
+        return { prepared: false, reason: policy.reason };
       }
 
       if (!row.job_id) {
