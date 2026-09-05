@@ -17,10 +17,6 @@ export class DiscoveryTaskHandler {
     if (result.status === "FAILED") {
       throw new Error(`Discovery source failed: ${task.payload.sourceId}`);
     }
-
-    if (result.status === "SKIPPED") {
-      throw new Error(`Discovery source was skipped: ${task.payload.sourceId}`);
-    }
   };
 
   readonly taskType = DISCOVERY_TASK_TYPE;
