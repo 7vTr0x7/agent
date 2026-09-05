@@ -27,6 +27,7 @@ interface GmailApiMessage {
 
 interface GmailListResponse {
   messages?: Array<{ id?: string }>;
+  nextPageToken?: string;
 }
 
 interface GmailSendResponse {
@@ -75,7 +76,16 @@ function collectBodies(part: GmailPart | undefined, output: string[]): void {
 function parseSender(value: string | null): { name: string | null; email: string | null } {
   if (!value) return { name: null, email: null };
   const match = value.match(/^(.*?)\s*<([^>]+)>$/);
-  if (match) return { name: match[1].replace(/^"|"$/g, "").trim() || null, email: match[2].trim() };
+  if (match) {
+    const namePart = match[1];
+    const emailPart = match[2];
+    if (namePart !== undefined && emailPart !== undefined) {
+      return {
+        name: namePart.replace(/^"|"$/g, "").trim() || null,
+        email: emailPart.trim()
+      };
+    }
+  }
   return { name: null, email: value.trim() };
 }
 
@@ -104,13 +114,31 @@ export class GmailApiMailbox implements GmailMailbox {
   }
 
   async listMessages(query: string, maxResults = 50): Promise<readonly string[]> {
-    const params = new URLSearchParams({ q: query, maxResults: String(maxResults) });
-    const response = await this.request<GmailListResponse>(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params.toString()}`
-    );
-    return (response.messages ?? [])
-      .map((message) => message.id)
-      .filter((id): id is string => Boolean(id));
+    if (maxResults <= 0) return [];
+
+    const ids: string[] = [];
+    let pageToken: string | undefined;
+
+    do {
+      const params = new URLSearchParams({
+        q: query,
+        maxResults: String(Math.min(maxResults - ids.length, 500))
+      });
+      if (pageToken) params.set("pageToken", pageToken);
+
+      const response = await this.request<GmailListResponse>(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params.toString()}`
+      );
+
+      for (const message of response.messages ?? []) {
+        if (message.id) ids.push(message.id);
+        if (ids.length >= maxResults) break;
+      }
+
+      pageToken = ids.length >= maxResults ? undefined : response.nextPageToken;
+    } while (pageToken);
+
+    return ids;
   }
 
   async getMessage(messageId: string): Promise<GmailMessage> {
