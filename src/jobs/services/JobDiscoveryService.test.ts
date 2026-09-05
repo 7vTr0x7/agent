@@ -1,0 +1,84 @@
+import { JobDiscoveryService } from "./JobDiscoveryService";
+import { Job } from "../domain/Job";
+
+function job(overrides: Partial<Job> = {}): Job {
+  return {
+    source: "test",
+    sourceJobId: "job-1",
+    url: "https://example.com/jobs/frontend?utm_source=test",
+    title: "Frontend Engineer",
+    companyName: "Example",
+    location: "Bangalore, India",
+    country: "India",
+    workplaceType: "onsite",
+    employmentType: "Full-time",
+    description: "React and TypeScript",
+    postedAt: null,
+    updatedAt: null,
+    contentHash: "hash-1",
+    ...overrides
+  };
+}
+
+describe("JobDiscoveryService", () => {
+  test("persists an opportunity and observation instead of only a legacy job", async () => {
+    const queries: string[] = [];
+    const database = {
+      transaction: async (callback: (client: unknown) => Promise<boolean>) =>
+        callback({
+          query: async (sql: string) => {
+            queries.push(sql);
+            if (sql.includes("INSERT INTO job_opportunities")) {
+              return { rows: [{ id: "opportunity-1" }] };
+            }
+            return { rowCount: 1, rows: [{ id: "observation-1" }] };
+          }
+        })
+    };
+
+    const source = {
+      name: "test",
+      fetchJobs: async () => [job()]
+    };
+
+    const service = new JobDiscoveryService(database as never);
+    const result = await service.discover(source);
+
+    expect(result).toEqual({
+      source: "test",
+      fetched: 1,
+      inserted: 1,
+      duplicates: 0
+    });
+    expect(queries.some((sql) => sql.includes("INSERT INTO job_opportunities"))).toBe(true);
+    expect(queries.some((sql) => sql.includes("INSERT INTO job_observations"))).toBe(true);
+    expect(queries.some((sql) => sql.includes("INSERT INTO jobs"))).toBe(false);
+  });
+
+  test("treats a duplicate observation as a duplicate without creating another opportunity", async () => {
+    const queries: string[] = [];
+    const database = {
+      transaction: async (callback: (client: unknown) => Promise<boolean>) =>
+        callback({
+          query: async (sql: string) => {
+            queries.push(sql);
+            if (sql.includes("INSERT INTO job_opportunities")) {
+              return { rows: [{ id: "opportunity-1" }] };
+            }
+            return { rowCount: 0, rows: [] };
+          }
+        })
+    };
+
+    const source = {
+      name: "test",
+      fetchJobs: async () => [job()]
+    };
+
+    const service = new JobDiscoveryService(database as never);
+    const result = await service.discover(source);
+
+    expect(result).toMatchObject({ inserted: 0, duplicates: 1 });
+    expect(queries).toHaveLength(2);
+  });
+});
