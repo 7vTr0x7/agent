@@ -50,6 +50,14 @@ export class SubmissionButtonResolver {
     }
 
     const button = matches[0];
+    if (!button) {
+      return {
+        found: false,
+        locator: null,
+        reason: "Submit button could not be resolved safely."
+      };
+    }
+
     if (!(await button.isVisible()) || !(await button.isEnabled())) {
       return {
         found: false,
