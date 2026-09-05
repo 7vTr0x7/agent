@@ -108,12 +108,14 @@ export class ResumeTailoringService {
     const matchedKeywords = unique(candidates.filter((keyword) => containsKeyword(corpus, keyword))).slice(0, 40);
     const missingKeywords = unique(candidates.filter((keyword) => !containsKeyword(corpus, keyword))).slice(0, 20);
     const experience = selectExperience(request.resume, matchedKeywords);
-    const relevantSkills = [...request.resume.skills]
-      .sort((a, b) => {
-        const aScore = matchedKeywords.filter((keyword) => containsKeyword(a, keyword)).length;
-        const bScore = matchedKeywords.filter((keyword) => containsKeyword(b, keyword)).length;
-        return bScore - aScore || a.localeCompare(b);
-      });
+    const relevantSkills = request.resume.skills
+      .map((skill, index) => ({
+        skill,
+        index,
+        score: matchedKeywords.filter((keyword) => containsKeyword(skill, keyword)).length
+      }))
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .map(({ skill }) => skill);
 
     const title = normalize(request.jobTitle);
     const titleMatch = containsKeyword(request.resume.summary, title)
