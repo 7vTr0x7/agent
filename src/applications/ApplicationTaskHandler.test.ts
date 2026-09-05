@@ -4,6 +4,8 @@ import { ApplicationTaskHandler } from "./ApplicationTaskHandler";
 import { APPLY_JOB_TASK } from "./ApplicationTask";
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { ClaimedTask } from "../queue/TaskQueue";
+import { TailoredResumeArtifactService } from "../resume/TailoredResumeArtifactService";
+import { TailoredResumeRepository, TailoredResumeRecord } from "../resume/TailoredResumeRepository";
 
 class FakeApplications {
   prepared = true;
@@ -54,6 +56,27 @@ class FakeSubmissionService {
         reason: "Synthetic submission completed."
       }
     };
+  }
+}
+
+class FakeTailoredResumeArtifacts {
+  async create() {
+    return {
+      resumePath: "/tmp/tailored-resume.pdf",
+      sourceVersion: "master-resume-v1",
+      atsScore: 91,
+      matchedKeywords: ["react", "typescript"],
+      missingKeywords: ["aws"],
+      warnings: ["AWS was not added because it is not supported by the master resume."]
+    };
+  }
+}
+
+class FakeTailoredResumeRepository implements TailoredResumeRepository {
+  records: TailoredResumeRecord[] = [];
+
+  async save(record: TailoredResumeRecord): Promise<void> {
+    this.records.push(record);
   }
 }
 
@@ -120,6 +143,44 @@ describe("ApplicationTaskHandler", () => {
         candidateProfile
       }
     ]);
+  });
+
+  it("persists the tailored resume metadata and submits with the generated resume", async () => {
+    const applications = new FakeApplications();
+    const submissions = new FakeSubmissionService();
+    const repository = new FakeTailoredResumeRepository();
+    const handler = new ApplicationTaskHandler(
+      applications,
+      submissions,
+      {
+        async getById() {
+          return candidateProfile;
+        }
+      },
+      [],
+      undefined,
+      new FakeTailoredResumeArtifacts() as unknown as TailoredResumeArtifactService,
+      repository
+    );
+
+    await handler.handle(task());
+
+    expect(repository.records).toEqual([
+      {
+        applicationId: "application-1",
+        jobOpportunityId: "job-1",
+        candidateProfileId: "candidate-1",
+        jobTitle: "Frontend Engineer",
+        sourceVersion: "master-resume-v1",
+        resumePath: "/tmp/tailored-resume.pdf",
+        atsScore: 91,
+        matchedKeywords: ["react", "typescript"],
+        missingKeywords: ["aws"],
+        warnings: ["AWS was not added because it is not supported by the master resume."]
+      }
+    ]);
+
+    expect(submissions.requests[0]?.candidateProfile.resumePath).toBe("/tmp/tailored-resume.pdf");
   });
 
   it("does not submit when preparation is blocked", async () => {
