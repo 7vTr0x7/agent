@@ -32,7 +32,7 @@ describe("ApplicationQueueService", () => {
     const result = await service.enqueueEligible("candidate-1", 50);
 
     expect(result).toEqual({ queued: 2 });
-    expect(enqueue).toHaveBeenNthCalledWith("1", "job-1", "candidate-1", 3092);
-    expect(enqueue).toHaveBeenNthCalledWith("2", "job-2", "candidate-1", 2081);
+    expect(enqueue).toHaveBeenNthCalledWith(1, "job-1", "candidate-1", 3092);
+    expect(enqueue).toHaveBeenNthCalledWith(2, "job-2", "candidate-1", 2081);
   });
 });
