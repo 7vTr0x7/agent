@@ -7,6 +7,7 @@ export interface SourceConfig {
   readonly status?: SourceStatus;
   readonly boardToken?: string;
   readonly boardName?: string;
+  readonly feedUrl?: string;
 }
 
 export function parseSourceConfigs(value: string | undefined): SourceConfig[] {
@@ -47,8 +48,9 @@ function validateSourceConfig(value: unknown, index: number): SourceConfig {
 
   const boardToken = optionalString(item.boardToken, `JOB_SOURCES[${index}].boardToken`);
   const boardName = optionalString(item.boardName, `JOB_SOURCES[${index}].boardName`);
+  const feedUrl = optionalString(item.feedUrl, `JOB_SOURCES[${index}].feedUrl`);
 
-  return { id, type, name, status, boardToken, boardName };
+  return { id, type, name, status, boardToken, boardName, feedUrl };
 }
 
 function stringField(value: unknown, field: string): string {
