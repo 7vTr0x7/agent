@@ -32,14 +32,10 @@ import { GmailMessageRepository } from "./email/GmailMessageRepository";
 import { GmailSyncTaskDispatcher, GmailSyncTaskHandler, SYNC_GMAIL_TASK } from "./email/GmailSyncTask";
 
 const config = loadConfig();
-
 const logger = pino({ level: config.logLevel });
 
 function csvEnvironment(name: string): string[] {
-  return (process.env[name] ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
+  return (process.env[name] ?? "").split(",").map((value) => value.trim()).filter(Boolean);
 }
 
 async function main(): Promise<void> {
@@ -47,12 +43,9 @@ async function main(): Promise<void> {
   const migrationRunner = new MigrationRunner(database);
   await migrationRunner.run();
 
-  const ollama = new OllamaProvider(
-    config.ollama.baseUrl,
-    config.ollama.model,
-    config.ollama.timeoutMs
+  const matcher = new JobMatcher(
+    new OllamaProvider(config.ollama.baseUrl, config.ollama.model, config.ollama.timeoutMs)
   );
-  const matcher = new JobMatcher(ollama);
 
   logger.info(
     {
@@ -60,6 +53,7 @@ async function main(): Promise<void> {
       automationEnabled: config.automationEnabled,
       resumeTailoringEnabled: config.resume.tailoringEnabled,
       gmailEnabled: config.gmail.enabled,
+      genericApplicationAdapterEnabled: config.genericApplicationAdapterEnabled,
       ollamaModel: config.ollama.model,
       ollamaBaseUrl: config.ollama.baseUrl
     },
@@ -86,12 +80,11 @@ async function main(): Promise<void> {
   const taskQueue = new TaskQueue(database);
   const applicationRepository = new ApplicationRepository(database, excludedCompanies);
   const browserSessions = new BrowserSessionService();
-  const adapters = new ApplicationAdapterRegistry([new GenericApplicationAdapter()]);
-  const submissionService = new ApplicationSubmissionService(
-    browserSessions,
-    adapters,
-    applicationRepository
-  );
+  const adapters = config.genericApplicationAdapterEnabled
+    ? [new GenericApplicationAdapter()]
+    : [];
+  const adaptersRegistry = new ApplicationAdapterRegistry(adapters);
+  const submissionService = new ApplicationSubmissionService(browserSessions, adaptersRegistry, applicationRepository);
 
   let emailDispatcher: EmailNotificationTaskDispatcher | undefined;
   let emailHandler: EmailNotificationTaskHandler | undefined;
@@ -127,13 +120,7 @@ async function main(): Promise<void> {
   if (emailHandler) handlers.set(SEND_APPLICATION_EMAIL_TASK, emailHandler);
 
   let gmailSyncDispatcher: GmailSyncTaskDispatcher | undefined;
-  if (
-    config.gmail.enabled &&
-    config.gmail.clientId &&
-    config.gmail.clientSecret &&
-    config.gmail.refreshToken &&
-    config.gmail.userEmail
-  ) {
+  if (config.gmail.enabled && config.gmail.clientId && config.gmail.clientSecret && config.gmail.refreshToken && config.gmail.userEmail) {
     const mailbox = new GmailApiMailbox({
       oauth: new GmailOAuthClient({
         clientId: config.gmail.clientId,
@@ -142,19 +129,15 @@ async function main(): Promise<void> {
       }),
       userEmail: config.gmail.userEmail
     });
-    const gmailMessages = new GmailMessageRepository(database);
     handlers.set(
       SYNC_GMAIL_TASK,
-      new GmailSyncTaskHandler(mailbox, gmailMessages)
+      new GmailSyncTaskHandler(mailbox, new GmailMessageRepository(database))
     );
     gmailSyncDispatcher = new GmailSyncTaskDispatcher(taskQueue);
   }
 
   const worker = new TaskWorker(taskQueue, handlers);
-  const applicationQueue = new ApplicationQueueService(
-    database,
-    new ApplicationTaskDispatcher(taskQueue)
-  );
+  const applicationQueue = new ApplicationQueueService(database, new ApplicationTaskDispatcher(taskQueue));
 
   const enqueueApplicationsLoop = async (): Promise<void> => {
     while (true) {
@@ -175,12 +158,7 @@ async function main(): Promise<void> {
   process.once("SIGINT", () => worker.stop());
   process.once("SIGTERM", () => worker.stop());
 
-  await Promise.all([
-    worker.run(),
-    enqueueApplicationsLoop(),
-    syncGmailLoop()
-  ]);
-
+  await Promise.all([worker.run(), enqueueApplicationsLoop(), syncGmailLoop()]);
   await database.close();
 }
 
