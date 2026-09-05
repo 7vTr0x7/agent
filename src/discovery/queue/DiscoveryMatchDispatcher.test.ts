@@ -23,7 +23,7 @@ function opportunity(overrides: Partial<JobOpportunity> = {}): JobOpportunity {
     employmentType: "Full-time",
     description: "React and TypeScript",
     postedAt: null,
-    updatedAt: null,
+    sourceUpdatedAt: null,
     lastSeenAt: new Date(),
     closedAt: null,
     status: "ACTIVE",
@@ -36,9 +36,7 @@ function opportunity(overrides: Partial<JobOpportunity> = {}): JobOpportunity {
 describe("DiscoveryMatchDispatcher", () => {
   test("enqueues newly discovered eligible opportunities with location priority", async () => {
     const enqueued: Array<{ id: string; profileId: string; priority: number }> = [];
-    const opportunities = {
-      findById: async () => opportunity()
-    };
+    const opportunities = { findById: async () => opportunity() };
     const matchTasks = {
       enqueue: async (id: string, profileId: string, priority: number) => {
         enqueued.push({ id, profileId, priority });
@@ -64,8 +62,7 @@ describe("DiscoveryMatchDispatcher", () => {
   test("does not enqueue explicitly excluded companies", async () => {
     const enqueue = jest.fn();
     const opportunities = {
-      findById: async () =>
-        opportunity({ companyName: "Octopus Technologies" })
+      findById: async () => opportunity({ companyName: "Octopus Technologies" })
     };
     const matchTasks = { enqueue };
 
@@ -100,10 +97,6 @@ describe("DiscoveryMatchDispatcher", () => {
     const result = await dispatcher.dispatch(["opportunity-1"]);
 
     expect(result).toEqual({ enqueued: 1, rejected: 0, missing: 0 });
-    expect(enqueue).toHaveBeenCalledWith(
-      "opportunity-1",
-      "default-profile",
-      10
-    );
+    expect(enqueue).toHaveBeenCalledWith("opportunity-1", "default-profile", 10);
   });
 });
