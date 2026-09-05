@@ -14,9 +14,10 @@ export interface JobOpportunity {
   employmentType: string | null;
   description: string;
   postedAt: Date | null;
-  updatedAt: Date | null;
+  sourceUpdatedAt: Date | null;
   lastSeenAt: Date;
   closedAt: Date | null;
   status: JobOpportunityStatus;
   createdAt: Date;
+  updatedAt: Date;
 }
