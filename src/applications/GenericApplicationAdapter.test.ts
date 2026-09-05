@@ -17,7 +17,7 @@ describe("GenericApplicationAdapter", () => {
         response.end(`
           <html>
             <body>
-              <form>
+              <form action="/success" method="get">
                 <label for="email">Email</label>
                 <input id="email" name="email" type="email" required />
                 <button type="submit">Apply Now</button>
@@ -28,7 +28,7 @@ describe("GenericApplicationAdapter", () => {
         return;
       }
 
-      if (request.url === "/success") {
+      if (request.url?.startsWith("/success")) {
         response.writeHead(200, { "content-type": "text/html" });
         response.end("<html><body><h1>Thank you for applying</h1></body></html>");
         return;
@@ -67,7 +67,7 @@ describe("GenericApplicationAdapter", () => {
       const result = await adapter.submit(page, context);
 
       expect(result.submitted).toBe(true);
-      expect(result.confirmationUrl).toBe(`${baseUrl}/success`);
+      expect(result.confirmationUrl).toBe(`${baseUrl}/success?email=candidate%40example.com`);
       expect(result.reason).toContain("Page text");
     } finally {
       await page.close();
