@@ -10,13 +10,11 @@ export class ApplicationTaskHandler {
       throw new Error(`Unsupported application task type: ${task.taskType}`);
     }
 
-    const result = await this.applications.prepare(
+    // A policy block is a terminal, successful handling outcome for the queue.
+    // Transient database/browser failures still throw and are retried by Worker.
+    await this.applications.prepare(
       task.payload.jobOpportunityId,
       task.payload.candidateProfileId
     );
-
-    if (!result.prepared) {
-      throw new Error(`Application preparation blocked: ${result.reason}`);
-    }
   }
 }
