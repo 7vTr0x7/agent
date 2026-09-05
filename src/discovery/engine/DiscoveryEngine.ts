@@ -84,11 +84,9 @@ export class DiscoveryEngine {
         await this.runTracker.complete(runId, sourceId, "SUCCEEDED", {
           fetched: result.fetched,
           inserted: result.inserted,
-          duplicates: result.duplicates,
-          matchTasksEnqueued: matchDispatch.enqueued,
-          matchTasksRejected: matchDispatch.rejected,
-          matchTasksMissing: matchDispatch.missing
+          duplicates: result.duplicates
         });
+
         return {
           status: "SUCCEEDED",
           discovery: result,
