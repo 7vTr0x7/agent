@@ -24,7 +24,7 @@ describe("JobDiscoveryService", () => {
   test("persists an opportunity and observation instead of only a legacy job", async () => {
     const queries: string[] = [];
     const database = {
-      transaction: async (callback: (client: unknown) => Promise<boolean>) =>
+      transaction: async (callback: (client: unknown) => Promise<unknown>) =>
         callback({
           query: async (sql: string) => {
             queries.push(sql);
@@ -48,7 +48,8 @@ describe("JobDiscoveryService", () => {
       source: "test",
       fetched: 1,
       inserted: 1,
-      duplicates: 0
+      duplicates: 0,
+      insertedOpportunityIds: ["opportunity-1"]
     });
     expect(queries.some((sql) => sql.includes("INSERT INTO job_opportunities"))).toBe(true);
     expect(queries.some((sql) => sql.includes("INSERT INTO job_observations"))).toBe(true);
@@ -58,7 +59,7 @@ describe("JobDiscoveryService", () => {
   test("treats a duplicate observation as a duplicate without creating another opportunity", async () => {
     const queries: string[] = [];
     const database = {
-      transaction: async (callback: (client: unknown) => Promise<boolean>) =>
+      transaction: async (callback: (client: unknown) => Promise<unknown>) =>
         callback({
           query: async (sql: string) => {
             queries.push(sql);
@@ -79,6 +80,7 @@ describe("JobDiscoveryService", () => {
     const result = await service.discover(source);
 
     expect(result).toMatchObject({ inserted: 0, duplicates: 1 });
+    expect(result.insertedOpportunityIds).toEqual([]);
     expect(queries).toHaveLength(2);
   });
 });
