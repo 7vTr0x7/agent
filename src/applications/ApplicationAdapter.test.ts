@@ -1,6 +1,6 @@
+import { Page } from "playwright";
 import {
   ApplicationAdapterRegistry,
-  ApplicationBrowserPage,
   ApplicationContext,
   ApplicationSubmissionResult
 } from "./ApplicationAdapter";
@@ -10,7 +10,7 @@ function adapter(name: string, domains: string[]) {
     name,
     canHandle: (url: string) => domains.some((domain) => url.includes(domain)),
     submit: async (
-      _page: ApplicationBrowserPage,
+      _page: Page,
       _context: ApplicationContext
     ): Promise<ApplicationSubmissionResult> => ({
       submitted: true,
