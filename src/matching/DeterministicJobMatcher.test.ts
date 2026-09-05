@@ -47,7 +47,7 @@ describe("DeterministicJobMatcher", () => {
     );
   });
 
-  it("rejects a role with a hard experience blocker", () => {
+  it("rejects a role with an explicit minimum experience blocker", () => {
     const result = matcher.evaluate(
       job("Must have at least 5 years of experience with React."),
       profile
@@ -60,6 +60,20 @@ describe("DeterministicJobMatcher", () => {
         expect.objectContaining({ type: "HARD_BLOCKER" })
       ])
     );
+  });
+
+  it("does not hard-reject preferred experience", () => {
+    const result = matcher.evaluate(
+      job("React and TypeScript. 5 years of experience preferred."),
+      profile
+    );
+
+    expect(result.evidence).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "HARD_BLOCKER" })
+      ])
+    );
+    expect(result.decision).not.toBe("REJECT");
   });
 
   it("can distinguish a low-overlap role", () => {
