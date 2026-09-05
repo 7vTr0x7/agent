@@ -4,6 +4,7 @@ import { APPLY_JOB_TASK, ApplyJobTaskPayload } from "./ApplicationTask";
 import { ApplicationRepository } from "./ApplicationRepository";
 import { ApplicationSubmissionService } from "./ApplicationSubmissionService";
 import { ApplicationEmailContext } from "../notifications/Email";
+import { TailoredResumeArtifactService } from "../resume/TailoredResumeArtifactService";
 
 export interface CandidateProfileResolver {
   getById(candidateProfileId: string): Promise<CandidateProfile | null>;
@@ -20,7 +21,8 @@ export class ApplicationTaskHandler {
     private readonly submissions: Pick<ApplicationSubmissionService, "submit">,
     private readonly candidateProfiles: CandidateProfileResolver,
     private readonly excludedCompanies: readonly string[] = [],
-    private readonly emailDispatcher?: ApplicationEmailDispatcher
+    private readonly emailDispatcher?: ApplicationEmailDispatcher,
+    private readonly tailoredResumeArtifacts?: TailoredResumeArtifactService
   ) {}
 
   async handle(task: ClaimedTask<ApplyJobTaskPayload>): Promise<void> {
@@ -47,6 +49,20 @@ export class ApplicationTaskHandler {
       );
     }
 
+    let applicationProfile = candidateProfile;
+
+    if (this.tailoredResumeArtifacts) {
+      const artifact = await this.tailoredResumeArtifacts.create(
+        prepared.application.jobTitle,
+        prepared.application.jobDescription
+      );
+
+      applicationProfile = {
+        ...candidateProfile,
+        resumePath: artifact.resumePath
+      };
+    }
+
     const outcome = await this.submissions.submit({
       context: {
         jobOpportunityId: prepared.application.jobOpportunityId,
@@ -56,7 +72,7 @@ export class ApplicationTaskHandler {
       },
       companyName: prepared.application.companyName,
       excludedCompanies: this.excludedCompanies,
-      candidateProfile
+      candidateProfile: applicationProfile
     });
 
     if (!this.emailDispatcher || !candidateProfile.email) {
