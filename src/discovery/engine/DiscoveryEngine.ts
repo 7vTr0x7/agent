@@ -1,5 +1,12 @@
 import { AppError } from "../../shared/errors/AppError";
-import { JobDiscoveryService, DiscoveryResult } from "../../jobs/services/JobDiscoveryService";
+import {
+  JobDiscoveryService,
+  DiscoveryResult
+} from "../../jobs/services/JobDiscoveryService";
+import {
+  DiscoveryMatchDispatcher,
+  DispatchMatchResult
+} from "../queue/DiscoveryMatchDispatcher";
 import { RetryPolicy } from "../health/RetryPolicy";
 import { SourceHealthGate } from "../health/SourceHealthGate";
 import { SourceRunTracker } from "../health/SourceRunTracker";
@@ -10,6 +17,7 @@ export interface DiscoveryEngineResult {
   results: DiscoveryResult[];
   failedSources: string[];
   skippedSources: string[];
+  matchDispatch: DispatchMatchResult;
 }
 
 export class DiscoveryEngine {
@@ -18,7 +26,8 @@ export class DiscoveryEngine {
     private readonly discoveryService: JobDiscoveryService,
     private readonly runTracker: SourceRunTracker,
     private readonly healthGate: SourceHealthGate,
-    private readonly retryPolicy = new RetryPolicy()
+    private readonly retryPolicy = new RetryPolicy(),
+    private readonly matchDispatcher: DiscoveryMatchDispatcher | null = null
   ) {}
 
   async run(): Promise<DiscoveryEngineResult> {
@@ -26,6 +35,7 @@ export class DiscoveryEngine {
     const results: DiscoveryResult[] = [];
     const failedSources: string[] = [];
     const skippedSources: string[] = [];
+    const matchDispatch = emptyDispatchResult();
 
     for (const registered of runnableSources) {
       const result = await this.runSource(registered.descriptor.id);
@@ -36,6 +46,7 @@ export class DiscoveryEngine {
         failedSources.push(registered.descriptor.id);
       } else if (result.discovery) {
         results.push(result.discovery);
+        mergeDispatchResult(matchDispatch, result.matchDispatch);
       }
     }
 
@@ -43,13 +54,17 @@ export class DiscoveryEngine {
       attempted: runnableSources.length,
       results,
       failedSources,
-      skippedSources
+      skippedSources,
+      matchDispatch
     };
   }
 
   async runSource(sourceId: string): Promise<RunSourceResult> {
     const registered = this.registry.get(sourceId);
-    if (!registered || !this.registry.listRunnable().some(({ descriptor }) => descriptor.id === sourceId)) {
+    if (
+      !registered ||
+      !this.registry.listRunnable().some(({ descriptor }) => descriptor.id === sourceId)
+    ) {
       return { status: "SKIPPED" };
     }
 
@@ -62,12 +77,23 @@ export class DiscoveryEngine {
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const result = await this.discoveryService.discover(registered.source);
+        const matchDispatch = this.matchDispatcher
+          ? await this.matchDispatcher.dispatch(result.insertedOpportunityIds)
+          : emptyDispatchResult();
+
         await this.runTracker.complete(runId, sourceId, "SUCCEEDED", {
           fetched: result.fetched,
           inserted: result.inserted,
-          duplicates: result.duplicates
+          duplicates: result.duplicates,
+          matchTasksEnqueued: matchDispatch.enqueued,
+          matchTasksRejected: matchDispatch.rejected,
+          matchTasksMissing: matchDispatch.missing
         });
-        return { status: "SUCCEEDED", discovery: result };
+        return {
+          status: "SUCCEEDED",
+          discovery: result,
+          matchDispatch
+        };
       } catch (error) {
         const statusCode = error instanceof AppError ? error.statusCode : undefined;
         const decision = this.retryPolicy.decide(statusCode, attempt);
@@ -113,6 +139,21 @@ export type RunSourceStatus = "SUCCEEDED" | "FAILED" | "SKIPPED";
 export interface RunSourceResult {
   status: RunSourceStatus;
   discovery?: DiscoveryResult;
+  matchDispatch?: DispatchMatchResult;
+}
+
+function emptyDispatchResult(): DispatchMatchResult {
+  return { enqueued: 0, rejected: 0, missing: 0 };
+}
+
+function mergeDispatchResult(
+  target: DispatchMatchResult,
+  source: DispatchMatchResult | undefined
+): void {
+  if (!source) return;
+  target.enqueued += source.enqueued;
+  target.rejected += source.rejected;
+  target.missing += source.missing;
 }
 
 function sleep(delayMs: number): Promise<void> {
