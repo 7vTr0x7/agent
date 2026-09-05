@@ -39,7 +39,9 @@ describe("ApplicationFieldMapper", () => {
       { name: "name_or_email", type: "text", required: true, label: "Name / Email", placeholder: null }
     ];
 
-    const [mapping] = new ApplicationFieldMapper().map(fields, profile);
+    const mapping = new ApplicationFieldMapper().map(fields, profile)[0];
+    expect(mapping).toBeDefined();
+    if (!mapping) return;
 
     expect(mapping.key).toBeNull();
     expect(mapping.autoFill).toBe(false);
@@ -52,7 +54,12 @@ describe("ApplicationFieldMapper", () => {
       { name: "experience", type: "text", required: true, label: "Years of experience", placeholder: null }
     ];
 
-    const [sponsorship, experience] = new ApplicationFieldMapper().map(fields, profile);
+    const result = new ApplicationFieldMapper().map(fields, profile);
+    const sponsorship = result[0];
+    const experience = result[1];
+    expect(sponsorship).toBeDefined();
+    expect(experience).toBeDefined();
+    if (!sponsorship || !experience) return;
 
     expect(sponsorship.key).toBe("sponsorshipRequired");
     expect(sponsorship.autoFill).toBe(false);
@@ -65,7 +72,9 @@ describe("ApplicationFieldMapper", () => {
       { name: "favorite_framework", type: "text", required: true, label: "Favorite Framework", placeholder: null }
     ];
 
-    const [mapping] = new ApplicationFieldMapper().map(fields, profile);
+    const mapping = new ApplicationFieldMapper().map(fields, profile)[0];
+    expect(mapping).toBeDefined();
+    if (!mapping) return;
 
     expect(mapping.key).toBeNull();
     expect(mapping.value).toBeNull();
