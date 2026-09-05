@@ -2,13 +2,17 @@ import { GmailClassification, GmailMessage } from "./GmailMailbox";
 
 const RULES: readonly [GmailClassification, readonly RegExp[]][] = [
   ["REJECTION", [
-    /we (?:will|are) not moving forward/i,
+    /we (?:will|are) not (?:be )?moving forward/i,
     /not moving forward with your application/i,
     /unfortunately.*application/i,
     /decided not to proceed/i,
+    /not proceed with your application/i,
     /position has been filled/i,
     /we regret to inform/i,
-    /not selected/i
+    /not selected/i,
+    /your application.*(?:not|wasn't|was not).*selected/i,
+    /unable to move forward/i,
+    /will not be progressing/i
   ]],
   ["INTERVIEW", [
     /interview/i,
@@ -27,7 +31,8 @@ const RULES: readonly [GmailClassification, readonly RegExp[]][] = [
     /next steps/i,
     /selected for/i,
     /profile.*shortlisted/i,
-    /we'd like to proceed/i
+    /we'd like to proceed/i,
+    /we would like to proceed/i
   ]],
   ["APPLICATION_CONFIRMATION", [
     /application.*received/i,
