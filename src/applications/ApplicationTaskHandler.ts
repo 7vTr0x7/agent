@@ -11,7 +11,7 @@ export interface CandidateProfileResolver {
 export class ApplicationTaskHandler {
   constructor(
     private readonly applications: Pick<ApplicationRepository, "prepare">,
-    private readonly submissions: ApplicationSubmissionService,
+    private readonly submissions: Pick<ApplicationSubmissionService, "submit">,
     private readonly candidateProfiles: CandidateProfileResolver,
     private readonly excludedCompanies: readonly string[] = []
   ) {}
