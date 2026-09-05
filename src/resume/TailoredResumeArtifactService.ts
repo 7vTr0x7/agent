@@ -4,6 +4,7 @@ import { ResumeTailoringService } from "./ResumeTailoringService";
 
 export interface TailoredResumeArtifact {
   resumePath: string;
+  sourceVersion: string;
   atsScore: number;
   matchedKeywords: readonly string[];
   missingKeywords: readonly string[];
@@ -31,6 +32,7 @@ export class TailoredResumeArtifactService {
 
     return {
       resumePath,
+      sourceVersion: tailored.sourceVersion,
       atsScore: tailored.atsScore,
       matchedKeywords: tailored.matchedKeywords,
       missingKeywords: tailored.missingKeywords,
