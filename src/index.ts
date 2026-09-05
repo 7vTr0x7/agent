@@ -2,6 +2,8 @@ import pino from "pino";
 import { loadConfig } from "./config/env";
 import { OllamaProvider } from "./ai/OllamaProvider";
 import { JobMatcher } from "./ai/JobMatcher";
+import { Database } from "./database/Database";
+import { MigrationRunner } from "./database/MigrationRunner";
 
 const config = loadConfig();
 
@@ -10,6 +12,10 @@ const logger = pino({
 });
 
 async function main(): Promise<void> {
+  const database = new Database(config.databaseUrl);
+  const migrationRunner = new MigrationRunner(database);
+  await migrationRunner.run();
+
   const ollama = new OllamaProvider(
     config.ollama.baseUrl,
     config.ollama.model,
@@ -33,6 +39,8 @@ async function main(): Promise<void> {
   );
 
   logger.info({ result }, "AI job-match test completed");
+
+  await database.close();
 }
 
 main().catch((error: unknown) => {
