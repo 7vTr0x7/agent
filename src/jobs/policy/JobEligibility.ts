@@ -1,7 +1,12 @@
-import { Job } from "../domain/Job";
-
 export type JobPriority = 1 | 2 | 3;
 export type JobEligibilityDecision = "ELIGIBLE" | "REJECT";
+
+export interface JobEligibilityInput {
+  companyName: string;
+  location: string | null;
+  country: string | null;
+  workplaceType: "onsite" | "remote" | "hybrid" | null;
+}
 
 export interface JobEligibilityResult {
   decision: JobEligibilityDecision;
@@ -38,7 +43,7 @@ function isExcludedCompany(
   );
 }
 
-function isRemote(job: Job): boolean {
+function isRemote(job: JobEligibilityInput): boolean {
   if (job.workplaceType === "remote") {
     return true;
   }
@@ -52,7 +57,10 @@ function isRemote(job: Job): boolean {
   );
 }
 
-function isBangalore(job: Job, policy: JobSearchPolicy): boolean {
+function isBangalore(
+  job: JobEligibilityInput,
+  policy: JobSearchPolicy
+): boolean {
   const location = job.location ?? "";
 
   return policy.priorityLocations.some((target) =>
@@ -60,7 +68,10 @@ function isBangalore(job: Job, policy: JobSearchPolicy): boolean {
   );
 }
 
-function isTargetCountry(job: Job, policy: JobSearchPolicy): boolean {
+function isTargetCountry(
+  job: JobEligibilityInput,
+  policy: JobSearchPolicy
+): boolean {
   if (job.country) {
     return normalize(job.country) === normalize(policy.targetCountry);
   }
@@ -69,7 +80,7 @@ function isTargetCountry(job: Job, policy: JobSearchPolicy): boolean {
 }
 
 export function evaluateJobEligibility(
-  job: Job,
+  job: JobEligibilityInput,
   policy: JobSearchPolicy
 ): JobEligibilityResult {
   if (isExcludedCompany(job.companyName, policy.excludedCompanies)) {
