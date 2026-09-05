@@ -5,6 +5,7 @@ import { ApplicationRepository } from "./ApplicationRepository";
 import { ApplicationSubmissionService } from "./ApplicationSubmissionService";
 import { ApplicationEmailContext } from "../notifications/Email";
 import { TailoredResumeArtifactService } from "../resume/TailoredResumeArtifactService";
+import { TailoredResumeRepository } from "../resume/TailoredResumeRepository";
 
 export interface CandidateProfileResolver {
   getById(candidateProfileId: string): Promise<CandidateProfile | null>;
@@ -22,7 +23,8 @@ export class ApplicationTaskHandler {
     private readonly candidateProfiles: CandidateProfileResolver,
     private readonly excludedCompanies: readonly string[] = [],
     private readonly emailDispatcher?: ApplicationEmailDispatcher,
-    private readonly tailoredResumeArtifacts?: TailoredResumeArtifactService
+    private readonly tailoredResumeArtifacts?: TailoredResumeArtifactService,
+    private readonly tailoredResumeRepository?: TailoredResumeRepository
   ) {}
 
   async handle(task: ClaimedTask<ApplyJobTaskPayload>): Promise<void> {
@@ -56,6 +58,21 @@ export class ApplicationTaskHandler {
         prepared.application.jobTitle,
         prepared.application.jobDescription
       );
+
+      if (this.tailoredResumeRepository) {
+        await this.tailoredResumeRepository.save({
+          applicationId: prepared.application.applicationId,
+          jobOpportunityId: prepared.application.jobOpportunityId,
+          candidateProfileId: prepared.application.candidateProfileId,
+          jobTitle: prepared.application.jobTitle,
+          sourceVersion: artifact.sourceVersion,
+          resumePath: artifact.resumePath,
+          atsScore: artifact.atsScore,
+          matchedKeywords: artifact.matchedKeywords,
+          missingKeywords: artifact.missingKeywords,
+          warnings: artifact.warnings
+        });
+      }
 
       applicationProfile = {
         ...candidateProfile,
