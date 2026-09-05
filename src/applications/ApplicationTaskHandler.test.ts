@@ -21,7 +21,8 @@ class FakeApplications {
         candidateProfileId: "candidate-1",
         url: "https://example.com/apply",
         jobTitle: "Frontend Engineer",
-        companyName: "Example Corp"
+        companyName: "Example Corp",
+        jobDescription: "React and TypeScript frontend role."
       }
     };
   }
