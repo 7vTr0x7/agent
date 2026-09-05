@@ -1,0 +1,189 @@
+import { GmailMailbox, GmailMessage, GmailClassification } from "./GmailMailbox";
+import { GmailOAuthClient } from "./GmailOAuthClient";
+
+interface GmailHeader {
+  name?: string;
+  value?: string;
+}
+
+interface GmailPart {
+  mimeType?: string;
+  body?: { data?: string };
+  parts?: GmailPart[];
+}
+
+interface GmailApiMessage {
+  id?: string;
+  threadId?: string;
+  internalDate?: string;
+  snippet?: string;
+  payload?: {
+    headers?: GmailHeader[];
+    mimeType?: string;
+    body?: { data?: string };
+    parts?: GmailPart[];
+  };
+}
+
+interface GmailListResponse {
+  messages?: Array<{ id?: string }>;
+}
+
+interface GmailSendResponse {
+  id?: string;
+  threadId?: string;
+}
+
+export interface GmailApiMailboxOptions {
+  oauth: GmailOAuthClient;
+  userEmail: string;
+  fetchImpl?: typeof fetch;
+}
+
+function header(message: GmailApiMessage, name: string): string | null {
+  return message.payload?.headers?.find(
+    (item) => item.name?.toLowerCase() === name.toLowerCase()
+  )?.value?.trim() ?? null;
+}
+
+function decodeBase64Url(value: string): string {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(normalized, "base64").toString("utf8");
+}
+
+function stripHtml(value: string): string {
+  return value
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function collectBodies(part: GmailPart | undefined, output: string[]): void {
+  if (!part) return;
+  if (part.body?.data && part.mimeType === "text/plain") {
+    output.push(decodeBase64Url(part.body.data));
+  } else if (part.body?.data && part.mimeType === "text/html" && output.length === 0) {
+    output.push(stripHtml(decodeBase64Url(part.body.data)));
+  }
+  for (const child of part.parts ?? []) collectBodies(child, output);
+}
+
+function parseSender(value: string | null): { name: string | null; email: string | null } {
+  if (!value) return { name: null, email: null };
+  const match = value.match(/^(.*?)\s*<([^>]+)>$/);
+  if (match) return { name: match[1].replace(/^"|"$/g, "").trim() || null, email: match[2].trim() };
+  return { name: null, email: value.trim() };
+}
+
+export class GmailApiMailbox implements GmailMailbox {
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(private readonly options: GmailApiMailboxOptions) {
+    this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+
+  private async request<T>(url: string, init: RequestInit = {}): Promise<T> {
+    const accessToken = await this.options.oauth.getAccessToken();
+    const response = await this.fetchImpl(url, {
+      ...init,
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        ...(init.headers ?? {})
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Gmail API request failed (${response.status}).`);
+    }
+
+    return (await response.json()) as T;
+  }
+
+  async listMessages(query: string, maxResults = 50): Promise<readonly string[]> {
+    const params = new URLSearchParams({ q: query, maxResults: String(maxResults) });
+    const response = await this.request<GmailListResponse>(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params.toString()}`
+    );
+    return (response.messages ?? [])
+      .map((message) => message.id)
+      .filter((id): id is string => Boolean(id));
+  }
+
+  async getMessage(messageId: string): Promise<GmailMessage> {
+    const encodedId = encodeURIComponent(messageId);
+    const response = await this.request<GmailApiMessage>(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodedId}?format=full`
+    );
+
+    if (!response.id || !response.threadId) {
+      throw new Error(`Gmail message '${messageId}' returned no stable identifiers.`);
+    }
+
+    const sender = parseSender(header(response, "From"));
+    const bodies: string[] = [];
+    collectBodies(response.payload, bodies);
+
+    return {
+      gmailMessageId: response.id,
+      gmailThreadId: response.threadId,
+      rfcMessageId: header(response, "Message-ID"),
+      inReplyTo: header(response, "In-Reply-To"),
+      senderEmail: sender.email,
+      senderName: sender.name,
+      recipientEmail: header(response, "To"),
+      subject: header(response, "Subject") ?? "",
+      receivedAt: response.internalDate ? new Date(Number(response.internalDate)) : null,
+      snippet: response.snippet ?? null,
+      bodyText: bodies.join("\n\n").trim(),
+      classification: "OTHER" as GmailClassification
+    };
+  }
+
+  async sendMessage(message: {
+    to: string;
+    subject: string;
+    bodyText: string;
+    threadId?: string;
+    inReplyTo?: string;
+    references?: string;
+  }): Promise<{ gmailMessageId: string; gmailThreadId: string }> {
+    const lines = [
+      `To: ${message.to}`,
+      `From: ${this.options.userEmail}`,
+      `Subject: ${message.subject}`,
+      message.inReplyTo ? `In-Reply-To: ${message.inReplyTo}` : "",
+      message.references ? `References: ${message.references}` : "",
+      "Content-Type: text/plain; charset=UTF-8",
+      "",
+      message.bodyText
+    ].filter(Boolean);
+
+    const raw = Buffer.from(lines.join("\r\n"), "utf8")
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+
+    const response = await this.request<GmailSendResponse>(
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          raw,
+          ...(message.threadId ? { threadId: message.threadId } : {})
+        })
+      }
+    );
+
+    if (!response.id || !response.threadId) {
+      throw new Error("Gmail send returned no message/thread identifier.");
+    }
+
+    return { gmailMessageId: response.id, gmailThreadId: response.threadId };
+  }
+}
