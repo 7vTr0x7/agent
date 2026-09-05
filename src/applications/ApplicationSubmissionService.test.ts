@@ -54,9 +54,12 @@ class RecordingApplicationRepository {
 describe("ApplicationSubmissionService", () => {
   let server: Server;
   let url: string;
+  let safeUrl: string;
 
   beforeEach(async () => {
-    server = createServer((_request, response) => {
+    server = createServer((request, response) => {
+      const includeUnsafeField = request.url !== "/safe-apply";
+
       response.writeHead(200, { "content-type": "text/html" });
       response.end(`
         <form>
@@ -64,8 +67,10 @@ describe("ApplicationSubmissionService", () => {
           <input id="first-name" name="first_name" type="text" required />
           <label for="email">Email Address</label>
           <input id="email" name="email" type="email" required />
+          ${includeUnsafeField ? `
           <label for="experience">Years of experience</label>
           <input id="experience" name="experience" type="text" required />
+          ` : ""}
         </form>
       `);
     });
@@ -74,6 +79,7 @@ describe("ApplicationSubmissionService", () => {
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("Test server did not expose a port.");
     url = `http://127.0.0.1:${address.port}/apply`;
+    safeUrl = `http://127.0.0.1:${address.port}/safe-apply`;
   });
 
   afterEach(async () => {
@@ -132,7 +138,7 @@ describe("ApplicationSubmissionService", () => {
       jobOpportunityId: "job-2",
       candidateProfileId: "candidate-1",
       applicationId: "application-2",
-      url
+      url: safeUrl
     };
 
     const profile: CandidateProfile = {
