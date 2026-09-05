@@ -22,7 +22,7 @@ function job(description: string, title = "Frontend Developer"): JobOpportunity 
     employmentType: "full-time",
     description,
     postedAt: null,
-    updatedAt: null,
+    sourceUpdatedAt: null,
     lastSeenAt: new Date(),
     closedAt: null,
     status: "ACTIVE",
@@ -56,9 +56,7 @@ describe("DeterministicJobMatcher", () => {
     expect(result.decision).toBe("REJECT");
     expect(result.matchScore).toBe(0);
     expect(result.evidence).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: "HARD_BLOCKER" })
-      ])
+      expect.arrayContaining([expect.objectContaining({ type: "HARD_BLOCKER" })])
     );
   });
 
@@ -69,9 +67,7 @@ describe("DeterministicJobMatcher", () => {
     );
 
     expect(result.evidence).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: "HARD_BLOCKER" })
-      ])
+      expect.arrayContaining([expect.objectContaining({ type: "HARD_BLOCKER" })])
     );
     expect(result.decision).not.toBe("REJECT");
   });
