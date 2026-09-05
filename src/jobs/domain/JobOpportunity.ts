@@ -19,5 +19,4 @@ export interface JobOpportunity {
   closedAt: Date | null;
   status: JobOpportunityStatus;
   createdAt: Date;
-  updatedAt: Date;
 }
