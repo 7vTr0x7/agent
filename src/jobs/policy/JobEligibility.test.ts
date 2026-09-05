@@ -98,12 +98,34 @@ describe("evaluateJobEligibility", () => {
   test("outside India role remains eligible for AI/candidate matching", () => {
     expect(
       evaluateJobEligibility(
-        job({ location: "London, United Kingdom" }),
+        job({
+          location: "London, United Kingdom",
+          country: "United Kingdom"
+        }),
         policy
       )
     ).toMatchObject({
       decision: "ELIGIBLE",
       priority: 3
+    });
+  });
+
+  test("remote is rejected when remote work is disabled", () => {
+    expect(
+      evaluateJobEligibility(
+        job({
+          location: "Remote",
+          country: null,
+          workplaceType: "remote"
+        }),
+        {
+          ...policy,
+          allowRemote: false
+        }
+      )
+    ).toMatchObject({
+      decision: "REJECT",
+      priority: null
     });
   });
 });

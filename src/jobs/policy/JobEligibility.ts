@@ -29,7 +29,20 @@ function containsNormalized(value: string, target: string): boolean {
   return normalize(value).includes(normalize(target));
 }
 
+function isExcludedCompany(
+  companyName: string,
+  excludedCompanies: string[]
+): boolean {
+  return excludedCompanies.some((excluded) =>
+    containsNormalized(companyName, excluded)
+  );
+}
+
 function isRemote(job: Job): boolean {
+  if (job.workplaceType === "remote") {
+    return true;
+  }
+
   const location = normalize(job.location ?? "");
 
   return (
@@ -47,35 +60,12 @@ function isBangalore(job: Job, policy: JobSearchPolicy): boolean {
   );
 }
 
-function isIndia(job: Job): boolean {
-  const location = normalize(job.location ?? "");
+function isTargetCountry(job: Job, policy: JobSearchPolicy): boolean {
+  if (job.country) {
+    return normalize(job.country) === normalize(policy.targetCountry);
+  }
 
-  return (
-    location.includes("india") ||
-    location.includes("bangalore") ||
-    location.includes("bengaluru") ||
-    location.includes("mumbai") ||
-    location.includes("pune") ||
-    location.includes("hyderabad") ||
-    location.includes("delhi") ||
-    location.includes("gurgaon") ||
-    location.includes("gurugram") ||
-    location.includes("noida") ||
-    location.includes("chennai") ||
-    location.includes("kolkata") ||
-    location.includes("ahmedabad") ||
-    location.includes("kochi") ||
-    location.includes("indore")
-  );
-}
-
-function isExcludedCompany(
-  companyName: string,
-  excludedCompanies: string[]
-): boolean {
-  return excludedCompanies.some((excluded) =>
-    containsNormalized(companyName, excluded)
-  );
+  return containsNormalized(job.location ?? "", policy.targetCountry);
 }
 
 export function evaluateJobEligibility(
@@ -99,6 +89,14 @@ export function evaluateJobEligibility(
   }
 
   if (isRemote(job)) {
+    if (!policy.allowRemote) {
+      return {
+        decision: "REJECT",
+        priority: null,
+        reason: "Remote work is disabled by the job-search policy."
+      };
+    }
+
     return {
       decision: "ELIGIBLE",
       priority: 3,
@@ -106,17 +104,17 @@ export function evaluateJobEligibility(
     };
   }
 
-  if (isIndia(job)) {
+  if (isTargetCountry(job, policy)) {
     return {
       decision: "ELIGIBLE",
       priority: 2,
-      reason: "Role is located in India."
+      reason: "Role is located in the target country."
     };
   }
 
   return {
     decision: "ELIGIBLE",
     priority: 3,
-    reason: "Role is outside India but will be evaluated for candidate eligibility."
+    reason: "Role is outside the target country but will be evaluated for candidate eligibility."
   };
 }
