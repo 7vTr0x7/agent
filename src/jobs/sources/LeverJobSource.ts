@@ -9,10 +9,10 @@ interface LeverPosting {
   createdAt?: number;
   updatedAt?: number;
   country?: string;
+  workplaceType?: string;
   categories?: {
     location?: string;
     commitment?: string;
-    workplaceType?: string;
   };
   content?: {
     description?: string;
@@ -92,10 +92,10 @@ export class LeverJobSource implements JobSource {
       location: posting.categories?.location?.trim() || null,
       country: posting.country?.trim() || null,
       workplaceType:
-        posting.categories?.workplaceType === "remote" ||
-        posting.categories?.workplaceType === "hybrid" ||
-        posting.categories?.workplaceType === "onsite"
-          ? posting.categories.workplaceType
+        posting.workplaceType === "remote" ||
+        posting.workplaceType === "hybrid" ||
+        posting.workplaceType === "onsite"
+          ? posting.workplaceType
           : null,
       employmentType: posting.categories?.commitment?.trim() || null,
       description,
