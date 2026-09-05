@@ -13,6 +13,12 @@ export type PrepareApplicationResult =
   | { prepared: true; application: PreparedApplication }
   | { prepared: false; reason: string };
 
+export interface SubmittedApplicationResult {
+  applicationId: string;
+  confirmationUrl: string | null;
+  externalApplicationId: string | null;
+}
+
 export class ApplicationRepository {
   constructor(
     private readonly database: Database,
@@ -136,6 +142,76 @@ export class ApplicationRepository {
           url: row.canonical_url,
           companyName: row.company_name
         }
+      };
+    });
+  }
+
+  async markSubmitted(
+    applicationId: string,
+    confirmationUrl: string | null,
+    externalApplicationId: string | null
+  ): Promise<SubmittedApplicationResult> {
+    return this.database.transaction(async (client) => {
+      const current = await client.query<{ status: string }>(
+        `
+          SELECT status
+          FROM applications
+          WHERE id = $1
+          FOR UPDATE
+        `,
+        [applicationId]
+      );
+
+      const row = current.rows[0];
+      if (!row) {
+        throw new Error("Application does not exist.");
+      }
+
+      if (row.status === "SENT") {
+        return {
+          applicationId,
+          confirmationUrl,
+          externalApplicationId
+        };
+      }
+
+      if (row.status !== "READY" && row.status !== "DRAFTED") {
+        throw new Error(`Application cannot transition from status '${row.status}' to SENT.`);
+      }
+
+      await client.query(
+        `
+          UPDATE applications
+          SET status = 'SENT',
+              applied_at = COALESCE(applied_at, NOW()),
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [applicationId]
+      );
+
+      await client.query(
+        `
+          INSERT INTO application_events (
+            application_id,
+            from_status,
+            to_status,
+            event_type,
+            metadata
+          )
+          VALUES ($1, $2, 'SENT', 'APPLICATION_SUBMITTED', $3::jsonb)
+        `,
+        [
+          applicationId,
+          row.status,
+          JSON.stringify({ confirmationUrl, externalApplicationId })
+        ]
+      );
+
+      return {
+        applicationId,
+        confirmationUrl,
+        externalApplicationId
       };
     });
   }
