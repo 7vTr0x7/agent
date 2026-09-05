@@ -3,6 +3,7 @@ import { JobOpportunityRepository } from "../jobs/domain/JobOpportunityRepositor
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { MatchPipeline } from "./MatchPipeline";
 import { ClaimedTask } from "../queue/TaskQueue";
+import { JobRankingService } from "../jobs/policy/JobRankingService";
 
 export const MATCH_JOB_TASK = "MATCH_JOB";
 
@@ -28,7 +29,8 @@ export class MatchTaskHandler {
   constructor(
     private readonly opportunities: JobOpportunityRepository,
     private readonly profiles: CandidateProfile,
-    private readonly pipeline: MatchPipeline
+    private readonly pipeline: MatchPipeline,
+    private readonly ranking?: JobRankingService
   ) {}
 
   async handle(task: ClaimedTask<MatchJobTaskPayload>): Promise<void> {
@@ -43,6 +45,15 @@ export class MatchTaskHandler {
       throw new Error(`Job opportunity not found: ${jobOpportunityId}`);
     }
 
-    await this.pipeline.evaluateAndPersist(job, this.profiles);
+    const match = await this.pipeline.evaluateAndPersist(job, this.profiles);
+
+    if (this.ranking) {
+      await this.ranking.rankAndPersist({
+        job,
+        candidateProfileId,
+        deterministicMatchScore: match.deterministic.matchScore,
+        semanticMatchScore: match.semantic?.score ?? null
+      });
+    }
   }
 }
