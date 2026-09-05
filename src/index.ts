@@ -25,6 +25,7 @@ import { ResumeProfileLoader } from "./resume/ResumeProfileLoader";
 import { ResumeTailoringService } from "./resume/ResumeTailoringService";
 import { ResumeArtifactRenderer } from "./resume/ResumeArtifactRenderer";
 import { TailoredResumeArtifactService } from "./resume/TailoredResumeArtifactService";
+import { PostgresTailoredResumeRepository } from "./resume/TailoredResumeRepository";
 
 const config = loadConfig();
 
@@ -112,6 +113,7 @@ async function main(): Promise<void> {
   }
 
   let tailoredResumeArtifacts: TailoredResumeArtifactService | undefined;
+  let tailoredResumeRepository: PostgresTailoredResumeRepository | undefined;
   if (config.resume.tailoringEnabled && config.resume.masterPath) {
     tailoredResumeArtifacts = new TailoredResumeArtifactService(
       new ResumeProfileLoader(),
@@ -119,6 +121,7 @@ async function main(): Promise<void> {
       new ResumeArtifactRenderer({ outputDirectory: config.resume.outputDirectory }),
       config.resume.masterPath
     );
+    tailoredResumeRepository = new PostgresTailoredResumeRepository(database);
   }
 
   const applicationTaskHandler = new ApplicationTaskHandler(
@@ -127,7 +130,8 @@ async function main(): Promise<void> {
     candidateProfiles,
     excludedCompanies,
     emailDispatcher,
-    tailoredResumeArtifacts
+    tailoredResumeArtifacts,
+    tailoredResumeRepository
   );
 
   const handlers = new Map<string, any>([
