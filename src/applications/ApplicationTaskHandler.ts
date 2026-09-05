@@ -3,7 +3,7 @@ import { CandidateProfile } from "../candidates/CandidateProfile";
 import { APPLY_JOB_TASK, ApplyJobTaskPayload } from "./ApplicationTask";
 import { ApplicationRepository } from "./ApplicationRepository";
 import { ApplicationSubmissionService } from "./ApplicationSubmissionService";
-import { ApplicationEmailContext, EmailNotificationService } from "../notifications/EmailNotificationService";
+import { ApplicationEmailContext } from "../notifications/Email";
 
 export interface CandidateProfileResolver {
   getById(candidateProfileId: string): Promise<CandidateProfile | null>;
@@ -11,6 +11,7 @@ export interface CandidateProfileResolver {
 
 export interface ApplicationEmailDispatcher {
   enqueueApplicationSubmitted(context: ApplicationEmailContext): Promise<string>;
+  enqueueApplicationBlocked(context: ApplicationEmailContext): Promise<string>;
 }
 
 export class ApplicationTaskHandler {
@@ -58,16 +59,27 @@ export class ApplicationTaskHandler {
       candidateProfile
     });
 
-    if (this.emailDispatcher && candidateProfile.email) {
-      await this.emailDispatcher.enqueueApplicationSubmitted({
-        recipient: candidateProfile.email,
-        candidateName: candidateProfile.fullName ?? [candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") || "Candidate",
-        jobTitle: prepared.application.jobTitle,
-        companyName: prepared.application.companyName,
-        applicationId: prepared.application.applicationId,
-        confirmationUrl: outcome.result?.confirmationUrl,
-        reason: outcome.submitted ? undefined : outcome.reason
-      });
+    if (!this.emailDispatcher || !candidateProfile.email) {
+      return;
+    }
+
+    const context: ApplicationEmailContext = {
+      recipient: candidateProfile.email,
+      candidateName:
+        candidateProfile.fullName ??
+        [candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") ||
+        "Candidate",
+      jobTitle: prepared.application.jobTitle,
+      companyName: prepared.application.companyName,
+      applicationId: prepared.application.applicationId,
+      confirmationUrl: outcome.result?.confirmationUrl,
+      reason: outcome.submitted ? undefined : outcome.reason
+    };
+
+    if (outcome.submitted) {
+      await this.emailDispatcher.enqueueApplicationSubmitted(context);
+    } else {
+      await this.emailDispatcher.enqueueApplicationBlocked(context);
     }
   }
 }
