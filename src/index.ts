@@ -26,12 +26,14 @@ import { ResumeTailoringService } from "./resume/ResumeTailoringService";
 import { ResumeArtifactRenderer } from "./resume/ResumeArtifactRenderer";
 import { TailoredResumeArtifactService } from "./resume/TailoredResumeArtifactService";
 import { PostgresTailoredResumeRepository } from "./resume/TailoredResumeRepository";
+import { GmailOAuthClient } from "./email/GmailOAuthClient";
+import { GmailApiMailbox } from "./email/GmailApiMailbox";
+import { GmailMessageRepository } from "./email/GmailMessageRepository";
+import { GmailSyncTaskDispatcher, GmailSyncTaskHandler, SYNC_GMAIL_TASK } from "./email/GmailSyncTask";
 
 const config = loadConfig();
 
-const logger = pino({
-  level: config.logLevel
-});
+const logger = pino({ level: config.logLevel });
 
 function csvEnvironment(name: string): string[] {
   return (process.env[name] ?? "")
@@ -50,7 +52,6 @@ async function main(): Promise<void> {
     config.ollama.model,
     config.ollama.timeoutMs
   );
-
   const matcher = new JobMatcher(ollama);
 
   logger.info(
@@ -58,6 +59,7 @@ async function main(): Promise<void> {
       nodeEnv: config.nodeEnv,
       automationEnabled: config.automationEnabled,
       resumeTailoringEnabled: config.resume.tailoringEnabled,
+      gmailEnabled: config.gmail.enabled,
       ollamaModel: config.ollama.model,
       ollamaBaseUrl: config.ollama.baseUrl
     },
@@ -68,7 +70,6 @@ async function main(): Promise<void> {
     "Frontend Engineer with React, Next.js, TypeScript, Redux Toolkit, Node.js and 3 years of experience.",
     "We are looking for a Frontend Developer with React and TypeScript experience."
   );
-
   logger.info({ result }, "AI job-match test completed");
 
   if (!config.automationEnabled) {
@@ -78,21 +79,14 @@ async function main(): Promise<void> {
   }
 
   const candidateProfiles = ConfiguredCandidateProfileResolver.fromEnvironment();
-  const candidateProfile = await candidateProfiles.getById(
-    process.env.CANDIDATE_PROFILE_ID ?? ""
-  );
-
-  if (!candidateProfile) {
-    throw new Error("Configured candidate profile could not be resolved.");
-  }
+  const candidateProfile = await candidateProfiles.getById(process.env.CANDIDATE_PROFILE_ID ?? "");
+  if (!candidateProfile) throw new Error("Configured candidate profile could not be resolved.");
 
   const excludedCompanies = csvEnvironment("JOB_EXCLUDED_COMPANIES");
   const taskQueue = new TaskQueue(database);
   const applicationRepository = new ApplicationRepository(database, excludedCompanies);
   const browserSessions = new BrowserSessionService();
-  const adapters = new ApplicationAdapterRegistry([
-    new GenericApplicationAdapter()
-  ]);
+  const adapters = new ApplicationAdapterRegistry([new GenericApplicationAdapter()]);
   const submissionService = new ApplicationSubmissionService(
     browserSessions,
     adapters,
@@ -101,15 +95,10 @@ async function main(): Promise<void> {
 
   let emailDispatcher: EmailNotificationTaskDispatcher | undefined;
   let emailHandler: EmailNotificationTaskHandler | undefined;
-
   if (config.email.enabled && config.email.apiKey && config.email.from) {
-    const sender = new ResendEmailSender({
-      apiKey: config.email.apiKey,
-      from: config.email.from
-    });
-    const notifications = new EmailNotificationService(sender);
+    const sender = new ResendEmailSender({ apiKey: config.email.apiKey, from: config.email.from });
     emailDispatcher = new EmailNotificationTaskDispatcher(taskQueue);
-    emailHandler = new EmailNotificationTaskHandler(notifications);
+    emailHandler = new EmailNotificationTaskHandler(new EmailNotificationService(sender));
   }
 
   let tailoredResumeArtifacts: TailoredResumeArtifactService | undefined;
@@ -134,12 +123,31 @@ async function main(): Promise<void> {
     tailoredResumeRepository
   );
 
-  const handlers = new Map<string, any>([
-    [APPLY_JOB_TASK, applicationTaskHandler]
-  ]);
+  const handlers = new Map<string, any>([[APPLY_JOB_TASK, applicationTaskHandler]]);
+  if (emailHandler) handlers.set(SEND_APPLICATION_EMAIL_TASK, emailHandler);
 
-  if (emailHandler) {
-    handlers.set(SEND_APPLICATION_EMAIL_TASK, emailHandler);
+  let gmailSyncDispatcher: GmailSyncTaskDispatcher | undefined;
+  if (
+    config.gmail.enabled &&
+    config.gmail.clientId &&
+    config.gmail.clientSecret &&
+    config.gmail.refreshToken &&
+    config.gmail.userEmail
+  ) {
+    const mailbox = new GmailApiMailbox({
+      oauth: new GmailOAuthClient({
+        clientId: config.gmail.clientId,
+        clientSecret: config.gmail.clientSecret,
+        refreshToken: config.gmail.refreshToken
+      }),
+      userEmail: config.gmail.userEmail
+    });
+    const gmailMessages = new GmailMessageRepository(database);
+    handlers.set(
+      SYNC_GMAIL_TASK,
+      new GmailSyncTaskHandler(mailbox, gmailMessages)
+    );
+    gmailSyncDispatcher = new GmailSyncTaskDispatcher(taskQueue);
   }
 
   const worker = new TaskWorker(taskQueue, handlers);
@@ -148,13 +156,19 @@ async function main(): Promise<void> {
     new ApplicationTaskDispatcher(taskQueue)
   );
 
-  const enqueueLoop = async (): Promise<void> => {
+  const enqueueApplicationsLoop = async (): Promise<void> => {
     while (true) {
       const queued = await applicationQueue.enqueueEligible(candidateProfile.id);
-      if (queued.queued > 0) {
-        logger.info({ queued: queued.queued }, "Eligible application tasks queued");
-      }
+      if (queued.queued > 0) logger.info({ queued: queued.queued }, "Eligible application tasks queued");
       await new Promise((resolve) => setTimeout(resolve, 30_000));
+    }
+  };
+
+  const syncGmailLoop = async (): Promise<void> => {
+    if (!gmailSyncDispatcher) return;
+    while (true) {
+      await gmailSyncDispatcher.enqueue(config.gmail.syncQuery, 50);
+      await new Promise((resolve) => setTimeout(resolve, config.gmail.syncIntervalMs));
     }
   };
 
@@ -163,7 +177,8 @@ async function main(): Promise<void> {
 
   await Promise.all([
     worker.run(),
-    enqueueLoop()
+    enqueueApplicationsLoop(),
+    syncGmailLoop()
   ]);
 
   await database.close();
