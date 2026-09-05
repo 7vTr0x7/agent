@@ -30,6 +30,7 @@ import { GmailOAuthClient } from "./email/GmailOAuthClient";
 import { GmailApiMailbox } from "./email/GmailApiMailbox";
 import { GmailMessageRepository } from "./email/GmailMessageRepository";
 import { GmailSyncTaskDispatcher, GmailSyncTaskHandler, SYNC_GMAIL_TASK } from "./email/GmailSyncTask";
+import { InterviewRepository } from "./email/InterviewRepository";
 
 const config = loadConfig();
 const logger = pino({ level: config.logLevel });
@@ -131,7 +132,11 @@ async function main(): Promise<void> {
     });
     handlers.set(
       SYNC_GMAIL_TASK,
-      new GmailSyncTaskHandler(mailbox, new GmailMessageRepository(database))
+      new GmailSyncTaskHandler(
+        mailbox,
+        new GmailMessageRepository(database),
+        new InterviewRepository(database)
+      )
     );
     gmailSyncDispatcher = new GmailSyncTaskDispatcher(taskQueue);
   }
