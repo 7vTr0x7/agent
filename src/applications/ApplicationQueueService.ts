@@ -1,6 +1,7 @@
 import { Database } from "../database/Database";
 import { ApplicationTaskDispatcher } from "./ApplicationTask";
 import { ApplicationRateLimitPolicy } from "./ApplicationRateLimitPolicy";
+import { ApplicationCompanyRateLimitPolicy } from "./ApplicationCompanyRateLimitPolicy";
 
 interface CandidateApplicationRow {
   job_opportunity_id: string;
@@ -26,6 +27,9 @@ export class ApplicationQueueService {
     private readonly dispatcher: ApplicationTaskDispatcher,
     private readonly rateLimitPolicy = new ApplicationRateLimitPolicy({
       maxSubmissionsPerDay: 50
+    }),
+    private readonly companyRateLimitPolicy = new ApplicationCompanyRateLimitPolicy({
+      maxSubmissionsPerCompanyPerDay: 5
     })
   ) {}
 
@@ -67,32 +71,54 @@ export class ApplicationQueueService {
       };
     }
 
+    const companyLimit = this.companyRateLimitPolicy.maxSubmissionsPerCompanyPerDay;
     const result = await this.database.query<CandidateApplicationRow>(
       `
-        SELECT
-          md.job_opportunity_id,
-          md.candidate_profile_id,
-          jr.tier,
-          jr.rank_score
-        FROM match_decisions md
-        INNER JOIN job_rankings jr
-          ON jr.job_opportunity_id = md.job_opportunity_id
-         AND jr.candidate_profile_id = md.candidate_profile_id
-        INNER JOIN job_opportunities jo
-          ON jo.id = md.job_opportunity_id
-        LEFT JOIN applications a
-          ON a.job_opportunity_id = md.job_opportunity_id
-        WHERE md.candidate_profile_id = $1
-          AND md.decision = 'APPLY'
-          AND jo.status = 'ACTIVE'
-          AND a.id IS NULL
-        ORDER BY
-          jr.tier ASC,
-          jr.rank_score DESC,
-          jo.last_seen_at DESC
-        LIMIT $2
+        WITH company_submission_counts AS (
+          SELECT
+            LOWER(TRIM(jo.company_name)) AS company_key,
+            COUNT(*)::integer AS submissions_used
+          FROM application_attempts aa
+          INNER JOIN applications a ON a.id = aa.application_id
+          INNER JOIN job_opportunities jo ON jo.id = a.job_opportunity_id
+          WHERE a.candidate_profile_id = $1
+            AND aa.submitted = TRUE
+            AND aa.attempted_at >= CURRENT_DATE
+          GROUP BY LOWER(TRIM(jo.company_name))
+        ),
+        eligible_candidates AS (
+          SELECT
+            md.job_opportunity_id,
+            md.candidate_profile_id,
+            jr.tier,
+            jr.rank_score,
+            ROW_NUMBER() OVER (
+              PARTITION BY LOWER(TRIM(jo.company_name))
+              ORDER BY jr.tier ASC, jr.rank_score DESC, jo.last_seen_at DESC
+            ) AS company_rank,
+            COALESCE(csc.submissions_used, 0) AS company_submissions_used
+          FROM match_decisions md
+          INNER JOIN job_rankings jr
+            ON jr.job_opportunity_id = md.job_opportunity_id
+           AND jr.candidate_profile_id = md.candidate_profile_id
+          INNER JOIN job_opportunities jo
+            ON jo.id = md.job_opportunity_id
+          LEFT JOIN applications a
+            ON a.job_opportunity_id = md.job_opportunity_id
+          LEFT JOIN company_submission_counts csc
+            ON csc.company_key = LOWER(TRIM(jo.company_name))
+          WHERE md.candidate_profile_id = $1
+            AND md.decision = 'APPLY'
+            AND jo.status = 'ACTIVE'
+            AND a.id IS NULL
+        )
+        SELECT job_opportunity_id, candidate_profile_id, tier, rank_score
+        FROM eligible_candidates
+        WHERE company_rank <= GREATEST(0, $2 - company_submissions_used)
+        ORDER BY tier ASC, rank_score DESC
+        LIMIT $3
       `,
-      [candidateProfileId, effectiveLimit]
+      [candidateProfileId, companyLimit, effectiveLimit]
     );
 
     for (const row of result.rows) {
