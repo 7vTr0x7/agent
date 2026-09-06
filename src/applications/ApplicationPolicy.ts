@@ -1,5 +1,10 @@
 export type ApplicationDecision = "ALLOW" | "BLOCK";
 
+export const PERMANENTLY_EXCLUDED_COMPANIES = [
+  "Octopus Technologies",
+  "Sketch Brahma Technologies"
+] as const;
+
 export interface ApplicationPolicyInput {
   matchDecision: "APPLY" | "REJECT" | "REVIEW";
   opportunityStatus: "ACTIVE" | "STALE" | "CLOSED";
@@ -34,11 +39,14 @@ export function evaluateApplicationPolicy(
   }
 
   const company = input.companyName.trim().toLowerCase();
-  const excluded = input.excludedCompanies.some(
+  const configuredExcluded = input.excludedCompanies.some(
     (name) => name.trim().toLowerCase() === company
   );
+  const permanentlyExcluded = PERMANENTLY_EXCLUDED_COMPANIES.some(
+    (name) => name.toLowerCase() === company
+  );
 
-  if (excluded) {
+  if (configuredExcluded || permanentlyExcluded) {
     return { decision: "BLOCK", reason: "Company is excluded by application policy." };
   }
 
