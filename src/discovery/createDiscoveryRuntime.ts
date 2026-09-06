@@ -2,6 +2,7 @@ import { AppConfig } from "../config/env";
 import { Database } from "../database/Database";
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { OllamaProvider } from "../ai/OllamaProvider";
+import { TaskQueue } from "../queue/TaskQueue";
 import { JobDiscoveryService } from "../jobs/services/JobDiscoveryService";
 import { PostgresJobOpportunityRepository } from "../jobs/domain/PostgresJobOpportunityRepository";
 import { loadJobSearchPolicy } from "../jobs/policy/loadJobSearchPolicy";
@@ -10,7 +11,7 @@ import { PostgresJobRankingRepository } from "../jobs/policy/JobRankingRepositor
 import { DeterministicJobMatcher } from "../matching/DeterministicJobMatcher";
 import { SemanticJobMatcher } from "../matching/SemanticJobMatcher";
 import { MatchPipeline } from "../matching/MatchPipeline";
-import { MatchTaskHandler } from "../matching/MatchTask";
+import { MatchTaskDispatcher, MatchTaskHandler } from "../matching/MatchTask";
 import { PostgresMatchDecisionRepository } from "../matching/MatchDecisionRepository";
 import { DiscoveryMatchDispatcher } from "./queue/DiscoveryMatchDispatcher";
 import { DiscoveryRunner } from "./DiscoveryRunner";
@@ -28,6 +29,7 @@ export interface DiscoveryRuntime {
 
 export function createDiscoveryRuntime(
   database: Database,
+  taskQueue: TaskQueue,
   config: AppConfig,
   candidateProfile: CandidateProfile
 ): DiscoveryRuntime {
@@ -71,11 +73,7 @@ export function createDiscoveryRuntime(
 
   const matchDispatcher = new DiscoveryMatchDispatcher(
     opportunityRepository,
-    {
-      enqueue: async (jobOpportunityId, candidateProfileId, priority) => {
-        return `match:${jobOpportunityId}:${candidateProfileId}:${priority}`;
-      }
-    },
+    new MatchTaskDispatcher(taskQueue),
     policy,
     candidateProfile.id
   );
