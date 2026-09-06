@@ -5,6 +5,7 @@ import { ApplicationFormFiller } from "./ApplicationFormFiller";
 import { FormFieldDetector } from "./FormFieldDetector";
 import { SubmissionSafetyGate } from "./SubmissionSafetyGate";
 import { ApplicationTargetResolver } from "./ApplicationTargetResolver";
+import { ApplicationHazardDetector } from "./ApplicationHazardDetector";
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { ApplicationRepository } from "./ApplicationRepository";
 
@@ -31,7 +32,8 @@ export class ApplicationSubmissionService {
     private readonly mapper = new ApplicationFieldMapper(),
     private readonly filler = new ApplicationFormFiller(),
     private readonly safetyGate = new SubmissionSafetyGate(),
-    private readonly targetResolver = new ApplicationTargetResolver()
+    private readonly targetResolver = new ApplicationTargetResolver(),
+    private readonly hazardDetector = new ApplicationHazardDetector()
   ) {}
 
   async submit(request: ApplicationSubmissionRequest): Promise<ApplicationSubmissionOutcome> {
@@ -56,6 +58,16 @@ export class ApplicationSubmissionService {
           submitted: false,
           safetyAllowed: false,
           reason: "No application adapter can safely handle the resolved application URL.",
+          result: null
+        };
+      }
+
+      const hazards = await this.hazardDetector.detect(session.page);
+      if (hazards.length > 0) {
+        return {
+          submitted: false,
+          safetyAllowed: false,
+          reason: hazards.map((hazard) => hazard.reason).join(" "),
           result: null
         };
       }
