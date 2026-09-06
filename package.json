@@ -10,7 +10,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "typecheck": "tsc --noEmit",
-    "dry-run": "tsx scripts/dry-run-application.ts"
+    "dry-run": "tsx scripts/dry-run-application.ts",
+    "dry-run:recruiters": "tsx scripts/dry-run-recruiter-discovery.ts"
   },
   "dependencies": {
     "dotenv": "^17.2.1",
