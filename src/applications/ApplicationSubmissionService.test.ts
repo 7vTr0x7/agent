@@ -30,11 +30,24 @@ class RecordingAdapter implements ApplicationAdapter {
 }
 
 class RecordingApplicationRepository {
+  beginSubmissionResult = true;
+  beginCalls = 0;
+  cancelCalls: Array<{ applicationId: string; reason: string }> = [];
   calls: Array<{
     applicationId: string;
     confirmationUrl: string | null;
     externalApplicationId: string | null;
   }> = [];
+
+  async beginSubmission(): Promise<boolean> {
+    this.beginCalls += 1;
+    return this.beginSubmissionResult;
+  }
+
+  async cancelSubmission(applicationId: string, reason: string): Promise<boolean> {
+    this.cancelCalls.push({ applicationId, reason });
+    return true;
+  }
 
   async markSubmitted(
     applicationId: string,
@@ -123,6 +136,93 @@ describe("ApplicationSubmissionService", () => {
     expect(result.adapterName).toBe("recording-adapter");
     expect(result.reason).toContain("Years of experience");
     expect(adapter.submitted).toBe(false);
+    expect(repository.beginCalls).toBe(0);
+    expect(repository.calls).toHaveLength(0);
+  });
+
+  it("blocks submission when the application cannot be atomically reserved", async () => {
+    const adapter = new RecordingAdapter();
+    const repository = new RecordingApplicationRepository();
+    repository.beginSubmissionResult = false;
+    const service = new ApplicationSubmissionService(
+      new BrowserSessionService({ headless: true }),
+      new ApplicationAdapterRegistry([adapter]),
+      repository
+    );
+
+    const context: ApplicationContext = {
+      jobOpportunityId: "job-duplicate",
+      candidateProfileId: "candidate-1",
+      applicationId: "application-duplicate",
+      url: safeUrl
+    };
+
+    const profile: CandidateProfile = {
+      id: "candidate-1",
+      yearsExperience: 3,
+      skills: ["React", "TypeScript"],
+      targetTitles: ["Frontend Engineer"],
+      firstName: "Salman",
+      email: "salman@example.com"
+    };
+
+    const result = await service.submit({
+      context,
+      companyName: "Example Corp",
+      excludedCompanies: [],
+      candidateProfile: profile
+    });
+
+    expect(result.submitted).toBe(false);
+    expect(result.safetyAllowed).toBe(true);
+    expect(result.reason).toContain("already been completed");
+    expect(adapter.submitted).toBe(false);
+    expect(repository.beginCalls).toBe(1);
+    expect(repository.calls).toHaveLength(0);
+  });
+
+  it("returns a known adapter block to READY so it can be retried safely", async () => {
+    const adapter = new RecordingAdapter();
+    adapter.shouldSubmit = false;
+    const repository = new RecordingApplicationRepository();
+    const service = new ApplicationSubmissionService(
+      new BrowserSessionService({ headless: true }),
+      new ApplicationAdapterRegistry([adapter]),
+      repository
+    );
+
+    const context: ApplicationContext = {
+      jobOpportunityId: "job-3",
+      candidateProfileId: "candidate-1",
+      applicationId: "application-3",
+      url: safeUrl
+    };
+
+    const profile: CandidateProfile = {
+      id: "candidate-1",
+      yearsExperience: 3,
+      skills: ["React", "TypeScript"],
+      targetTitles: ["Frontend Engineer"],
+      firstName: "Salman",
+      email: "salman@example.com"
+    };
+
+    const result = await service.submit({
+      context,
+      companyName: "Example Corp",
+      excludedCompanies: [],
+      candidateProfile: profile
+    });
+
+    expect(result.submitted).toBe(false);
+    expect(result.safetyAllowed).toBe(true);
+    expect(adapter.submitted).toBe(true);
+    expect(repository.cancelCalls).toEqual([
+      {
+        applicationId: "application-3",
+        reason: "Synthetic submission was blocked."
+      }
+    ]);
     expect(repository.calls).toHaveLength(0);
   });
 
@@ -162,6 +262,8 @@ describe("ApplicationSubmissionService", () => {
     expect(result.safetyAllowed).toBe(true);
     expect(result.adapterName).toBe("recording-adapter");
     expect(adapter.submitted).toBe(true);
+    expect(repository.beginCalls).toBe(1);
+    expect(repository.cancelCalls).toHaveLength(0);
     expect(repository.calls).toEqual([
       {
         applicationId: "application-2",
