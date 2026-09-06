@@ -14,7 +14,7 @@ describe("HunterRecruiterDiscoveryProvider", () => {
   });
 
   it("keeps employer-domain recruiter contacts and rejects unrelated contacts", async () => {
-    const fetchImpl = jest.fn<typeof fetch>().mockResolvedValue(
+    const fetchImpl: typeof fetch = jest.fn().mockResolvedValue(
       response({
         data: {
           domain: "example.com",
@@ -74,7 +74,7 @@ describe("HunterRecruiterDiscoveryProvider", () => {
   });
 
   it("verifies an email using Hunter's verifier endpoint", async () => {
-    const fetchImpl = jest.fn<typeof fetch>().mockResolvedValue(
+    const fetchImpl: typeof fetch = jest.fn().mockResolvedValue(
       response({ data: { status: "valid", score: 100 } })
     );
 
@@ -88,14 +88,14 @@ describe("HunterRecruiterDiscoveryProvider", () => {
       confidence: 100
     });
 
-    const calledUrl = String(fetchImpl.mock.calls[0]?.[0]);
+    const calledUrl = String((fetchImpl as jest.Mock).mock.calls[0]?.[0]);
     expect(calledUrl).toContain("/email-verifier");
     expect(calledUrl).toContain("email=recruiter%40example.com");
     expect(calledUrl).toContain("api_key=secret");
   });
 
   it("fails closed on Hunter API errors", async () => {
-    const fetchImpl = jest.fn<typeof fetch>().mockResolvedValue(response({ errors: [] }, 429));
+    const fetchImpl: typeof fetch = jest.fn().mockResolvedValue(response({ errors: [] }, 429));
     const provider = new HunterRecruiterDiscoveryProvider({ apiKey: "secret", fetchImpl });
 
     await expect(
@@ -110,7 +110,7 @@ describe("HunterRecruiterDiscoveryProvider", () => {
   });
 
   it("does not verify malformed addresses against the provider", async () => {
-    const fetchImpl = jest.fn<typeof fetch>();
+    const fetchImpl: typeof fetch = jest.fn();
     const provider = new HunterRecruiterDiscoveryProvider({ apiKey: "secret", fetchImpl });
 
     await expect(provider.verify("not-an-email")).resolves.toEqual({
