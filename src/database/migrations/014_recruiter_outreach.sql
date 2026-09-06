@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS recruiter_discovery_runs (
   company_name VARCHAR(255) NOT NULL,
   company_domain VARCHAR(255) NOT NULL,
   job_opportunity_id UUID REFERENCES job_opportunities(id) ON DELETE SET NULL,
-  candidate_profile_id UUID REFERENCES candidate_profiles(id) ON DELETE SET NULL,
+  candidate_profile_id TEXT,
   provider VARCHAR(100) NOT NULL,
   status VARCHAR(30) NOT NULL CHECK (status IN ('RUNNING', 'SUCCEEDED', 'FAILED', 'SKIPPED')),
   contacts_found INTEGER NOT NULL DEFAULT 0 CHECK (contacts_found >= 0),
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS recruiter_outreach_sequences (
   recruiter_contact_id UUID NOT NULL REFERENCES recruiter_contacts(id) ON DELETE CASCADE,
   job_opportunity_id UUID REFERENCES job_opportunities(id) ON DELETE SET NULL,
   application_id UUID REFERENCES applications(id) ON DELETE SET NULL,
-  candidate_profile_id UUID NOT NULL REFERENCES candidate_profiles(id) ON DELETE CASCADE,
+  candidate_profile_id TEXT NOT NULL,
   status VARCHAR(40) NOT NULL DEFAULT 'READY'
     CHECK (status IN ('READY', 'ACTIVE', 'PAUSED', 'STOPPED', 'COMPLETED', 'FAILED')),
   stop_reason VARCHAR(255),
