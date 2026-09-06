@@ -97,6 +97,22 @@ describe("ApplicationRepository submission state", () => {
     expect(queries.some((query) => query.includes("UPDATE applications"))).toBe(false);
   });
 
+  it("counts SENT applications by applied_at so a failed attempt write cannot bypass the daily limit", async () => {
+    const { database, queries } = createDatabase("READY", { dailyCount: 50 });
+    const repository = new ApplicationRepository(database as never);
+    await expect(repository.beginSubmission("application-sent-limit")).resolves.toBe(false);
+    const dailyQuery = queries.find((query) => query.includes("SELECT COUNT(*)::text AS count") && !query.includes("LOWER(TRIM(jo.company_name))"));
+    expect(dailyQuery).toContain("a.status = 'SENT' AND a.applied_at >= CURRENT_DATE");
+  });
+
+  it("counts SENT applications by applied_at for the per-company limit", async () => {
+    const { database, queries } = createDatabase("READY", { companyCount: 5 });
+    const repository = new ApplicationRepository(database as never);
+    await expect(repository.beginSubmission("application-company-sent-limit")).resolves.toBe(false);
+    const companyQuery = queries.find((query) => query.includes("LOWER(TRIM(jo.company_name))"));
+    expect(companyQuery).toContain("a.status = 'SENT' AND a.applied_at >= CURRENT_DATE");
+  });
+
   it("requires the in-progress state before marking an application SENT", async () => {
     const { database } = createDatabase("READY");
     const repository = new ApplicationRepository(database as never);
