@@ -21,6 +21,9 @@ export interface SubmittedApplicationResult {
   externalApplicationId: string | null;
 }
 
+const MAX_SUBMISSIONS_PER_DAY = 50;
+const MAX_SUBMISSIONS_PER_COMPANY_PER_DAY = 5;
+
 export class ApplicationRepository {
   constructor(
     private readonly database: Database,
@@ -156,18 +159,83 @@ export class ApplicationRepository {
 
   async beginSubmission(applicationId: string): Promise<boolean> {
     return this.database.transaction(async (client) => {
-      const current = await client.query<{ status: string }>(
+      const current = await client.query<{
+        status: string;
+        candidate_profile_id: string;
+        company_name: string;
+      }>(
         `
-          SELECT status
-          FROM applications
-          WHERE id = $1
-          FOR UPDATE
+          SELECT
+            a.status,
+            a.candidate_profile_id,
+            jo.company_name
+          FROM applications a
+          INNER JOIN job_opportunities jo ON jo.id = a.job_opportunity_id
+          WHERE a.id = $1
+          FOR UPDATE OF a
         `,
         [applicationId]
       );
 
       const row = current.rows[0];
       if (!row || (row.status !== "READY" && row.status !== "DRAFTED")) {
+        return false;
+      }
+
+      // Serialize reservations for one candidate so concurrent workers cannot
+      // both observe the same remaining daily capacity before reserving it.
+      await client.query(
+        `SELECT pg_advisory_xact_lock(hashtext($1))`,
+        [row.candidate_profile_id]
+      );
+
+      const globalCount = await client.query<{ count: string }>(
+        `
+          SELECT COUNT(*)::text AS count
+          FROM applications a
+          WHERE a.candidate_profile_id = $1
+            AND (
+              a.status = 'SUBMISSION_IN_PROGRESS'
+              OR EXISTS (
+                SELECT 1
+                FROM application_attempts aa
+                WHERE aa.application_id = a.id
+                  AND aa.submitted = TRUE
+                  AND aa.attempted_at >= CURRENT_DATE
+              )
+            )
+        `,
+        [row.candidate_profile_id]
+      );
+
+      const submissionsUsed = Number(globalCount.rows[0]?.count ?? "0");
+      if (submissionsUsed >= MAX_SUBMISSIONS_PER_DAY) {
+        return false;
+      }
+
+      const companyCount = await client.query<{ count: string }>(
+        `
+          SELECT COUNT(*)::text AS count
+          FROM applications a
+          INNER JOIN job_opportunities jo ON jo.id = a.job_opportunity_id
+          WHERE a.candidate_profile_id = $1
+            AND LOWER(TRIM(jo.company_name)) = LOWER(TRIM($2))
+            AND (
+              a.status = 'SUBMISSION_IN_PROGRESS'
+              OR EXISTS (
+                SELECT 1
+                FROM application_attempts aa
+                WHERE aa.application_id = a.id
+                  AND aa.submitted = TRUE
+                  AND aa.attempted_at >= CURRENT_DATE
+              )
+            )
+        `,
+        [row.candidate_profile_id, row.company_name]
+      );
+
+      const companySubmissionsUsed = Number(companyCount.rows[0]?.count ?? "0");
+      if (companySubmissionsUsed >= MAX_SUBMISSIONS_PER_COMPANY_PER_DAY) {
         return false;
       }
 
@@ -190,9 +258,16 @@ export class ApplicationRepository {
             event_type,
             metadata
           )
-          VALUES ($1, $2, 'SUBMISSION_IN_PROGRESS', 'APPLICATION_SUBMISSION_STARTED', '{}'::jsonb)
+          VALUES ($1, $2, 'SUBMISSION_IN_PROGRESS', 'APPLICATION_SUBMISSION_STARTED', $3::jsonb)
         `,
-        [applicationId, row.status]
+        [
+          applicationId,
+          row.status,
+          JSON.stringify({
+            dailySubmissionsUsed: submissionsUsed,
+            companySubmissionsUsed
+          })
+        ]
       );
 
       return true;
