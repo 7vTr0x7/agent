@@ -190,7 +190,7 @@ async function main(): Promise<void> {
   let emailHandler: EmailNotificationTaskHandler | undefined;
   let emailNotifications: EmailNotificationService | undefined;
   if (config.email.enabled && config.email.apiKey && config.email.from) {
-    const sender = new ResendEmailSender({ apiKey: config.email.apiKey, from: config.email.apiKey ? config.email.apiKey : "" });
+    const sender = new ResendEmailSender({ apiKey: config.email.apiKey, from: config.email.from });
     emailNotifications = new EmailNotificationService(sender);
     emailDispatcher = new EmailNotificationTaskDispatcher(taskQueue);
     emailHandler = new EmailNotificationTaskHandler(emailNotifications);
