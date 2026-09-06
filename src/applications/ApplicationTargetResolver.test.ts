@@ -78,4 +78,28 @@ describe("ApplicationTargetResolver", () => {
       await browser.close(session);
     }
   });
+
+  it("blocks login and account-creation pages", async () => {
+    const browser = new BrowserSessionService({ headless: true });
+    const session = await browser.create();
+
+    try {
+      await session.page.setContent(`
+        <form>
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" required />
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" required />
+          <button type="submit">Sign in</button>
+        </form>
+      `);
+
+      const result = await new ApplicationTargetResolver().resolve(session.page, `${baseUrl}/login`);
+
+      expect(result.resolved).toBe(false);
+      expect(result.reason).toContain("authentication");
+    } finally {
+      await browser.close(session);
+    }
+  });
 });
