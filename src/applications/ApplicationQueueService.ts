@@ -1,4 +1,5 @@
 import { Database } from "../database/Database";
+import { TaskQueue } from "../queue/TaskQueue";
 import { ApplicationTaskDispatcher } from "./ApplicationTask";
 import { ApplicationRateLimitPolicy } from "./ApplicationRateLimitPolicy";
 import { ApplicationCompanyRateLimitPolicy } from "./ApplicationCompanyRateLimitPolicy";
@@ -22,16 +23,40 @@ export interface ApplicationQueueResult {
 }
 
 export class ApplicationQueueService {
+  private readonly database: Database;
+  private readonly dispatcher: ApplicationTaskDispatcher;
+  private readonly rateLimitPolicy: ApplicationRateLimitPolicy;
+  private readonly companyRateLimitPolicy: ApplicationCompanyRateLimitPolicy;
+
   constructor(
-    private readonly database: Database,
-    private readonly dispatcher: ApplicationTaskDispatcher,
-    private readonly rateLimitPolicy = new ApplicationRateLimitPolicy({
-      maxSubmissionsPerDay: 50
-    }),
-    private readonly companyRateLimitPolicy = new ApplicationCompanyRateLimitPolicy({
-      maxSubmissionsPerCompanyPerDay: 5
-    })
-  ) {}
+    database: Database,
+    dispatcher: ApplicationTaskDispatcher,
+    rateLimitPolicy?: ApplicationRateLimitPolicy,
+    companyRateLimitPolicy?: ApplicationCompanyRateLimitPolicy
+  );
+  /** @deprecated Compatibility overload for the runtime wiring used by older commits. */
+  constructor(
+    taskQueue: TaskQueue,
+    _applicationRepository: unknown,
+    rateLimitPolicy?: ApplicationRateLimitPolicy,
+    companyRateLimitPolicy?: ApplicationCompanyRateLimitPolicy
+  );
+  constructor(
+    databaseOrTaskQueue: Database | TaskQueue,
+    dispatcherOrRepository: ApplicationTaskDispatcher | unknown,
+    rateLimitPolicy = new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 50 }),
+    companyRateLimitPolicy = new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 5 })
+  ) {
+    if (databaseOrTaskQueue instanceof TaskQueue) {
+      this.database = databaseOrTaskQueue.getDatabase();
+      this.dispatcher = new ApplicationTaskDispatcher(databaseOrTaskQueue);
+    } else {
+      this.database = databaseOrTaskQueue;
+      this.dispatcher = dispatcherOrRepository as ApplicationTaskDispatcher;
+    }
+    this.rateLimitPolicy = rateLimitPolicy;
+    this.companyRateLimitPolicy = companyRateLimitPolicy;
+  }
 
   async enqueueEligible(
     candidateProfileId: string,
@@ -136,5 +161,14 @@ export class ApplicationQueueService {
       submissionsUsed,
       submissionsRemaining: Math.max(0, rateLimit.remaining - result.rows.length)
     };
+  }
+
+  /** @deprecated Compatibility alias for the runtime wiring used by older commits. */
+  async enqueueEligibleApplications(candidateProfileId?: string, limit = 50): Promise<ApplicationQueueResult> {
+    const resolvedCandidateProfileId = candidateProfileId ?? process.env.CANDIDATE_PROFILE_ID;
+    if (!resolvedCandidateProfileId) {
+      throw new Error("CANDIDATE_PROFILE_ID is required to enqueue eligible applications.");
+    }
+    return this.enqueueEligible(resolvedCandidateProfileId, limit);
   }
 }
