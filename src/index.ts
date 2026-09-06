@@ -80,6 +80,7 @@ async function main(): Promise<void> {
     {
       nodeEnv: config.nodeEnv,
       automationEnabled: config.automationEnabled,
+      applicationDryRun: config.applicationDryRun,
       discoveryEnabled: config.discoveryEnabled,
       discoveryIntervalMs: config.discoveryIntervalMs,
       applicationQueueIntervalMs: config.applicationQueueIntervalMs,
@@ -172,13 +173,24 @@ async function main(): Promise<void> {
     ? [...hostedAtsAdapters, new GenericApplicationAdapter()]
     : hostedAtsAdapters;
   const adaptersRegistry = new ApplicationAdapterRegistry(adapters);
-  const submissionService = new ApplicationSubmissionService(browserSessions, adaptersRegistry, applicationRepository);
+  const submissionService = new ApplicationSubmissionService(
+    browserSessions,
+    adaptersRegistry,
+    applicationRepository,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    config.applicationDryRun
+  );
 
   let emailDispatcher: EmailNotificationTaskDispatcher | undefined;
   let emailHandler: EmailNotificationTaskHandler | undefined;
   let emailNotifications: EmailNotificationService | undefined;
   if (config.email.enabled && config.email.apiKey && config.email.from) {
-    const sender = new ResendEmailSender({ apiKey: config.email.apiKey, from: config.email.from });
+    const sender = new ResendEmailSender({ apiKey: config.email.apiKey, from: config.email.apiKey ? config.email.apiKey : "" });
     emailNotifications = new EmailNotificationService(sender);
     emailDispatcher = new EmailNotificationTaskDispatcher(taskQueue);
     emailHandler = new EmailNotificationTaskHandler(emailNotifications);
