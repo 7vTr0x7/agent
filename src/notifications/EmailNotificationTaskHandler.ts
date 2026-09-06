@@ -18,6 +18,11 @@ export class EmailNotificationTaskHandler {
       return;
     }
 
-    await this.notifications.applicationBlocked(task.payload.context);
+    if (task.payload.kind === "BLOCKED") {
+      await this.notifications.applicationBlocked(task.payload.context);
+      return;
+    }
+
+    await this.notifications.interviewReminder(task.payload.context);
   }
 }
