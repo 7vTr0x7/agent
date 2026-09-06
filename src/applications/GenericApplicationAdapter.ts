@@ -16,6 +16,7 @@ import { WorkableApplicationAdapter } from "./WorkableApplicationAdapter";
 import { BambooHRApplicationAdapter } from "./BambooHRApplicationAdapter";
 import { IcimsApplicationAdapter } from "./IcimsApplicationAdapter";
 import { TaleoApplicationAdapter } from "./TaleoApplicationAdapter";
+import { JobviteApplicationAdapter } from "./JobviteApplicationAdapter";
 
 export class GenericApplicationAdapter implements ApplicationAdapter {
   readonly name = "generic-form";
@@ -65,6 +66,10 @@ export class GenericApplicationAdapter implements ApplicationAdapter {
 
     if (new TaleoApplicationAdapter().canHandle(context.url)) {
       return new TaleoApplicationAdapter().submit(page, context);
+    }
+
+    if (new JobviteApplicationAdapter().canHandle(context.url)) {
+      return new JobviteApplicationAdapter().submit(page, context);
     }
 
     await page.waitForLoadState("domcontentloaded");
