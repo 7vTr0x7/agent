@@ -1,5 +1,4 @@
 export type WorkplaceType = "onsite" | "remote" | "hybrid" | null;
-
 export type JobOpportunityStatus = "ACTIVE" | "STALE" | "CLOSED";
 
 export interface JobOpportunity {
@@ -8,6 +7,7 @@ export interface JobOpportunity {
   canonicalUrl: string;
   title: string;
   companyName: string;
+  companyDomain?: string | null;
   location: string | null;
   country: string | null;
   workplaceType: WorkplaceType;
