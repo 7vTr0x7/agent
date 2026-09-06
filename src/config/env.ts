@@ -16,6 +16,20 @@ export interface AppConfig {
   genericApplicationAdapterEnabled: boolean;
   applicationRateLimitPerDay: number;
   applicationCompanyRateLimitPerDay: number;
+  recruiterOutreach: {
+    enabled: boolean;
+    dryRun: boolean;
+    discoveryProvider: "hunter";
+    minConfidence: number;
+    requireVerifiedEmail: boolean;
+    maxContactsPerApplication: number;
+    maxMessagesPerDay: number;
+    maxMessagesPerHour: number;
+    followUpEnabled: boolean;
+    followUpDayOffsets: number[];
+    genericEmailFallback: boolean;
+    hunterApiKey: string | null;
+  };
   resume: {
     tailoringEnabled: boolean;
     masterPath: string | null;
@@ -55,6 +69,20 @@ function positiveInteger(name: string, value: string | undefined): number {
   return parsed;
 }
 
+function nonNegativeInteger(name: string, value: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${name} must be a non-negative integer`);
+  return parsed;
+}
+
+function boundedInteger(name: string, value: string | undefined, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    throw new Error(`${name} must be an integer between ${min} and ${max}`);
+  }
+  return parsed;
+}
+
 function booleanValue(name: string, value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) return fallback;
   if (value === "true") return true;
@@ -62,10 +90,24 @@ function booleanValue(name: string, value: string | undefined, fallback: boolean
   throw new Error(`${name} must be true or false`);
 }
 
+function dayOffsets(name: string, value: string): number[] {
+  const offsets = value.split(",").map((item) => nonNegativeInteger(name, item.trim()));
+  if (offsets.length === 0 || offsets.some((offset, index) => index > 0 && offset <= offsets[index - 1])) {
+    throw new Error(`${name} must contain strictly increasing non-negative integers`);
+  }
+  return offsets;
+}
+
 export function loadConfig(): AppConfig {
   const emailEnabled = booleanValue("EMAIL_ENABLED", process.env.EMAIL_ENABLED, false);
   const resumeTailoringEnabled = booleanValue("RESUME_TAILORING_ENABLED", process.env.RESUME_TAILORING_ENABLED, false);
   const gmailEnabled = booleanValue("GMAIL_ENABLED", process.env.GMAIL_ENABLED, false);
+  const recruiterOutreachEnabled = booleanValue("RECRUITER_OUTREACH_ENABLED", process.env.RECRUITER_OUTREACH_ENABLED, false);
+  const recruiterDryRun = booleanValue("RECRUITER_OUTREACH_DRY_RUN", process.env.RECRUITER_OUTREACH_DRY_RUN, true);
+  const recruiterProvider = process.env.RECRUITER_DISCOVERY_PROVIDER ?? "hunter";
+  if (recruiterProvider !== "hunter") {
+    throw new Error("RECRUITER_DISCOVERY_PROVIDER must be hunter until another provider is explicitly implemented");
+  }
 
   return {
     nodeEnv: process.env.NODE_ENV ?? "development",
@@ -111,6 +153,49 @@ export function loadConfig(): AppConfig {
       "APPLICATION_COMPANY_RATE_LIMIT_PER_DAY",
       process.env.APPLICATION_COMPANY_RATE_LIMIT_PER_DAY ?? "5"
     ),
+    recruiterOutreach: {
+      enabled: recruiterOutreachEnabled,
+      dryRun: recruiterDryRun,
+      discoveryProvider: "hunter",
+      minConfidence: boundedInteger(
+        "RECRUITER_MIN_CONFIDENCE",
+        process.env.RECRUITER_MIN_CONFIDENCE ?? "80",
+        0,
+        100
+      ),
+      requireVerifiedEmail: booleanValue(
+        "RECRUITER_REQUIRE_VERIFIED_EMAIL",
+        process.env.RECRUITER_REQUIRE_VERIFIED_EMAIL,
+        true
+      ),
+      maxContactsPerApplication: positiveInteger(
+        "RECRUITER_MAX_CONTACTS_PER_APPLICATION",
+        process.env.RECRUITER_MAX_CONTACTS_PER_APPLICATION ?? "3"
+      ),
+      maxMessagesPerDay: positiveInteger(
+        "RECRUITER_MAX_MESSAGES_PER_DAY",
+        process.env.RECRUITER_MAX_MESSAGES_PER_DAY ?? "100"
+      ),
+      maxMessagesPerHour: positiveInteger(
+        "RECRUITER_MAX_MESSAGES_PER_HOUR",
+        process.env.RECRUITER_MAX_MESSAGES_PER_HOUR ?? "15"
+      ),
+      followUpEnabled: booleanValue(
+        "RECRUITER_FOLLOWUP_ENABLED",
+        process.env.RECRUITER_FOLLOWUP_ENABLED,
+        false
+      ),
+      followUpDayOffsets: dayOffsets(
+        "RECRUITER_FOLLOWUP_DAY_OFFSETS",
+        process.env.RECRUITER_FOLLOWUP_DAY_OFFSETS ?? "4,10,18"
+      ),
+      genericEmailFallback: booleanValue(
+        "RECRUITER_GENERIC_EMAIL_FALLBACK",
+        process.env.RECRUITER_GENERIC_EMAIL_FALLBACK,
+        true
+      ),
+      hunterApiKey: recruiterOutreachEnabled ? required("HUNTER_API_KEY", process.env.HUNTER_API_KEY) : null
+    },
     resume: {
       tailoringEnabled: resumeTailoringEnabled,
       masterPath: resumeTailoringEnabled ? required("RESUME_MASTER_PATH", process.env.RESUME_MASTER_PATH) : null,
