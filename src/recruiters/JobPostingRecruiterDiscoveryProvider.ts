@@ -23,12 +23,20 @@ function isCompanyEmail(email: string, domain: string): boolean {
 }
 
 function contextAround(text: string, index: number): string {
-  const lineStart = text.lastIndexOf("\n", index - 1) + 1;
-  const lineEndIndex = text.indexOf("\n", index);
-  const lineEnd = lineEndIndex === -1 ? text.length : lineEndIndex;
-  const line = text.slice(lineStart, lineEnd);
-  const emailOffset = index - lineStart;
-  return line.slice(Math.max(0, emailOffset - 80), Math.min(line.length, emailOffset + 20));
+  const sentenceStart = Math.max(
+    text.lastIndexOf(".", index - 1),
+    text.lastIndexOf("!", index - 1),
+    text.lastIndexOf("?", index - 1),
+    text.lastIndexOf("\n", index - 1)
+  ) + 1;
+  const sentenceEndCandidates = [
+    text.indexOf(".", index),
+    text.indexOf("!", index),
+    text.indexOf("?", index),
+    text.indexOf("\n", index)
+  ].filter((position) => position !== -1);
+  const sentenceEnd = sentenceEndCandidates.length > 0 ? Math.min(...sentenceEndCandidates) : text.length;
+  return text.slice(sentenceStart, sentenceEnd);
 }
 
 export function extractExplicitRecruiterEmails(jobDescription: string, companyDomain: string): string[] {
