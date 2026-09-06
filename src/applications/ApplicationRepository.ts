@@ -1,5 +1,7 @@
 import { Database } from "../database/Database";
 import { evaluateApplicationPolicy } from "./ApplicationPolicy";
+import { ApplicationRateLimitPolicy } from "./ApplicationRateLimitPolicy";
+import { ApplicationCompanyRateLimitPolicy } from "./ApplicationCompanyRateLimitPolicy";
 
 export interface PreparedApplication {
   applicationId: string;
@@ -28,13 +30,16 @@ export interface StaleSubmission {
   startedAt: Date;
 }
 
-const MAX_SUBMISSIONS_PER_DAY = 50;
-const MAX_SUBMISSIONS_PER_COMPANY_PER_DAY = 5;
-
 export class ApplicationRepository {
   constructor(
     private readonly database: Database,
-    private readonly excludedCompanies: readonly string[] = []
+    private readonly excludedCompanies: readonly string[] = [],
+    private readonly rateLimitPolicy = new ApplicationRateLimitPolicy({
+      maxSubmissionsPerDay: 50
+    }),
+    private readonly companyRateLimitPolicy = new ApplicationCompanyRateLimitPolicy({
+      maxSubmissionsPerCompanyPerDay: 5
+    })
   ) {}
 
   async prepare(
@@ -214,7 +219,8 @@ export class ApplicationRepository {
       );
 
       const submissionsUsed = Number(globalCount.rows[0]?.count ?? "0");
-      if (submissionsUsed >= MAX_SUBMISSIONS_PER_DAY) {
+      const globalLimit = this.rateLimitPolicy.evaluate(submissionsUsed);
+      if (!globalLimit.allowed) {
         return false;
       }
 
@@ -240,7 +246,7 @@ export class ApplicationRepository {
       );
 
       const companySubmissionsUsed = Number(companyCount.rows[0]?.count ?? "0");
-      if (companySubmissionsUsed >= MAX_SUBMISSIONS_PER_COMPANY_PER_DAY) {
+      if (companySubmissionsUsed >= this.companyRateLimitPolicy.maxSubmissionsPerCompanyPerDay) {
         return false;
       }
 
