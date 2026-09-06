@@ -18,6 +18,7 @@ import { IcimsApplicationAdapter } from "./IcimsApplicationAdapter";
 import { TaleoApplicationAdapter } from "./TaleoApplicationAdapter";
 import { JobviteApplicationAdapter } from "./JobviteApplicationAdapter";
 import { PinpointApplicationAdapter } from "./PinpointApplicationAdapter";
+import { SapSuccessFactorsApplicationAdapter } from "./SapSuccessFactorsApplicationAdapter";
 
 export class GenericApplicationAdapter implements ApplicationAdapter {
   readonly name = "generic-form";
@@ -75,6 +76,10 @@ export class GenericApplicationAdapter implements ApplicationAdapter {
 
     if (new PinpointApplicationAdapter().canHandle(context.url)) {
       return new PinpointApplicationAdapter().submit(page, context);
+    }
+
+    if (new SapSuccessFactorsApplicationAdapter().canHandle(context.url)) {
+      return new SapSuccessFactorsApplicationAdapter().submit(page, context);
     }
 
     await page.waitForLoadState("domcontentloaded");
