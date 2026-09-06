@@ -19,7 +19,12 @@ describe("SubmissionConfirmationDetector", () => {
       }
 
       if (request.url === "/url-success") {
-        response.end("<html><body><h1>Application complete</h1></body></html>");
+        response.end("<html><body><h1>Application form</h1></body></html>");
+        return;
+      }
+
+      if (request.url === "/false-positive") {
+        response.end("<html><body><h1>Frontend Engineer</h1><p>This role has received many applications and the application has been submitted by previous candidates.</p></body></html>");
         return;
       }
 
@@ -46,20 +51,38 @@ describe("SubmissionConfirmationDetector", () => {
 
     expect(result.confirmed).toBe(true);
     expect(result.confirmationUrl).toBe(`${baseUrl}/success`);
-    expect(result.signal).toContain("Page text");
+    expect(result.signal).toContain("Prominent page text");
 
     await page.close();
   });
 
-  it("confirms a known success URL even without relying on form text", async () => {
+  it("confirms a known success URL path even without confirmation text", async () => {
     const page = await browser.newPage();
-    await page.goto(`${baseUrl}/thank-you`);
+    await page.goto(`${baseUrl}/url-success?next=/thank-you`);
 
     const result = await new SubmissionConfirmationDetector().detect(page);
 
-    expect(result.confirmed).toBe(true);
-    expect(result.confirmationUrl).toBe(`${baseUrl}/thank-you`);
-    expect(result.signal).toContain("Confirmation URL");
+    expect(result.confirmed).toBe(false);
+
+    await page.goto(`${baseUrl}/thank-you?status=complete`);
+    const urlResult = await new SubmissionConfirmationDetector().detect(page);
+
+    expect(urlResult.confirmed).toBe(true);
+    expect(urlResult.confirmationUrl).toBe(`${baseUrl}/thank-you?status=complete`);
+    expect(urlResult.signal).toContain("Confirmation URL path");
+
+    await page.close();
+  });
+
+  it("does not treat ordinary job-description text as submission confirmation", async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/false-positive`);
+
+    const result = await new SubmissionConfirmationDetector().detect(page);
+
+    expect(result.confirmed).toBe(false);
+    expect(result.confirmationUrl).toBeNull();
+    expect(result.signal).toBeNull();
 
     await page.close();
   });
