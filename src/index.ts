@@ -12,6 +12,7 @@ import { ApplicationTaskDispatcher } from "./applications/ApplicationTask";
 import { ApplicationTaskHandler } from "./applications/ApplicationTaskHandler";
 import { ApplicationAdapterRegistry } from "./applications/ApplicationAdapter";
 import { GenericApplicationAdapter } from "./applications/GenericApplicationAdapter";
+import { createHostedAtsApplicationAdapters } from "./applications/AtsApplicationAdapters";
 import { BrowserSessionService } from "./applications/BrowserSession";
 import { ApplicationSubmissionService } from "./applications/ApplicationSubmissionService";
 import { ConfiguredCandidateProfileResolver } from "./candidates/ConfiguredCandidateProfileResolver";
@@ -88,9 +89,10 @@ async function main(): Promise<void> {
   const taskQueue = new TaskQueue(database);
   const applicationRepository = new ApplicationRepository(database, excludedCompanies);
   const browserSessions = new BrowserSessionService();
+  const hostedAtsAdapters = createHostedAtsApplicationAdapters();
   const adapters = config.genericApplicationAdapterEnabled
-    ? [new GenericApplicationAdapter()]
-    : [];
+    ? [...hostedAtsAdapters, new GenericApplicationAdapter()]
+    : hostedAtsAdapters;
   const adaptersRegistry = new ApplicationAdapterRegistry(adapters);
   const submissionService = new ApplicationSubmissionService(browserSessions, adaptersRegistry, applicationRepository);
 
