@@ -1,5 +1,6 @@
 import { ApplicationFieldFillResult } from "./ApplicationFormFiller";
 import { ApplicationFieldMapping } from "./ApplicationFieldMapper";
+import { PERMANENTLY_EXCLUDED_COMPANIES } from "./ApplicationPolicy";
 
 export interface SubmissionSafetyInput {
   url: string;
@@ -23,8 +24,12 @@ export class SubmissionSafetyGate {
     }
 
     const company = input.companyName.trim().toLowerCase();
+    const excludedCompanies = [
+      ...PERMANENTLY_EXCLUDED_COMPANIES,
+      ...input.excludedCompanies
+    ];
     if (
-      input.excludedCompanies.some(
+      excludedCompanies.some(
         (name) => name.trim().toLowerCase() === company
       )
     ) {
