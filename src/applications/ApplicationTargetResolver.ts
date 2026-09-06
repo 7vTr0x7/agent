@@ -14,14 +14,22 @@ const AUTH_TEXT = /(?:sign in|sign-in|log in|log-in|create account|register|regi
 
 export class ApplicationTargetResolver {
   async resolve(page: Page, sourceUrl: string): Promise<ApplicationTargetResolution> {
+    return this.resolveInternal(page, sourceUrl, false);
+  }
+
+  private async resolveInternal(
+    page: Page,
+    sourceUrl: string,
+    startedFromJobPage: boolean
+  ): Promise<ApplicationTargetResolution> {
     const currentUrl = page.url() || sourceUrl;
 
     if (AUTH_PATH.test(new URL(currentUrl).pathname)) {
       return {
         resolved: false,
         url: currentUrl,
-        startedFromJobPage: true,
-        reason: "Application target resolved to an authentication page; credentials must never be automated."
+        startedFromJobPage,
+        reason: "Blocked because authentication or account-creation UI was detected; credentials must never be automated."
       };
     }
 
@@ -32,8 +40,8 @@ export class ApplicationTargetResolver {
       return {
         resolved: false,
         url: currentUrl,
-        startedFromJobPage: true,
-        reason: "Authentication or account-creation UI was detected; credentials must never be automated."
+        startedFromJobPage,
+        reason: "Blocked because authentication or account-creation UI was detected; credentials must never be automated."
       };
     }
 
@@ -45,7 +53,7 @@ export class ApplicationTargetResolver {
       return {
         resolved: true,
         url: currentUrl,
-        startedFromJobPage: false,
+        startedFromJobPage,
         reason: "Application form is already present on the target page."
       };
     }
@@ -60,7 +68,7 @@ export class ApplicationTargetResolver {
       return {
         resolved: false,
         url: currentUrl,
-        startedFromJobPage: true,
+        startedFromJobPage,
         reason: "No unambiguous application entry point was found."
       };
     }
@@ -69,7 +77,7 @@ export class ApplicationTargetResolver {
       return {
         resolved: false,
         url: currentUrl,
-        startedFromJobPage: true,
+        startedFromJobPage,
         reason: "Multiple application entry points were found; manual review is required."
       };
     }
@@ -80,7 +88,7 @@ export class ApplicationTargetResolver {
         return {
           resolved: false,
           url: currentUrl,
-          startedFromJobPage: true,
+          startedFromJobPage,
           reason: "The application link has no destination URL."
         };
       }
@@ -90,13 +98,13 @@ export class ApplicationTargetResolver {
         return {
           resolved: false,
           url: currentUrl,
-          startedFromJobPage: true,
+          startedFromJobPage,
           reason: "The application link points back to the same page; manual review is required."
         };
       }
 
       await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
-      return this.resolve(page, targetUrl);
+      return this.resolveInternal(page, targetUrl, true);
     }
 
     try {
@@ -106,11 +114,11 @@ export class ApplicationTargetResolver {
       return {
         resolved: false,
         url: currentUrl,
-        startedFromJobPage: true,
+        startedFromJobPage,
         reason: `Application entry point could not be opened safely: ${error instanceof Error ? error.message : String(error)}`
       };
     }
 
-    return this.resolve(page, currentUrl);
+    return this.resolveInternal(page, currentUrl, true);
   }
 }
