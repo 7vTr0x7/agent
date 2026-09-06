@@ -10,6 +10,7 @@ import { ApplicationRepository } from "./applications/ApplicationRepository";
 import { ApplicationAttemptRepository } from "./applications/ApplicationAttemptRepository";
 import { ApplicationQueueService } from "./applications/ApplicationQueueService";
 import { ApplicationRateLimitPolicy } from "./applications/ApplicationRateLimitPolicy";
+import { ApplicationCompanyRateLimitPolicy } from "./applications/ApplicationCompanyRateLimitPolicy";
 import { ApplicationTaskDispatcher } from "./applications/ApplicationTask";
 import { ApplicationTaskHandler } from "./applications/ApplicationTaskHandler";
 import { ApplicationAdapterRegistry } from "./applications/ApplicationAdapter";
@@ -66,6 +67,7 @@ async function main(): Promise<void> {
       gmailEnabled: config.gmail.enabled,
       genericApplicationAdapterEnabled: config.genericApplicationAdapterEnabled,
       applicationRateLimitPerDay: config.applicationRateLimitPerDay,
+      applicationCompanyRateLimitPerDay: config.applicationCompanyRateLimitPerDay,
       ollamaModel: config.ollama.model,
       ollamaBaseUrl: config.ollama.baseUrl
     },
@@ -187,7 +189,10 @@ async function main(): Promise<void> {
   const applicationQueue = new ApplicationQueueService(
     database,
     new ApplicationTaskDispatcher(taskQueue),
-    new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: config.applicationRateLimitPerDay })
+    new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: config.applicationRateLimitPerDay }),
+    new ApplicationCompanyRateLimitPolicy({
+      maxSubmissionsPerCompanyPerDay: config.applicationCompanyRateLimitPerDay
+    })
   );
 
   const enqueueApplicationsLoop = async (): Promise<void> => {
