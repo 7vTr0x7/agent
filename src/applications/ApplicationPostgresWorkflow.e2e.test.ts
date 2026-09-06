@@ -279,6 +279,28 @@ describe("application workflow with PostgreSQL persistence", () => {
         dedupeKey: `postgres-apply:${jobOpportunityId}:${candidateProfileId}`
       });
       expect(duplicateTaskId).not.toBe(taskId);
+
+      await expect(worker.runOnce()).resolves.toBe(true);
+      const applicationsAfterDuplicate = await database.query<{ id: string; status: string }>(
+        `SELECT id, status FROM applications WHERE job_opportunity_id = $1`,
+        [jobOpportunityId]
+      );
+      expect(applicationsAfterDuplicate.rows).toHaveLength(1);
+      expect(applicationsAfterDuplicate.rows[0]).toEqual({
+        id: application.rows[0]!.id,
+        status: "SENT"
+      });
+
+      const attemptsAfterDuplicate = await attempts.listForApplication(application.rows[0]!.id);
+      expect(attemptsAfterDuplicate).toHaveLength(1);
+
+      const duplicateTask = await database.query<{ status: string; attempts: number }>(
+        `SELECT status, attempts FROM tasks WHERE id = $1`,
+        [duplicateTaskId]
+      );
+      expect(duplicateTask.rows[0]).toEqual({ status: "SUCCEEDED", attempts: 1 });
+
+      await database.query("DELETE FROM tasks WHERE id IN ($1, $2)", [taskId, duplicateTaskId]);
     });
   });
 });
