@@ -1,11 +1,11 @@
-import { RecruiterDiscoveryProvider } from "./RecruiterDiscovery";
+import { RecruiterContactCandidate, RecruiterDiscoveryProvider } from "./RecruiterDiscovery";
 import { RecruiterDiscoveryRepository } from "./RecruiterDiscoveryRepository";
 import {
   deduplicateRecruiterCandidates,
   PersistentRecruiterDiscoveryService
 } from "./PersistentRecruiterDiscoveryService";
 
-function candidate(overrides: Partial<Parameters<RecruiterDiscoveryProvider["discover"]>[0]> = {}) {
+function candidate(overrides: Partial<RecruiterContactCandidate> = {}): RecruiterContactCandidate {
   return {
     email: "recruiter@example.com",
     fullName: "Recruiter Example",
@@ -36,8 +36,10 @@ describe("deduplicateRecruiterCandidates", () => {
       confidence: 80
     };
 
-    expect(deduplicateRecruiterCandidates([first, second])).toEqual([second]);
-    expect(deduplicateRecruiterCandidates([first, second])[0]?.email).toBe("recruiter@example.com");
+    const result = deduplicateRecruiterCandidates([first, second]);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.email).toBe("recruiter@example.com");
+    expect(result[0]?.verified).toBe(true);
   });
 });
 
@@ -70,7 +72,7 @@ describe("PersistentRecruiterDiscoveryService", () => {
     const repository = {
       hasRecentDiscovery: jest.fn().mockResolvedValue(false),
       startDiscoveryRun: jest.fn().mockResolvedValue({ id: "run-1", status: "RUNNING", contactsFound: 0 }),
-      upsertContact: jest.fn().mockImplementation(async (_company, _domain, contact) => ({
+      upsertContact: jest.fn().mockImplementation(async (_company: string, _domain: string, contact: RecruiterContactCandidate) => ({
         id: `contact-${contact.email}`,
         companyName: "Example Corp",
         companyDomain: "example.com",
