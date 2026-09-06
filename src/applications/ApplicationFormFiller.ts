@@ -36,6 +36,11 @@ export class ApplicationFormFiller {
         continue;
       }
 
+      if (mapping.field.type === "select") {
+        results.push(await this.fillSelect(page, mapping));
+        continue;
+      }
+
       if (!["text", "email", "tel", "url", "textarea"].includes(mapping.field.type)) {
         results.push({
           mapping,
@@ -46,8 +51,8 @@ export class ApplicationFormFiller {
       }
 
       try {
-        const locator = this.locatorFor(page, mapping);
-        if (await locator.count() !== 1) {
+        const locator = await this.resolveSingleLocator(page, mapping);
+        if (!locator) {
           results.push({
             mapping,
             filled: false,
@@ -70,12 +75,72 @@ export class ApplicationFormFiller {
     return { results };
   }
 
+  private async resolveSingleLocator(page: Page, mapping: ApplicationFieldMapping) {
+    const locator = this.locatorFor(page, mapping);
+    const count = await locator.count();
+    if (count === 1) return locator;
+    if (count === 0) return null;
+
+    const visible = locator.locator(":visible");
+    return (await visible.count()) === 1 ? visible : null;
+  }
+
   private locatorFor(page: Page, mapping: ApplicationFieldMapping) {
     const { field } = mapping;
-    if (field.name) return page.locator(`[name=${JSON.stringify(field.name)}]`);
-    if (field.label) return page.getByLabel(field.label, { exact: true });
-    if (field.placeholder) return page.getByPlaceholder(field.placeholder, { exact: true });
+    if (field.name) return page.locator(`[name=${JSON.stringify(field.name)}]:not([disabled])`);
+    if (field.label) return page.getByLabel(field.label, { exact: true }).locator(":not([disabled])");
+    if (field.placeholder) return page.getByPlaceholder(field.placeholder, { exact: true }).locator(":not([disabled])");
     return page.locator("__missing_application_field__");
+  }
+
+  private async fillSelect(
+    page: Page,
+    mapping: ApplicationFieldMapping
+  ): Promise<ApplicationFieldFillResult> {
+    try {
+      const locator = await this.resolveSingleLocator(page, mapping);
+      if (!locator) {
+        return {
+          mapping,
+          filled: false,
+          reason: "Could not identify exactly one target select; manual review required."
+        };
+      }
+
+      const expected = String(mapping.value).trim();
+      const options = await locator.locator("option").evaluateAll((elements) =>
+        elements.map((element) => ({
+          value: element.getAttribute("value") ?? "",
+          label: element.textContent?.trim() ?? ""
+        }))
+      );
+
+      const normalizedExpected = normalizeOptionText(expected);
+      const exact = options.find(
+        (option) => normalizeOptionText(option.value) === normalizedExpected
+      );
+      const labelMatch = options.find(
+        (option) => normalizeOptionText(option.label) === normalizedExpected
+      );
+
+      const match = exact ?? labelMatch;
+      if (!match || !match.value) {
+        return {
+          mapping,
+          filled: false,
+          reason: "Candidate value does not exactly match a select option; manual review required."
+        };
+      }
+
+      await locator.selectOption(match.value);
+      return { mapping, filled: true, reason: "Select option matched exactly and selected." };
+    } catch (error) {
+      return {
+        mapping,
+        filled: false,
+        reason: `Select could not be filled safely: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
   }
 
   private async fillFile(
@@ -91,8 +156,8 @@ export class ApplicationFormFiller {
     }
 
     try {
-      const locator = this.locatorFor(page, mapping);
-      if (await locator.count() !== 1) {
+      const locator = await this.resolveSingleLocator(page, mapping);
+      if (!locator) {
         return {
           mapping,
           filled: false,
@@ -110,4 +175,8 @@ export class ApplicationFormFiller {
       };
     }
   }
+}
+
+function normalizeOptionText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
