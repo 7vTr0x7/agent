@@ -36,7 +36,7 @@ export function parseInterviewStart(details: InterviewDetails): Date | null {
 
   let hour = Number(timeMatch[1]);
   const minute = Number(timeMatch[2]);
-  const meridiem = meridiemText.toUpperCase();
+  const meridiem = (meridiemText ?? "").toUpperCase();
   if (hour < 1 || hour > 12 || minute > 59) return null;
   if (meridiem === "PM" && hour !== 12) hour += 12;
   if (meridiem === "AM" && hour === 12) hour = 0;
