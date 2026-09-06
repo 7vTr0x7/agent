@@ -11,8 +11,9 @@ export interface ApplicationRateLimitDecision {
 }
 
 export class ApplicationRateLimitPolicy {
-  constructor(private readonly config: ApplicationRateLimitPolicyConfig) {
-    if (!Number.isInteger(config.maxSubmissionsPerDay) || config.maxSubmissionsPerDay <= 0) {
+  constructor(private readonly config: ApplicationRateLimitPolicyConfig | number) {
+    const limit = typeof config === "number" ? config : config.maxSubmissionsPerDay;
+    if (!Number.isInteger(limit) || limit <= 0) {
       throw new Error("maxSubmissionsPerDay must be a positive integer");
     }
   }
@@ -22,17 +23,18 @@ export class ApplicationRateLimitPolicy {
       throw new Error("submissionsInWindow must be a non-negative integer");
     }
 
-    const remaining = Math.max(0, this.config.maxSubmissionsPerDay - submissionsInWindow);
-    const allowed = submissionsInWindow < this.config.maxSubmissionsPerDay;
+    const limit = typeof this.config === "number" ? this.config : this.config.maxSubmissionsPerDay;
+    const remaining = Math.max(0, limit - submissionsInWindow);
+    const allowed = submissionsInWindow < limit;
 
     return {
       allowed,
       used: submissionsInWindow,
-      limit: this.config.maxSubmissionsPerDay,
+      limit,
       remaining,
       reason: allowed
         ? undefined
-        : `Daily application submission limit reached (${this.config.maxSubmissionsPerDay}).`
+        : `Daily application submission limit reached (${limit}).`
     };
   }
 }
