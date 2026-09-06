@@ -16,6 +16,7 @@ import { GenericApplicationAdapter } from "./applications/GenericApplicationAdap
 import { createHostedAtsApplicationAdapters } from "./applications/AtsApplicationAdapters";
 import { BrowserSessionService } from "./applications/BrowserSession";
 import { ApplicationSubmissionService } from "./applications/ApplicationSubmissionService";
+import { StaleSubmissionMonitor } from "./applications/StaleSubmissionMonitor";
 import { ConfiguredCandidateProfileResolver } from "./candidates/ConfiguredCandidateProfileResolver";
 import { ResendEmailSender } from "./notifications/ResendEmailSender";
 import { EmailNotificationService } from "./notifications/EmailNotificationService";
@@ -81,6 +82,8 @@ async function main(): Promise<void> {
       automationEnabled: config.automationEnabled,
       discoveryEnabled: config.discoveryEnabled,
       discoveryIntervalMs: config.discoveryIntervalMs,
+      staleSubmissionCheckIntervalMs: config.staleSubmissionCheckIntervalMs,
+      staleSubmissionThresholdMinutes: config.staleSubmissionThresholdMinutes,
       configuredJobSources: config.jobSources ? "configured" : "none",
       resumeTailoringEnabled: config.resume.tailoringEnabled,
       gmailEnabled: config.gmail.enabled,
@@ -155,6 +158,11 @@ async function main(): Promise<void> {
   const excludedCompanies = csvEnvironment("JOB_EXCLUDED_COMPANIES");
   const applicationRepository = new ApplicationRepository(database, excludedCompanies);
   const applicationAttemptRepository = new ApplicationAttemptRepository(database);
+  const staleSubmissionMonitor = new StaleSubmissionMonitor(
+    applicationRepository,
+    logger,
+    config.staleSubmissionThresholdMinutes
+  );
   const browserSessions = new BrowserSessionService();
   const hostedAtsAdapters = createHostedAtsApplicationAdapters();
   const adapters = config.genericApplicationAdapterEnabled
@@ -278,6 +286,18 @@ async function main(): Promise<void> {
       }
     });
 
+  const staleSubmissionLoop = (): Promise<void> =>
+    runPeriodicLoop({
+      name: "stale-submission-monitor",
+      intervalMs: config.staleSubmissionCheckIntervalMs,
+      signal: shutdownController.signal,
+      logger,
+      sleep,
+      runOnce: async () => {
+        await staleSubmissionMonitor.runOnce();
+      }
+    });
+
   const discoveryLoop = (): Promise<void> =>
     runPeriodicLoop({
       name: "discovery",
@@ -341,6 +361,7 @@ async function main(): Promise<void> {
   await Promise.all([
     worker.run(),
     enqueueApplicationsLoop(),
+    staleSubmissionLoop(),
     discoveryLoop(),
     syncGmailLoop(),
     followUpLoop(),
