@@ -65,7 +65,8 @@ export class PersistentRecruiterDiscoveryService {
 
     try {
       const discovered = await this.options.provider.discover(input);
-      const ranked = rankRecruiterContacts(discovered.contacts, input.jobTitle, maxContacts);
+      const uniqueCandidates = deduplicateRecruiterCandidates(discovered.contacts);
+      const ranked = rankRecruiterContacts(uniqueCandidates, input.jobTitle, maxContacts);
       const persisted: Array<StoredRecruiterContact & Pick<RankedRecruiterContact, "score" | "reasons">> = [];
 
       for (const candidate of ranked) {
@@ -78,10 +79,10 @@ export class PersistentRecruiterDiscoveryService {
         persisted.push({ ...contact, score: candidate.score, reasons: candidate.reasons });
       }
 
-      await this.options.repository.finishDiscoveryRun(run.id, "SUCCEEDED", discovered.contacts.length);
+      await this.options.repository.finishDiscoveryRun(run.id, "SUCCEEDED", uniqueCandidates.length);
       return {
         status: "DISCOVERED",
-        reason: `Persisted ${persisted.length} ranked recruiter contact(s) from ${discovered.contacts.length} discovered contact(s).`,
+        reason: `Persisted ${persisted.length} ranked recruiter contact(s) from ${uniqueCandidates.length} unique discovered contact(s).`,
         runId: run.id,
         contacts: persisted
       };
@@ -97,12 +98,27 @@ export function deduplicateRecruiterCandidates(
   contacts: RecruiterContactCandidate[]
 ): RecruiterContactCandidate[] {
   const byEmail = new Map<string, RecruiterContactCandidate>();
+
   for (const contact of contacts) {
     const email = contact.email.trim().toLowerCase();
+    if (!email) continue;
+
+    const normalized = { ...contact, email };
     const existing = byEmail.get(email);
-    if (!existing || (contact.confidence ?? -1) > (existing.confidence ?? -1) || contact.verified) {
-      byEmail.set(email, { ...contact, email });
+    if (!existing) {
+      byEmail.set(email, normalized);
+      continue;
     }
+
+    const existingConfidence = existing.confidence ?? -1;
+    const candidateConfidence = normalized.confidence ?? -1;
+    const shouldReplace =
+      normalized.verified !== existing.verified
+        ? normalized.verified
+        : candidateConfidence > existingConfidence;
+
+    if (shouldReplace) byEmail.set(email, normalized);
   }
+
   return [...byEmail.values()];
 }
