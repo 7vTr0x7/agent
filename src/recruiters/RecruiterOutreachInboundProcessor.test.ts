@@ -19,7 +19,13 @@ function message(overrides: Partial<GmailMessage> = {}): GmailMessage {
   };
 }
 
-function repository(sequence = { sequenceId: "sequence-1", recipientEmail: "recruiter@company.com", companyDomain: "company.com" }): RecruiterInboundRepository & { stopped: string[]; suppressed: string[] } {
+function repository(
+  sequence: { sequenceId: string; recipientEmail: string; companyDomain: string } | null = {
+    sequenceId: "sequence-1",
+    recipientEmail: "recruiter@company.com",
+    companyDomain: "company.com"
+  }
+): RecruiterInboundRepository & { stopped: string[]; suppressed: string[] } {
   const stopped: string[] = [];
   const suppressed: string[] = [];
   return {
