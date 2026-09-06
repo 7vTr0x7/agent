@@ -31,11 +31,18 @@ export class MatchPipeline {
     profile: CandidateProfile
   ): Promise<CombinedMatchResult> {
     const deterministic = this.deterministic.evaluate(job, profile);
-    const semantic = deterministic.decision === "REJECT" || !this.semantic
-      ? null
-      : await this.semantic.evaluate(job, profile);
+    let semantic: SemanticMatchResult | null = null;
+    let semanticFallback = false;
 
-    const result = combine(deterministic, semantic, job, profile);
+    if (deterministic.decision !== "REJECT" && this.semantic) {
+      try {
+        semantic = await this.semantic.evaluate(job, profile);
+      } catch {
+        semanticFallback = true;
+      }
+    }
+
+    const result = combine(deterministic, semantic, job, profile, semanticFallback);
 
     await this.decisions.save(job.id, profile.id, {
       matchScore: result.score,
@@ -46,7 +53,11 @@ export class MatchPipeline {
       reason: result.reason,
       model: result.model,
       confidence: result.confidence,
-      evaluator: semantic ? "DETERMINISTIC_PLUS_AI" : "DETERMINISTIC_RULES"
+      evaluator: semantic
+        ? "DETERMINISTIC_PLUS_AI"
+        : semanticFallback
+          ? "DETERMINISTIC_FALLBACK"
+          : "DETERMINISTIC_RULES"
     }, result.inputHash);
 
     return result;
@@ -57,21 +68,34 @@ function combine(
   deterministic: DeterministicMatchResult,
   semantic: SemanticMatchResult | null,
   job: JobOpportunity,
-  profile: CandidateProfile
+  profile: CandidateProfile,
+  semanticFallback = false
 ): CombinedMatchResult {
   const inputHash = createHash("sha256")
     .update(JSON.stringify({ jobId: job.id, jobVersion: job.updatedAt, profile }))
     .digest("hex");
 
   if (!semantic) {
+    const fallbackDecision = semanticFallback && deterministic.decision === "APPLY"
+      ? "REVIEW"
+      : deterministic.decision;
+    const fallbackReason = semanticFallback
+      ? `${deterministic.reason} AI assessment unavailable; manual review required.`
+      : deterministic.reason;
+
     return {
       score: deterministic.matchScore,
-      decision: deterministic.decision,
-      reason: deterministic.reason,
+      decision: fallbackDecision,
+      reason: fallbackReason,
       matchedSkills: deterministic.matchedSkills,
       missingSkills: deterministic.missingSkills,
-      evidence: deterministic.evidence,
-      confidence: 1,
+      evidence: semanticFallback
+        ? [
+            ...deterministic.evidence,
+            { type: "AI_FALLBACK", detail: "Semantic matching was unavailable; deterministic rules were used." }
+          ]
+        : deterministic.evidence,
+      confidence: semanticFallback ? 0.5 : 1,
       model: null,
       inputHash,
       deterministic,
