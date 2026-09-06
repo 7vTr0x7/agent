@@ -1,6 +1,11 @@
 import { Database } from "../../database/Database";
 import { SourceDescriptor } from "../policy/SourcePolicy";
 
+interface SourceHealthRow {
+  status: string;
+  disabled_until: Date | null;
+}
+
 export class SourceHealthGate {
   constructor(private readonly database: Database) {}
 
@@ -12,11 +17,15 @@ export class SourceHealthGate {
       return false;
     }
 
-    const result = await this.database.query<{ status: string }>(
-      `SELECT status FROM sources WHERE id = $1`,
+    const result = await this.database.query<SourceHealthRow>(
+      `SELECT status, disabled_until FROM sources WHERE id = $1`,
       [descriptor.id]
     );
 
-    return result.rows[0]?.status === undefined || result.rows[0].status === "APPROVED";
+    const source = result.rows[0];
+    if (!source) return true;
+    if (source.status !== "APPROVED") return false;
+
+    return source.disabled_until === null || source.disabled_until <= new Date();
   }
 }
