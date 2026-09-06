@@ -26,8 +26,9 @@ export class ApplicationTargetResolver {
     }
 
     const passwordCount = await page.locator('input[type="password"]').count();
+    const formCount = await page.locator("form").count();
     const bodyText = (await page.locator("body").innerText().catch(() => "")).slice(0, 12000);
-    if (passwordCount > 0 || AUTH_TEXT.test(bodyText)) {
+    if (passwordCount > 0 || (formCount > 0 && AUTH_TEXT.test(bodyText))) {
       return {
         resolved: false,
         url: currentUrl,
@@ -36,7 +37,6 @@ export class ApplicationTargetResolver {
       };
     }
 
-    const formCount = await page.locator("form").count();
     const fieldCount = await page.locator("input, textarea, select").count();
     const submitCount = await page.getByRole("button", { name: SUBMIT_NAME }).count()
       + await page.getByRole("link", { name: SUBMIT_NAME }).count();
