@@ -49,6 +49,38 @@ describe("MatchPipeline", () => {
     expect(saved).toHaveLength(1);
   });
 
+  it("falls back to manual review when semantic matching fails", async () => {
+    const repository: MatchDecisionRepository = {
+      save: jest.fn().mockResolvedValue(undefined)
+    };
+    const semantic = {
+      evaluate: jest.fn().mockRejectedValue(new Error("Ollama unavailable"))
+    } as unknown as SemanticJobMatcher;
+
+    const pipeline = new MatchPipeline(new DeterministicJobMatcher(), semantic, repository);
+    const result = await pipeline.evaluateAndPersist(job, profile);
+
+    expect(result.score).toBeGreaterThanOrEqual(70);
+    expect(result.decision).toBe("REVIEW");
+    expect(result.semantic).toBeNull();
+    expect(result.confidence).toBe(0.5);
+    expect(result.reason).toContain("AI assessment unavailable");
+    expect(result.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "AI_FALLBACK" })
+      ])
+    );
+    expect(repository.save).toHaveBeenCalledWith(
+      job.id,
+      profile.id,
+      expect.objectContaining({
+        decision: "REVIEW",
+        evaluator: "DETERMINISTIC_FALLBACK"
+      }),
+      expect.any(String)
+    );
+  });
+
   it("combines deterministic and semantic scores", async () => {
     const repository: MatchDecisionRepository = {
       save: jest.fn().mockResolvedValue(undefined)
