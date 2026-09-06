@@ -6,11 +6,16 @@ import {
   JazzHrApplicationAdapter,
   JobviteApplicationAdapter,
   LeverApplicationAdapter,
+  OracleCloudApplicationAdapter,
   PinpointApplicationAdapter,
   RecruiteeApplicationAdapter,
   SmartRecruitersApplicationAdapter,
+  SuccessFactorsApplicationAdapter,
+  TaleoApplicationAdapter,
   TeamtailorApplicationAdapter,
-  WorkableApplicationAdapter
+  UkGApplicationAdapter,
+  WorkableApplicationAdapter,
+  WorkdayApplicationAdapter
 } from "./AtsApplicationAdapters";
 
 const cases = [
@@ -25,7 +30,12 @@ const cases = [
   [JobviteApplicationAdapter, "https://jobs.jobvite.com/acme/job/123"],
   [IcimsApplicationAdapter, "https://careers-acme.icims.com/jobs/123/job"],
   [PinpointApplicationAdapter, "https://acme.pinpointhq.com/postings/123"],
-  [JazzHrApplicationAdapter, "https://acme.jazz.co/jobs/123"]
+  [JazzHrApplicationAdapter, "https://acme.jazz.co/jobs/123"],
+  [WorkdayApplicationAdapter, "https://acme.myworkdayjobs.com/en-US/jobs/job/123"],
+  [TaleoApplicationAdapter, "https://acme.taleo.net/careersection/2/jobdetail.ftl?job=123"],
+  [SuccessFactorsApplicationAdapter, "https://acme.successfactors.com/career/job/123"],
+  [UkGApplicationAdapter, "https://recruiting.ultipro.com/acme/job/123"],
+  [OracleCloudApplicationAdapter, "https://acme.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/123"]
 ] as const;
 
 describe("hosted ATS application adapters", () => {
@@ -45,5 +55,6 @@ describe("hosted ATS application adapters", () => {
     expect(new GreenhouseApplicationAdapter().canHandle("https://greenhouse.io/jobs/123")).toBe(false);
     expect(new LeverApplicationAdapter().canHandle("https://lever.com/jobs/123")).toBe(false);
     expect(new WorkableApplicationAdapter().canHandle("https://workable.com/jobs/123")).toBe(false);
+    expect(new WorkdayApplicationAdapter().canHandle("https://workday.com/jobs/123")).toBe(false);
   });
 });
