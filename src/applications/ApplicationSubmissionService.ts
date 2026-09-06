@@ -35,7 +35,7 @@ export class ApplicationSubmissionService {
     private readonly safetyGate = new SubmissionSafetyGate(),
     private readonly targetResolver = new ApplicationTargetResolver(),
     private readonly hazardDetector = new ApplicationHazardDetector(),
-    private readonly dryRun = true
+    private readonly dryRun = false
   ) {}
 
   async submit(request: ApplicationSubmissionRequest): Promise<ApplicationSubmissionOutcome> {
