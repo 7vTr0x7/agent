@@ -49,6 +49,9 @@ import { RecruiterDiscoveryRepository } from "./recruiters/RecruiterDiscoveryRep
 import { PersistentRecruiterDiscoveryService } from "./recruiters/PersistentRecruiterDiscoveryService";
 import { RecruiterDiscoveryTaskDispatcher, DISCOVER_RECRUITERS_TASK } from "./recruiters/RecruiterDiscoveryTask";
 import { RecruiterDiscoveryTaskHandler } from "./recruiters/RecruiterDiscoveryTaskHandler";
+import { RecruiterOutreachPreparationService } from "./recruiters/RecruiterOutreachPreparationService";
+import { RecruiterOutreachPreparationTaskDispatcher, PREPARE_RECRUITER_OUTREACH_TASK } from "./recruiters/RecruiterOutreachPreparationTask";
+import { RecruiterOutreachPreparationTaskHandler } from "./recruiters/RecruiterOutreachPreparationTaskHandler";
 
 const config = loadConfig();
 const logger = pino({ level: config.logLevel });
@@ -215,6 +218,8 @@ async function main(): Promise<void> {
 
   let recruiterDiscoveryDispatcher: RecruiterDiscoveryTaskDispatcher | undefined;
   let recruiterDiscoveryHandler: RecruiterDiscoveryTaskHandler | undefined;
+  let recruiterPreparationDispatcher: RecruiterOutreachPreparationTaskDispatcher | undefined;
+  let recruiterPreparationHandler: RecruiterOutreachPreparationTaskHandler | undefined;
   if (config.recruiterOutreach.enabled && config.recruiterOutreach.hunterApiKey) {
     const provider = new HunterRecruiterDiscoveryProvider({ apiKey: config.recruiterOutreach.hunterApiKey });
     const repository = new RecruiterDiscoveryRepository(database);
@@ -224,10 +229,22 @@ async function main(): Promise<void> {
       minConfidence: config.recruiterOutreach.minConfidence,
       requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail
     });
+    recruiterPreparationDispatcher = new RecruiterOutreachPreparationTaskDispatcher(taskQueue);
+    recruiterPreparationHandler = new RecruiterOutreachPreparationTaskHandler(
+      new RecruiterOutreachPreparationService({
+        repository,
+        minConfidence: config.recruiterOutreach.minConfidence,
+        requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail,
+        dryRun: config.recruiterOutreach.dryRun
+      }),
+      logger
+    );
     recruiterDiscoveryDispatcher = new RecruiterDiscoveryTaskDispatcher(taskQueue);
     recruiterDiscoveryHandler = new RecruiterDiscoveryTaskHandler(
       discovery,
-      config.recruiterOutreach.maxContactsPerApplication
+      config.recruiterOutreach.maxContactsPerApplication,
+      recruiterPreparationDispatcher,
+      logger
     );
   }
 
@@ -246,6 +263,7 @@ async function main(): Promise<void> {
   const handlers = new Map<string, any>([[APPLY_JOB_TASK, applicationTaskHandler]]);
   if (emailHandler) handlers.set(SEND_APPLICATION_EMAIL_TASK, emailHandler);
   if (recruiterDiscoveryHandler) handlers.set(DISCOVER_RECRUITERS_TASK, recruiterDiscoveryHandler);
+  if (recruiterPreparationHandler) handlers.set(PREPARE_RECRUITER_OUTREACH_TASK, recruiterPreparationHandler);
 
   let discoveryRuntime: ReturnType<typeof createDiscoveryRuntime> | undefined;
   if (config.discoveryEnabled) {
@@ -398,19 +416,17 @@ async function main(): Promise<void> {
       }
     });
 
-  await Promise.all([
-    worker.run(),
-    enqueueApplicationsLoop(),
-    staleSubmissionLoop(),
-    discoveryLoop(),
-    syncGmailLoop(),
-    followUpLoop(),
-    interviewReminderLoop()
-  ]);
+  const loops: Promise<void>[] = [worker.run(), enqueueApplicationsLoop(), staleSubmissionLoop()];
+  if (discoveryRuntime) loops.push(discoveryLoop());
+  if (gmailSyncDispatcher) loops.push(syncGmailLoop());
+  if (followUpScheduler) loops.push(followUpLoop());
+  if (interviewReminderScheduler) loops.push(interviewReminderLoop());
+
+  await Promise.all(loops);
   await database.close();
 }
 
-main().catch((error: unknown) => {
-  logger.error({ error }, "job-agent failed to start");
+main().catch((error) => {
+  logger.error({ err: error }, "Fatal job-agent error");
   process.exitCode = 1;
 });
