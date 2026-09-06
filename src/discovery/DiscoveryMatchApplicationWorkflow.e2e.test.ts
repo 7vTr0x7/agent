@@ -61,7 +61,7 @@ class InMemoryMatchDecisionRepository implements MatchDecisionRepository {
   async save(
     jobOpportunityId: string,
     candidateProfileId: string,
-    result: { decision: "APPLY" | "REJECT" | "REVIEW"; matchScore: number },
+    result: any
   ): Promise<void> {
     this.decisions.set(`${jobOpportunityId}:${candidateProfileId}`, {
       decision: result.decision,
@@ -189,15 +189,19 @@ describe("discovery -> canonicalization/deduplication -> matching -> application
     await handler.handle({
       id: "match-task-1",
       taskType: "MATCH_JOB",
+      status: "RUNNING",
       payload: {
         jobOpportunityId: opportunity.id,
         candidateProfileId: profile.id
       },
-      attempts: 1,
       priority: 30,
       availableAt: new Date(),
-      claimedAt: new Date(),
+      lockedAt: new Date(),
       leaseExpiresAt: new Date(Date.now() + 60_000),
+      lockedBy: "test-worker",
+      attempts: 1,
+      maxAttempts: 3,
+      dedupeKey: `match:${opportunity.id}:${profile.id}`,
       workerId: "test-worker"
     });
 
