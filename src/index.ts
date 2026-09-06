@@ -9,6 +9,7 @@ import { TaskWorker } from "./queue/TaskWorker";
 import { ApplicationRepository } from "./applications/ApplicationRepository";
 import { ApplicationAttemptRepository } from "./applications/ApplicationAttemptRepository";
 import { ApplicationQueueService } from "./applications/ApplicationQueueService";
+import { ApplicationRateLimitPolicy } from "./applications/ApplicationRateLimitPolicy";
 import { ApplicationTaskDispatcher } from "./applications/ApplicationTask";
 import { ApplicationTaskHandler } from "./applications/ApplicationTaskHandler";
 import { ApplicationAdapterRegistry } from "./applications/ApplicationAdapter";
@@ -64,6 +65,7 @@ async function main(): Promise<void> {
       resumeTailoringEnabled: config.resume.tailoringEnabled,
       gmailEnabled: config.gmail.enabled,
       genericApplicationAdapterEnabled: config.genericApplicationAdapterEnabled,
+      applicationRateLimitPerDay: config.applicationRateLimitPerDay,
       ollamaModel: config.ollama.model,
       ollamaBaseUrl: config.ollama.baseUrl
     },
@@ -182,12 +184,17 @@ async function main(): Promise<void> {
   }
 
   const worker = new TaskWorker(taskQueue, handlers);
-  const applicationQueue = new ApplicationQueueService(database, new ApplicationTaskDispatcher(taskQueue));
+  const applicationQueue = new ApplicationQueueService(
+    database,
+    new ApplicationTaskDispatcher(taskQueue),
+    new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: config.applicationRateLimitPerDay })
+  );
 
   const enqueueApplicationsLoop = async (): Promise<void> => {
     while (true) {
       const queued = await applicationQueue.enqueueEligible(candidateProfile.id);
-      if (queued.queued > 0) logger.info({ queued: queued.queued }, "Eligible application tasks queued");
+      if (queued.queued > 0) logger.info(queued, "Eligible application tasks queued");
+      if (queued.rateLimited) logger.warn(queued, "Daily application submission limit reached");
       await new Promise((resolve) => setTimeout(resolve, 30_000));
     }
   };
