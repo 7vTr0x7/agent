@@ -7,6 +7,7 @@ import {
 import { FormFieldDetector } from "./FormFieldDetector";
 import { VerifiedSubmissionExecutor } from "./VerifiedSubmissionExecutor";
 import { SubmissionConfirmationDetector } from "./SubmissionConfirmationDetector";
+import { GreenhouseApplicationAdapter } from "./GreenhouseApplicationAdapter";
 
 export class GenericApplicationAdapter implements ApplicationAdapter {
   readonly name = "generic-form";
@@ -21,7 +22,11 @@ export class GenericApplicationAdapter implements ApplicationAdapter {
     return /^https?:\/\//i.test(url);
   }
 
-  async submit(page: Page, _context: ApplicationContext): Promise<ApplicationSubmissionResult> {
+  async submit(page: Page, context: ApplicationContext): Promise<ApplicationSubmissionResult> {
+    if (new GreenhouseApplicationAdapter().canHandle(context.url)) {
+      return new GreenhouseApplicationAdapter().submit(page, context);
+    }
+
     await page.waitForLoadState("domcontentloaded");
 
     const fields = await this.detector.detect(page);
