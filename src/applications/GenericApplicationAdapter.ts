@@ -14,6 +14,7 @@ import { WorkdayApplicationAdapter } from "./WorkdayApplicationAdapter";
 import { SmartRecruitersApplicationAdapter } from "./SmartRecruitersApplicationAdapter";
 import { WorkableApplicationAdapter } from "./WorkableApplicationAdapter";
 import { BambooHRApplicationAdapter } from "./BambooHRApplicationAdapter";
+import { IcimsApplicationAdapter } from "./IcimsApplicationAdapter";
 
 export class GenericApplicationAdapter implements ApplicationAdapter {
   readonly name = "generic-form";
@@ -55,6 +56,10 @@ export class GenericApplicationAdapter implements ApplicationAdapter {
 
     if (new BambooHRApplicationAdapter().canHandle(context.url)) {
       return new BambooHRApplicationAdapter().submit(page, context);
+    }
+
+    if (new IcimsApplicationAdapter().canHandle(context.url)) {
+      return new IcimsApplicationAdapter().submit(page, context);
     }
 
     await page.waitForLoadState("domcontentloaded");
