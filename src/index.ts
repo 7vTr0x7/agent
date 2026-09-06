@@ -9,7 +9,6 @@ import { ApplicationAttemptRepository } from "./applications/ApplicationAttemptR
 import { ApplicationQueueService } from "./applications/ApplicationQueueService";
 import { ApplicationRateLimitPolicy } from "./applications/ApplicationRateLimitPolicy";
 import { ApplicationCompanyRateLimitPolicy } from "./applications/ApplicationCompanyRateLimitPolicy";
-import { ApplicationTaskDispatcher } from "./applications/ApplicationTask";
 import { ApplicationTaskHandler } from "./applications/ApplicationTaskHandler";
 import { ApplicationAdapterRegistry } from "./applications/ApplicationAdapter";
 import { GenericApplicationAdapter } from "./applications/GenericApplicationAdapter";
@@ -172,7 +171,7 @@ async function main(): Promise<void> {
     const recruiterFollowUpService = new RecruiterOutreachFollowUpService(recruiterRepository, { enabled: config.recruiterOutreach.followUpEnabled, dayOffsets: config.recruiterOutreach.followUpDayOffsets });
     recruiterPreparationHandler = new RecruiterOutreachPreparationTaskHandler(new RecruiterOutreachPreparationService({ repository: recruiterRepository, minConfidence: config.recruiterOutreach.minConfidence, requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail, dryRun: config.recruiterOutreach.dryRun }), recruiterSendDispatcher, logger);
     if (recruiterSendDispatcher && gmailMailbox) {
-      recruiterSendHandler = new RecruiterOutreachSendTaskHandler(new RecruiterOutreachSendService({ repository: recruiterRepository, mailbox: gmailMailbox, dryRun: config.recruiterOutreach.dryRun, outboundEnabled: process.env.OUTBOUND_ENABLED === "true", maxMessagesPerDay: config.recruiterOutreach.maxMessagesPerDay, maxMessagesPerHour: config.recruiterOutreach.maxMessagesPerHour }), recruiterRepository, logger, recruiterFollowUpService);
+      recruiterSendHandler = new RecruiterOutreachSendTaskHandler(new RecruiterOutreachSendService({ repository: recruiterRepository, mailbox: gmailMailbox, dryRun: config.recruiterOutreach.dryRun, outboundEnabled: config.outboundEnabled, maxMessagesPerDay: config.recruiterOutreach.maxMessagesPerDay, maxMessagesPerHour: config.recruiterOutreach.maxMessagesPerHour }), recruiterRepository, logger, recruiterFollowUpService);
       if (config.recruiterOutreach.followUpEnabled) recruiterFollowUpScheduler = new RecruiterOutreachFollowUpScheduler(recruiterRepository, recruiterSendDispatcher, true);
     }
     recruiterDiscoveryDispatcher = new RecruiterDiscoveryTaskDispatcher(taskQueue);
