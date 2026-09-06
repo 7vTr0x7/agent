@@ -171,4 +171,93 @@ describe("TaskWorker", () => {
       "Task handler failed"
     );
   });
+
+  it("persists handler failure so a retry can be scheduled", async () => {
+    const task = {
+      id: "task-retry",
+      taskType: "test",
+      payload: {},
+      status: "RUNNING" as const,
+      priority: 10,
+      availableAt: new Date(),
+      lockedAt: new Date(),
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+      lockedBy: "worker-retry",
+      attempts: 1,
+      maxAttempts: 3,
+      dedupeKey: null,
+      workerId: "worker-retry"
+    };
+
+    const queue = {
+      recoverStaleTasks: jest.fn().mockResolvedValue({ recovered: 0 }),
+      claim: jest.fn().mockResolvedValue(task),
+      heartbeat: jest.fn().mockResolvedValue(true),
+      succeed: jest.fn().mockResolvedValue(undefined),
+      fail: jest.fn().mockResolvedValue("PENDING")
+    } as unknown as TaskQueue;
+
+    const worker = new TaskWorker(
+      queue,
+      new Map([["test", { handle: jest.fn().mockRejectedValue(new Error("temporary outage")) }]]),
+      { workerId: "worker-retry", staleRecoveryIntervalMs: 60_000 }
+    );
+
+    await expect(worker.runOnce()).resolves.toBe(true);
+
+    expect(queue.fail).toHaveBeenCalledWith(
+      "task-retry",
+      "worker-retry",
+      "temporary outage"
+    );
+    expect(queue.succeed).not.toHaveBeenCalled();
+  });
+
+  it("records stale-task recovery and continues processing", async () => {
+    const task = {
+      id: "task-after-recovery",
+      taskType: "test",
+      payload: {},
+      status: "RUNNING" as const,
+      priority: 0,
+      availableAt: new Date(),
+      lockedAt: new Date(),
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+      lockedBy: "worker-recovery",
+      attempts: 1,
+      maxAttempts: 3,
+      dedupeKey: null,
+      workerId: "worker-recovery"
+    };
+
+    const queue = {
+      recoverStaleTasks: jest.fn().mockResolvedValue({ recovered: 2 }),
+      claim: jest.fn().mockResolvedValue(task),
+      heartbeat: jest.fn().mockResolvedValue(true),
+      succeed: jest.fn().mockResolvedValue(undefined),
+      fail: jest.fn().mockResolvedValue("PENDING")
+    } as unknown as TaskQueue;
+
+    const logger: TaskWorkerLogger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn()
+    };
+
+    const worker = new TaskWorker(
+      queue,
+      new Map([["test", { handle: jest.fn().mockResolvedValue(undefined) }]]),
+      { workerId: "worker-recovery", staleRecoveryIntervalMs: 30_000, logger }
+    );
+
+    await expect(worker.runOnce()).resolves.toBe(true);
+
+    expect(queue.recoverStaleTasks).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith(
+      { workerId: "worker-recovery", recovered: 2 },
+      "Recovered stale tasks"
+    );
+    expect(queue.claim).toHaveBeenCalledWith("worker-recovery");
+    expect(queue.succeed).toHaveBeenCalledWith("task-after-recovery", "worker-recovery");
+  });
 });
