@@ -34,7 +34,8 @@ export class ApplicationSubmissionService {
     private readonly filler = new ApplicationFormFiller(),
     private readonly safetyGate = new SubmissionSafetyGate(),
     private readonly targetResolver = new ApplicationTargetResolver(),
-    private readonly hazardDetector = new ApplicationHazardDetector()
+    private readonly hazardDetector = new ApplicationHazardDetector(),
+    private readonly dryRun = true
   ) {}
 
   async submit(request: ApplicationSubmissionRequest): Promise<ApplicationSubmissionOutcome> {
@@ -97,6 +98,16 @@ export class ApplicationSubmissionService {
           submitted: false,
           safetyAllowed: false,
           reason: safety.reasons.join(" "),
+          adapterName: adapter.name,
+          result: null
+        };
+      }
+
+      if (this.dryRun) {
+        return {
+          submitted: false,
+          safetyAllowed: true,
+          reason: "Dry run completed: application page was resolved, hazards were clear, fields were mapped and filled, and the safety gate allowed submission. No application was submitted.",
           adapterName: adapter.name,
           result: null
         };
