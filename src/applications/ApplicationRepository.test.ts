@@ -195,4 +195,70 @@ describe("ApplicationRepository submission state", () => {
       "olderThanMinutes must be a positive finite number."
     );
   });
+
+  it("recovers only a stale in-progress application and records a distinct recovery event", async () => {
+    const queries: string[] = [];
+    const client = {
+      query: async <T>(text: string): Promise<QueryResult<T>> => {
+        queries.push(text);
+        if (text.includes("SELECT status, updated_at")) {
+          return {
+            rows: [{ status: "SUBMISSION_IN_PROGRESS", updated_at: new Date("2026-09-06T10:00:00.000Z") }]
+          } as QueryResult<T>;
+        }
+        if (text.includes("SELECT updated_at < NOW()")) {
+          return { rows: [{ stale: true }] } as QueryResult<T>;
+        }
+        return { rows: [] } as QueryResult<T>;
+      }
+    };
+    const database = {
+      query: async <T>() => ({ rows: [] }) as QueryResult<T>,
+      transaction: async <T>(callback: (transactionClient: typeof client) => Promise<T>) => callback(client)
+    };
+    const repository = new ApplicationRepository(database as never);
+    const evidence = {
+      confirmationUrl: "https://jobs.example.com/confirmation/abc",
+      externalApplicationId: "APP-123",
+      verificationSource: "INDEPENDENT_CONFIRMATION" as const
+    };
+
+    await expect(repository.recoverVerifiedSubmission("application-stale-1", 30, evidence)).resolves.toEqual({
+      applicationId: "application-stale-1",
+      confirmationUrl: evidence.confirmationUrl,
+      externalApplicationId: evidence.externalApplicationId
+    });
+    expect(queries.some((query) => query.includes("FOR UPDATE"))).toBe(true);
+    expect(queries.some((query) => query.includes("APPLICATION_SUBMISSION_RECOVERED"))).toBe(true);
+    expect(queries.some((query) => query.includes("SET status = 'SENT'"))).toBe(true);
+  });
+
+  it("does not recover an ambiguous non-stale submission", async () => {
+    const client = {
+      query: async <T>(text: string): Promise<QueryResult<T>> => {
+        if (text.includes("SELECT status, updated_at")) {
+          return {
+            rows: [{ status: "SUBMISSION_IN_PROGRESS", updated_at: new Date() }]
+          } as QueryResult<T>;
+        }
+        if (text.includes("SELECT updated_at < NOW()")) {
+          return { rows: [{ stale: false }] } as QueryResult<T>;
+        }
+        return { rows: [] } as QueryResult<T>;
+      }
+    };
+    const database = {
+      query: async <T>() => ({ rows: [] }) as QueryResult<T>,
+      transaction: async <T>(callback: (transactionClient: typeof client) => Promise<T>) => callback(client)
+    };
+    const repository = new ApplicationRepository(database as never);
+
+    await expect(
+      repository.recoverVerifiedSubmission("application-recent", 30, {
+        confirmationUrl: "https://jobs.example.com/confirmation/abc",
+        externalApplicationId: "APP-123",
+        verificationSource: "INDEPENDENT_CONFIRMATION"
+      })
+    ).resolves.toBeNull();
+  });
 });
