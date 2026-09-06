@@ -5,45 +5,14 @@ import {
   RecruiterDiscoveryResult,
   RecruiterVerificationResult
 } from "./RecruiterDiscovery";
+import { extractExplicitRecruiterEmails } from "./JobPostingRecruiterDiscoveryProvider";
 
 const HUNTER_API_BASE = "https://api.hunter.io/v2";
 
-interface HunterSource {
-  uri?: string;
-  type?: string;
-  confidence?: number;
-}
-
-interface HunterEmail {
-  value?: string;
-  type?: string;
-  confidence?: number;
-  first_name?: string;
-  last_name?: string;
-  position?: string;
-  seniority?: string;
-  department?: string;
-  country?: string;
-  state?: string;
-  city?: string;
-  verification?: { status?: string; date?: string | null };
-  sources?: HunterSource[];
-}
-
-interface HunterDomainSearchResponse {
-  data?: {
-    domain?: string;
-    organization?: string | null;
-    emails?: HunterEmail[];
-  };
-}
-
-interface HunterVerifierResponse {
-  data?: {
-    status?: string;
-    score?: number;
-  };
-}
+interface HunterSource { uri?: string; type?: string; confidence?: number; }
+interface HunterEmail { value?: string; type?: string; confidence?: number; first_name?: string; last_name?: string; position?: string; seniority?: string; department?: string; country?: string; state?: string; city?: string; verification?: { status?: string; date?: string | null }; sources?: HunterSource[]; }
+interface HunterDomainSearchResponse { data?: { domain?: string; organization?: string | null; emails?: HunterEmail[]; }; }
+interface HunterVerifierResponse { data?: { status?: string; score?: number; }; }
 
 export interface HunterRecruiterDiscoveryProviderOptions {
   apiKey: string;
@@ -58,20 +27,11 @@ function normalizeDomain(value: string): string {
   const withoutProtocol = trimmed.replace(/^https?:\/\//, "");
   return withoutProtocol.split("/")[0]?.replace(/^www\./, "") ?? "";
 }
-
-function normalizeEmail(value: string): string {
-  return value.trim().toLowerCase();
-}
-
+function normalizeEmail(value: string): string { return value.trim().toLowerCase(); }
 function isRecruitingContact(email: HunterEmail): boolean {
-  const text = [email.position, email.department, email.seniority, email.value]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
+  const text = [email.position, email.department, email.seniority, email.value].filter(Boolean).join(" ").toLowerCase();
   return /(recruit|talent|human\s*resources|\bhr\b|people\s*ops|hiring|staffing)/i.test(text);
 }
-
 function isUsableProfessionalEmail(email: HunterEmail, domain: string): boolean {
   if (!email.value) return false;
   const value = normalizeEmail(email.value);
@@ -81,11 +41,7 @@ function isUsableProfessionalEmail(email: HunterEmail, domain: string): boolean 
   if (email.type === "generic") return true;
   return email.type === "personal" || email.type === undefined;
 }
-
-function isTransientStatus(status: number): boolean {
-  return status === 429 || status >= 500;
-}
-
+function isTransientStatus(status: number): boolean { return status === 429 || status >= 500; }
 function retryDelay(response: Response, fallbackMs: number): number {
   const retryAfter = response.headers.get("retry-after");
   if (!retryAfter) return fallbackMs;
@@ -115,79 +71,82 @@ export class HunterRecruiterDiscoveryProvider implements RecruiterDiscoveryProvi
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
       const response = await this.fetchImpl(url, { headers: { Accept: "application/json" } });
       if (response.ok) return (await response.json()) as T;
-
-      if (!isTransientStatus(response.status) || attempt === this.maxRetries) {
-        throw new Error(`Hunter ${operation} failed with HTTP ${response.status}`);
-      }
-
+      if (!isTransientStatus(response.status) || attempt === this.maxRetries) throw new Error(`Hunter ${operation} failed with HTTP ${response.status}`);
       await this.sleepImpl(retryDelay(response, this.retryDelayMs));
     }
-
     throw new Error(`Hunter ${operation} failed without a response`);
+  }
+
+  private async discoverFromJobPosting(input: RecruiterDiscoveryInput): Promise<RecruiterContactCandidate[]> {
+    const emails = extractExplicitRecruiterEmails(input.jobDescription, input.companyDomain);
+    const contacts: RecruiterContactCandidate[] = [];
+    for (const email of emails) {
+      try {
+        const verification = await this.verify(email);
+        if (!verification.verified) continue;
+        contacts.push({
+          email,
+          title: "Recruiting contact from job posting",
+          department: "recruiting",
+          confidence: verification.confidence ?? 100,
+          verified: true,
+          verificationStatus: verification.status,
+          provider: this.name,
+          sources: [{ type: "job_posting" }]
+        });
+      } catch {
+        // A public posting is never enough to make an address outbound-eligible.
+      }
+    }
+    return contacts;
   }
 
   async discover(input: RecruiterDiscoveryInput): Promise<RecruiterDiscoveryResult> {
     const domain = normalizeDomain(input.companyDomain);
     if (!domain) throw new Error("A valid company domain is required for Hunter discovery");
 
-    const url = new URL(`${HUNTER_API_BASE}/domain-search`);
-    url.searchParams.set("domain", domain);
-    url.searchParams.set("api_key", this.apiKey);
-    url.searchParams.set("limit", "100");
-
-    const payload = await this.requestJson<HunterDomainSearchResponse>(url, "domain search");
-
-    const contacts = (payload.data?.emails ?? [])
-      .filter((email) => isUsableProfessionalEmail(email, domain))
-      .filter(isRecruitingContact)
-      .map((email): RecruiterContactCandidate => ({
-        email: normalizeEmail(email.value!),
-        fullName: [email.first_name, email.last_name].filter(Boolean).join(" ") || undefined,
-        title: email.position,
-        department: email.department,
-        seniority: email.seniority,
-        country: email.country,
-        location: [email.city, email.state].filter(Boolean).join(", ") || undefined,
-        confidence: email.confidence,
-        verified: email.verification?.status === "valid",
-        verificationStatus: email.verification?.status,
-        provider: this.name,
-        sources: (email.sources ?? []).map((source) => ({
-          url: source.uri,
-          type: source.type,
-          confidence: source.confidence
-        }))
-      }));
-
-    return {
-      provider: this.name,
-      contacts,
-      discoveredAt: new Date()
-    };
+    try {
+      const url = new URL(`${HUNTER_API_BASE}/domain-search`);
+      url.searchParams.set("domain", domain);
+      url.searchParams.set("api_key", this.apiKey);
+      url.searchParams.set("limit", "100");
+      const payload = await this.requestJson<HunterDomainSearchResponse>(url, "domain search");
+      const contacts = (payload.data?.emails ?? [])
+        .filter((email) => isUsableProfessionalEmail(email, domain))
+        .filter(isRecruitingContact)
+        .map((email): RecruiterContactCandidate => ({
+          email: normalizeEmail(email.value!),
+          fullName: [email.first_name, email.last_name].filter(Boolean).join(" ") || undefined,
+          title: email.position,
+          department: email.department,
+          seniority: email.seniority,
+          country: email.country,
+          location: [email.city, email.state].filter(Boolean).join(", ") || undefined,
+          confidence: email.confidence,
+          verified: email.verification?.status === "valid",
+          verificationStatus: email.verification?.status,
+          provider: this.name,
+          sources: (email.sources ?? []).map((source) => ({ url: source.uri, type: source.type, confidence: source.confidence }))
+        }));
+      if (contacts.length > 0) return { provider: this.name, contacts, discoveredAt: new Date() };
+      const fallbackContacts = await this.discoverFromJobPosting(input);
+      return { provider: this.name, contacts: fallbackContacts, discoveredAt: new Date() };
+    } catch {
+      const fallbackContacts = await this.discoverFromJobPosting(input);
+      return { provider: this.name, contacts: fallbackContacts, discoveredAt: new Date() };
+    }
   }
 
   async verify(email: string): Promise<RecruiterVerificationResult> {
     const normalized = normalizeEmail(email);
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
-      return { email: normalized, verified: false, status: "invalid", confidence: 0 };
-    }
-
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) return { email: normalized, verified: false, status: "invalid", confidence: 0 };
     const url = new URL(`${HUNTER_API_BASE}/email-verifier`);
     url.searchParams.set("email", normalized);
     url.searchParams.set("api_key", this.apiKey);
-
     const payload = await this.requestJson<HunterVerifierResponse>(url, "email verification");
     const status = payload.data?.status ?? "unknown";
-    const confidence = payload.data?.score;
-    return {
-      email: normalized,
-      verified: status === "valid",
-      status,
-      confidence
-    };
+    return { email: normalized, verified: status === "valid", status, confidence: payload.data?.score };
   }
 }
 
-export function normalizeHunterCompanyDomain(value: string): string {
-  return normalizeDomain(value);
-}
+export function normalizeHunterCompanyDomain(value: string): string { return normalizeDomain(value); }
