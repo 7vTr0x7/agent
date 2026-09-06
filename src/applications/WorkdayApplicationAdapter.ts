@@ -9,6 +9,9 @@ import { SubmissionConfirmationDetector } from "./SubmissionConfirmationDetector
 const WORKDAY_HOST_PATTERNS = [
   /^myworkdayjobs\.com$/i,
   /\.myworkdayjobs\.com$/i,
+  /^myworkday\.com$/i,
+  /\.myworkday\.com$/i,
+  /^workday\.com$/i,
   /\.workday\.com$/i
 ] as const;
 
