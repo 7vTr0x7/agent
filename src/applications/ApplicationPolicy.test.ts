@@ -64,4 +64,28 @@ describe("evaluateApplicationPolicy", () => {
       reason: "Company is excluded by application policy."
     });
   });
+
+  it("blocks permanent exclusions even when configuration omits them", () => {
+    expect(
+      evaluateApplicationPolicy({
+        ...base,
+        excludedCompanies: [],
+        companyName: "  Octopus Technologies "
+      })
+    ).toEqual({
+      decision: "BLOCK",
+      reason: "Company is excluded by application policy."
+    });
+
+    expect(
+      evaluateApplicationPolicy({
+        ...base,
+        excludedCompanies: [],
+        companyName: "  SKETCH BRAHMA TECHNOLOGIES "
+      })
+    ).toEqual({
+      decision: "BLOCK",
+      reason: "Company is excluded by application policy."
+    });
+  });
 });
