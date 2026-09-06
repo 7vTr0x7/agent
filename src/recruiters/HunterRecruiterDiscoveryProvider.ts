@@ -48,6 +48,9 @@ interface HunterVerifierResponse {
 export interface HunterRecruiterDiscoveryProviderOptions {
   apiKey: string;
   fetchImpl?: typeof fetch;
+  maxRetries?: number;
+  retryDelayMs?: number;
+  sleepImpl?: (delayMs: number) => Promise<void>;
 }
 
 function normalizeDomain(value: string): string {
@@ -79,15 +82,48 @@ function isUsableProfessionalEmail(email: HunterEmail, domain: string): boolean 
   return email.type === "personal" || email.type === undefined;
 }
 
+function isTransientStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+function retryDelay(response: Response, fallbackMs: number): number {
+  const retryAfter = response.headers.get("retry-after");
+  if (!retryAfter) return fallbackMs;
+  const seconds = Number(retryAfter);
+  if (!Number.isFinite(seconds) || seconds < 0) return fallbackMs;
+  return Math.min(seconds * 1000, 30_000);
+}
+
 export class HunterRecruiterDiscoveryProvider implements RecruiterDiscoveryProvider {
   readonly name = "hunter";
   private readonly apiKey: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly maxRetries: number;
+  private readonly retryDelayMs: number;
+  private readonly sleepImpl: (delayMs: number) => Promise<void>;
 
   constructor(options: HunterRecruiterDiscoveryProviderOptions) {
     if (!options.apiKey.trim()) throw new Error("Hunter API key is required");
     this.apiKey = options.apiKey.trim();
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.maxRetries = Math.max(0, Math.floor(options.maxRetries ?? 2));
+    this.retryDelayMs = Math.max(0, options.retryDelayMs ?? 250);
+    this.sleepImpl = options.sleepImpl ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
+  }
+
+  private async requestJson<T>(url: URL, operation: string): Promise<T> {
+    for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
+      const response = await this.fetchImpl(url, { headers: { Accept: "application/json" } });
+      if (response.ok) return (await response.json()) as T;
+
+      if (!isTransientStatus(response.status) || attempt === this.maxRetries) {
+        throw new Error(`Hunter ${operation} failed with HTTP ${response.status}`);
+      }
+
+      await this.sleepImpl(retryDelay(response, this.retryDelayMs));
+    }
+
+    throw new Error(`Hunter ${operation} failed without a response`);
   }
 
   async discover(input: RecruiterDiscoveryInput): Promise<RecruiterDiscoveryResult> {
@@ -99,11 +135,7 @@ export class HunterRecruiterDiscoveryProvider implements RecruiterDiscoveryProvi
     url.searchParams.set("api_key", this.apiKey);
     url.searchParams.set("limit", "100");
 
-    const response = await this.fetchImpl(url, { headers: { Accept: "application/json" } });
-    const payload = (await response.json()) as HunterDomainSearchResponse;
-    if (!response.ok) {
-      throw new Error(`Hunter domain search failed with HTTP ${response.status}`);
-    }
+    const payload = await this.requestJson<HunterDomainSearchResponse>(url, "domain search");
 
     const contacts = (payload.data?.emails ?? [])
       .filter((email) => isUsableProfessionalEmail(email, domain))
@@ -144,12 +176,7 @@ export class HunterRecruiterDiscoveryProvider implements RecruiterDiscoveryProvi
     url.searchParams.set("email", normalized);
     url.searchParams.set("api_key", this.apiKey);
 
-    const response = await this.fetchImpl(url, { headers: { Accept: "application/json" } });
-    const payload = (await response.json()) as HunterVerifierResponse;
-    if (!response.ok) {
-      throw new Error(`Hunter email verification failed with HTTP ${response.status}`);
-    }
-
+    const payload = await this.requestJson<HunterVerifierResponse>(url, "email verification");
     const status = payload.data?.status ?? "unknown";
     const confidence = payload.data?.score;
     return {
