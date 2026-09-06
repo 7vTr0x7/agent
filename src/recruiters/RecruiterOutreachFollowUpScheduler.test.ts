@@ -66,7 +66,7 @@ describe("RecruiterOutreachFollowUpScheduler", () => {
 
   it("can safely re-queue a previously prepared message after a queue failure", async () => {
     const repository = {
-      prepareDueRecruiterFollowUps: jest.fn().mockResolvedValue(message)
+      prepareDueRecruiterFollowUps: jest.fn().mockResolvedValue([message])
     } as unknown as RecruiterDiscoveryRepository;
     const sendDispatcher = {
       enqueue: jest.fn()
