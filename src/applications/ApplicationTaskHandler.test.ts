@@ -6,6 +6,7 @@ import { CandidateProfile } from "../candidates/CandidateProfile";
 import { ClaimedTask } from "../queue/TaskQueue";
 import { TailoredResumeArtifactService } from "../resume/TailoredResumeArtifactService";
 import { TailoredResumeRepository, TailoredResumeRecord } from "../resume/TailoredResumeRepository";
+import { ApplicationAttemptRecord } from "./ApplicationAttemptRepository";
 
 class FakeApplications {
   prepared = true;
@@ -49,6 +50,7 @@ class FakeSubmissionService {
       submitted: true,
       safetyAllowed: true,
       reason: "Synthetic submission completed.",
+      adapterName: "greenhouse",
       result: {
         submitted: true,
         externalApplicationId: "external-1",
@@ -56,6 +58,14 @@ class FakeSubmissionService {
         reason: "Synthetic submission completed."
       }
     };
+  }
+}
+
+class FakeApplicationAttemptRepository {
+  records: ApplicationAttemptRecord[] = [];
+
+  async record(record: ApplicationAttemptRecord): Promise<void> {
+    this.records.push(record);
   }
 }
 
@@ -141,6 +151,40 @@ describe("ApplicationTaskHandler", () => {
         companyName: "Example Corp",
         excludedCompanies: ["Octopus Technologies", "Sketch Brahma Technologies"],
         candidateProfile
+      }
+    ]);
+  });
+
+  it("persists the application attempt outcome", async () => {
+    const applications = new FakeApplications();
+    const submissions = new FakeSubmissionService();
+    const attempts = new FakeApplicationAttemptRepository();
+    const handler = new ApplicationTaskHandler(
+      applications,
+      submissions,
+      {
+        async getById() {
+          return candidateProfile;
+        }
+      },
+      [],
+      undefined,
+      undefined,
+      undefined,
+      attempts
+    );
+
+    await handler.handle(task());
+
+    expect(attempts.records).toEqual([
+      {
+        applicationId: "application-1",
+        adapterName: "greenhouse",
+        safetyAllowed: true,
+        submitted: true,
+        reason: "Synthetic submission completed.",
+        confirmationUrl: "https://example.com/confirmation",
+        externalApplicationId: "external-1"
       }
     ]);
   });
