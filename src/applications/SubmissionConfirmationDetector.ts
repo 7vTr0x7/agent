@@ -12,6 +12,7 @@ const CONFIRMATION_PATTERNS = [
   /successfully\s+applied/i,
   /successfully\s+submitted/i,
   /thank\s+you\s+for\s+applying/i,
+  /thanks\s+for\s+applying/i,
   /application\s+complete/i,
   /application\s+confirmation/i
 ] as const;
@@ -47,7 +48,23 @@ export class SubmissionConfirmationDetector {
       return {
         confirmed: true,
         confirmationUrl: url,
-        signal: "Prominent page text matched a known application confirmation pattern."
+        signal: "Page text in a prominent/status element matched a known application confirmation pattern."
+      };
+    }
+
+    // Some ATS pages replace the entire form with a short confirmation message
+    // without using a heading or status role. A compact body containing only a
+    // known confirmation phrase is safe to recognize; longer arbitrary body
+    // text still requires multiple independent confirmation signals.
+    const compactBodyConfirmation = CONFIRMATION_PATTERNS.some((pattern) =>
+      pattern.test(bodyText) && bodyText.length <= 160
+    );
+
+    if (compactBodyConfirmation) {
+      return {
+        confirmed: true,
+        confirmationUrl: url,
+        signal: "Page text matched a known application confirmation pattern."
       };
     }
 
