@@ -7,8 +7,7 @@ export interface SubmissionConfirmationResult {
 }
 
 const CONFIRMATION_PATTERNS = [
-  /application\s+(?:has\s+been\s+)?submitted/i,
-  /application\s+(?:has\s+been\s+)?received/i,
+  /application\s+(?:(?:has\s+been|was|is)\s+)?(?:submitted|received|sent)/i,
   /successfully\s+applied/i,
   /successfully\s+submitted/i,
   /thank\s+you\s+for\s+applying/i,
@@ -18,8 +17,7 @@ const CONFIRMATION_PATTERNS = [
 ] as const;
 
 const STANDALONE_CONFIRMATION_PATTERNS = [
-  /^application\s+(?:has\s+been\s+)?submitted(?:\s+successfully)?[.!]?$/i,
-  /^application\s+(?:has\s+been\s+)?received[.!]?$/i,
+  /^application\s+(?:(?:has\s+been|was|is)\s+)?(?:submitted|received|sent)(?:\s+successfully)?[.!]?$/i,
   /^successfully\s+(?:applied|submitted)[.!]?$/i,
   /^thank\s+you\s+for\s+applying[.!]?$/i,
   /^thanks\s+for\s+applying[.!]?$/i,
