@@ -4,6 +4,9 @@ export interface AppConfig {
   nodeEnv: string;
   logLevel: string;
   automationEnabled: boolean;
+  discoveryEnabled: boolean;
+  discoveryIntervalMs: number;
+  jobSources: string;
   genericApplicationAdapterEnabled: boolean;
   applicationRateLimitPerDay: number;
   applicationCompanyRateLimitPerDay: number;
@@ -62,6 +65,12 @@ export function loadConfig(): AppConfig {
     nodeEnv: process.env.NODE_ENV ?? "development",
     logLevel: process.env.LOG_LEVEL ?? "info",
     automationEnabled: booleanValue("AUTOMATION_ENABLED", process.env.AUTOMATION_ENABLED, false),
+    discoveryEnabled: booleanValue("JOB_DISCOVERY_ENABLED", process.env.JOB_DISCOVERY_ENABLED, true),
+    discoveryIntervalMs: positiveInteger(
+      "JOB_DISCOVERY_INTERVAL_MS",
+      process.env.JOB_DISCOVERY_INTERVAL_MS ?? "900000"
+    ),
+    jobSources: process.env.JOB_SOURCES ?? "",
     genericApplicationAdapterEnabled: booleanValue(
       "GENERIC_APPLICATION_ADAPTER_ENABLED",
       process.env.GENERIC_APPLICATION_ADAPTER_ENABLED,
