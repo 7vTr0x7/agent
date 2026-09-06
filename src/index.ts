@@ -99,11 +99,13 @@ async function main(): Promise<void> {
   const taskQueue = new TaskQueue(database);
   const shutdownController = new AbortController();
   let shutdownRequested = false;
+  let stopWorker: () => void = () => undefined;
   const requestShutdown = (): void => {
     if (shutdownRequested) return;
     shutdownRequested = true;
     logger.info("Shutdown requested");
     shutdownController.abort();
+    stopWorker();
   };
 
   process.once("SIGINT", requestShutdown);
@@ -123,6 +125,7 @@ async function main(): Promise<void> {
       taskQueue,
       new Map<string, any>([[MATCH_JOB_TASK, discoveryRuntime.matchTaskHandler]])
     );
+    stopWorker = () => discoveryWorker.stop();
 
     const discoveryLoop = async (): Promise<void> => {
       while (!shutdownController.signal.aborted) {
@@ -244,6 +247,7 @@ async function main(): Promise<void> {
   }
 
   const worker = new TaskWorker(taskQueue, handlers);
+  stopWorker = () => worker.stop();
   const applicationQueue = new ApplicationQueueService(
     database,
     new ApplicationTaskDispatcher(taskQueue),
