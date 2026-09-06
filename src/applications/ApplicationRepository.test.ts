@@ -14,7 +14,12 @@ describe("ApplicationRepository submission state", () => {
       query: async <T>(text: string): Promise<QueryResult<T>> => {
         queries.push(text);
 
-        if (text.includes("FROM applications a") && text.includes("candidate_profile_id") && text.includes("company_name") && text.includes("FOR UPDATE OF a")) {
+        if (
+          text.includes("FROM applications a") &&
+          text.includes("candidate_profile_id") &&
+          text.includes("company_name") &&
+          text.includes("FOR UPDATE OF a")
+        ) {
           return {
             rows: [
               {
@@ -30,7 +35,10 @@ describe("ApplicationRepository submission state", () => {
           return { rows: [] } as QueryResult<T>;
         }
 
-        if (text.includes("SELECT COUNT(*)::text AS count") && text.includes("LOWER(TRIM(jo.company_name))")) {
+        if (
+          text.includes("SELECT COUNT(*)::text AS count") &&
+          text.includes("LOWER(TRIM(jo.company_name))")
+        ) {
           return {
             rows: [{ count: String(options.companyCount ?? 0) }]
           } as QueryResult<T>;
@@ -40,6 +48,10 @@ describe("ApplicationRepository submission state", () => {
           return {
             rows: [{ count: String(options.dailyCount ?? 0) }]
           } as QueryResult<T>;
+        }
+
+        if (text.includes("SELECT status") && text.includes("FROM applications")) {
+          return { rows: [{ status }] } as QueryResult<T>;
         }
 
         return { rows: [{}] } as QueryResult<T>;
