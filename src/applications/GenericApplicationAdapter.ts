@@ -13,6 +13,7 @@ import { AshbyApplicationAdapter } from "./AshbyApplicationAdapter";
 import { WorkdayApplicationAdapter } from "./WorkdayApplicationAdapter";
 import { SmartRecruitersApplicationAdapter } from "./SmartRecruitersApplicationAdapter";
 import { WorkableApplicationAdapter } from "./WorkableApplicationAdapter";
+import { BambooHRApplicationAdapter } from "./BambooHRApplicationAdapter";
 
 export class GenericApplicationAdapter implements ApplicationAdapter {
   readonly name = "generic-form";
@@ -50,6 +51,10 @@ export class GenericApplicationAdapter implements ApplicationAdapter {
 
     if (new WorkableApplicationAdapter().canHandle(context.url)) {
       return new WorkableApplicationAdapter().submit(page, context);
+    }
+
+    if (new BambooHRApplicationAdapter().canHandle(context.url)) {
+      return new BambooHRApplicationAdapter().submit(page, context);
     }
 
     await page.waitForLoadState("domcontentloaded");
