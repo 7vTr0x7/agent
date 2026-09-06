@@ -37,7 +37,12 @@ export class RecruiterOutreachFollowUpService {
       return { status: "SKIPPED", sequenceId, reason: "No follow-up step remains." };
     }
 
-    const scheduledFor = new Date(Date.now() + dayOffset * 24 * 60 * 60 * 1000);
+    const initialSentAt = await this.repository.getInitialOutreachSentAt(sequenceId);
+    if (!initialSentAt) {
+      return { status: "SKIPPED", sequenceId, reason: "Initial recruiter outreach has not been confirmed as sent." };
+    }
+
+    const scheduledFor = new Date(initialSentAt.getTime() + dayOffset * 24 * 60 * 60 * 1000);
     const created = await this.repository.scheduleNextRecruiterFollowUp(sequenceId, nextIndex, scheduledFor);
     if (!created) {
       return { status: "SKIPPED", sequenceId, reason: "Follow-up was already scheduled or sequence is no longer eligible." };
