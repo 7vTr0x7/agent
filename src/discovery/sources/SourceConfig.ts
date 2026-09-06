@@ -8,6 +8,8 @@ export interface SourceConfig {
   readonly boardToken?: string;
   readonly boardName?: string;
   readonly feedUrl?: string;
+  /** Explicit employer domain; never inferred from an ATS or marketplace URL. */
+  readonly companyDomain?: string;
 }
 
 export function parseSourceConfigs(value: string | undefined): SourceConfig[] {
@@ -49,8 +51,9 @@ function validateSourceConfig(value: unknown, index: number): SourceConfig {
   const boardToken = optionalString(item.boardToken, `JOB_SOURCES[${index}].boardToken`);
   const boardName = optionalString(item.boardName, `JOB_SOURCES[${index}].boardName`);
   const feedUrl = optionalString(item.feedUrl, `JOB_SOURCES[${index}].feedUrl`);
+  const companyDomain = optionalString(item.companyDomain, `JOB_SOURCES[${index}].companyDomain`);
 
-  return { id, type, name, status, boardToken, boardName, feedUrl };
+  return { id, type, name, status, boardToken, boardName, feedUrl, companyDomain };
 }
 
 function stringField(value: unknown, field: string): string {
