@@ -66,6 +66,79 @@ describe("ApplicationFormFiller", () => {
       await browser.close();
     }
   });
+
+  it("selects an option only when the candidate value exactly matches an option value or label", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    try {
+      await page.setContent(`
+        <form>
+          <label for="city">Current City</label>
+          <select id="city" name="city" required>
+            <option value="">Select</option>
+            <option value="Bengaluru">Bengaluru</option>
+            <option value="Pune">Pune</option>
+          </select>
+        </form>
+      `);
+
+      const profile: CandidateProfile = {
+        id: "candidate-2",
+        skills: ["React"],
+        targetTitles: ["Frontend Engineer"],
+        location: "Bengaluru"
+      };
+
+      const fields = await new FormFieldDetector().detect(page);
+      const mappings = new ApplicationFieldMapper().map(fields, profile);
+      const result = await new ApplicationFormFiller().fill(page, mappings);
+
+      await expect(page.locator('[name="city"]').inputValue()).resolves.toBe("Bengaluru");
+      expect(result.results.find((entry) => entry.mapping.key === "location")?.filled).toBe(true);
+    } finally {
+      await context.close();
+      await browser.close();
+    }
+  });
+
+  it("refuses a select when the candidate value has no exact option match", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    try {
+      await page.setContent(`
+        <form>
+          <label for="city">Current City</label>
+          <select id="city" name="city" required>
+            <option value="">Select</option>
+            <option value="Bengaluru">Bengaluru</option>
+            <option value="Pune">Pune</option>
+          </select>
+        </form>
+      `);
+
+      const profile: CandidateProfile = {
+        id: "candidate-3",
+        skills: ["React"],
+        targetTitles: ["Frontend Engineer"],
+        location: "Bangalore"
+      };
+
+      const fields = await new FormFieldDetector().detect(page);
+      const mappings = new ApplicationFieldMapper().map(fields, profile);
+      const result = await new ApplicationFormFiller().fill(page, mappings);
+
+      await expect(page.locator('[name="city"]').inputValue()).resolves.toBe("");
+      expect(result.results.find((entry) => entry.mapping.key === "location")?.filled).toBe(false);
+      expect(result.results.find((entry) => entry.mapping.key === "location")?.reason).toContain("exactly match");
+    } finally {
+      await context.close();
+      await browser.close();
+    }
+  });
 });
 
 async function expectInputValue(page: import("playwright").Page, selector: string, expected: string): Promise<void> {
