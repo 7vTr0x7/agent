@@ -7,6 +7,7 @@ import {
 } from "./RecruiterDiscovery";
 import { JobPostingRecruiterDiscoveryProvider } from "./JobPostingRecruiterDiscoveryProvider";
 import { SnovRecruiterDiscoveryProvider } from "./SnovRecruiterDiscoveryProvider";
+import { FallbackRecruiterDiscoveryProvider } from "./FallbackRecruiterDiscoveryProvider";
 
 const HUNTER_API_BASE = "https://api.hunter.io/v2";
 interface HunterSource { uri?: string; type?: string; confidence?: number; }
@@ -41,7 +42,8 @@ export class HunterRecruiterDiscoveryProvider implements RecruiterDiscoveryProvi
       const clientId = process.env.SNOV_CLIENT_ID?.trim();
       const clientSecret = process.env.SNOV_CLIENT_SECRET?.trim();
       if (!clientId || !clientSecret) throw new Error("SNOV_CLIENT_ID and SNOV_CLIENT_SECRET are required when RECRUITER_DISCOVERY_PROVIDER=snov");
-      this.delegate = new SnovRecruiterDiscoveryProvider({ clientId, clientSecret });
+      const snov = new SnovRecruiterDiscoveryProvider({ clientId, clientSecret });
+      this.delegate = new FallbackRecruiterDiscoveryProvider(snov, new JobPostingRecruiterDiscoveryProvider(), snov);
       this.name = this.delegate.name;
       return;
     }
@@ -56,28 +58,19 @@ export class HunterRecruiterDiscoveryProvider implements RecruiterDiscoveryProvi
   }
 
   private async requestJson<T>(url: URL, operation: string): Promise<T> { for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) { const response = await this.fetchImpl(url, { headers: { Accept: "application/json" } }); if (response.ok) return (await response.json()) as T; if (!isTransientStatus(response.status) || attempt === this.maxRetries) throw new Error(`Hunter ${operation} failed with HTTP ${response.status}`); await this.sleepImpl(retryDelay(response, this.retryDelayMs)); } throw new Error(`Hunter ${operation} failed without a response`); }
-
   async discover(input: RecruiterDiscoveryInput): Promise<RecruiterDiscoveryResult> {
     if (this.delegate) return this.delegate.discover(input);
-    const domain = normalizeDomain(input.companyDomain);
-    if (!domain) throw new Error("A valid company domain is required for Hunter discovery");
-    const url = new URL(`${HUNTER_API_BASE}/domain-search`);
-    url.searchParams.set("domain", domain); url.searchParams.set("api_key", this.apiKey); url.searchParams.set("limit", "100");
+    const domain = normalizeDomain(input.companyDomain); if (!domain) throw new Error("A valid company domain is required for Hunter discovery");
+    const url = new URL(`${HUNTER_API_BASE}/domain-search`); url.searchParams.set("domain", domain); url.searchParams.set("api_key", this.apiKey); url.searchParams.set("limit", "100");
     const payload = await this.requestJson<HunterDomainSearchResponse>(url, "domain search");
-    const contacts = (payload.data?.emails ?? []).filter((email) => isUsableProfessionalEmail(email, domain)).filter(isRecruitingContact).map((email): RecruiterContactCandidate => ({
-      email: normalizeEmail(email.value!), fullName: [email.first_name, email.last_name].filter(Boolean).join(" ") || undefined, title: email.position, department: email.department, seniority: email.seniority, country: email.country, location: [email.city, email.state].filter(Boolean).join(", ") || undefined, confidence: email.confidence, verified: email.verification?.status === "valid", verificationStatus: email.verification?.status, provider: this.name,
-      sources: (email.sources ?? []).map((source) => ({ url: source.uri, type: source.type, confidence: source.confidence }))
-    }));
+    const contacts = (payload.data?.emails ?? []).filter((email) => isUsableProfessionalEmail(email, domain)).filter(isRecruitingContact).map((email): RecruiterContactCandidate => ({ email: normalizeEmail(email.value!), fullName: [email.first_name, email.last_name].filter(Boolean).join(" ") || undefined, title: email.position, department: email.department, seniority: email.seniority, country: email.country, location: [email.city, email.state].filter(Boolean).join(", ") || undefined, confidence: email.confidence, verified: email.verification?.status === "valid", verificationStatus: email.verification?.status, provider: this.name, sources: (email.sources ?? []).map((source) => ({ url: source.uri, type: source.type, confidence: source.confidence })) }));
     return { provider: this.name, contacts, discoveredAt: new Date() };
   }
-
   async verify(email: string): Promise<RecruiterVerificationResult> {
     if (this.delegate) return this.delegate.verify(email);
-    const normalized = normalizeEmail(email);
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) return { email: normalized, verified: false, status: "invalid", confidence: 0 };
+    const normalized = normalizeEmail(email); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) return { email: normalized, verified: false, status: "invalid", confidence: 0 };
     const url = new URL(`${HUNTER_API_BASE}/email-verifier`); url.searchParams.set("email", normalized); url.searchParams.set("api_key", this.apiKey);
-    const payload = await this.requestJson<HunterVerifierResponse>(url, "email verification");
-    const status = payload.data?.status ?? "unknown";
+    const payload = await this.requestJson<HunterVerifierResponse>(url, "email verification"); const status = payload.data?.status ?? "unknown";
     return { email: normalized, verified: status === "valid", status, confidence: payload.data?.score };
   }
 }
