@@ -120,6 +120,7 @@ describe("ApplicationSubmissionService", () => {
 
     expect(result.submitted).toBe(false);
     expect(result.safetyAllowed).toBe(false);
+    expect(result.adapterName).toBe("recording-adapter");
     expect(result.reason).toContain("Years of experience");
     expect(adapter.submitted).toBe(false);
     expect(repository.calls).toHaveLength(0);
@@ -159,6 +160,7 @@ describe("ApplicationSubmissionService", () => {
 
     expect(result.submitted).toBe(true);
     expect(result.safetyAllowed).toBe(true);
+    expect(result.adapterName).toBe("recording-adapter");
     expect(adapter.submitted).toBe(true);
     expect(repository.calls).toEqual([
       {
