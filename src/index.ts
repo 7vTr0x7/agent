@@ -80,6 +80,7 @@ async function main(): Promise<void> {
     {
       nodeEnv: config.nodeEnv,
       automationEnabled: config.automationEnabled,
+      applicationDryRun: config.applicationDryRun,
       discoveryEnabled: config.discoveryEnabled,
       discoveryIntervalMs: config.discoveryIntervalMs,
       applicationQueueIntervalMs: config.applicationQueueIntervalMs,
@@ -172,7 +173,18 @@ async function main(): Promise<void> {
     ? [...hostedAtsAdapters, new GenericApplicationAdapter()]
     : hostedAtsAdapters;
   const adaptersRegistry = new ApplicationAdapterRegistry(adapters);
-  const submissionService = new ApplicationSubmissionService(browserSessions, adaptersRegistry, applicationRepository);
+  const submissionService = new ApplicationSubmissionService(
+    browserSessions,
+    adaptersRegistry,
+    applicationRepository,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    config.applicationDryRun
+  );
 
   let emailDispatcher: EmailNotificationTaskDispatcher | undefined;
   let emailHandler: EmailNotificationTaskHandler | undefined;
@@ -258,122 +270,124 @@ async function main(): Promise<void> {
     );
     interviewReminderScheduler = new InterviewReminderScheduler(
       interviewRepository,
-      new InterviewReminderTaskDispatcher(taskQueue),
-      candidateProfile.email,
-      candidateProfile.fullName ?? ([candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") || "Candidate")
+      new InterviewReminderTaskDispatcher(taskQueue)
     );
   }
 
+  const applicationQueue = new ApplicationQueueService(
+    taskQueue,
+    new ApplicationTaskDispatcher(taskQueue),
+    new ApplicationRateLimitPolicy(config.applicationRateLimitPerDay),
+    new ApplicationCompanyRateLimitPolicy(config.applicationCompanyRateLimitPerDay),
+    applicationRepository
+  );
   const worker = new TaskWorker(taskQueue, handlers, { logger });
   stopWorker = () => worker.stop();
-  const applicationQueue = new ApplicationQueueService(
-    database,
-    new ApplicationTaskDispatcher(taskQueue),
-    new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: config.applicationRateLimitPerDay }),
-    new ApplicationCompanyRateLimitPolicy({
-      maxSubmissionsPerCompanyPerDay: config.applicationCompanyRateLimitPerDay
-    })
-  );
 
-  const enqueueApplicationsLoop = (): Promise<void> =>
+  const loops: Promise<void>[] = [worker.run()];
+
+  loops.push(
     runPeriodicLoop({
-      name: "application-enqueue",
+      name: "application-queue",
       intervalMs: config.applicationQueueIntervalMs,
       signal: shutdownController.signal,
       logger,
       sleep,
       runOnce: async () => {
-        const queued = await applicationQueue.enqueueEligible(candidateProfile.id);
-        if (queued.queued > 0) logger.info(queued, "Eligible application tasks queued");
-        if (queued.rateLimited) logger.warn(queued, "Daily application submission limit reached");
+        const queued = await applicationQueue.enqueueReadyApplications(candidateProfile.id);
+        logger.info({ queued }, "Application queue pass completed");
       }
-    });
+    })
+  );
 
-  const staleSubmissionLoop = (): Promise<void> =>
+  loops.push(
     runPeriodicLoop({
-      name: "stale-submission-monitor",
+      name: "stale-submission-inspection",
       intervalMs: config.staleSubmissionCheckIntervalMs,
       signal: shutdownController.signal,
       logger,
       sleep,
       runOnce: async () => {
-        await staleSubmissionMonitor.runOnce();
+        const result = await staleSubmissionMonitor.inspect();
+        logger.info(result, "Stale submission inspection completed");
       }
-    });
+    })
+  );
 
-  const discoveryLoop = (): Promise<void> =>
-    runPeriodicLoop({
-      name: "discovery",
-      intervalMs: config.discoveryIntervalMs,
-      signal: shutdownController.signal,
-      logger,
-      sleep,
-      runOnce: async () => {
-        if (!discoveryRuntime) return;
-        const results = await discoveryRuntime.runner.runOnce();
-        for (const result of results) {
-          logger.info(
-            { source: result.source, discovered: result.discovered, matching: result.matching },
-            "Discovery source run completed"
-          );
+  if (discoveryRuntime) {
+    loops.push(
+      runPeriodicLoop({
+        name: "discovery",
+        intervalMs: config.discoveryIntervalMs,
+        signal: shutdownController.signal,
+        logger,
+        sleep,
+        runOnce: async () => {
+          const results = await discoveryRuntime!.runner.runOnce();
+          for (const result of results) {
+            logger.info(
+              { source: result.source, discovered: result.discovered, matching: result.matching },
+              "Discovery source run completed"
+            );
+          }
         }
-      }
-    });
+      })
+    );
+  }
 
-  const syncGmailLoop = (): Promise<void> =>
-    runPeriodicLoop({
-      name: "gmail-sync",
-      intervalMs: config.gmail.syncIntervalMs,
-      signal: shutdownController.signal,
-      logger,
-      sleep,
-      runOnce: async () => {
-        if (!gmailSyncDispatcher) return;
-        await gmailSyncDispatcher.enqueue(config.gmail.syncQuery, 50);
-      }
-    });
+  if (gmailSyncDispatcher) {
+    loops.push(
+      runPeriodicLoop({
+        name: "gmail-sync",
+        intervalMs: config.gmail.syncIntervalMs,
+        signal: shutdownController.signal,
+        logger,
+        sleep,
+        runOnce: async () => {
+          const taskId = await gmailSyncDispatcher!.enqueue();
+          logger.info({ taskId }, "Gmail sync task queued");
+        }
+      })
+    );
+  }
 
-  const followUpLoop = (): Promise<void> =>
-    runPeriodicLoop({
-      name: "follow-up",
-      intervalMs: config.followUpIntervalMs,
-      signal: shutdownController.signal,
-      logger,
-      sleep,
-      runOnce: async () => {
-        if (!followUpScheduler) return;
-        const result = await followUpScheduler.runOnce();
-        if (result.queued > 0) logger.info(result, "Follow-up drafts queued");
-      }
-    });
+  if (followUpScheduler) {
+    loops.push(
+      runPeriodicLoop({
+        name: "follow-up",
+        intervalMs: config.followUpIntervalMs,
+        signal: shutdownController.signal,
+        logger,
+        sleep,
+        runOnce: async () => {
+          const queued = await followUpScheduler!.runOnce();
+          logger.info({ queued }, "Follow-up scheduling pass completed");
+        }
+      })
+    );
+  }
 
-  const interviewReminderLoop = (): Promise<void> =>
-    runPeriodicLoop({
-      name: "interview-reminder",
-      intervalMs: config.interviewReminderIntervalMs,
-      signal: shutdownController.signal,
-      logger,
-      sleep,
-      runOnce: async () => {
-        if (!interviewReminderScheduler) return;
-        const result = await interviewReminderScheduler.runOnce();
-        if (result.queued > 0) logger.info(result, "Interview reminders queued");
-      }
-    });
+  if (interviewReminderScheduler) {
+    loops.push(
+      runPeriodicLoop({
+        name: "interview-reminders",
+        intervalMs: config.interviewReminderIntervalMs,
+        signal: shutdownController.signal,
+        logger,
+        sleep,
+        runOnce: async () => {
+          const queued = await interviewReminderScheduler!.runOnce();
+          logger.info({ queued }, "Interview reminder scheduling pass completed");
+        }
+      })
+    );
+  }
 
-  await Promise.all([
-    worker.run(),
-    enqueueApplicationsLoop(),
-    staleSubmissionLoop(),
-    discoveryLoop(),
-    syncGmailLoop(),
-    followUpLoop(),
-    interviewReminderLoop()
-  ]);
+  await Promise.all(loops);
   await database.close();
 }
 
 main().catch((error: unknown) => {
-  logger.error({ error }, "job-agent failed to start");
+  logger.error({ error }, "job-agent terminated unexpectedly");
   process.exitCode = 1;
 });
