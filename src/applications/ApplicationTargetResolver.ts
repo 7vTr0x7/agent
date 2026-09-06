@@ -9,10 +9,32 @@ export interface ApplicationTargetResolution {
 
 const APPLY_NAME = /^(?:apply|apply now|apply here|apply on company site|apply externally|easy apply|quick apply|応募|応募する)$/i;
 const SUBMIT_NAME = /^(?:submit|submit application|send application|complete application)$/i;
+const AUTH_PATH = /(?:^|\/)(?:login|log-in|signin|sign-in|signup|sign-up|register|registration)(?:\/|$)/i;
+const AUTH_TEXT = /(?:sign in|sign-in|log in|log-in|create account|register|registration|forgot password)/i;
 
 export class ApplicationTargetResolver {
   async resolve(page: Page, sourceUrl: string): Promise<ApplicationTargetResolution> {
     const currentUrl = page.url() || sourceUrl;
+
+    if (AUTH_PATH.test(new URL(currentUrl).pathname)) {
+      return {
+        resolved: false,
+        url: currentUrl,
+        startedFromJobPage: true,
+        reason: "Application target resolved to an authentication page; credentials must never be automated."
+      };
+    }
+
+    const passwordCount = await page.locator('input[type="password"]').count();
+    const bodyText = (await page.locator("body").innerText().catch(() => "")).slice(0, 12000);
+    if (passwordCount > 0 || AUTH_TEXT.test(bodyText)) {
+      return {
+        resolved: false,
+        url: currentUrl,
+        startedFromJobPage: true,
+        reason: "Authentication or account-creation UI was detected; credentials must never be automated."
+      };
+    }
 
     const formCount = await page.locator("form").count();
     const fieldCount = await page.locator("input, textarea, select").count();
@@ -65,12 +87,7 @@ export class ApplicationTargetResolver {
 
       const targetUrl = new URL(href, currentUrl).toString();
       await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
-      return {
-        resolved: true,
-        url: page.url() || targetUrl,
-        startedFromJobPage: true,
-        reason: "Application target resolved from a verified application link."
-      };
+      return this.resolve(page, targetUrl);
     }
 
     try {
@@ -85,11 +102,6 @@ export class ApplicationTargetResolver {
       };
     }
 
-    return {
-      resolved: true,
-      url: page.url() || currentUrl,
-      startedFromJobPage: true,
-      reason: "Application target resolved from a verified application button."
-    };
+    return this.resolve(page, currentUrl);
   }
 }
