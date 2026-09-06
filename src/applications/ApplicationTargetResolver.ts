@@ -22,12 +22,25 @@ export class ApplicationTargetResolver {
     sourceUrl: string,
     startedFromJobPage: boolean
   ): Promise<ApplicationTargetResolution> {
-    const currentUrl = page.url() || sourceUrl;
+    const currentUrl = page.url();
+    const effectiveUrl = currentUrl && currentUrl !== "about:blank" ? currentUrl : sourceUrl;
 
-    if (AUTH_PATH.test(new URL(currentUrl).pathname)) {
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(effectiveUrl);
+    } catch {
       return {
         resolved: false,
-        url: currentUrl,
+        url: effectiveUrl,
+        startedFromJobPage,
+        reason: "Application target URL is invalid; manual review is required."
+      };
+    }
+
+    if (AUTH_PATH.test(parsedUrl.pathname)) {
+      return {
+        resolved: false,
+        url: effectiveUrl,
         startedFromJobPage,
         reason: "Blocked because authentication or account-creation UI was detected; credentials must never be automated."
       };
@@ -39,7 +52,7 @@ export class ApplicationTargetResolver {
     if (passwordCount > 0 || (formCount > 0 && AUTH_TEXT.test(bodyText))) {
       return {
         resolved: false,
-        url: currentUrl,
+        url: effectiveUrl,
         startedFromJobPage,
         reason: "Blocked because authentication or account-creation UI was detected; credentials must never be automated."
       };
@@ -52,7 +65,7 @@ export class ApplicationTargetResolver {
     if (formCount > 0 || (fieldCount > 0 && submitCount > 0)) {
       return {
         resolved: true,
-        url: currentUrl,
+        url: effectiveUrl,
         startedFromJobPage,
         reason: "Application form is already present on the target page."
       };
@@ -67,7 +80,7 @@ export class ApplicationTargetResolver {
     if (total === 0) {
       return {
         resolved: false,
-        url: currentUrl,
+        url: effectiveUrl,
         startedFromJobPage,
         reason: "No unambiguous application entry point was found."
       };
@@ -76,7 +89,7 @@ export class ApplicationTargetResolver {
     if (total > 1) {
       return {
         resolved: false,
-        url: currentUrl,
+        url: effectiveUrl,
         startedFromJobPage,
         reason: "Multiple application entry points were found; manual review is required."
       };
@@ -87,17 +100,17 @@ export class ApplicationTargetResolver {
       if (!href) {
         return {
           resolved: false,
-          url: currentUrl,
+          url: effectiveUrl,
           startedFromJobPage,
           reason: "The application link has no destination URL."
         };
       }
 
-      const targetUrl = new URL(href, currentUrl).toString();
-      if (targetUrl === currentUrl) {
+      const targetUrl = new URL(href, effectiveUrl).toString();
+      if (targetUrl === effectiveUrl) {
         return {
           resolved: false,
-          url: currentUrl,
+          url: effectiveUrl,
           startedFromJobPage,
           reason: "The application link points back to the same page; manual review is required."
         };
@@ -113,12 +126,12 @@ export class ApplicationTargetResolver {
     } catch (error) {
       return {
         resolved: false,
-        url: currentUrl,
+        url: effectiveUrl,
         startedFromJobPage,
         reason: `Application entry point could not be opened safely: ${error instanceof Error ? error.message : String(error)}`
       };
     }
 
-    return this.resolveInternal(page, currentUrl, true);
+    return this.resolveInternal(page, effectiveUrl, true);
   }
 }
