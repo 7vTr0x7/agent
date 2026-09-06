@@ -20,6 +20,7 @@ export interface ApplicationSubmissionOutcome {
   submitted: boolean;
   safetyAllowed: boolean;
   reason: string;
+  adapterName: string | null;
   result: ApplicationSubmissionResult | null;
 }
 
@@ -48,6 +49,7 @@ export class ApplicationSubmissionService {
           submitted: false,
           safetyAllowed: false,
           reason: target.reason,
+          adapterName: null,
           result: null
         };
       }
@@ -58,6 +60,7 @@ export class ApplicationSubmissionService {
           submitted: false,
           safetyAllowed: false,
           reason: "No application adapter can safely handle the resolved application URL.",
+          adapterName: null,
           result: null
         };
       }
@@ -68,6 +71,7 @@ export class ApplicationSubmissionService {
           submitted: false,
           safetyAllowed: false,
           reason: hazards.map((hazard) => hazard.reason).join(" "),
+          adapterName: adapter.name,
           result: null
         };
       }
@@ -93,6 +97,7 @@ export class ApplicationSubmissionService {
           submitted: false,
           safetyAllowed: false,
           reason: safety.reasons.join(" "),
+          adapterName: adapter.name,
           result: null
         };
       }
@@ -103,6 +108,7 @@ export class ApplicationSubmissionService {
           submitted: false,
           safetyAllowed: true,
           reason: result.reason,
+          adapterName: adapter.name,
           result
         };
       }
@@ -117,6 +123,7 @@ export class ApplicationSubmissionService {
         submitted: true,
         safetyAllowed: true,
         reason: result.reason,
+        adapterName: adapter.name,
         result
       };
     } finally {
