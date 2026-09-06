@@ -42,6 +42,7 @@ import { FollowUpTaskDispatcher, PREPARE_FOLLOW_UP_TASK } from "./applications/F
 import { FollowUpTaskHandler } from "./applications/FollowUpTaskHandler";
 import { createDiscoveryRuntime } from "./discovery/createDiscoveryRuntime";
 import { MATCH_JOB_TASK } from "./matching/MatchTask";
+import { runPeriodicLoop } from "./shared/utils/RuntimeLoop";
 
 const config = loadConfig();
 const logger = pino({ level: config.logLevel });
@@ -128,18 +129,23 @@ async function main(): Promise<void> {
     );
     stopWorker = () => discoveryWorker.stop();
 
-    const discoveryLoop = async (): Promise<void> => {
-      while (!shutdownController.signal.aborted) {
-        const results = await discoveryRuntime.runner.runOnce();
-        for (const result of results) {
-          logger.info(
-            { source: result.source, discovered: result.discovered, matching: result.matching },
-            "Discovery source run completed"
-          );
+    const discoveryLoop = (): Promise<void> =>
+      runPeriodicLoop({
+        name: "discovery",
+        intervalMs: config.discoveryIntervalMs,
+        signal: shutdownController.signal,
+        logger,
+        sleep,
+        runOnce: async () => {
+          const results = await discoveryRuntime.runner.runOnce();
+          for (const result of results) {
+            logger.info(
+              { source: result.source, discovered: result.discovered, matching: result.matching },
+              "Discovery source run completed"
+            );
+          }
         }
-        await sleep(config.discoveryIntervalMs, shutdownController.signal);
-      }
-    };
+      });
 
     await Promise.all([discoveryWorker.run(), discoveryLoop()]);
     await database.close();
@@ -258,54 +264,79 @@ async function main(): Promise<void> {
     })
   );
 
-  const enqueueApplicationsLoop = async (): Promise<void> => {
-    while (!shutdownController.signal.aborted) {
-      const queued = await applicationQueue.enqueueEligible(candidateProfile.id);
-      if (queued.queued > 0) logger.info(queued, "Eligible application tasks queued");
-      if (queued.rateLimited) logger.warn(queued, "Daily application submission limit reached");
-      await sleep(30_000, shutdownController.signal);
-    }
-  };
-
-  const discoveryLoop = async (): Promise<void> => {
-    if (!discoveryRuntime) return;
-    while (!shutdownController.signal.aborted) {
-      const results = await discoveryRuntime.runner.runOnce();
-      for (const result of results) {
-        logger.info(
-          { source: result.source, discovered: result.discovered, matching: result.matching },
-          "Discovery source run completed"
-        );
+  const enqueueApplicationsLoop = (): Promise<void> =>
+    runPeriodicLoop({
+      name: "application-enqueue",
+      intervalMs: 30_000,
+      signal: shutdownController.signal,
+      logger,
+      sleep,
+      runOnce: async () => {
+        const queued = await applicationQueue.enqueueEligible(candidateProfile.id);
+        if (queued.queued > 0) logger.info(queued, "Eligible application tasks queued");
+        if (queued.rateLimited) logger.warn(queued, "Daily application submission limit reached");
       }
-      await sleep(config.discoveryIntervalMs, shutdownController.signal);
-    }
-  };
+    });
 
-  const syncGmailLoop = async (): Promise<void> => {
-    if (!gmailSyncDispatcher) return;
-    while (!shutdownController.signal.aborted) {
-      await gmailSyncDispatcher.enqueue(config.gmail.syncQuery, 50);
-      await sleep(config.gmail.syncIntervalMs, shutdownController.signal);
-    }
-  };
+  const discoveryLoop = (): Promise<void> =>
+    runPeriodicLoop({
+      name: "discovery",
+      intervalMs: config.discoveryIntervalMs,
+      signal: shutdownController.signal,
+      logger,
+      sleep,
+      runOnce: async () => {
+        if (!discoveryRuntime) return;
+        const results = await discoveryRuntime.runner.runOnce();
+        for (const result of results) {
+          logger.info(
+            { source: result.source, discovered: result.discovered, matching: result.matching },
+            "Discovery source run completed"
+          );
+        }
+      }
+    });
 
-  const followUpLoop = async (): Promise<void> => {
-    if (!followUpScheduler) return;
-    while (!shutdownController.signal.aborted) {
-      const result = await followUpScheduler.runOnce();
-      if (result.queued > 0) logger.info(result, "Follow-up drafts queued");
-      await sleep(300_000, shutdownController.signal);
-    }
-  };
+  const syncGmailLoop = (): Promise<void> =>
+    runPeriodicLoop({
+      name: "gmail-sync",
+      intervalMs: config.gmail.syncIntervalMs,
+      signal: shutdownController.signal,
+      logger,
+      sleep,
+      runOnce: async () => {
+        if (!gmailSyncDispatcher) return;
+        await gmailSyncDispatcher.enqueue(config.gmail.syncQuery, 50);
+      }
+    });
 
-  const interviewReminderLoop = async (): Promise<void> => {
-    if (!interviewReminderScheduler) return;
-    while (!shutdownController.signal.aborted) {
-      const result = await interviewReminderScheduler.runOnce();
-      if (result.queued > 0) logger.info(result, "Interview reminders queued");
-      await sleep(300_000, shutdownController.signal);
-    }
-  };
+  const followUpLoop = (): Promise<void> =>
+    runPeriodicLoop({
+      name: "follow-up",
+      intervalMs: 300_000,
+      signal: shutdownController.signal,
+      logger,
+      sleep,
+      runOnce: async () => {
+        if (!followUpScheduler) return;
+        const result = await followUpScheduler.runOnce();
+        if (result.queued > 0) logger.info(result, "Follow-up drafts queued");
+      }
+    });
+
+  const interviewReminderLoop = (): Promise<void> =>
+    runPeriodicLoop({
+      name: "interview-reminder",
+      intervalMs: 300_000,
+      signal: shutdownController.signal,
+      logger,
+      sleep,
+      runOnce: async () => {
+        if (!interviewReminderScheduler) return;
+        const result = await interviewReminderScheduler.runOnce();
+        if (result.queued > 0) logger.info(result, "Interview reminders queued");
+      }
+    });
 
   await Promise.all([
     worker.run(),
