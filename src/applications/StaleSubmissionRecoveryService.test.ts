@@ -6,6 +6,7 @@ describe("StaleSubmissionRecoveryService", () => {
     applicationId: "application-stale-1",
     candidateProfileId: "candidate-1",
     companyName: "Example Co",
+    targetUrl: "https://jobs.example.com/apply/123",
     startedAt: new Date("2026-09-06T10:00:00.000Z")
   };
 
