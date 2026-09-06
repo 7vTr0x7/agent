@@ -54,6 +54,7 @@ describe("TaskWorker", () => {
     const runPromise = worker.runOnce();
 
     await Promise.resolve();
+    await Promise.resolve();
     expect(queue.heartbeat).not.toHaveBeenCalled();
 
     jest.advanceTimersByTime(3_000);
