@@ -1,4 +1,6 @@
 import { ApplicationRepository } from "./ApplicationRepository";
+import { ApplicationRateLimitPolicy } from "./ApplicationRateLimitPolicy";
+import { ApplicationCompanyRateLimitPolicy } from "./ApplicationCompanyRateLimitPolicy";
 
 interface QueryResult<T> {
   rows: T[];
@@ -121,6 +123,31 @@ describe("ApplicationRepository submission state", () => {
     const repository = new ApplicationRepository(database as never);
 
     await expect(repository.beginSubmission("application-company-limit")).resolves.toBe(false);
+    expect(queries.some((query) => query.includes("UPDATE applications"))).toBe(false);
+  });
+
+  it("uses the configured daily submission limit at reservation time", async () => {
+    const { database, queries } = createDatabase("READY", { dailyCount: 3 });
+    const repository = new ApplicationRepository(
+      database as never,
+      [],
+      new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 3 })
+    );
+
+    await expect(repository.beginSubmission("application-configured-daily-limit")).resolves.toBe(false);
+    expect(queries.some((query) => query.includes("UPDATE applications"))).toBe(false);
+  });
+
+  it("uses the configured company submission limit at reservation time", async () => {
+    const { database, queries } = createDatabase("READY", { companyCount: 2 });
+    const repository = new ApplicationRepository(
+      database as never,
+      [],
+      undefined,
+      new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 2 })
+    );
+
+    await expect(repository.beginSubmission("application-configured-company-limit")).resolves.toBe(false);
     expect(queries.some((query) => query.includes("UPDATE applications"))).toBe(false);
   });
 
