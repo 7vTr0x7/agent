@@ -115,85 +115,28 @@ export function loadConfig(): AppConfig {
     automationEnabled: booleanValue("AUTOMATION_ENABLED", process.env.AUTOMATION_ENABLED, false),
     applicationDryRun: booleanValue("APPLICATION_DRY_RUN", process.env.APPLICATION_DRY_RUN, true),
     discoveryEnabled: booleanValue("JOB_DISCOVERY_ENABLED", process.env.JOB_DISCOVERY_ENABLED, true),
-    discoveryIntervalMs: positiveInteger(
-      "JOB_DISCOVERY_INTERVAL_MS",
-      process.env.JOB_DISCOVERY_INTERVAL_MS ?? "900000"
-    ),
-    applicationQueueIntervalMs: positiveInteger(
-      "APPLICATION_QUEUE_INTERVAL_MS",
-      process.env.APPLICATION_QUEUE_INTERVAL_MS ?? "30000"
-    ),
-    staleSubmissionCheckIntervalMs: positiveInteger(
-      "STALE_SUBMISSION_CHECK_INTERVAL_MS",
-      process.env.STALE_SUBMISSION_CHECK_INTERVAL_MS ?? "300000"
-    ),
-    staleSubmissionThresholdMinutes: positiveInteger(
-      "STALE_SUBMISSION_THRESHOLD_MINUTES",
-      process.env.STALE_SUBMISSION_THRESHOLD_MINUTES ?? "30"
-    ),
-    followUpIntervalMs: positiveInteger(
-      "FOLLOW_UP_INTERVAL_MS",
-      process.env.FOLLOW_UP_INTERVAL_MS ?? "300000"
-    ),
-    interviewReminderIntervalMs: positiveInteger(
-      "INTERVIEW_REMINDER_INTERVAL_MS",
-      process.env.INTERVIEW_REMINDER_INTERVAL_MS ?? "300000"
-    ),
+    discoveryIntervalMs: positiveInteger("JOB_DISCOVERY_INTERVAL_MS", process.env.JOB_DISCOVERY_INTERVAL_MS ?? "900000"),
+    applicationQueueIntervalMs: positiveInteger("APPLICATION_QUEUE_INTERVAL_MS", process.env.APPLICATION_QUEUE_INTERVAL_MS ?? "30000"),
+    staleSubmissionCheckIntervalMs: positiveInteger("STALE_SUBMISSION_CHECK_INTERVAL_MS", process.env.STALE_SUBMISSION_CHECK_INTERVAL_MS ?? "300000"),
+    staleSubmissionThresholdMinutes: positiveInteger("STALE_SUBMISSION_THRESHOLD_MINUTES", process.env.STALE_SUBMISSION_THRESHOLD_MINUTES ?? "30"),
+    followUpIntervalMs: positiveInteger("FOLLOW_UP_INTERVAL_MS", process.env.FOLLOW_UP_INTERVAL_MS ?? "300000"),
+    interviewReminderIntervalMs: positiveInteger("INTERVIEW_REMINDER_INTERVAL_MS", process.env.INTERVIEW_REMINDER_INTERVAL_MS ?? "300000"),
     jobSources: process.env.JOB_SOURCES ?? "",
-    genericApplicationAdapterEnabled: booleanValue(
-      "GENERIC_APPLICATION_ADAPTER_ENABLED",
-      process.env.GENERIC_APPLICATION_ADAPTER_ENABLED,
-      false
-    ),
-    applicationRateLimitPerDay: positiveInteger(
-      "APPLICATION_RATE_LIMIT_PER_DAY",
-      process.env.APPLICATION_RATE_LIMIT_PER_DAY ?? "50"
-    ),
-    applicationCompanyRateLimitPerDay: positiveInteger(
-      "APPLICATION_COMPANY_RATE_LIMIT_PER_DAY",
-      process.env.APPLICATION_COMPANY_RATE_LIMIT_PER_DAY ?? "5"
-    ),
+    genericApplicationAdapterEnabled: booleanValue("GENERIC_APPLICATION_ADAPTER_ENABLED", process.env.GENERIC_APPLICATION_ADAPTER_ENABLED, false),
+    applicationRateLimitPerDay: positiveInteger("APPLICATION_RATE_LIMIT_PER_DAY", process.env.APPLICATION_RATE_LIMIT_PER_DAY ?? "50"),
+    applicationCompanyRateLimitPerDay: positiveInteger("APPLICATION_COMPANY_RATE_LIMIT_PER_DAY", process.env.APPLICATION_COMPANY_RATE_LIMIT_PER_DAY ?? "5"),
     recruiterOutreach: {
       enabled: recruiterOutreachEnabled,
       dryRun: recruiterDryRun,
       discoveryProvider: "hunter",
-      minConfidence: boundedInteger(
-        "RECRUITER_MIN_CONFIDENCE",
-        process.env.RECRUITER_MIN_CONFIDENCE ?? "80",
-        0,
-        100
-      ),
-      requireVerifiedEmail: booleanValue(
-        "RECRUITER_REQUIRE_VERIFIED_EMAIL",
-        process.env.RECRUITER_REQUIRE_VERIFIED_EMAIL,
-        true
-      ),
-      maxContactsPerApplication: positiveInteger(
-        "RECRUITER_MAX_CONTACTS_PER_APPLICATION",
-        process.env.RECRUITER_MAX_CONTACTS_PER_APPLICATION ?? "3"
-      ),
-      maxMessagesPerDay: positiveInteger(
-        "RECRUITER_MAX_MESSAGES_PER_DAY",
-        process.env.RECRUITER_MAX_MESSAGES_PER_DAY ?? "100"
-      ),
-      maxMessagesPerHour: positiveInteger(
-        "RECRUITER_MAX_MESSAGES_PER_HOUR",
-        process.env.RECRUITER_MAX_MESSAGES_PER_HOUR ?? "15"
-      ),
-      followUpEnabled: booleanValue(
-        "RECRUITER_FOLLOWUP_ENABLED",
-        process.env.RECRUITER_FOLLOWUP_ENABLED,
-        false
-      ),
-      followUpDayOffsets: dayOffsets(
-        "RECRUITER_FOLLOWUP_DAY_OFFSETS",
-        process.env.RECRUITER_FOLLOWUP_DAY_OFFSETS ?? "4,10,18"
-      ),
-      genericEmailFallback: booleanValue(
-        "RECRUITER_GENERIC_EMAIL_FALLBACK",
-        process.env.RECRUITER_GENERIC_EMAIL_FALLBACK,
-        true
-      ),
+      minConfidence: boundedInteger("RECRUITER_MIN_CONFIDENCE", process.env.RECRUITER_MIN_CONFIDENCE ?? "80", 0, 100),
+      requireVerifiedEmail: booleanValue("RECRUITER_REQUIRE_VERIFIED_EMAIL", process.env.RECRUITER_REQUIRE_VERIFIED_EMAIL, true),
+      maxContactsPerApplication: positiveInteger("RECRUITER_MAX_CONTACTS_PER_APPLICATION", process.env.RECRUITER_MAX_CONTACTS_PER_APPLICATION ?? "3"),
+      maxMessagesPerDay: positiveInteger("RECRUITER_MAX_MESSAGES_PER_DAY", process.env.RECRUITER_MAX_MESSAGES_PER_DAY ?? "499"),
+      maxMessagesPerHour: positiveInteger("RECRUITER_MAX_MESSAGES_PER_HOUR", process.env.RECRUITER_MAX_MESSAGES_PER_HOUR ?? "15"),
+      followUpEnabled: booleanValue("RECRUITER_FOLLOWUP_ENABLED", process.env.RECRUITER_FOLLOWUP_ENABLED, false),
+      followUpDayOffsets: dayOffsets("RECRUITER_FOLLOWUP_DAY_OFFSETS", process.env.RECRUITER_FOLLOWUP_DAY_OFFSETS ?? "4,10,18"),
+      genericEmailFallback: booleanValue("RECRUITER_GENERIC_EMAIL_FALLBACK", process.env.RECRUITER_GENERIC_EMAIL_FALLBACK, true),
       hunterApiKey: recruiterOutreachEnabled ? required("HUNTER_API_KEY", process.env.HUNTER_API_KEY) : null
     },
     resume: {
