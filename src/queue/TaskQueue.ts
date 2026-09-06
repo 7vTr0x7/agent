@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { PoolClient } from "pg";
 import { Database } from "../database/Database";
+import { calculateRetryDelayMs } from "./TaskRetryPolicy";
 
 export type TaskStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "DEAD_LETTER";
 
@@ -135,7 +136,10 @@ export class TaskQueue {
       if (!task) throw new Error("Task is not owned by this worker");
       const deadLetter = task.attempts >= task.max_attempts;
       const status: TaskStatus = deadLetter ? "DEAD_LETTER" : "PENDING";
-      await client.query(`UPDATE tasks SET status=$2, available_at=$3, locked_at=NULL, lease_expires_at=NULL, locked_by=NULL, last_error=$4, updated_at=NOW() WHERE id=$1`, [taskId, status, deadLetter ? new Date() : (retryAt ?? new Date()), error]);
+      const nextAvailableAt = deadLetter
+        ? new Date()
+        : (retryAt ?? new Date(Date.now() + calculateRetryDelayMs(task.attempts)));
+      await client.query(`UPDATE tasks SET status=$2, available_at=$3, locked_at=NULL, lease_expires_at=NULL, locked_by=NULL, last_error=$4, updated_at=NOW() WHERE id=$1`, [taskId, status, nextAvailableAt, error]);
       await client.query(`UPDATE task_attempts SET status='FAILED', finished_at=NOW(), error=$4 WHERE task_id=$1 AND attempt=$2 AND worker_id=$3`, [taskId, task.attempts, workerId, error]);
       if (deadLetter) {
         await client.query(`INSERT INTO dead_letter_tasks (task_id, task_type, payload, attempts, reason) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (task_id) DO NOTHING`, [taskId, task.task_type, JSON.stringify(task.payload), task.attempts, error]);
