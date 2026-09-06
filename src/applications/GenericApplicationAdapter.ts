@@ -8,6 +8,7 @@ import { FormFieldDetector } from "./FormFieldDetector";
 import { VerifiedSubmissionExecutor } from "./VerifiedSubmissionExecutor";
 import { SubmissionConfirmationDetector } from "./SubmissionConfirmationDetector";
 import { GreenhouseApplicationAdapter } from "./GreenhouseApplicationAdapter";
+import { LeverApplicationAdapter } from "./LeverApplicationAdapter";
 
 export class GenericApplicationAdapter implements ApplicationAdapter {
   readonly name = "generic-form";
@@ -25,6 +26,10 @@ export class GenericApplicationAdapter implements ApplicationAdapter {
   async submit(page: Page, context: ApplicationContext): Promise<ApplicationSubmissionResult> {
     if (new GreenhouseApplicationAdapter().canHandle(context.url)) {
       return new GreenhouseApplicationAdapter().submit(page, context);
+    }
+
+    if (new LeverApplicationAdapter().canHandle(context.url)) {
+      return new LeverApplicationAdapter().submit(page, context);
     }
 
     await page.waitForLoadState("domcontentloaded");
