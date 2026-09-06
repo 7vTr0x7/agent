@@ -17,7 +17,8 @@ export interface BrowserConfirmationEvidenceVerifierOptions {
 
 /**
  * Verification-only browser check. It never submits a form and requires the
- * independently supplied confirmation URL to be HTTPS and to expose both the
+ * independently supplied confirmation URL to be HTTPS, hosted on the same
+ * hostname as the original application target, and to expose both the
  * external application ID and a recognizable confirmation signal.
  */
 export class BrowserConfirmationEvidenceVerifier implements SubmissionEvidenceVerifier {
@@ -27,24 +28,31 @@ export class BrowserConfirmationEvidenceVerifier implements SubmissionEvidenceVe
   ) {}
 
   async verify(
-    _submission: StaleSubmission,
+    submission: StaleSubmission,
     evidence: VerifiedSubmissionEvidence
   ): Promise<boolean> {
     const confirmationUrl = evidence.confirmationUrl.trim();
     const externalApplicationId = evidence.externalApplicationId.trim();
+    const targetUrl = submission.targetUrl.trim();
 
-    if (!confirmationUrl || !externalApplicationId) {
+    if (!confirmationUrl || !externalApplicationId || !targetUrl) {
       return false;
     }
 
-    let parsedUrl: URL;
+    let parsedConfirmationUrl: URL;
+    let parsedTargetUrl: URL;
     try {
-      parsedUrl = new URL(confirmationUrl);
+      parsedConfirmationUrl = new URL(confirmationUrl);
+      parsedTargetUrl = new URL(targetUrl);
     } catch {
       return false;
     }
 
-    if (parsedUrl.protocol !== "https:") {
+    if (
+      parsedConfirmationUrl.protocol !== "https:" ||
+      parsedTargetUrl.protocol !== "https:" ||
+      parsedConfirmationUrl.hostname !== parsedTargetUrl.hostname
+    ) {
       return false;
     }
 
