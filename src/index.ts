@@ -52,6 +52,9 @@ import { RecruiterDiscoveryTaskHandler } from "./recruiters/RecruiterDiscoveryTa
 import { RecruiterOutreachPreparationService } from "./recruiters/RecruiterOutreachPreparationService";
 import { RecruiterOutreachPreparationTaskDispatcher, PREPARE_RECRUITER_OUTREACH_TASK } from "./recruiters/RecruiterOutreachPreparationTask";
 import { RecruiterOutreachPreparationTaskHandler } from "./recruiters/RecruiterOutreachPreparationTaskHandler";
+import { RecruiterOutreachSendService } from "./recruiters/RecruiterOutreachSendService";
+import { RecruiterOutreachSendTaskDispatcher, SEND_RECRUITER_EMAIL_TASK } from "./recruiters/RecruiterOutreachSendTask";
+import { RecruiterOutreachSendTaskHandler } from "./recruiters/RecruiterOutreachSendTaskHandler";
 
 const config = loadConfig();
 const logger = pino({ level: config.logLevel });
@@ -216,10 +219,27 @@ async function main(): Promise<void> {
     tailoredResumeRepository = new PostgresTailoredResumeRepository(database);
   }
 
+  let gmailMailbox: GmailApiMailbox | undefined;
+  let gmailSyncDispatcher: GmailSyncTaskDispatcher | undefined;
+  let interviewRepository: InterviewRepository | undefined;
+  if (config.gmail.enabled && config.gmail.clientId && config.gmail.clientSecret && config.gmail.refreshToken && config.gmail.userEmail) {
+    gmailMailbox = new GmailApiMailbox({
+      oauth: new GmailOAuthClient({
+        clientId: config.gmail.clientId,
+        clientSecret: config.gmail.clientSecret,
+        refreshToken: config.gmail.refreshToken
+      }),
+      userEmail: config.gmail.userEmail
+    });
+    interviewRepository = new InterviewRepository(database);
+  }
+
   let recruiterDiscoveryDispatcher: RecruiterDiscoveryTaskDispatcher | undefined;
   let recruiterDiscoveryHandler: RecruiterDiscoveryTaskHandler | undefined;
   let recruiterPreparationDispatcher: RecruiterOutreachPreparationTaskDispatcher | undefined;
   let recruiterPreparationHandler: RecruiterOutreachPreparationTaskHandler | undefined;
+  let recruiterSendDispatcher: RecruiterOutreachSendTaskDispatcher | undefined;
+  let recruiterSendHandler: RecruiterOutreachSendTaskHandler | undefined;
   if (config.recruiterOutreach.enabled && config.recruiterOutreach.hunterApiKey) {
     const provider = new HunterRecruiterDiscoveryProvider({ apiKey: config.recruiterOutreach.hunterApiKey });
     const repository = new RecruiterDiscoveryRepository(database);
@@ -230,6 +250,7 @@ async function main(): Promise<void> {
       requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail
     });
     recruiterPreparationDispatcher = new RecruiterOutreachPreparationTaskDispatcher(taskQueue);
+    recruiterSendDispatcher = gmailMailbox ? new RecruiterOutreachSendTaskDispatcher(taskQueue) : undefined;
     recruiterPreparationHandler = new RecruiterOutreachPreparationTaskHandler(
       new RecruiterOutreachPreparationService({
         repository,
@@ -237,8 +258,22 @@ async function main(): Promise<void> {
         requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail,
         dryRun: config.recruiterOutreach.dryRun
       }),
+      recruiterSendDispatcher,
       logger
     );
+    if (recruiterSendDispatcher && gmailMailbox) {
+      recruiterSendHandler = new RecruiterOutreachSendTaskHandler(
+        new RecruiterOutreachSendService({
+          repository,
+          mailbox: gmailMailbox,
+          dryRun: config.recruiterOutreach.dryRun,
+          maxMessagesPerDay: config.recruiterOutreach.maxMessagesPerDay,
+          maxMessagesPerHour: config.recruiterOutreach.maxMessagesPerHour
+        }),
+        repository,
+        logger
+      );
+    }
     recruiterDiscoveryDispatcher = new RecruiterDiscoveryTaskDispatcher(taskQueue);
     recruiterDiscoveryHandler = new RecruiterDiscoveryTaskHandler(
       discovery,
@@ -264,6 +299,7 @@ async function main(): Promise<void> {
   if (emailHandler) handlers.set(SEND_APPLICATION_EMAIL_TASK, emailHandler);
   if (recruiterDiscoveryHandler) handlers.set(DISCOVER_RECRUITERS_TASK, recruiterDiscoveryHandler);
   if (recruiterPreparationHandler) handlers.set(PREPARE_RECRUITER_OUTREACH_TASK, recruiterPreparationHandler);
+  if (recruiterSendHandler) handlers.set(SEND_RECRUITER_EMAIL_TASK, recruiterSendHandler);
 
   let discoveryRuntime: ReturnType<typeof createDiscoveryRuntime> | undefined;
   if (config.discoveryEnabled) {
@@ -272,22 +308,11 @@ async function main(): Promise<void> {
     logger.info({ sourceCount: discoveryRuntime.sourceCount }, "Discovery runtime enabled");
   }
 
-  let gmailSyncDispatcher: GmailSyncTaskDispatcher | undefined;
-  let interviewRepository: InterviewRepository | undefined;
-  if (config.gmail.enabled && config.gmail.clientId && config.gmail.clientSecret && config.gmail.refreshToken && config.gmail.userEmail) {
-    const mailbox = new GmailApiMailbox({
-      oauth: new GmailOAuthClient({
-        clientId: config.gmail.clientId,
-        clientSecret: config.gmail.clientSecret,
-        refreshToken: config.gmail.refreshToken
-      }),
-      userEmail: config.gmail.userEmail
-    });
-    interviewRepository = new InterviewRepository(database);
+  if (gmailMailbox && interviewRepository) {
     handlers.set(
       SYNC_GMAIL_TASK,
       new GmailSyncTaskHandler(
-        mailbox,
+        gmailMailbox,
         new GmailMessageRepository(database),
         interviewRepository
       )
