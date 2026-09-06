@@ -82,8 +82,11 @@ async function main(): Promise<void> {
       automationEnabled: config.automationEnabled,
       discoveryEnabled: config.discoveryEnabled,
       discoveryIntervalMs: config.discoveryIntervalMs,
+      applicationQueueIntervalMs: config.applicationQueueIntervalMs,
       staleSubmissionCheckIntervalMs: config.staleSubmissionCheckIntervalMs,
       staleSubmissionThresholdMinutes: config.staleSubmissionThresholdMinutes,
+      followUpIntervalMs: config.followUpIntervalMs,
+      interviewReminderIntervalMs: config.interviewReminderIntervalMs,
       configuredJobSources: config.jobSources ? "configured" : "none",
       resumeTailoringEnabled: config.resume.tailoringEnabled,
       gmailEnabled: config.gmail.enabled,
@@ -275,7 +278,7 @@ async function main(): Promise<void> {
   const enqueueApplicationsLoop = (): Promise<void> =>
     runPeriodicLoop({
       name: "application-enqueue",
-      intervalMs: 30_000,
+      intervalMs: config.applicationQueueIntervalMs,
       signal: shutdownController.signal,
       logger,
       sleep,
@@ -333,7 +336,7 @@ async function main(): Promise<void> {
   const followUpLoop = (): Promise<void> =>
     runPeriodicLoop({
       name: "follow-up",
-      intervalMs: 300_000,
+      intervalMs: config.followUpIntervalMs,
       signal: shutdownController.signal,
       logger,
       sleep,
@@ -347,7 +350,7 @@ async function main(): Promise<void> {
   const interviewReminderLoop = (): Promise<void> =>
     runPeriodicLoop({
       name: "interview-reminder",
-      intervalMs: 300_000,
+      intervalMs: config.interviewReminderIntervalMs,
       signal: shutdownController.signal,
       logger,
       sleep,
