@@ -7,6 +7,7 @@ import { MigrationRunner } from "./database/MigrationRunner";
 import { TaskQueue } from "./queue/TaskQueue";
 import { TaskWorker } from "./queue/TaskWorker";
 import { ApplicationRepository } from "./applications/ApplicationRepository";
+import { ApplicationAttemptRepository } from "./applications/ApplicationAttemptRepository";
 import { ApplicationQueueService } from "./applications/ApplicationQueueService";
 import { ApplicationTaskDispatcher } from "./applications/ApplicationTask";
 import { ApplicationTaskHandler } from "./applications/ApplicationTaskHandler";
@@ -88,6 +89,7 @@ async function main(): Promise<void> {
   const excludedCompanies = csvEnvironment("JOB_EXCLUDED_COMPANIES");
   const taskQueue = new TaskQueue(database);
   const applicationRepository = new ApplicationRepository(database, excludedCompanies);
+  const applicationAttemptRepository = new ApplicationAttemptRepository(database);
   const browserSessions = new BrowserSessionService();
   const hostedAtsAdapters = createHostedAtsApplicationAdapters();
   const adapters = config.genericApplicationAdapterEnabled
@@ -125,7 +127,8 @@ async function main(): Promise<void> {
     excludedCompanies,
     emailDispatcher,
     tailoredResumeArtifacts,
-    tailoredResumeRepository
+    tailoredResumeRepository,
+    applicationAttemptRepository
   );
 
   const handlers = new Map<string, any>([[APPLY_JOB_TASK, applicationTaskHandler]]);
