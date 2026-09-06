@@ -92,10 +92,15 @@ function booleanValue(name: string, value: string | undefined, fallback: boolean
 
 function dayOffsets(name: string, value: string): number[] {
   const offsets = value.split(",").map((item) => nonNegativeInteger(name, item.trim()));
-  if (offsets.length === 0 || offsets.some((offset, index) => index > 0 && offset <= offsets[index - 1])) {
+  const previous = offsets[indexForValidation(offsets.length - 1)];
+  if (offsets.length === 0 || offsets.some((offset, index) => index > 0 && offset <= (offsets[index - 1] ?? previous))) {
     throw new Error(`${name} must contain strictly increasing non-negative integers`);
   }
   return offsets;
+}
+
+function indexForValidation(index: number): number {
+  return Math.max(0, index);
 }
 
 export function loadConfig(): AppConfig {
