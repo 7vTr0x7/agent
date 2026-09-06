@@ -22,7 +22,8 @@ describe("StaleSubmissionMonitor", () => {
 
     await expect(monitor.runOnce()).resolves.toEqual({
       staleCount: 1,
-      submissions: [staleSubmission]
+      submissions: [staleSubmission],
+      requeued: 0
     });
     expect(listStaleSubmissions).toHaveBeenCalledWith(30);
     expect(logger.warn).toHaveBeenCalledWith(
@@ -47,7 +48,8 @@ describe("StaleSubmissionMonitor", () => {
 
     await expect(monitor.runOnce()).resolves.toEqual({
       staleCount: 0,
-      submissions: []
+      submissions: [],
+      requeued: 0
     });
     expect(logger.info).toHaveBeenCalledWith(
       { staleCount: 0 },
