@@ -1,5 +1,6 @@
 import { Database } from "../database/Database";
 import { ApplicationTaskDispatcher } from "./ApplicationTask";
+import { ApplicationRateLimitPolicy } from "./ApplicationRateLimitPolicy";
 
 interface CandidateApplicationRow {
   job_opportunity_id: string;
@@ -8,20 +9,64 @@ interface CandidateApplicationRow {
   rank_score: number;
 }
 
+interface SubmissionCountRow {
+  count: string;
+}
+
 export interface ApplicationQueueResult {
   queued: number;
+  rateLimited: boolean;
+  submissionsUsed: number;
+  submissionsRemaining: number;
 }
 
 export class ApplicationQueueService {
   constructor(
     private readonly database: Database,
-    private readonly dispatcher: ApplicationTaskDispatcher
+    private readonly dispatcher: ApplicationTaskDispatcher,
+    private readonly rateLimitPolicy = new ApplicationRateLimitPolicy({
+      maxSubmissionsPerDay: 50
+    })
   ) {}
 
   async enqueueEligible(
     candidateProfileId: string,
     limit = 50
   ): Promise<ApplicationQueueResult> {
+    const countResult = await this.database.query<SubmissionCountRow>(
+      `
+        SELECT COUNT(*)::text AS count
+        FROM application_attempts aa
+        INNER JOIN applications a ON a.id = aa.application_id
+        WHERE a.candidate_profile_id = $1
+          AND aa.submitted = TRUE
+          AND aa.attempted_at >= CURRENT_DATE
+      `,
+      [candidateProfileId]
+    );
+
+    const submissionsUsed = Number(countResult.rows[0]?.count ?? "0");
+    const rateLimit = this.rateLimitPolicy.evaluate(submissionsUsed);
+
+    if (!rateLimit.allowed) {
+      return {
+        queued: 0,
+        rateLimited: true,
+        submissionsUsed,
+        submissionsRemaining: 0
+      };
+    }
+
+    const effectiveLimit = Math.min(limit, rateLimit.remaining);
+    if (effectiveLimit <= 0) {
+      return {
+        queued: 0,
+        rateLimited: true,
+        submissionsUsed,
+        submissionsRemaining: 0
+      };
+    }
+
     const result = await this.database.query<CandidateApplicationRow>(
       `
         SELECT
@@ -47,7 +92,7 @@ export class ApplicationQueueService {
           jo.last_seen_at DESC
         LIMIT $2
       `,
-      [candidateProfileId, limit]
+      [candidateProfileId, effectiveLimit]
     );
 
     for (const row of result.rows) {
@@ -59,6 +104,11 @@ export class ApplicationQueueService {
       );
     }
 
-    return { queued: result.rows.length };
+    return {
+      queued: result.rows.length,
+      rateLimited: false,
+      submissionsUsed,
+      submissionsRemaining: Math.max(0, rateLimit.remaining - result.rows.length)
+    };
   }
 }
