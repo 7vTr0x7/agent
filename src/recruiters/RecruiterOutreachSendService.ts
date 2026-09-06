@@ -8,6 +8,7 @@ export interface RecruiterOutreachSendOptions {
   repository: RecruiterDiscoveryRepository;
   mailbox: GmailMailbox;
   dryRun?: boolean;
+  outboundEnabled?: boolean;
   maxMessagesPerDay?: number;
   maxMessagesPerHour?: number;
 }
@@ -19,11 +20,13 @@ export type RecruiterOutreachSendResult =
 
 export class RecruiterOutreachSendService {
   private readonly dryRun: boolean;
+  private readonly outboundEnabled: boolean;
   private readonly maxMessagesPerDay: number;
   private readonly maxMessagesPerHour: number;
 
   constructor(private readonly options: RecruiterOutreachSendOptions) {
     this.dryRun = options.dryRun ?? true;
+    this.outboundEnabled = options.outboundEnabled ?? false;
     this.maxMessagesPerDay = options.maxMessagesPerDay ?? 20;
     this.maxMessagesPerHour = options.maxMessagesPerHour ?? 5;
     if (!Number.isInteger(this.maxMessagesPerDay) || this.maxMessagesPerDay < 1) {
@@ -46,6 +49,10 @@ export class RecruiterOutreachSendService {
 
     if (this.dryRun) {
       return { status: "DRY_RUN", messageId: message.id };
+    }
+
+    if (!this.outboundEnabled) {
+      return { status: "SKIPPED", messageId: message.id, reason: "Global outbound kill switch is disabled." };
     }
 
     const now = Date.now();
