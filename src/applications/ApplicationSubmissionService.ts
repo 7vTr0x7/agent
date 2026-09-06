@@ -28,7 +28,7 @@ export class ApplicationSubmissionService {
   constructor(
     private readonly browserSessions: BrowserSessionService,
     private readonly adapters: ApplicationAdapterRegistry,
-    private readonly applications: Pick<ApplicationRepository, "markSubmitted">,
+    private readonly applications: Pick<ApplicationRepository, "beginSubmission" | "cancelSubmission" | "markSubmitted">,
     private readonly detector = new FormFieldDetector(),
     private readonly mapper = new ApplicationFieldMapper(),
     private readonly filler = new ApplicationFormFiller(),
@@ -102,8 +102,20 @@ export class ApplicationSubmissionService {
         };
       }
 
+      const reserved = await this.applications.beginSubmission(request.context.applicationId);
+      if (!reserved) {
+        return {
+          submitted: false,
+          safetyAllowed: true,
+          reason: "Application submission is already in progress or has already been completed; automatic resubmission is blocked.",
+          adapterName: adapter.name,
+          result: null
+        };
+      }
+
       const result = await adapter.submit(session.page, resolvedContext);
       if (!result.submitted) {
+        await this.applications.cancelSubmission(request.context.applicationId, result.reason);
         return {
           submitted: false,
           safetyAllowed: true,
