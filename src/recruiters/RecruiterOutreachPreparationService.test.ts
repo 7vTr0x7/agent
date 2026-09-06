@@ -4,9 +4,9 @@ import { StoredRecruiterContact } from "./RecruiterDiscoveryRepository";
 function contact(overrides: Partial<StoredRecruiterContact> = {}): StoredRecruiterContact {
   return {
     id: "contact-1",
-    companyName: "Example Co",
-    companyDomain: "example.com",
-    email: "recruiter@example.com",
+    companyName: "Acme Co",
+    companyDomain: "acme.dev",
+    email: "recruiter@acme.dev",
     fullName: "Alex Recruiter",
     title: "Technical Recruiter",
     department: "Talent Acquisition",
@@ -58,8 +58,8 @@ function repository(options: {
 
 describe("RecruiterOutreachPreparationService", () => {
   const input = {
-    companyName: "Example Co",
-    companyDomain: "example.com",
+    companyName: "Acme Co",
+    companyDomain: "acme.dev",
     jobTitle: "Frontend Engineer",
     jobDescription: "Build React applications.",
     jobOpportunityId: "job-1",
@@ -81,7 +81,7 @@ describe("RecruiterOutreachPreparationService", () => {
     expect(prepared).toBeDefined();
     if (!prepared) return;
     expect(prepared.message.status).toBe("PREPARED");
-    expect(prepared.message.subject).toBe("Application for Frontend Engineer at Example Co");
+    expect(prepared.message.subject).toBe("Application for Frontend Engineer at Acme Co");
     expect(prepared.message.body).toContain("I’m Salman Shaikh");
     expect(prepared.message.body).toContain("I’ve applied for the role");
   });
@@ -124,7 +124,7 @@ describe("RecruiterOutreachPreparationService", () => {
     const { repo, calls } = repository();
     const service = new RecruiterOutreachPreparationService({ repository: repo as never });
 
-    await expect(service.prepare(input, [contact({ email: "recruiter@other.example" })])).resolves.toEqual([]);
+    await expect(service.prepare(input, [contact({ email: "recruiter@other.dev" })])).resolves.toEqual([]);
     expect(calls.sequences).toBe(0);
   });
 });
