@@ -9,6 +9,7 @@ import { VerifiedSubmissionExecutor } from "./VerifiedSubmissionExecutor";
 import { SubmissionConfirmationDetector } from "./SubmissionConfirmationDetector";
 import { GreenhouseApplicationAdapter } from "./GreenhouseApplicationAdapter";
 import { LeverApplicationAdapter } from "./LeverApplicationAdapter";
+import { AshbyApplicationAdapter } from "./AshbyApplicationAdapter";
 
 export class GenericApplicationAdapter implements ApplicationAdapter {
   readonly name = "generic-form";
@@ -30,6 +31,10 @@ export class GenericApplicationAdapter implements ApplicationAdapter {
 
     if (new LeverApplicationAdapter().canHandle(context.url)) {
       return new LeverApplicationAdapter().submit(page, context);
+    }
+
+    if (new AshbyApplicationAdapter().canHandle(context.url)) {
+      return new AshbyApplicationAdapter().submit(page, context);
     }
 
     await page.waitForLoadState("domcontentloaded");
