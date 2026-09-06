@@ -77,10 +77,13 @@ describe("RecruiterOutreachPreparationService", () => {
     expect(result).toHaveLength(1);
     expect(calls.sequences).toBe(1);
     expect(calls.messages).toBe(1);
-    expect(result[0].message.status).toBe("PREPARED");
-    expect(result[0].message.subject).toBe("Application for Frontend Engineer at Example Co");
-    expect(result[0].message.body).toContain("I’m Salman Shaikh");
-    expect(result[0].message.body).toContain("I’ve applied for the role");
+    const prepared = result[0];
+    expect(prepared).toBeDefined();
+    if (!prepared) return;
+    expect(prepared.message.status).toBe("PREPARED");
+    expect(prepared.message.subject).toBe("Application for Frontend Engineer at Example Co");
+    expect(prepared.message.body).toContain("I’m Salman Shaikh");
+    expect(prepared.message.body).toContain("I’ve applied for the role");
   });
 
   it("blocks suppressed contacts before creating a sequence", async () => {
