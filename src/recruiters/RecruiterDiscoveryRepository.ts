@@ -24,6 +24,27 @@ export interface RecruiterDiscoveryRunRecord {
   contactsFound: number;
 }
 
+export interface RecruiterOutreachSequenceRecord {
+  id: string;
+  recruiterContactId: string;
+  jobOpportunityId: string | null;
+  applicationId: string | null;
+  candidateProfileId: string;
+  status: "READY" | "ACTIVE" | "PAUSED" | "STOPPED" | "COMPLETED" | "FAILED";
+  nextActionAt: Date | null;
+}
+
+export interface RecruiterOutreachMessageRecord {
+  id: string;
+  sequenceId: string;
+  messageType: "INITIAL" | "FOLLOW_UP";
+  sequenceStep: number;
+  recipientEmail: string;
+  subject: string;
+  body: string;
+  status: "PREPARED" | "SENT" | "FAILED" | "CANCELLED";
+}
+
 function normalize(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -88,19 +109,10 @@ export class RecruiterDiscoveryRepository {
           verification_status, provider
       `,
       [
-        companyName.trim(),
-        domain,
-        email,
-        candidate.fullName ?? null,
-        candidate.title ?? null,
-        candidate.department ?? null,
-        candidate.seniority ?? null,
-        candidate.country ?? null,
-        candidate.location ?? null,
-        candidate.confidence ?? null,
-        candidate.verified,
-        candidate.verificationStatus ?? null,
-        candidate.provider
+        companyName.trim(), domain, email, candidate.fullName ?? null, candidate.title ?? null,
+        candidate.department ?? null, candidate.seniority ?? null, candidate.country ?? null,
+        candidate.location ?? null, candidate.confidence ?? null, candidate.verified,
+        candidate.verificationStatus ?? null, candidate.provider
       ]
     );
 
@@ -108,20 +120,11 @@ export class RecruiterDiscoveryRepository {
     if (!row) throw new Error("Recruiter contact could not be persisted.");
 
     return {
-      id: row.id,
-      companyName: row.company_name,
-      companyDomain: row.company_domain,
-      email: row.email,
-      fullName: row.full_name ?? undefined,
-      title: row.title ?? undefined,
-      department: row.department ?? undefined,
-      seniority: row.seniority ?? undefined,
-      country: row.country ?? undefined,
-      location: row.location ?? undefined,
-      confidence: row.confidence ?? undefined,
-      verified: row.verified,
-      verificationStatus: row.verification_status ?? undefined,
-      provider: row.provider
+      id: row.id, companyName: row.company_name, companyDomain: row.company_domain, email: row.email,
+      fullName: row.full_name ?? undefined, title: row.title ?? undefined, department: row.department ?? undefined,
+      seniority: row.seniority ?? undefined, country: row.country ?? undefined, location: row.location ?? undefined,
+      confidence: row.confidence ?? undefined, verified: row.verified,
+      verificationStatus: row.verification_status ?? undefined, provider: row.provider
     };
   }
 
@@ -152,58 +155,32 @@ export class RecruiterDiscoveryRepository {
     candidateProfileId: string;
     provider: string;
   }): Promise<RecruiterDiscoveryRunRecord> {
-    const result = await this.database.query<{
-      id: string;
-    }>(
+    const result = await this.database.query<{ id: string }>(
       `
         INSERT INTO recruiter_discovery_runs (
           company_name, company_domain, job_opportunity_id, candidate_profile_id, provider, status
-        )
-        VALUES ($1, $2, $3, $4, $5, 'RUNNING')
-        RETURNING id
+        ) VALUES ($1, $2, $3, $4, $5, 'RUNNING') RETURNING id
       `,
-      [
-        input.companyName.trim(),
-        normalize(input.companyDomain).replace(/^www\./, ""),
-        input.jobOpportunityId ?? null,
-        input.candidateProfileId,
-        input.provider
-      ]
+      [input.companyName.trim(), normalize(input.companyDomain).replace(/^www\./, ""), input.jobOpportunityId ?? null, input.candidateProfileId, input.provider]
     );
     const row = result.rows[0];
     if (!row) throw new Error("Recruiter discovery run could not be created.");
     return { id: row.id, status: "RUNNING", contactsFound: 0 };
   }
 
-  async finishDiscoveryRun(
-    runId: string,
-    status: "SUCCEEDED" | "FAILED" | "SKIPPED",
-    contactsFound: number,
-    error?: string
-  ): Promise<void> {
+  async finishDiscoveryRun(runId: string, status: "SUCCEEDED" | "FAILED" | "SKIPPED", contactsFound: number, error?: string): Promise<void> {
     await this.database.query(
-      `
-        UPDATE recruiter_discovery_runs
-        SET status = $2, contacts_found = $3, error = $4, completed_at = NOW()
-        WHERE id = $1
-      `,
+      `UPDATE recruiter_discovery_runs SET status = $2, contacts_found = $3, error = $4, completed_at = NOW() WHERE id = $1`,
       [runId, status, contactsFound, error ?? null]
     );
   }
 
-  async hasRecentDiscovery(
-    companyDomain: string,
-    provider: string,
-    cooldownHours: number
-  ): Promise<boolean> {
+  async hasRecentDiscovery(companyDomain: string, provider: string, cooldownHours: number): Promise<boolean> {
     const result = await this.database.query<{ exists: boolean }>(
       `
         SELECT EXISTS (
-          SELECT 1
-          FROM recruiter_discovery_runs
-          WHERE company_domain = $1
-            AND provider = $2
-            AND status = 'SUCCEEDED'
+          SELECT 1 FROM recruiter_discovery_runs
+          WHERE company_domain = $1 AND provider = $2 AND status = 'SUCCEEDED'
             AND started_at >= NOW() - ($3 * INTERVAL '1 hour')
         ) AS exists
       `,
@@ -212,24 +189,89 @@ export class RecruiterDiscoveryRepository {
     return result.rows[0]?.exists ?? false;
   }
 
-  async isOutreachSequenceDuplicate(
-    recruiterContactId: string,
-    jobOpportunityId: string,
-    candidateProfileId: string
-  ): Promise<boolean> {
+  async isOutreachSequenceDuplicate(recruiterContactId: string, jobOpportunityId: string, candidateProfileId: string): Promise<boolean> {
     const result = await this.database.query<{ exists: boolean }>(
       `
         SELECT EXISTS (
-          SELECT 1
-          FROM recruiter_outreach_sequences
-          WHERE recruiter_contact_id = $1
-            AND job_opportunity_id = $2
-            AND candidate_profile_id = $3
-            AND status <> 'FAILED'
+          SELECT 1 FROM recruiter_outreach_sequences
+          WHERE recruiter_contact_id = $1 AND job_opportunity_id = $2
+            AND candidate_profile_id = $3 AND status <> 'FAILED'
         ) AS exists
       `,
       [recruiterContactId, jobOpportunityId, candidateProfileId]
     );
     return result.rows[0]?.exists ?? false;
+  }
+
+  async isSuppressed(email: string, companyDomain: string): Promise<{ email: boolean; domain: boolean }> {
+    const result = await this.database.query<{ email_suppressed: boolean; domain_suppressed: boolean }>(
+      `
+        SELECT
+          EXISTS (SELECT 1 FROM recruiter_suppressions WHERE LOWER(email) = LOWER($1)) AS email_suppressed,
+          EXISTS (SELECT 1 FROM recruiter_suppressions WHERE LOWER(company_domain) = LOWER($2)) AS domain_suppressed
+      `,
+      [normalize(email), normalize(companyDomain).replace(/^www\./, "")]
+    );
+    return { email: result.rows[0]?.email_suppressed ?? false, domain: result.rows[0]?.domain_suppressed ?? false };
+  }
+
+  async createOutreachSequence(input: {
+    recruiterContactId: string;
+    jobOpportunityId: string;
+    applicationId: string;
+    candidateProfileId: string;
+  }): Promise<RecruiterOutreachSequenceRecord | null> {
+    const result = await this.database.query<{
+      id: string;
+      recruiter_contact_id: string;
+      job_opportunity_id: string | null;
+      application_id: string | null;
+      candidate_profile_id: string;
+      status: RecruiterOutreachSequenceRecord["status"];
+      next_action_at: Date | null;
+    }>(
+      `
+        INSERT INTO recruiter_outreach_sequences (
+          recruiter_contact_id, job_opportunity_id, application_id, candidate_profile_id, status
+        ) VALUES ($1, $2, $3, $4, 'READY')
+        ON CONFLICT (recruiter_contact_id, job_opportunity_id, candidate_profile_id) DO NOTHING
+        RETURNING id, recruiter_contact_id, job_opportunity_id, application_id, candidate_profile_id, status, next_action_at
+      `,
+      [input.recruiterContactId, input.jobOpportunityId, input.applicationId, input.candidateProfileId]
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      id: row.id, recruiterContactId: row.recruiter_contact_id, jobOpportunityId: row.job_opportunity_id,
+      applicationId: row.application_id, candidateProfileId: row.candidate_profile_id, status: row.status,
+      nextActionAt: row.next_action_at
+    };
+  }
+
+  async createOutreachMessage(input: {
+    sequenceId: string;
+    messageType: "INITIAL" | "FOLLOW_UP";
+    sequenceStep: number;
+    recipientEmail: string;
+    subject: string;
+    body: string;
+  }): Promise<RecruiterOutreachMessageRecord> {
+    const result = await this.database.query<RecruiterOutreachMessageRecord & { recipient_email: string; message_type: "INITIAL" | "FOLLOW_UP" }>(
+      `
+        INSERT INTO recruiter_outreach_messages (
+          sequence_id, message_type, sequence_step, recipient_email, subject, body, status
+        ) VALUES ($1, $2, $3, $4, $5, $6, 'PREPARED')
+        ON CONFLICT (sequence_id, sequence_step) DO UPDATE SET
+          recipient_email = EXCLUDED.recipient_email,
+          subject = EXCLUDED.subject,
+          body = EXCLUDED.body,
+          updated_at = NOW()
+        RETURNING id, sequence_id, message_type, sequence_step, recipient_email, subject, body, status
+      `,
+      [input.sequenceId, input.messageType, input.sequenceStep, normalize(input.recipientEmail), input.subject, input.body]
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Recruiter outreach message could not be persisted.");
+    return row;
   }
 }
