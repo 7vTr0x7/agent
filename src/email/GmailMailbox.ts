@@ -30,5 +30,6 @@ export interface GmailMailbox {
     threadId?: string;
     inReplyTo?: string;
     references?: string;
+    messageId?: string;
   }): Promise<{ gmailMessageId: string; gmailThreadId: string }>;
 }
