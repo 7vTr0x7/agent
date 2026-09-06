@@ -6,6 +6,7 @@ export interface AppConfig {
   automationEnabled: boolean;
   genericApplicationAdapterEnabled: boolean;
   applicationRateLimitPerDay: number;
+  applicationCompanyRateLimitPerDay: number;
   resume: {
     tailoringEnabled: boolean;
     masterPath: string | null;
@@ -69,6 +70,10 @@ export function loadConfig(): AppConfig {
     applicationRateLimitPerDay: positiveInteger(
       "APPLICATION_RATE_LIMIT_PER_DAY",
       process.env.APPLICATION_RATE_LIMIT_PER_DAY ?? "50"
+    ),
+    applicationCompanyRateLimitPerDay: positiveInteger(
+      "APPLICATION_COMPANY_RATE_LIMIT_PER_DAY",
+      process.env.APPLICATION_COMPANY_RATE_LIMIT_PER_DAY ?? "5"
     ),
     resume: {
       tailoringEnabled: resumeTailoringEnabled,
