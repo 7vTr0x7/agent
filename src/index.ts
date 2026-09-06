@@ -57,6 +57,7 @@ import { RecruiterOutreachSendTaskDispatcher, SEND_RECRUITER_EMAIL_TASK } from "
 import { RecruiterOutreachSendTaskHandler } from "./recruiters/RecruiterOutreachSendTaskHandler";
 import { RecruiterOutreachFollowUpService } from "./recruiters/RecruiterOutreachFollowUpService";
 import { RecruiterOutreachFollowUpScheduler } from "./recruiters/RecruiterOutreachFollowUpScheduler";
+import { RecruiterOutreachInboundProcessor } from "./recruiters/RecruiterOutreachInboundProcessor";
 
 const config = loadConfig();
 const logger = pino({ level: config.logLevel });
@@ -243,24 +244,25 @@ async function main(): Promise<void> {
   let recruiterSendDispatcher: RecruiterOutreachSendTaskDispatcher | undefined;
   let recruiterSendHandler: RecruiterOutreachSendTaskHandler | undefined;
   let recruiterFollowUpScheduler: RecruiterOutreachFollowUpScheduler | undefined;
+  let recruiterRepository: RecruiterDiscoveryRepository | undefined;
   if (config.recruiterOutreach.enabled && config.recruiterOutreach.hunterApiKey) {
     const provider = new HunterRecruiterDiscoveryProvider({ apiKey: config.recruiterOutreach.hunterApiKey });
-    const repository = new RecruiterDiscoveryRepository(database);
+    recruiterRepository = new RecruiterDiscoveryRepository(database);
     const discovery = new PersistentRecruiterDiscoveryService({
       provider,
-      repository,
+      repository: recruiterRepository,
       minConfidence: config.recruiterOutreach.minConfidence,
       requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail
     });
     recruiterPreparationDispatcher = new RecruiterOutreachPreparationTaskDispatcher(taskQueue);
     recruiterSendDispatcher = gmailMailbox ? new RecruiterOutreachSendTaskDispatcher(taskQueue) : undefined;
-    const recruiterFollowUpService = new RecruiterOutreachFollowUpService(repository, {
+    const recruiterFollowUpService = new RecruiterOutreachFollowUpService(recruiterRepository, {
       enabled: config.recruiterOutreach.followUpEnabled,
       dayOffsets: config.recruiterOutreach.followUpDayOffsets
     });
     recruiterPreparationHandler = new RecruiterOutreachPreparationTaskHandler(
       new RecruiterOutreachPreparationService({
-        repository,
+        repository: recruiterRepository,
         minConfidence: config.recruiterOutreach.minConfidence,
         requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail,
         dryRun: config.recruiterOutreach.dryRun
@@ -271,19 +273,19 @@ async function main(): Promise<void> {
     if (recruiterSendDispatcher && gmailMailbox) {
       recruiterSendHandler = new RecruiterOutreachSendTaskHandler(
         new RecruiterOutreachSendService({
-          repository,
+          repository: recruiterRepository,
           mailbox: gmailMailbox,
           dryRun: config.recruiterOutreach.dryRun,
           maxMessagesPerDay: config.recruiterOutreach.maxMessagesPerDay,
           maxMessagesPerHour: config.recruiterOutreach.maxMessagesPerHour
         }),
-        repository,
+        recruiterRepository,
         logger,
         recruiterFollowUpService
       );
       if (config.recruiterOutreach.followUpEnabled) {
         recruiterFollowUpScheduler = new RecruiterOutreachFollowUpScheduler(
-          repository,
+          recruiterRepository,
           recruiterSendDispatcher,
           true
         );
@@ -329,7 +331,10 @@ async function main(): Promise<void> {
       new GmailSyncTaskHandler(
         gmailMailbox,
         new GmailMessageRepository(database),
-        interviewRepository
+        interviewRepository,
+        undefined,
+        undefined,
+        recruiterRepository ? new RecruiterOutreachInboundProcessor(recruiterRepository) : undefined
       )
     );
     gmailSyncDispatcher = new GmailSyncTaskDispatcher(taskQueue);
@@ -361,27 +366,22 @@ async function main(): Promise<void> {
 
   const worker = new TaskWorker(taskQueue, handlers, { logger });
   stopWorker = () => worker.stop();
-  const applicationQueue = new ApplicationQueueService(
-    database,
-    new ApplicationTaskDispatcher(taskQueue),
-    new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: config.applicationRateLimitPerDay }),
-    new ApplicationCompanyRateLimitPolicy({
-      maxSubmissionsPerCompanyPerDay: config.applicationCompanyRateLimitPerDay
-    })
+
+  const applicationQueueService = new ApplicationQueueService(
+    taskQueue,
+    applicationRepository,
+    new ApplicationRateLimitPolicy(config.applicationRateLimitPerDay),
+    new ApplicationCompanyRateLimitPolicy(config.applicationCompanyRateLimitPerDay)
   );
 
-  const enqueueApplicationsLoop = (): Promise<void> =>
+  const applicationLoop = (): Promise<void> =>
     runPeriodicLoop({
-      name: "application-enqueue",
+      name: "application-queue",
       intervalMs: config.applicationQueueIntervalMs,
       signal: shutdownController.signal,
       logger,
       sleep,
-      runOnce: async () => {
-        const queued = await applicationQueue.enqueueEligible(candidateProfile.id);
-        if (queued.queued > 0) logger.info(queued, "Eligible application tasks queued");
-        if (queued.rateLimited) logger.warn(queued, "Daily application submission limit reached");
-      }
+      runOnce: () => applicationQueueService.enqueueEligibleApplications()
     });
 
   const staleSubmissionLoop = (): Promise<void> =>
@@ -392,7 +392,8 @@ async function main(): Promise<void> {
       logger,
       sleep,
       runOnce: async () => {
-        await staleSubmissionMonitor.runOnce();
+        const result = await staleSubmissionMonitor.runOnce(config.staleSubmissionThresholdMinutes);
+        if (result.requeued > 0) logger.info(result, "Stale application submissions requeued");
       }
     });
 
@@ -415,7 +416,7 @@ async function main(): Promise<void> {
       }
     });
 
-  const syncGmailLoop = (): Promise<void> =>
+  const gmailSyncLoop = (): Promise<void> =>
     runPeriodicLoop({
       name: "gmail-sync",
       intervalMs: config.gmail.syncIntervalMs,
@@ -424,13 +425,13 @@ async function main(): Promise<void> {
       sleep,
       runOnce: async () => {
         if (!gmailSyncDispatcher) return;
-        await gmailSyncDispatcher.enqueue(config.gmail.syncQuery, 50);
+        await gmailSyncDispatcher.enqueue();
       }
     });
 
   const followUpLoop = (): Promise<void> =>
     runPeriodicLoop({
-      name: "follow-up",
+      name: "application-follow-up",
       intervalMs: config.followUpIntervalMs,
       signal: shutdownController.signal,
       logger,
@@ -438,21 +439,7 @@ async function main(): Promise<void> {
       runOnce: async () => {
         if (!followUpScheduler) return;
         const result = await followUpScheduler.runOnce();
-        if (result.queued > 0) logger.info(result, "Follow-up drafts queued");
-      }
-    });
-
-  const recruiterFollowUpLoop = (): Promise<void> =>
-    runPeriodicLoop({
-      name: "recruiter-follow-up",
-      intervalMs: config.followUpIntervalMs,
-      signal: shutdownController.signal,
-      logger,
-      sleep,
-      runOnce: async () => {
-        if (!recruiterFollowUpScheduler) return;
-        const result = await recruiterFollowUpScheduler.runOnce();
-        if (result.queued > 0) logger.info(result, "Recruiter follow-up emails queued");
+        if (result.queued > 0) logger.info(result, "Application follow-ups queued");
       }
     });
 
@@ -470,18 +457,32 @@ async function main(): Promise<void> {
       }
     });
 
-  const loops: Promise<void>[] = [worker.run(), enqueueApplicationsLoop(), staleSubmissionLoop()];
-  if (discoveryRuntime) loops.push(discoveryLoop());
-  if (gmailSyncDispatcher) loops.push(syncGmailLoop());
-  if (followUpScheduler) loops.push(followUpLoop());
-  if (recruiterFollowUpScheduler) loops.push(recruiterFollowUpLoop());
-  if (interviewReminderScheduler) loops.push(interviewReminderLoop());
+  const recruiterFollowUpLoop = (): Promise<void> =>
+    runPeriodicLoop({
+      name: "recruiter-follow-up",
+      intervalMs: config.followUpIntervalMs,
+      signal: shutdownController.signal,
+      logger,
+      sleep,
+      runOnce: async () => {
+        if (!recruiterFollowUpScheduler) return;
+        const result = await recruiterFollowUpScheduler.runOnce();
+        if (result.queued > 0) logger.info(result, "Recruiter follow-up emails queued");
+      }
+    });
 
-  await Promise.all(loops);
+  const loops: Promise<void>[] = [applicationLoop(), staleSubmissionLoop()];
+  if (discoveryRuntime) loops.push(discoveryLoop());
+  if (gmailSyncDispatcher) loops.push(gmailSyncLoop());
+  if (followUpScheduler) loops.push(followUpLoop());
+  if (interviewReminderScheduler) loops.push(interviewReminderLoop());
+  if (recruiterFollowUpScheduler) loops.push(recruiterFollowUpLoop());
+
+  await Promise.all([worker.run(), ...loops]);
   await database.close();
 }
 
 main().catch((error) => {
-  logger.error({ err: error }, "Fatal job-agent error");
+  logger.error({ err: error }, "job-agent crashed");
   process.exitCode = 1;
 });
