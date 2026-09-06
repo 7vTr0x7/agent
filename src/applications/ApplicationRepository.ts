@@ -30,6 +30,12 @@ export interface StaleSubmission {
   startedAt: Date;
 }
 
+export interface VerifiedSubmissionEvidence {
+  confirmationUrl: string;
+  externalApplicationId: string;
+  verificationSource: "INDEPENDENT_CONFIRMATION";
+}
+
 export class ApplicationRepository {
   constructor(
     private readonly database: Database,
@@ -421,6 +427,99 @@ export class ApplicationRepository {
         applicationId,
         confirmationUrl,
         externalApplicationId
+      };
+    });
+  }
+
+  async recoverVerifiedSubmission(
+    applicationId: string,
+    olderThanMinutes: number,
+    evidence: VerifiedSubmissionEvidence
+  ): Promise<SubmittedApplicationResult | null> {
+    if (!Number.isFinite(olderThanMinutes) || olderThanMinutes <= 0) {
+      throw new Error("olderThanMinutes must be a positive finite number.");
+    }
+
+    return this.database.transaction(async (client) => {
+      const current = await client.query<{
+        status: string;
+        updated_at: Date;
+      }>(
+        `
+          SELECT status, updated_at
+          FROM applications
+          WHERE id = $1
+          FOR UPDATE
+        `,
+        [applicationId]
+      );
+
+      const row = current.rows[0];
+      if (!row) {
+        throw new Error("Application does not exist.");
+      }
+
+      if (row.status === "SENT") {
+        return {
+          applicationId,
+          confirmationUrl: evidence.confirmationUrl,
+          externalApplicationId: evidence.externalApplicationId
+        };
+      }
+
+      if (row.status !== "SUBMISSION_IN_PROGRESS") {
+        return null;
+      }
+
+      const staleResult = await client.query<{ stale: boolean }>(
+        `
+          SELECT updated_at < NOW() - ($2::int * INTERVAL '1 minute') AS stale
+          FROM applications
+          WHERE id = $1
+        `,
+        [applicationId, Math.floor(olderThanMinutes)]
+      );
+
+      if (!staleResult.rows[0]?.stale) {
+        return null;
+      }
+
+      await client.query(
+        `
+          UPDATE applications
+          SET status = 'SENT',
+              applied_at = COALESCE(applied_at, NOW()),
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [applicationId]
+      );
+
+      await client.query(
+        `
+          INSERT INTO application_events (
+            application_id,
+            from_status,
+            to_status,
+            event_type,
+            metadata
+          )
+          VALUES ($1, 'SUBMISSION_IN_PROGRESS', 'SENT', 'APPLICATION_SUBMISSION_RECOVERED', $2::jsonb)
+        `,
+        [
+          applicationId,
+          JSON.stringify({
+            confirmationUrl: evidence.confirmationUrl,
+            externalApplicationId: evidence.externalApplicationId,
+            verificationSource: evidence.verificationSource
+          })
+        ]
+      );
+
+      return {
+        applicationId,
+        confirmationUrl: evidence.confirmationUrl,
+        externalApplicationId: evidence.externalApplicationId
       };
     });
   }
