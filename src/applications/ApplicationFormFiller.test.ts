@@ -86,6 +86,7 @@ describe("ApplicationFormFiller", () => {
 
       const profile: CandidateProfile = {
         id: "candidate-2",
+        yearsExperience: 3,
         skills: ["React"],
         targetTitles: ["Frontend Engineer"],
         location: "Bengaluru"
@@ -122,6 +123,7 @@ describe("ApplicationFormFiller", () => {
 
       const profile: CandidateProfile = {
         id: "candidate-3",
+        yearsExperience: 3,
         skills: ["React"],
         targetTitles: ["Frontend Engineer"],
         location: "Bangalore"
