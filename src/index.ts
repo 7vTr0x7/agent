@@ -44,6 +44,11 @@ import { FollowUpTaskHandler } from "./applications/FollowUpTaskHandler";
 import { createDiscoveryRuntime } from "./discovery/createDiscoveryRuntime";
 import { MATCH_JOB_TASK } from "./matching/MatchTask";
 import { runPeriodicLoop } from "./shared/utils/RuntimeLoop";
+import { HunterRecruiterDiscoveryProvider } from "./recruiters/HunterRecruiterDiscoveryProvider";
+import { RecruiterDiscoveryRepository } from "./recruiters/RecruiterDiscoveryRepository";
+import { PersistentRecruiterDiscoveryService } from "./recruiters/PersistentRecruiterDiscoveryService";
+import { RecruiterDiscoveryTaskDispatcher, DISCOVER_RECRUITERS_TASK } from "./recruiters/RecruiterDiscoveryTask";
+import { RecruiterDiscoveryTaskHandler } from "./recruiters/RecruiterDiscoveryTaskHandler";
 
 const config = loadConfig();
 const logger = pino({ level: config.logLevel });
@@ -208,6 +213,24 @@ async function main(): Promise<void> {
     tailoredResumeRepository = new PostgresTailoredResumeRepository(database);
   }
 
+  let recruiterDiscoveryDispatcher: RecruiterDiscoveryTaskDispatcher | undefined;
+  let recruiterDiscoveryHandler: RecruiterDiscoveryTaskHandler | undefined;
+  if (config.recruiterOutreach.enabled && config.recruiterOutreach.hunterApiKey) {
+    const provider = new HunterRecruiterDiscoveryProvider({ apiKey: config.recruiterOutreach.hunterApiKey });
+    const repository = new RecruiterDiscoveryRepository(database);
+    const discovery = new PersistentRecruiterDiscoveryService({
+      provider,
+      repository,
+      minConfidence: config.recruiterOutreach.minConfidence,
+      requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail
+    });
+    recruiterDiscoveryDispatcher = new RecruiterDiscoveryTaskDispatcher(taskQueue);
+    recruiterDiscoveryHandler = new RecruiterDiscoveryTaskHandler(
+      discovery,
+      config.recruiterOutreach.maxContactsPerApplication
+    );
+  }
+
   const applicationTaskHandler = new ApplicationTaskHandler(
     applicationRepository,
     submissionService,
@@ -216,11 +239,13 @@ async function main(): Promise<void> {
     emailDispatcher,
     tailoredResumeArtifacts,
     tailoredResumeRepository,
-    applicationAttemptRepository
+    applicationAttemptRepository,
+    recruiterDiscoveryDispatcher
   );
 
   const handlers = new Map<string, any>([[APPLY_JOB_TASK, applicationTaskHandler]]);
   if (emailHandler) handlers.set(SEND_APPLICATION_EMAIL_TASK, emailHandler);
+  if (recruiterDiscoveryHandler) handlers.set(DISCOVER_RECRUITERS_TASK, recruiterDiscoveryHandler);
 
   let discoveryRuntime: ReturnType<typeof createDiscoveryRuntime> | undefined;
   if (config.discoveryEnabled) {
