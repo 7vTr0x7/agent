@@ -7,6 +7,8 @@ import { ApplicationEmailContext } from "../notifications/Email";
 import { TailoredResumeArtifactService } from "../resume/TailoredResumeArtifactService";
 import { TailoredResumeRepository } from "../resume/TailoredResumeRepository";
 import { ApplicationAttemptRepository } from "./ApplicationAttemptRepository";
+import { RecruiterDiscoveryTaskDispatcher } from "../recruiters/RecruiterDiscoveryTask";
+import { resolveEmployerDomainFromJobUrl } from "../recruiters/RecruiterCompanyDomainResolver";
 
 export interface CandidateProfileResolver {
   getById(candidateProfileId: string): Promise<CandidateProfile | null>;
@@ -26,7 +28,8 @@ export class ApplicationTaskHandler {
     private readonly emailDispatcher?: ApplicationEmailDispatcher,
     private readonly tailoredResumeArtifacts?: TailoredResumeArtifactService,
     private readonly tailoredResumeRepository?: TailoredResumeRepository,
-    private readonly attemptRepository?: Pick<ApplicationAttemptRepository, "record">
+    private readonly attemptRepository?: Pick<ApplicationAttemptRepository, "record">,
+    private readonly recruiterDiscoveryDispatcher?: RecruiterDiscoveryTaskDispatcher
   ) {}
 
   async handle(task: ClaimedTask<ApplyJobTaskPayload>): Promise<void> {
@@ -104,6 +107,28 @@ export class ApplicationTaskHandler {
         confirmationUrl: outcome.result?.confirmationUrl ?? null,
         externalApplicationId: outcome.result?.externalApplicationId ?? null
       });
+    }
+
+    // Recruiter discovery is a separate queued workflow. A provider failure must
+    // never change the application outcome, and unsupported marketplace/ATS URLs
+    // are deliberately not treated as employer domains.
+    if (this.recruiterDiscoveryDispatcher) {
+      const companyDomain = resolveEmployerDomainFromJobUrl(prepared.application.url);
+      if (companyDomain) {
+        try {
+          await this.recruiterDiscoveryDispatcher.enqueue({
+            companyName: prepared.application.companyName,
+            companyDomain,
+            jobTitle: prepared.application.jobTitle,
+            jobDescription: prepared.application.jobDescription,
+            candidateProfileId: prepared.application.candidateProfileId,
+            jobOpportunityId: prepared.application.jobOpportunityId,
+            applicationId: prepared.application.applicationId
+          });
+        } catch {
+          // Queueing recruiter discovery is best-effort and isolated from application state.
+        }
+      }
     }
 
     if (!this.emailDispatcher || !candidateProfile.email) {
