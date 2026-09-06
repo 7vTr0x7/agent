@@ -106,6 +106,19 @@ export class SourceRunTracker {
     });
   }
 
+  async applyCooldown(sourceId: string, disabledUntil: Date): Promise<void> {
+    await this.database.query(
+      `UPDATE sources
+       SET disabled_until = CASE
+             WHEN disabled_until IS NULL OR disabled_until < $2 THEN $2
+             ELSE disabled_until
+           END,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [sourceId, disabledUntil]
+    );
+  }
+
   async markReviewRequired(sourceId: string, threshold: number): Promise<void> {
     await this.database.query(
       `UPDATE sources
