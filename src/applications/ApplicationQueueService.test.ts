@@ -1,6 +1,7 @@
 import { ApplicationQueueService } from "./ApplicationQueueService";
 import { ApplicationTaskDispatcher } from "./ApplicationTask";
 import { ApplicationRateLimitPolicy } from "./ApplicationRateLimitPolicy";
+import { ApplicationCompanyRateLimitPolicy } from "./ApplicationCompanyRateLimitPolicy";
 
 describe("ApplicationQueueService", () => {
   it("queues APPLY decisions in ranking order and excludes existing applications", async () => {
@@ -30,7 +31,8 @@ describe("ApplicationQueueService", () => {
     const service = new ApplicationQueueService(
       database as never,
       dispatcher,
-      new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 10 })
+      new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 10 }),
+      new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 5 })
     );
 
     const result = await service.enqueueEligible("candidate-1", 50);
@@ -90,7 +92,8 @@ describe("ApplicationQueueService", () => {
     const service = new ApplicationQueueService(
       database as never,
       dispatcher,
-      new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 10 })
+      new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 10 }),
+      new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 5 })
     );
 
     const result = await service.enqueueEligible("candidate-1", 50);
@@ -98,8 +101,38 @@ describe("ApplicationQueueService", () => {
     expect(result.submissionsRemaining).toBe(1);
     expect(query).toHaveBeenNthCalledWith(
       2,
-      expect.stringContaining("LIMIT $2"),
-      ["candidate-1", 2]
+      expect.stringContaining("LIMIT $3"),
+      ["candidate-1", 5, 2]
+    );
+  });
+
+  it("passes the company cap into the candidate selection query", async () => {
+    const enqueue = jest.fn().mockResolvedValue("task-id");
+    const dispatcher = { enqueue } as unknown as ApplicationTaskDispatcher;
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [{ count: "0" }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const database = { query };
+
+    const service = new ApplicationQueueService(
+      database as never,
+      dispatcher,
+      new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 10 }),
+      new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 3 })
+    );
+
+    await service.enqueueEligible("candidate-1", 10);
+
+    expect(query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("company_submission_counts"),
+      ["candidate-1", 3, 10]
+    );
+    expect(query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("company_rank <= GREATEST(0, $2 - company_submissions_used)"),
+      ["candidate-1", 3, 10]
     );
   });
 });
