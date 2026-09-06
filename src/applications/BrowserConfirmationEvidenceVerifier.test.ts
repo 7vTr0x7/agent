@@ -3,6 +3,14 @@ import { BrowserSession } from "./BrowserSession";
 import { VerifiedSubmissionEvidence } from "./ApplicationRepository";
 
 describe("BrowserConfirmationEvidenceVerifier", () => {
+  const submission = {
+    applicationId: "application-1",
+    candidateProfileId: "candidate-1",
+    companyName: "Example Co",
+    targetUrl: "https://jobs.example.com/apply/123",
+    startedAt: new Date()
+  };
+
   const evidence: VerifiedSubmissionEvidence = {
     confirmationUrl: "https://jobs.example.com/confirmation/abc",
     externalApplicationId: "APP-123",
@@ -39,15 +47,25 @@ describe("BrowserConfirmationEvidenceVerifier", () => {
     };
     const verifier = new BrowserConfirmationEvidenceVerifier(browserSessions as never);
 
-    await expect(verifier.verify({
-      applicationId: "application-1",
-      candidateProfileId: "candidate-1",
-      companyName: "Example Co",
-      startedAt: new Date()
-    }, evidence)).resolves.toBe(true);
+    await expect(verifier.verify(submission, evidence)).resolves.toBe(true);
 
     expect(page.goto).toHaveBeenCalledWith(evidence.confirmationUrl, { waitUntil: "domcontentloaded" });
     expect(browserSessions.close).toHaveBeenCalledWith(session);
+  });
+
+  it("rejects a confirmation page hosted on a different hostname without opening a browser", async () => {
+    const browserSessions = {
+      create: jest.fn(),
+      close: jest.fn()
+    };
+    const verifier = new BrowserConfirmationEvidenceVerifier(browserSessions as never);
+
+    await expect(verifier.verify(submission, {
+      ...evidence,
+      confirmationUrl: "https://attacker.example/confirmation/APP-123"
+    })).resolves.toBe(false);
+
+    expect(browserSessions.create).not.toHaveBeenCalled();
   });
 
   it("rejects a confirmation page missing the external application ID", async () => {
@@ -58,12 +76,7 @@ describe("BrowserConfirmationEvidenceVerifier", () => {
     };
     const verifier = new BrowserConfirmationEvidenceVerifier(browserSessions as never);
 
-    await expect(verifier.verify({
-      applicationId: "application-2",
-      candidateProfileId: "candidate-1",
-      companyName: "Example Co",
-      startedAt: new Date()
-    }, evidence)).resolves.toBe(false);
+    await expect(verifier.verify(submission, evidence)).resolves.toBe(false);
   });
 
   it("rejects a page containing the ID but no confirmation signal", async () => {
@@ -74,12 +87,7 @@ describe("BrowserConfirmationEvidenceVerifier", () => {
     };
     const verifier = new BrowserConfirmationEvidenceVerifier(browserSessions as never);
 
-    await expect(verifier.verify({
-      applicationId: "application-3",
-      candidateProfileId: "candidate-1",
-      companyName: "Example Co",
-      startedAt: new Date()
-    }, evidence)).resolves.toBe(false);
+    await expect(verifier.verify(submission, evidence)).resolves.toBe(false);
   });
 
   it("rejects non-HTTPS confirmation URLs without opening a browser", async () => {
@@ -89,12 +97,7 @@ describe("BrowserConfirmationEvidenceVerifier", () => {
     };
     const verifier = new BrowserConfirmationEvidenceVerifier(browserSessions as never);
 
-    await expect(verifier.verify({
-      applicationId: "application-4",
-      candidateProfileId: "candidate-1",
-      companyName: "Example Co",
-      startedAt: new Date()
-    }, {
+    await expect(verifier.verify(submission, {
       ...evidence,
       confirmationUrl: "http://jobs.example.com/confirmation/abc"
     })).resolves.toBe(false);
@@ -110,12 +113,7 @@ describe("BrowserConfirmationEvidenceVerifier", () => {
     };
     const verifier = new BrowserConfirmationEvidenceVerifier(browserSessions as never);
 
-    await expect(verifier.verify({
-      applicationId: "application-5",
-      candidateProfileId: "candidate-1",
-      companyName: "Example Co",
-      startedAt: new Date()
-    }, evidence)).resolves.toBe(false);
+    await expect(verifier.verify(submission, evidence)).resolves.toBe(false);
 
     expect(browserSessions.close).toHaveBeenCalledWith(session);
   });
