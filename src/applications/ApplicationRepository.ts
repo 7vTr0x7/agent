@@ -154,6 +154,78 @@ export class ApplicationRepository {
     });
   }
 
+  async beginSubmission(applicationId: string): Promise<boolean> {
+    return this.database.transaction(async (client) => {
+      const updated = await client.query<{ status: string }>(
+        `
+          UPDATE applications
+          SET status = 'SUBMISSION_IN_PROGRESS',
+              updated_at = NOW()
+          WHERE id = $1
+            AND status IN ('READY', 'DRAFTED')
+          RETURNING status
+        `,
+        [applicationId]
+      );
+
+      if (!updated.rows[0]) {
+        return false;
+      }
+
+      await client.query(
+        `
+          INSERT INTO application_events (
+            application_id,
+            from_status,
+            to_status,
+            event_type,
+            metadata
+          )
+          VALUES ($1, NULL, 'SUBMISSION_IN_PROGRESS', 'APPLICATION_SUBMISSION_STARTED', '{}'::jsonb)
+        `,
+        [applicationId]
+      );
+
+      return true;
+    });
+  }
+
+  async cancelSubmission(applicationId: string, reason: string): Promise<boolean> {
+    return this.database.transaction(async (client) => {
+      const updated = await client.query<{ status: string }>(
+        `
+          UPDATE applications
+          SET status = 'READY',
+              updated_at = NOW()
+          WHERE id = $1
+            AND status = 'SUBMISSION_IN_PROGRESS'
+          RETURNING status
+        `,
+        [applicationId]
+      );
+
+      if (!updated.rows[0]) {
+        return false;
+      }
+
+      await client.query(
+        `
+          INSERT INTO application_events (
+            application_id,
+            from_status,
+            to_status,
+            event_type,
+            metadata
+          )
+          VALUES ($1, 'SUBMISSION_IN_PROGRESS', 'READY', 'APPLICATION_SUBMISSION_NOT_CONFIRMED', $2::jsonb)
+        `,
+        [applicationId, JSON.stringify({ reason })]
+      );
+
+      return true;
+    });
+  }
+
   async markSubmitted(
     applicationId: string,
     confirmationUrl: string | null,
@@ -183,7 +255,7 @@ export class ApplicationRepository {
         };
       }
 
-      if (row.status !== "READY" && row.status !== "DRAFTED") {
+      if (row.status !== "SUBMISSION_IN_PROGRESS") {
         throw new Error(`Application cannot transition from status '${row.status}' to SENT.`);
       }
 
