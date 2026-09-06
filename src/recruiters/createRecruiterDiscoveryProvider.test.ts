@@ -24,12 +24,12 @@ describe("createRecruiterDiscoveryProvider", () => {
       snovClientId: "client-id",
       snovClientSecret: "client-secret"
     });
-    expect(snov.name).toBe("snov->job-posting");
+    expect(snov.name).toBe("snov+job-posting");
 
     const hunter = createRecruiterDiscoveryProvider({
       provider: "hunter",
       hunterApiKey: "api-key"
     });
-    expect(hunter.name).toBe("hunter->job-posting");
+    expect(hunter.name).toBe("hunter+job-posting");
   });
 });
