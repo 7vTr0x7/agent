@@ -1,7 +1,5 @@
 import pino from "pino";
 import { loadConfig } from "./config/env";
-import { OllamaProvider } from "./ai/OllamaProvider";
-import { JobMatcher } from "./ai/JobMatcher";
 import { Database } from "./database/Database";
 import { MigrationRunner } from "./database/MigrationRunner";
 import { TaskQueue } from "./queue/TaskQueue";
@@ -57,10 +55,6 @@ async function main(): Promise<void> {
   const migrationRunner = new MigrationRunner(database);
   await migrationRunner.run();
 
-  const matcher = new JobMatcher(
-    new OllamaProvider(config.ollama.baseUrl, config.ollama.model, config.ollama.timeoutMs)
-  );
-
   logger.info(
     {
       nodeEnv: config.nodeEnv,
@@ -78,12 +72,6 @@ async function main(): Promise<void> {
     },
     "job-agent started"
   );
-
-  const result = await matcher.evaluate(
-    "Frontend Engineer with React, Next.js, TypeScript, Redux Toolkit, Node.js and 3 years of experience.",
-    "We are looking for a Frontend Developer with React and TypeScript experience."
-  );
-  logger.info({ result }, "AI job-match test completed");
 
   const candidateProfiles = ConfiguredCandidateProfileResolver.fromEnvironment();
   const candidateProfile = await candidateProfiles.getById(process.env.CANDIDATE_PROFILE_ID ?? "");
