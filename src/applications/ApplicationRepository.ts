@@ -27,6 +27,7 @@ export interface StaleSubmission {
   applicationId: string;
   candidateProfileId: string;
   companyName: string;
+  targetUrl: string;
   startedAt: Date;
 }
 
@@ -177,16 +178,9 @@ export class ApplicationRepository {
 
   async beginSubmission(applicationId: string): Promise<boolean> {
     return this.database.transaction(async (client) => {
-      const current = await client.query<{
-        status: string;
-        candidate_profile_id: string;
-        company_name: string;
-      }>(
+      const current = await client.query<{ status: string; candidate_profile_id: string; company_name: string }>(
         `
-          SELECT
-            a.status,
-            a.candidate_profile_id,
-            jo.company_name
+          SELECT a.status, a.candidate_profile_id, jo.company_name
           FROM applications a
           INNER JOIN job_opportunities jo ON jo.id = a.job_opportunity_id
           WHERE a.id = $1
@@ -196,16 +190,13 @@ export class ApplicationRepository {
       );
 
       const row = current.rows[0];
-      if (!row || (row.status !== "READY" && row.status !== "DRAFTED")) {
+      if (!row || !["READY", "DRAFTED"].includes(row.status)) {
         return false;
       }
 
-      await client.query(
-        `SELECT pg_advisory_xact_lock(hashtext($1))`,
-        [row.candidate_profile_id]
-      );
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [row.candidate_profile_id]);
 
-      const globalCount = await client.query<{ count: string }>(
+      const submissionCount = await client.query<{ count: string }>(
         `
           SELECT COUNT(*)::text AS count
           FROM applications a
@@ -224,9 +215,8 @@ export class ApplicationRepository {
         [row.candidate_profile_id]
       );
 
-      const submissionsUsed = Number(globalCount.rows[0]?.count ?? "0");
-      const globalLimit = this.rateLimitPolicy.evaluate(submissionsUsed);
-      if (!globalLimit.allowed) {
+      const submissionsUsed = Number(submissionCount.rows[0]?.count ?? "0");
+      if (submissionsUsed >= this.rateLimitPolicy.maxSubmissionsPerDay) {
         return false;
       }
 
@@ -336,6 +326,7 @@ export class ApplicationRepository {
       id: string;
       candidate_profile_id: string;
       company_name: string;
+      target_url: string;
       updated_at: Date;
     }>(
       `
@@ -343,6 +334,7 @@ export class ApplicationRepository {
           a.id,
           a.candidate_profile_id,
           jo.company_name,
+          jo.canonical_url AS target_url,
           a.updated_at
         FROM applications a
         INNER JOIN job_opportunities jo ON jo.id = a.job_opportunity_id
@@ -357,6 +349,7 @@ export class ApplicationRepository {
       applicationId: row.id,
       candidateProfileId: row.candidate_profile_id,
       companyName: row.company_name,
+      targetUrl: row.target_url,
       startedAt: row.updated_at
     }));
   }
@@ -379,7 +372,7 @@ export class ApplicationRepository {
 
       const row = current.rows[0];
       if (!row) {
-        throw new Error("Application does not exist.");
+        throw new Error("Application not found.");
       }
 
       if (row.status === "SENT") {
@@ -391,14 +384,14 @@ export class ApplicationRepository {
       }
 
       if (row.status !== "SUBMISSION_IN_PROGRESS") {
-        throw new Error(`Application cannot transition from status '${row.status}' to SENT.`);
+        throw new Error("Application is not in submission-in-progress state.");
       }
 
       await client.query(
         `
           UPDATE applications
           SET status = 'SENT',
-              applied_at = COALESCE(applied_at, NOW()),
+              applied_at = NOW(),
               updated_at = NOW()
           WHERE id = $1
         `,
@@ -414,11 +407,10 @@ export class ApplicationRepository {
             event_type,
             metadata
           )
-          VALUES ($1, $2, 'SENT', 'APPLICATION_SUBMITTED', $3::jsonb)
+          VALUES ($1, 'SUBMISSION_IN_PROGRESS', 'SENT', 'APPLICATION_SUBMITTED', $2::jsonb)
         `,
         [
           applicationId,
-          row.status,
           JSON.stringify({ confirmationUrl, externalApplicationId })
         ]
       );
@@ -440,21 +432,20 @@ export class ApplicationRepository {
       throw new Error("olderThanMinutes must be a positive finite number.");
     }
 
-    if (!evidence.confirmationUrl.trim() || !evidence.externalApplicationId.trim()) {
-      throw new Error("Verified submission recovery requires a confirmation URL and external application ID.");
+    const confirmationUrl = evidence.confirmationUrl.trim();
+    const externalApplicationId = evidence.externalApplicationId.trim();
+    if (!confirmationUrl || !externalApplicationId) {
+      throw new Error("Verified submission evidence requires confirmationUrl and externalApplicationId.");
     }
 
     if (evidence.verificationSource !== "INDEPENDENT_CONFIRMATION") {
-      throw new Error("Unsupported submission recovery verification source.");
+      throw new Error("Verified submission evidence must use independent confirmation.");
     }
 
     return this.database.transaction(async (client) => {
-      const current = await client.query<{
-        status: string;
-        updated_at: Date;
-      }>(
+      const current = await client.query<{ status: string }>(
         `
-          SELECT status, updated_at
+          SELECT status
           FROM applications
           WHERE id = $1
           FOR UPDATE
@@ -464,14 +455,14 @@ export class ApplicationRepository {
 
       const row = current.rows[0];
       if (!row) {
-        throw new Error("Application does not exist.");
+        return null;
       }
 
       if (row.status === "SENT") {
         return {
           applicationId,
-          confirmationUrl: evidence.confirmationUrl,
-          externalApplicationId: evidence.externalApplicationId
+          confirmationUrl,
+          externalApplicationId
         };
       }
 
@@ -479,16 +470,18 @@ export class ApplicationRepository {
         return null;
       }
 
-      const staleResult = await client.query<{ stale: boolean }>(
+      const stale = await client.query(
         `
-          SELECT updated_at < NOW() - ($2::int * INTERVAL '1 minute') AS stale
+          SELECT 1
           FROM applications
           WHERE id = $1
+            AND status = 'SUBMISSION_IN_PROGRESS'
+            AND updated_at < NOW() - ($2::int * INTERVAL '1 minute')
         `,
         [applicationId, Math.floor(olderThanMinutes)]
       );
 
-      if (!staleResult.rows[0]?.stale) {
+      if (!stale.rows[0]) {
         return null;
       }
 
@@ -496,9 +489,10 @@ export class ApplicationRepository {
         `
           UPDATE applications
           SET status = 'SENT',
-              applied_at = COALESCE(applied_at, NOW()),
+              applied_at = NOW(),
               updated_at = NOW()
           WHERE id = $1
+            AND status = 'SUBMISSION_IN_PROGRESS'
         `,
         [applicationId]
       );
@@ -517,8 +511,8 @@ export class ApplicationRepository {
         [
           applicationId,
           JSON.stringify({
-            confirmationUrl: evidence.confirmationUrl,
-            externalApplicationId: evidence.externalApplicationId,
+            confirmationUrl,
+            externalApplicationId,
             verificationSource: evidence.verificationSource
           })
         ]
@@ -526,8 +520,8 @@ export class ApplicationRepository {
 
       return {
         applicationId,
-        confirmationUrl: evidence.confirmationUrl,
-        externalApplicationId: evidence.externalApplicationId
+        confirmationUrl,
+        externalApplicationId
       };
     });
   }
