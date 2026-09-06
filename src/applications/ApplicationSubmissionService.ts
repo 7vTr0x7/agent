@@ -4,6 +4,7 @@ import { ApplicationFieldMapper } from "./ApplicationFieldMapper";
 import { ApplicationFormFiller } from "./ApplicationFormFiller";
 import { FormFieldDetector } from "./FormFieldDetector";
 import { SubmissionSafetyGate } from "./SubmissionSafetyGate";
+import { ApplicationTargetResolver } from "./ApplicationTargetResolver";
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { ApplicationRepository } from "./ApplicationRepository";
 
@@ -29,30 +30,46 @@ export class ApplicationSubmissionService {
     private readonly detector = new FormFieldDetector(),
     private readonly mapper = new ApplicationFieldMapper(),
     private readonly filler = new ApplicationFormFiller(),
-    private readonly safetyGate = new SubmissionSafetyGate()
+    private readonly safetyGate = new SubmissionSafetyGate(),
+    private readonly targetResolver = new ApplicationTargetResolver()
   ) {}
 
   async submit(request: ApplicationSubmissionRequest): Promise<ApplicationSubmissionOutcome> {
-    const adapter = this.adapters.resolve(request.context.url);
-    if (!adapter) {
-      return {
-        submitted: false,
-        safetyAllowed: false,
-        reason: "No application adapter can safely handle this URL.",
-        result: null
-      };
-    }
-
     const session = await this.browserSessions.create();
 
     try {
       await session.page.goto(request.context.url, { waitUntil: "domcontentloaded" });
 
+      const target = await this.targetResolver.resolve(session.page, request.context.url);
+      if (!target.resolved) {
+        return {
+          submitted: false,
+          safetyAllowed: false,
+          reason: target.reason,
+          result: null
+        };
+      }
+
+      const adapter = this.adapters.resolve(target.url);
+      if (!adapter) {
+        return {
+          submitted: false,
+          safetyAllowed: false,
+          reason: "No application adapter can safely handle the resolved application URL.",
+          result: null
+        };
+      }
+
+      const resolvedContext: ApplicationContext = {
+        ...request.context,
+        url: target.url
+      };
+
       const fields = await this.detector.detect(session.page);
       const mappings = this.mapper.map(fields, request.candidateProfile);
       const fillResult = await this.filler.fill(session.page, mappings);
       const safety = this.safetyGate.evaluate({
-        url: request.context.url,
+        url: target.url,
         companyName: request.companyName,
         excludedCompanies: request.excludedCompanies,
         mappings,
@@ -68,7 +85,7 @@ export class ApplicationSubmissionService {
         };
       }
 
-      const result = await adapter.submit(session.page, request.context);
+      const result = await adapter.submit(session.page, resolvedContext);
       if (!result.submitted) {
         return {
           submitted: false,
