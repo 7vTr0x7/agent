@@ -112,6 +112,22 @@ describe("SubmissionSafetyGate", () => {
     expect(result.reasons).toContain("Company is excluded by application policy.");
   });
 
+  it("blocks permanent exclusions even when runtime exclusions are empty", () => {
+    const email = mapping();
+    for (const companyName of ["Octopus Technologies", "Sketch Brahma Technologies"]) {
+      const result = gate.evaluate({
+        url: "https://example.com/apply",
+        companyName: ` ${companyName.toUpperCase()} `,
+        excludedCompanies: [],
+        mappings: [email],
+        fillResults: [filledResult(email)]
+      });
+
+      expect(result.allowed).toBe(false);
+      expect(result.reasons).toContain("Company is excluded by application policy.");
+    }
+  });
+
   it("blocks non-http application URLs", () => {
     const email = mapping();
     const result = gate.evaluate({
