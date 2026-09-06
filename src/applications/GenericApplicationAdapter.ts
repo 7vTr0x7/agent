@@ -15,6 +15,7 @@ import { SmartRecruitersApplicationAdapter } from "./SmartRecruitersApplicationA
 import { WorkableApplicationAdapter } from "./WorkableApplicationAdapter";
 import { BambooHRApplicationAdapter } from "./BambooHRApplicationAdapter";
 import { IcimsApplicationAdapter } from "./IcimsApplicationAdapter";
+import { TaleoApplicationAdapter } from "./TaleoApplicationAdapter";
 
 export class GenericApplicationAdapter implements ApplicationAdapter {
   readonly name = "generic-form";
@@ -60,6 +61,10 @@ export class GenericApplicationAdapter implements ApplicationAdapter {
 
     if (new IcimsApplicationAdapter().canHandle(context.url)) {
       return new IcimsApplicationAdapter().submit(page, context);
+    }
+
+    if (new TaleoApplicationAdapter().canHandle(context.url)) {
+      return new TaleoApplicationAdapter().submit(page, context);
     }
 
     await page.waitForLoadState("domcontentloaded");
