@@ -28,10 +28,7 @@ abstract class HostedAtsApplicationAdapter implements ApplicationAdapter {
 
 export class GreenhouseApplicationAdapter extends HostedAtsApplicationAdapter {
   readonly name = "greenhouse";
-  protected readonly hostPatterns = [
-    /^(?:job-boards|boards)\.greenhouse\.io$/i,
-    /\.greenhouse\.io$/i
-  ];
+  protected readonly hostPatterns = [/^(?:job-boards|boards)\.greenhouse\.io$/i, /\.greenhouse\.io$/i];
 }
 
 export class LeverApplicationAdapter extends HostedAtsApplicationAdapter {
@@ -89,6 +86,31 @@ export class JazzHrApplicationAdapter extends HostedAtsApplicationAdapter {
   protected readonly hostPatterns = [/\.jazz\.co$/i, /\.jazzhr\.com$/i];
 }
 
+export class WorkdayApplicationAdapter extends HostedAtsApplicationAdapter {
+  readonly name = "workday";
+  protected readonly hostPatterns = [/\.myworkdayjobs\.com$/i, /\.myworkdaysite\.com$/i];
+}
+
+export class TaleoApplicationAdapter extends HostedAtsApplicationAdapter {
+  readonly name = "taleo";
+  protected readonly hostPatterns = [/\.taleo\.net$/i, /\.taleo\.com$/i];
+}
+
+export class SuccessFactorsApplicationAdapter extends HostedAtsApplicationAdapter {
+  readonly name = "successfactors";
+  protected readonly hostPatterns = [/\.successfactors\.com$/i, /\.successfactors\.eu$/i];
+}
+
+export class UkGApplicationAdapter extends HostedAtsApplicationAdapter {
+  readonly name = "ukg";
+  protected readonly hostPatterns = [/\.ultipro\.com$/i, /\.ukg\.com$/i];
+}
+
+export class OracleCloudApplicationAdapter extends HostedAtsApplicationAdapter {
+  readonly name = "oracle-cloud";
+  protected readonly hostPatterns = [/\.oraclecloud\.com$/i];
+}
+
 export function createHostedAtsApplicationAdapters(): readonly ApplicationAdapter[] {
   return [
     new GreenhouseApplicationAdapter(),
@@ -102,6 +124,11 @@ export function createHostedAtsApplicationAdapters(): readonly ApplicationAdapte
     new JobviteApplicationAdapter(),
     new IcimsApplicationAdapter(),
     new PinpointApplicationAdapter(),
-    new JazzHrApplicationAdapter()
+    new JazzHrApplicationAdapter(),
+    new WorkdayApplicationAdapter(),
+    new TaleoApplicationAdapter(),
+    new SuccessFactorsApplicationAdapter(),
+    new UkGApplicationAdapter(),
+    new OracleCloudApplicationAdapter()
   ];
 }
