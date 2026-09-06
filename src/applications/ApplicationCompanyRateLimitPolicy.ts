@@ -5,8 +5,10 @@ export interface ApplicationCompanyRateLimitPolicyOptions {
 export class ApplicationCompanyRateLimitPolicy {
   readonly maxSubmissionsPerCompanyPerDay: number;
 
-  constructor(options: ApplicationCompanyRateLimitPolicyOptions = {}) {
-    const limit = options.maxSubmissionsPerCompanyPerDay ?? 5;
+  constructor(options: ApplicationCompanyRateLimitPolicyOptions | number = {}) {
+    const limit = typeof options === "number"
+      ? options
+      : options.maxSubmissionsPerCompanyPerDay ?? 5;
     if (!Number.isInteger(limit) || limit <= 0) {
       throw new Error("maxSubmissionsPerCompanyPerDay must be a positive integer");
     }
