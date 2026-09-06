@@ -1,11 +1,12 @@
 import { TaskQueue } from "../queue/TaskQueue";
 import { ApplicationEmailContext } from "./Email";
+import { InterviewReminderContext } from "./EmailNotificationService";
 
 export const SEND_APPLICATION_EMAIL_TASK = "SEND_APPLICATION_EMAIL";
 
 export interface ApplicationEmailTaskPayload {
-  kind: "SUBMITTED" | "BLOCKED";
-  context: ApplicationEmailContext;
+  kind: "SUBMITTED" | "BLOCKED" | "INTERVIEW_REMINDER";
+  context: ApplicationEmailContext | InterviewReminderContext;
 }
 
 export class EmailNotificationTaskDispatcher {
@@ -19,15 +20,23 @@ export class EmailNotificationTaskDispatcher {
     return this.enqueue("BLOCKED", context);
   }
 
+  async enqueueInterviewReminder(context: InterviewReminderContext): Promise<string> {
+    return this.enqueue("INTERVIEW_REMINDER", context);
+  }
+
   private async enqueue(
     kind: ApplicationEmailTaskPayload["kind"],
-    context: ApplicationEmailContext
+    context: ApplicationEmailTaskPayload["context"]
   ): Promise<string> {
+    const keyContext = "applicationId" in context
+      ? context.applicationId
+      : `${context.companyName}:${context.jobTitle}:${context.interviewDateText}:${context.interviewTimeText}`;
+
     return this.queue.enqueue<ApplicationEmailTaskPayload>({
       taskType: SEND_APPLICATION_EMAIL_TASK,
       payload: { kind, context },
-      priority: 100,
-      dedupeKey: `application-email:${kind.toLowerCase()}:${context.applicationId}`
+      priority: 200,
+      dedupeKey: `application-email:${kind.toLowerCase()}:${keyContext}`
     });
   }
 }
