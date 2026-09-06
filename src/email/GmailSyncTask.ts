@@ -4,6 +4,7 @@ import { GmailMessageRepository } from "./GmailMessageRepository";
 import { InterviewRepository } from "./InterviewRepository";
 import { InterviewDetailsExtractor } from "./InterviewDetailsExtractor";
 import { RecruiterEmailClassifier } from "./RecruiterEmailClassifier";
+import { RecruiterOutreachInboundProcessor } from "../recruiters/RecruiterOutreachInboundProcessor";
 
 export const SYNC_GMAIL_TASK = "SYNC_GMAIL";
 
@@ -31,7 +32,8 @@ export class GmailSyncTaskHandler {
     private readonly messages: GmailMessageRepository,
     private readonly interviews?: InterviewRepository,
     private readonly classifier = new RecruiterEmailClassifier(),
-    private readonly interviewExtractor = new InterviewDetailsExtractor()
+    private readonly interviewExtractor = new InterviewDetailsExtractor(),
+    private readonly recruiterInboundProcessor?: RecruiterOutreachInboundProcessor
   ) {}
 
   async handle(task: { taskType: string; payload: GmailSyncTaskPayload }): Promise<void> {
@@ -46,6 +48,10 @@ export class GmailSyncTaskHandler {
       const classified = { ...message, classification };
       await this.messages.save(classified);
       const applicationId = await this.messages.associateAndUpdateApplication(classified, classification);
+
+      if (this.recruiterInboundProcessor) {
+        await this.recruiterInboundProcessor.process(classified);
+      }
 
       if (applicationId && classification === "INTERVIEW" && this.interviews) {
         const details = this.interviewExtractor.extract({
