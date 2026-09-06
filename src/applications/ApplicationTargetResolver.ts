@@ -86,6 +86,15 @@ export class ApplicationTargetResolver {
       }
 
       const targetUrl = new URL(href, currentUrl).toString();
+      if (targetUrl === currentUrl) {
+        return {
+          resolved: false,
+          url: currentUrl,
+          startedFromJobPage: true,
+          reason: "The application link points back to the same page; manual review is required."
+        };
+      }
+
       await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
       return this.resolve(page, targetUrl);
     }
