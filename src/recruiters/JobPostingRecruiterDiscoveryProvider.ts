@@ -7,7 +7,8 @@ import {
 } from "./RecruiterDiscovery";
 
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
-const RECRUITING_CONTEXT = /(recruit|talent|hiring|human\s*resources|\bhr\b|people\s*team|careers|staffing)/i;
+const RECRUITING_CONTEXT = /(recruiter|recruiting|talent|hiring|human\s*resources|\bhr\b|people\s*team|careers|staffing)/i;
+const NON_RECRUITING_CONTEXT = /(technical\s+questions?|engineering\s+questions?|customer\s+support|technical\s+support|support\s+questions?)/i;
 
 function normalizeDomain(value: string): string {
   return value.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0]?.replace(/^www\./, "") ?? "";
@@ -25,7 +26,9 @@ function contextAround(text: string, index: number): string {
   const lineStart = text.lastIndexOf("\n", index - 1) + 1;
   const lineEndIndex = text.indexOf("\n", index);
   const lineEnd = lineEndIndex === -1 ? text.length : lineEndIndex;
-  return text.slice(lineStart, lineEnd);
+  const line = text.slice(lineStart, lineEnd);
+  const emailOffset = index - lineStart;
+  return line.slice(Math.max(0, emailOffset - 80), Math.min(line.length, emailOffset + 20));
 }
 
 export function extractExplicitRecruiterEmails(jobDescription: string, companyDomain: string): string[] {
@@ -42,7 +45,11 @@ export function extractExplicitRecruiterEmails(jobDescription: string, companyDo
     if (index < 0) continue;
     const email = normalizeEmail(value);
     if (!isCompanyEmail(email, domain)) continue;
-    if (!RECRUITING_CONTEXT.test(contextAround(text, index))) continue;
+
+    const context = contextAround(text, index);
+    if (NON_RECRUITING_CONTEXT.test(context)) continue;
+    if (!RECRUITING_CONTEXT.test(context)) continue;
+
     found.add(email);
   }
 
