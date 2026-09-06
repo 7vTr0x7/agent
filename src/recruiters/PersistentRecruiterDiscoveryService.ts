@@ -13,6 +13,8 @@ export interface PersistentRecruiterDiscoveryOptions {
   provider: RecruiterDiscoveryProvider;
   repository: RecruiterDiscoveryRepository;
   cooldownHours?: number;
+  minConfidence?: number;
+  requireVerifiedEmail?: boolean;
 }
 
 export interface PersistentRecruiterDiscoveryResult {
@@ -24,11 +26,19 @@ export interface PersistentRecruiterDiscoveryResult {
 
 export class PersistentRecruiterDiscoveryService {
   private readonly cooldownHours: number;
+  private readonly minConfidence: number;
+  private readonly requireVerifiedEmail: boolean;
 
   constructor(private readonly options: PersistentRecruiterDiscoveryOptions) {
     this.cooldownHours = options.cooldownHours ?? 24;
+    this.minConfidence = options.minConfidence ?? 80;
+    this.requireVerifiedEmail = options.requireVerifiedEmail ?? true;
+
     if (!Number.isFinite(this.cooldownHours) || this.cooldownHours < 0) {
       throw new Error("Recruiter discovery cooldown must be a non-negative finite number.");
+    }
+    if (!Number.isFinite(this.minConfidence) || this.minConfidence < 0 || this.minConfidence > 100) {
+      throw new Error("Recruiter discovery minimum confidence must be between 0 and 100.");
     }
   }
 
@@ -65,7 +75,11 @@ export class PersistentRecruiterDiscoveryService {
 
     try {
       const discovered = await this.options.provider.discover(input);
-      const uniqueCandidates = deduplicateRecruiterCandidates(discovered.contacts);
+      const eligible = discovered.contacts.filter((contact) => {
+        if (this.requireVerifiedEmail && !contact.verified) return false;
+        return (contact.confidence ?? 0) >= this.minConfidence;
+      });
+      const uniqueCandidates = deduplicateRecruiterCandidates(eligible);
       const ranked = rankRecruiterContacts(uniqueCandidates, input.jobTitle, maxContacts);
       const persisted: Array<StoredRecruiterContact & Pick<RankedRecruiterContact, "score" | "reasons">> = [];
 
@@ -82,7 +96,7 @@ export class PersistentRecruiterDiscoveryService {
       await this.options.repository.finishDiscoveryRun(run.id, "SUCCEEDED", uniqueCandidates.length);
       return {
         status: "DISCOVERED",
-        reason: `Persisted ${persisted.length} ranked recruiter contact(s) from ${uniqueCandidates.length} unique discovered contact(s).`,
+        reason: `Persisted ${persisted.length} eligible recruiter contact(s) from ${uniqueCandidates.length} verified/high-confidence contact(s).`,
         runId: run.id,
         contacts: persisted
       };
