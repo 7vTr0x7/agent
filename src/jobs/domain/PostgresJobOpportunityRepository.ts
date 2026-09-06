@@ -66,7 +66,23 @@ export class PostgresJobOpportunityRepository implements JobOpportunityRepositor
           last_seen_at = EXCLUDED.last_seen_at,
           closed_at = EXCLUDED.closed_at,
           status = EXCLUDED.status
-        RETURNING ${selectColumns}
+        RETURNING id,
+          canonical_id,
+          canonical_url,
+          title,
+          company_name,
+          location,
+          country,
+          workplace_type,
+          employment_type,
+          description,
+          posted_at,
+          updated_at AS source_updated_at,
+          last_seen_at,
+          closed_at,
+          status,
+          created_at,
+          updated_at
       `,
       [
         opportunity.id,
