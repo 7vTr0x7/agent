@@ -11,12 +11,14 @@ export interface TaskWorkerOptions {
   workerId?: string;
   pollIntervalMs?: number;
   staleRecoveryIntervalMs?: number;
+  heartbeatIntervalMs?: number;
 }
 
 export class TaskWorker {
   private readonly workerId: string;
   private readonly pollIntervalMs: number;
   private readonly staleRecoveryIntervalMs: number;
+  private readonly heartbeatIntervalMs: number;
   private stopped = false;
   private lastRecoveryAt = 0;
 
@@ -28,6 +30,7 @@ export class TaskWorker {
     this.workerId = options.workerId ?? `worker-${randomUUID()}`;
     this.pollIntervalMs = options.pollIntervalMs ?? 1000;
     this.staleRecoveryIntervalMs = options.staleRecoveryIntervalMs ?? 30_000;
+    this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 20_000;
   }
 
   async runOnce(): Promise<boolean> {
@@ -50,15 +53,25 @@ export class TaskWorker {
       return true;
     }
 
+    const heartbeatTimer = setInterval(() => {
+      void this.queue.heartbeat(task.id, this.workerId).catch(() => undefined);
+    }, this.heartbeatIntervalMs);
+
     try {
       await handler.handle(task);
       await this.queue.succeed(task.id, this.workerId);
     } catch (error) {
-      await this.queue.fail(
-        task.id,
-        this.workerId,
-        error instanceof Error ? error.message : String(error)
-      );
+      try {
+        await this.queue.fail(
+          task.id,
+          this.workerId,
+          error instanceof Error ? error.message : String(error)
+        );
+      } catch {
+        // The lease may have expired and the task may already have been recovered.
+      }
+    } finally {
+      clearInterval(heartbeatTimer);
     }
 
     return true;
