@@ -169,6 +169,7 @@ export class ApplicationRepository {
           WHERE a.candidate_profile_id = $1
             AND (
               a.status = 'SUBMISSION_IN_PROGRESS'
+              OR (a.status = 'SENT' AND a.applied_at >= CURRENT_DATE)
               OR EXISTS (
                 SELECT 1 FROM application_attempts aa
                 WHERE aa.application_id = a.id
@@ -190,6 +191,7 @@ export class ApplicationRepository {
             AND LOWER(TRIM(jo.company_name)) = LOWER(TRIM($2))
             AND (
               a.status = 'SUBMISSION_IN_PROGRESS'
+              OR (a.status = 'SENT' AND a.applied_at >= CURRENT_DATE)
               OR EXISTS (
                 SELECT 1 FROM application_attempts aa
                 WHERE aa.application_id = a.id
