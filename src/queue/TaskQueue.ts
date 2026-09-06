@@ -43,6 +43,10 @@ export class TaskQueue {
     private readonly leaseDurationMs = 60_000
   ) {}
 
+  getDatabase(): Database {
+    return this.database;
+  }
+
   async enqueue<TPayload>(input: EnqueueTaskInput<TPayload>): Promise<string> {
     const id = randomUUID();
     const result = await this.database.query<{ id: string }>(
