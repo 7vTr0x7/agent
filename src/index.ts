@@ -50,6 +50,25 @@ function csvEnvironment(name: string): string[] {
   return (process.env[name] ?? "").split(",").map((value) => value.trim()).filter(Boolean);
 }
 
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 async function main(): Promise<void> {
   const database = new Database(config.databaseUrl);
   const migrationRunner = new MigrationRunner(database);
@@ -78,6 +97,17 @@ async function main(): Promise<void> {
   if (!candidateProfile) throw new Error("Configured candidate profile could not be resolved.");
 
   const taskQueue = new TaskQueue(database);
+  const shutdownController = new AbortController();
+  let shutdownRequested = false;
+  const requestShutdown = (): void => {
+    if (shutdownRequested) return;
+    shutdownRequested = true;
+    logger.info("Shutdown requested");
+    shutdownController.abort();
+  };
+
+  process.once("SIGINT", requestShutdown);
+  process.once("SIGTERM", requestShutdown);
 
   if (!config.automationEnabled) {
     if (!config.discoveryEnabled) {
@@ -95,7 +125,7 @@ async function main(): Promise<void> {
     );
 
     const discoveryLoop = async (): Promise<void> => {
-      while (true) {
+      while (!shutdownController.signal.aborted) {
         const results = await discoveryRuntime.runner.runOnce();
         for (const result of results) {
           logger.info(
@@ -103,12 +133,9 @@ async function main(): Promise<void> {
             "Discovery source run completed"
           );
         }
-        await new Promise((resolve) => setTimeout(resolve, config.discoveryIntervalMs));
+        await sleep(config.discoveryIntervalMs, shutdownController.signal);
       }
     };
-
-    process.once("SIGINT", () => discoveryWorker.stop());
-    process.once("SIGTERM", () => discoveryWorker.stop());
 
     await Promise.all([discoveryWorker.run(), discoveryLoop()]);
     await database.close();
@@ -227,17 +254,17 @@ async function main(): Promise<void> {
   );
 
   const enqueueApplicationsLoop = async (): Promise<void> => {
-    while (true) {
+    while (!shutdownController.signal.aborted) {
       const queued = await applicationQueue.enqueueEligible(candidateProfile.id);
       if (queued.queued > 0) logger.info(queued, "Eligible application tasks queued");
       if (queued.rateLimited) logger.warn(queued, "Daily application submission limit reached");
-      await new Promise((resolve) => setTimeout(resolve, 30_000));
+      await sleep(30_000, shutdownController.signal);
     }
   };
 
   const discoveryLoop = async (): Promise<void> => {
     if (!discoveryRuntime) return;
-    while (true) {
+    while (!shutdownController.signal.aborted) {
       const results = await discoveryRuntime.runner.runOnce();
       for (const result of results) {
         logger.info(
@@ -245,38 +272,35 @@ async function main(): Promise<void> {
           "Discovery source run completed"
         );
       }
-      await new Promise((resolve) => setTimeout(resolve, config.discoveryIntervalMs));
+      await sleep(config.discoveryIntervalMs, shutdownController.signal);
     }
   };
 
   const syncGmailLoop = async (): Promise<void> => {
     if (!gmailSyncDispatcher) return;
-    while (true) {
+    while (!shutdownController.signal.aborted) {
       await gmailSyncDispatcher.enqueue(config.gmail.syncQuery, 50);
-      await new Promise((resolve) => setTimeout(resolve, config.gmail.syncIntervalMs));
+      await sleep(config.gmail.syncIntervalMs, shutdownController.signal);
     }
   };
 
   const followUpLoop = async (): Promise<void> => {
     if (!followUpScheduler) return;
-    while (true) {
+    while (!shutdownController.signal.aborted) {
       const result = await followUpScheduler.runOnce();
       if (result.queued > 0) logger.info(result, "Follow-up drafts queued");
-      await new Promise((resolve) => setTimeout(resolve, 300_000));
+      await sleep(300_000, shutdownController.signal);
     }
   };
 
   const interviewReminderLoop = async (): Promise<void> => {
     if (!interviewReminderScheduler) return;
-    while (true) {
+    while (!shutdownController.signal.aborted) {
       const result = await interviewReminderScheduler.runOnce();
       if (result.queued > 0) logger.info(result, "Interview reminders queued");
-      await new Promise((resolve) => setTimeout(resolve, 300_000));
+      await sleep(300_000, shutdownController.signal);
     }
   };
-
-  process.once("SIGINT", () => worker.stop());
-  process.once("SIGTERM", () => worker.stop());
 
   await Promise.all([
     worker.run(),
