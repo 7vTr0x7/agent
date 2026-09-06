@@ -102,4 +102,24 @@ describe("ApplicationTargetResolver", () => {
       await browser.close(session);
     }
   });
+
+  it("uses sourceUrl when the browser is still on about:blank", async () => {
+    const browser = new BrowserSessionService({ headless: true });
+    const session = await browser.create();
+
+    try {
+      await session.page.setContent("<main>Sign in to continue</main>");
+
+      const result = await new ApplicationTargetResolver().resolve(
+        session.page,
+        `${baseUrl}/login`
+      );
+
+      expect(result.resolved).toBe(false);
+      expect(result.url).toBe(`${baseUrl}/login`);
+      expect(result.reason).toContain("authentication");
+    } finally {
+      await browser.close(session);
+    }
+  });
 });
