@@ -440,6 +440,14 @@ export class ApplicationRepository {
       throw new Error("olderThanMinutes must be a positive finite number.");
     }
 
+    if (!evidence.confirmationUrl.trim() || !evidence.externalApplicationId.trim()) {
+      throw new Error("Verified submission recovery requires a confirmation URL and external application ID.");
+    }
+
+    if (evidence.verificationSource !== "INDEPENDENT_CONFIRMATION") {
+      throw new Error("Unsupported submission recovery verification source.");
+    }
+
     return this.database.transaction(async (client) => {
       const current = await client.query<{
         status: string;
