@@ -42,236 +42,37 @@ export interface RecruiterOutreachMessageRecord {
   recipientEmail: string;
   subject: string;
   body: string;
-  status: "PREPARED" | "SENT" | "FAILED" | "CANCELLED";
+  status: "PREPARED" | "SENDING" | "SENT" | "FAILED" | "CANCELLED";
 }
 
-function normalize(value: string): string {
-  return value.trim().toLowerCase();
-}
+function normalize(value: string): string { return value.trim().toLowerCase(); }
 
 export class RecruiterDiscoveryRepository {
   constructor(private readonly database: Database) {}
 
-  async upsertContact(
-    companyName: string,
-    companyDomain: string,
-    candidate: RecruiterContactCandidate
-  ): Promise<StoredRecruiterContact> {
-    const domain = normalize(companyDomain).replace(/^www\./, "");
-    const email = normalize(candidate.email);
-
-    const result = await this.database.query<{
-      id: string;
-      company_name: string;
-      company_domain: string;
-      email: string;
-      full_name: string | null;
-      title: string | null;
-      department: string | null;
-      seniority: string | null;
-      country: string | null;
-      location: string | null;
-      confidence: number | null;
-      verified: boolean;
-      verification_status: string | null;
-      provider: string;
-    }>(
-      `
-        INSERT INTO recruiter_contacts (
-          company_name, company_domain, email, full_name, title, department,
-          seniority, country, location, confidence, verified,
-          verification_status, provider, last_seen_at, updated_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
-        ON CONFLICT (company_domain, email) DO UPDATE SET
-          company_name = EXCLUDED.company_name,
-          full_name = COALESCE(EXCLUDED.full_name, recruiter_contacts.full_name),
-          title = COALESCE(EXCLUDED.title, recruiter_contacts.title),
-          department = COALESCE(EXCLUDED.department, recruiter_contacts.department),
-          seniority = COALESCE(EXCLUDED.seniority, recruiter_contacts.seniority),
-          country = COALESCE(EXCLUDED.country, recruiter_contacts.country),
-          location = COALESCE(EXCLUDED.location, recruiter_contacts.location),
-          confidence = CASE
-            WHEN recruiter_contacts.confidence IS NULL THEN EXCLUDED.confidence
-            WHEN EXCLUDED.confidence IS NULL THEN recruiter_contacts.confidence
-            ELSE GREATEST(recruiter_contacts.confidence, EXCLUDED.confidence)
-          END,
-          verified = recruiter_contacts.verified OR EXCLUDED.verified,
-          verification_status = CASE
-            WHEN EXCLUDED.verified THEN EXCLUDED.verification_status
-            ELSE COALESCE(recruiter_contacts.verification_status, EXCLUDED.verification_status)
-          END,
-          provider = EXCLUDED.provider,
-          last_seen_at = NOW(),
-          updated_at = NOW()
-        RETURNING id, company_name, company_domain, email, full_name, title,
-          department, seniority, country, location, confidence, verified,
-          verification_status, provider
-      `,
-      [
-        companyName.trim(), domain, email, candidate.fullName ?? null, candidate.title ?? null,
-        candidate.department ?? null, candidate.seniority ?? null, candidate.country ?? null,
-        candidate.location ?? null, candidate.confidence ?? null, candidate.verified,
-        candidate.verificationStatus ?? null, candidate.provider
-      ]
-    );
-
-    const row = result.rows[0];
-    if (!row) throw new Error("Recruiter contact could not be persisted.");
-
-    return {
-      id: row.id, companyName: row.company_name, companyDomain: row.company_domain, email: row.email,
-      fullName: row.full_name ?? undefined, title: row.title ?? undefined, department: row.department ?? undefined,
-      seniority: row.seniority ?? undefined, country: row.country ?? undefined, location: row.location ?? undefined,
-      confidence: row.confidence ?? undefined, verified: row.verified,
-      verificationStatus: row.verification_status ?? undefined, provider: row.provider
-    };
+  async upsertContact(companyName: string, companyDomain: string, candidate: RecruiterContactCandidate): Promise<StoredRecruiterContact> {
+    const domain=normalize(companyDomain).replace(/^www\./,""); const email=normalize(candidate.email);
+    const result=await this.database.query<{id:string;company_name:string;company_domain:string;email:string;full_name:string|null;title:string|null;department:string|null;seniority:string|null;country:string|null;location:string|null;confidence:number|null;verified:boolean;verification_status:string|null;provider:string}>(
+      `INSERT INTO recruiter_contacts (company_name,company_domain,email,full_name,title,department,seniority,country,location,confidence,verified,verification_status,provider,last_seen_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
+       ON CONFLICT (company_domain,email) DO UPDATE SET company_name=EXCLUDED.company_name,full_name=COALESCE(EXCLUDED.full_name,recruiter_contacts.full_name),title=COALESCE(EXCLUDED.title,recruiter_contacts.title),department=COALESCE(EXCLUDED.department,recruiter_contacts.department),seniority=COALESCE(EXCLUDED.seniority,recruiter_contacts.seniority),country=COALESCE(EXCLUDED.country,recruiter_contacts.country),location=COALESCE(EXCLUDED.location,recruiter_contacts.location),confidence=CASE WHEN recruiter_contacts.confidence IS NULL THEN EXCLUDED.confidence WHEN EXCLUDED.confidence IS NULL THEN recruiter_contacts.confidence ELSE GREATEST(recruiter_contacts.confidence,EXCLUDED.confidence) END,verified=recruiter_contacts.verified OR EXCLUDED.verified,verification_status=CASE WHEN EXCLUDED.verified THEN EXCLUDED.verification_status ELSE COALESCE(recruiter_contacts.verification_status,EXCLUDED.verification_status) END,provider=EXCLUDED.provider,last_seen_at=NOW(),updated_at=NOW()
+       RETURNING id,company_name,company_domain,email,full_name,title,department,seniority,country,location,confidence,verified,verification_status,provider`,
+      [companyName.trim(),domain,email,candidate.fullName??null,candidate.title??null,candidate.department??null,candidate.seniority??null,candidate.country??null,candidate.location??null,candidate.confidence??null,candidate.verified,candidate.verificationStatus??null,candidate.provider]);
+    const row=result.rows[0]; if(!row) throw new Error("Recruiter contact could not be persisted.");
+    return {id:row.id,companyName:row.company_name,companyDomain:row.company_domain,email:row.email,fullName:row.full_name??undefined,title:row.title??undefined,department:row.department??undefined,seniority:row.seniority??undefined,country:row.country??undefined,location:row.location??undefined,confidence:row.confidence??undefined,verified:row.verified,verificationStatus:row.verification_status??undefined,provider:row.provider};
   }
 
-  async addSources(contactId: string, candidate: RecruiterContactCandidate): Promise<void> {
-    for (const source of candidate.sources) {
-      await this.database.query(
-        `
-          INSERT INTO recruiter_contact_sources (
-            recruiter_contact_id, provider, source_url, source_type, confidence
-          )
-          VALUES ($1, $2, $3, $4, $5)
-          ON CONFLICT (recruiter_contact_id, provider, source_url) DO UPDATE SET
-            confidence = CASE
-              WHEN recruiter_contact_sources.confidence IS NULL THEN EXCLUDED.confidence
-              WHEN EXCLUDED.confidence IS NULL THEN recruiter_contact_sources.confidence
-              ELSE GREATEST(recruiter_contact_sources.confidence, EXCLUDED.confidence)
-            END
-        `,
-        [contactId, candidate.provider, source.url ?? null, source.type ?? null, source.confidence ?? null]
-      );
-    }
-  }
+  async addSources(contactId:string,candidate:RecruiterContactCandidate):Promise<void>{for(const source of candidate.sources){await this.database.query(`INSERT INTO recruiter_contact_sources (recruiter_contact_id,provider,source_url,source_type,confidence) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (recruiter_contact_id,provider,source_url) DO UPDATE SET confidence=CASE WHEN recruiter_contact_sources.confidence IS NULL THEN EXCLUDED.confidence WHEN EXCLUDED.confidence IS NULL THEN recruiter_contact_sources.confidence ELSE GREATEST(recruiter_contact_sources.confidence,EXCLUDED.confidence) END`,[contactId,candidate.provider,source.url??null,source.type??null,source.confidence??null]);}}
 
-  async startDiscoveryRun(input: {
-    companyName: string;
-    companyDomain: string;
-    jobOpportunityId?: string;
-    candidateProfileId: string;
-    provider: string;
-  }): Promise<RecruiterDiscoveryRunRecord> {
-    const result = await this.database.query<{ id: string }>(
-      `
-        INSERT INTO recruiter_discovery_runs (
-          company_name, company_domain, job_opportunity_id, candidate_profile_id, provider, status
-        ) VALUES ($1, $2, $3, $4, $5, 'RUNNING') RETURNING id
-      `,
-      [input.companyName.trim(), normalize(input.companyDomain).replace(/^www\./, ""), input.jobOpportunityId ?? null, input.candidateProfileId, input.provider]
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Recruiter discovery run could not be created.");
-    return { id: row.id, status: "RUNNING", contactsFound: 0 };
-  }
-
-  async finishDiscoveryRun(runId: string, status: "SUCCEEDED" | "FAILED" | "SKIPPED", contactsFound: number, error?: string): Promise<void> {
-    await this.database.query(
-      `UPDATE recruiter_discovery_runs SET status = $2, contacts_found = $3, error = $4, completed_at = NOW() WHERE id = $1`,
-      [runId, status, contactsFound, error ?? null]
-    );
-  }
-
-  async hasRecentDiscovery(companyDomain: string, provider: string, cooldownHours: number): Promise<boolean> {
-    const result = await this.database.query<{ exists: boolean }>(
-      `
-        SELECT EXISTS (
-          SELECT 1 FROM recruiter_discovery_runs
-          WHERE company_domain = $1 AND provider = $2 AND status = 'SUCCEEDED'
-            AND started_at >= NOW() - ($3 * INTERVAL '1 hour')
-        ) AS exists
-      `,
-      [normalize(companyDomain).replace(/^www\./, ""), provider, cooldownHours]
-    );
-    return result.rows[0]?.exists ?? false;
-  }
-
-  async isOutreachSequenceDuplicate(recruiterContactId: string, jobOpportunityId: string, candidateProfileId: string): Promise<boolean> {
-    const result = await this.database.query<{ exists: boolean }>(
-      `
-        SELECT EXISTS (
-          SELECT 1 FROM recruiter_outreach_sequences
-          WHERE recruiter_contact_id = $1 AND job_opportunity_id = $2
-            AND candidate_profile_id = $3 AND status <> 'FAILED'
-        ) AS exists
-      `,
-      [recruiterContactId, jobOpportunityId, candidateProfileId]
-    );
-    return result.rows[0]?.exists ?? false;
-  }
-
-  async isSuppressed(email: string, companyDomain: string): Promise<{ email: boolean; domain: boolean }> {
-    const result = await this.database.query<{ email_suppressed: boolean; domain_suppressed: boolean }>(
-      `
-        SELECT
-          EXISTS (SELECT 1 FROM recruiter_suppressions WHERE LOWER(email) = LOWER($1)) AS email_suppressed,
-          EXISTS (SELECT 1 FROM recruiter_suppressions WHERE LOWER(company_domain) = LOWER($2)) AS domain_suppressed
-      `,
-      [normalize(email), normalize(companyDomain).replace(/^www\./, "")]
-    );
-    return { email: result.rows[0]?.email_suppressed ?? false, domain: result.rows[0]?.domain_suppressed ?? false };
-  }
-
-  async createOutreachSequence(input: {
-    recruiterContactId: string;
-    jobOpportunityId: string;
-    applicationId: string;
-    candidateProfileId: string;
-  }): Promise<RecruiterOutreachSequenceRecord | null> {
-    const result = await this.database.query<{
-      id: string;
-      recruiter_contact_id: string;
-      job_opportunity_id: string | null;
-      application_id: string | null;
-      candidate_profile_id: string;
-      status: RecruiterOutreachSequenceRecord["status"];
-      next_action_at: Date | null;
-    }>(
-      `
-        INSERT INTO recruiter_outreach_sequences (
-          recruiter_contact_id, job_opportunity_id, application_id, candidate_profile_id, status
-        ) VALUES ($1, $2, $3, $4, 'READY')
-        ON CONFLICT (recruiter_contact_id, job_opportunity_id, candidate_profile_id) DO NOTHING
-        RETURNING id, recruiter_contact_id, job_opportunity_id, application_id, candidate_profile_id, status, next_action_at
-      `,
-      [input.recruiterContactId, input.jobOpportunityId, input.applicationId, input.candidateProfileId]
-    );
-    const row = result.rows[0];
-    if (!row) return null;
-    return {
-      id: row.id, recruiterContactId: row.recruiter_contact_id, jobOpportunityId: row.job_opportunity_id,
-      applicationId: row.application_id, candidateProfileId: row.candidate_profile_id, status: row.status,
-      nextActionAt: row.next_action_at
-    };
-  }
-
-  async createOutreachMessage(input: {
-    sequenceId: string;
-    messageType: "INITIAL" | "FOLLOW_UP";
-    sequenceStep: number;
-    recipientEmail: string;
-    subject: string;
-    body: string;
-  }): Promise<RecruiterOutreachMessageRecord> {
-    const result = await this.database.query<RecruiterOutreachMessageRecord & { recipient_email: string; message_type: "INITIAL" | "FOLLOW_UP" }>(
-      `
-        INSERT INTO recruiter_outreach_messages (
-          sequence_id, message_type, sequence_step, recipient_email, subject, body, status
-        ) VALUES ($1, $2, $3, $4, $5, $6, 'PREPARED')
-        ON CONFLICT (sequence_id, sequence_step) DO UPDATE SET
-          recipient_email = EXCLUDED.recipient_email,
-          subject = EXCLUDED.subject,
-          body = EXCLUDED.body,
-          updated_at = NOW()
-        RETURNING id, sequence_id, message_type, sequence_step, recipient_email, subject, body, status
-      `,
-      [input.sequenceId, input.messageType, input.sequenceStep, normalize(input.recipientEmail), input.subject, input.body]
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Recruiter outreach message could not be persisted.");
-    return row;
-  }
+  async startDiscoveryRun(input:{companyName:string;companyDomain:string;jobOpportunityId?:string;candidateProfileId:string;provider:string}):Promise<RecruiterDiscoveryRunRecord>{const result=await this.database.query<{id:string}>(`INSERT INTO recruiter_discovery_runs (company_name,company_domain,job_opportunity_id,candidate_profile_id,provider,status) VALUES ($1,$2,$3,$4,$5,'RUNNING') RETURNING id`,[input.companyName.trim(),normalize(input.companyDomain).replace(/^www\./,""),input.jobOpportunityId??null,input.candidateProfileId,input.provider]);const row=result.rows[0];if(!row)throw new Error("Recruiter discovery run could not be created.");return {id:row.id,status:"RUNNING",contactsFound:0};}
+  async finishDiscoveryRun(runId:string,status:"SUCCEEDED"|"FAILED"|"SKIPPED",contactsFound:number,error?:string):Promise<void>{await this.database.query(`UPDATE recruiter_discovery_runs SET status=$2,contacts_found=$3,error=$4,completed_at=NOW() WHERE id=$1`,[runId,status,contactsFound,error??null]);}
+  async hasRecentDiscovery(companyDomain:string,provider:string,cooldownHours:number):Promise<boolean>{const result=await this.database.query<{exists:boolean}>(`SELECT EXISTS (SELECT 1 FROM recruiter_discovery_runs WHERE company_domain=$1 AND provider=$2 AND status='SUCCEEDED' AND started_at >= NOW()-($3*INTERVAL '1 hour')) AS exists`,[normalize(companyDomain).replace(/^www\./,""),provider,cooldownHours]);return result.rows[0]?.exists??false;}
+  async isOutreachSequenceDuplicate(recruiterContactId:string,jobOpportunityId:string,candidateProfileId:string):Promise<boolean>{const result=await this.database.query<{exists:boolean}>(`SELECT EXISTS (SELECT 1 FROM recruiter_outreach_sequences WHERE recruiter_contact_id=$1 AND job_opportunity_id=$2 AND candidate_profile_id=$3 AND status <> 'FAILED') AS exists`,[recruiterContactId,jobOpportunityId,candidateProfileId]);return result.rows[0]?.exists??false;}
+  async isSuppressed(email:string,companyDomain:string):Promise<{email:boolean;domain:boolean}>{const result=await this.database.query<{email_suppressed:boolean;domain_suppressed:boolean}>(`SELECT EXISTS (SELECT 1 FROM recruiter_suppressions WHERE LOWER(email)=LOWER($1)) AS email_suppressed,EXISTS (SELECT 1 FROM recruiter_suppressions WHERE LOWER(company_domain)=LOWER($2)) AS domain_suppressed`,[normalize(email),normalize(companyDomain).replace(/^www\./,"")]);return {email:result.rows[0]?.email_suppressed??false,domain:result.rows[0]?.domain_suppressed??false};}
+  async createOutreachSequence(input:{recruiterContactId:string;jobOpportunityId:string;applicationId:string;candidateProfileId:string}):Promise<RecruiterOutreachSequenceRecord|null>{const result=await this.database.query<{id:string;recruiter_contact_id:string;job_opportunity_id:string|null;application_id:string|null;candidate_profile_id:string;status:RecruiterOutreachSequenceRecord["status"];next_action_at:Date|null}>(`INSERT INTO recruiter_outreach_sequences (recruiter_contact_id,job_opportunity_id,application_id,candidate_profile_id,status) VALUES ($1,$2,$3,$4,'READY') ON CONFLICT (recruiter_contact_id,job_opportunity_id,candidate_profile_id) DO NOTHING RETURNING id,recruiter_contact_id,job_opportunity_id,application_id,candidate_profile_id,status,next_action_at`,[input.recruiterContactId,input.jobOpportunityId,input.applicationId,input.candidateProfileId]);const row=result.rows[0];if(!row)return null;return {id:row.id,recruiterContactId:row.recruiter_contact_id,jobOpportunityId:row.job_opportunity_id,applicationId:row.application_id,candidateProfileId:row.candidate_profile_id,status:row.status,nextActionAt:row.next_action_at};}
+  async createOutreachMessage(input:{sequenceId:string;messageType:"INITIAL"|"FOLLOW_UP";sequenceStep:number;recipientEmail:string;subject:string;body:string}):Promise<RecruiterOutreachMessageRecord>{const result=await this.database.query<RecruiterOutreachMessageRecord>(`INSERT INTO recruiter_outreach_messages (sequence_id,message_type,sequence_step,recipient_email,subject,body,status) VALUES ($1,$2,$3,$4,$5,$6,'PREPARED') ON CONFLICT (sequence_id,sequence_step) DO UPDATE SET recipient_email=EXCLUDED.recipient_email,subject=EXCLUDED.subject,body=EXCLUDED.body,updated_at=NOW() RETURNING id,sequence_id,message_type,sequence_step,recipient_email,subject,body,status`,[input.sequenceId,input.messageType,input.sequenceStep,normalize(input.recipientEmail),input.subject,input.body]);const row=result.rows[0];if(!row)throw new Error("Recruiter outreach message could not be persisted.");return row;}
+  async claimPreparedOutreachMessage(messageId:string):Promise<RecruiterOutreachMessageRecord|null>{const result=await this.database.query<RecruiterOutreachMessageRecord>(`UPDATE recruiter_outreach_messages SET status='SENDING',send_claimed_at=NOW(),updated_at=NOW() WHERE id=$1 AND status='PREPARED' RETURNING id,sequence_id,message_type,sequence_step,recipient_email,subject,body,status`,[messageId]);return result.rows[0]??null;}
+  async countSentOutreachMessagesSince(since:Date):Promise<number>{const result=await this.database.query<{count:string}>(`SELECT COUNT(*)::text AS count FROM recruiter_outreach_messages WHERE status='SENT' AND sent_at >= $1`,[since]);return Number(result.rows[0]?.count??0);}
+  async markOutreachMessageSent(messageId:string,input:{provider:string;providerMessageId:string;providerThreadId:string}):Promise<void>{await this.database.transaction(async(client)=>{await client.query(`UPDATE recruiter_outreach_messages SET status='SENT',provider=$2,provider_message_id=$3,provider_thread_id=$4,sent_at=NOW(),send_claimed_at=NULL,failure_reason=NULL,updated_at=NOW() WHERE id=$1 AND status='SENDING'`,[messageId,input.provider,input.providerMessageId,input.providerThreadId]);await client.query(`UPDATE recruiter_outreach_sequences SET status='ACTIVE',last_contacted_at=NOW(),updated_at=NOW() WHERE id=(SELECT sequence_id FROM recruiter_outreach_messages WHERE id=$1) AND status IN ('READY','PAUSED')`,[messageId]);});}
+  async markOutreachMessageFailed(messageId:string,reason:string):Promise<void>{await this.database.query(`UPDATE recruiter_outreach_messages SET status='FAILED',failure_reason=$2,send_claimed_at=NULL,updated_at=NOW() WHERE id=$1 AND status='SENDING'`,[messageId,reason]);}
 }
