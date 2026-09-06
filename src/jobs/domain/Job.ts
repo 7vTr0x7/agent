@@ -6,6 +6,8 @@ export interface Job {
   url: string;
   title: string;
   companyName: string;
+  /** Canonical employer website domain supplied by the discovery source/configuration. */
+  companyDomain?: string | null;
   location: string | null;
   country: string | null;
   workplaceType: WorkplaceType;
