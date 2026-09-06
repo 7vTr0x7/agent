@@ -21,6 +21,13 @@ export interface SubmittedApplicationResult {
   externalApplicationId: string | null;
 }
 
+export interface StaleSubmission {
+  applicationId: string;
+  candidateProfileId: string;
+  companyName: string;
+  startedAt: Date;
+}
+
 const MAX_SUBMISSIONS_PER_DAY = 50;
 const MAX_SUBMISSIONS_PER_COMPANY_PER_DAY = 5;
 
@@ -182,8 +189,6 @@ export class ApplicationRepository {
         return false;
       }
 
-      // Serialize reservations for one candidate so concurrent workers cannot
-      // both observe the same remaining daily capacity before reserving it.
       await client.query(
         `SELECT pg_advisory_xact_lock(hashtext($1))`,
         [row.candidate_profile_id]
@@ -302,6 +307,128 @@ export class ApplicationRepository {
             metadata
           )
           VALUES ($1, 'SUBMISSION_IN_PROGRESS', 'READY', 'APPLICATION_SUBMISSION_NOT_CONFIRMED', $2::jsonb)
+        `,
+        [applicationId, JSON.stringify({ reason })]
+      );
+
+      return true;
+    });
+  }
+
+  async listStaleSubmissions(olderThanMinutes: number): Promise<StaleSubmission[]> {
+    if (!Number.isFinite(olderThanMinutes) || olderThanMinutes <= 0) {
+      throw new Error("olderThanMinutes must be a positive finite number.");
+    }
+
+    const result = await this.database.query<{
+      id: string;
+      candidate_profile_id: string;
+      company_name: string;
+      updated_at: Date;
+    }>(
+      `
+        SELECT
+          a.id,
+          a.candidate_profile_id,
+          jo.company_name,
+          a.updated_at
+        FROM applications a
+        INNER JOIN job_opportunities jo ON jo.id = a.job_opportunity_id
+        WHERE a.status = 'SUBMISSION_IN_PROGRESS'
+          AND a.updated_at < NOW() - ($1::int * INTERVAL '1 minute')
+        ORDER BY a.updated_at ASC
+      `,
+      [Math.floor(olderThanMinutes)]
+    );
+
+    return result.rows.map((row) => ({
+      applicationId: row.id,
+      candidateProfileId: row.candidate_profile_id,
+      companyName: row.company_name,
+      startedAt: row.updated_at
+    }));
+  }
+
+  async flagSubmissionOutcomeUnknown(applicationId: string, reason: string): Promise<boolean> {
+    return this.database.transaction(async (client) => {
+      const updated = await client.query<{ status: string }>(
+        `
+          UPDATE applications
+          SET status = 'SUBMISSION_IN_PROGRESS',
+              updated_at = NOW()
+          WHERE id = $1
+            AND status = 'SUBMISSION_IN_PROGRESS'
+          RETURNING status
+        `,
+        [applicationId]
+      );
+
+      if (!updated.rows[0]) {
+        return false;
+      }
+
+      await client.query(
+        `
+          INSERT INTO application_events (
+            application_id,
+            from_status,
+            to_status,
+            event_type,
+            metadata
+          )
+          VALUES ($1, 'SUBMISSION_IN_PROGRESS', 'SUBMISSION_IN_PROGRESS', 'APPLICATION_SUBMISSION_OUTCOME_UNKNOWN', $2::jsonb)
+        `,
+        [applicationId, JSON.stringify({ reason })]
+      );
+
+      return true;
+    });
+  }
+
+  async cancelSubmissionIfSafe(applicationId: string, reason: string): Promise<boolean> {
+    return this.database.transaction(async (client) => {
+      const attempt = await client.query<{ submitted: boolean }>(
+        `
+          SELECT submitted
+          FROM application_attempts
+          WHERE application_id = $1
+          ORDER BY attempted_at DESC
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [applicationId]
+      );
+
+      if (attempt.rows[0]?.submitted === true) {
+        return false;
+      }
+
+      const updated = await client.query<{ status: string }>(
+        `
+          UPDATE applications
+          SET status = 'READY',
+              updated_at = NOW()
+          WHERE id = $1
+            AND status = 'SUBMISSION_IN_PROGRESS'
+          RETURNING status
+        `,
+        [applicationId]
+      );
+
+      if (!updated.rows[0]) {
+        return false;
+      }
+
+      await client.query(
+        `
+          INSERT INTO application_events (
+            application_id,
+            from_status,
+            to_status,
+            event_type,
+            metadata
+          )
+          VALUES ($1, 'SUBMISSION_IN_PROGRESS', 'READY', 'APPLICATION_SUBMISSION_RECOVERED', $2::jsonb)
         `,
         [applicationId, JSON.stringify({ reason })]
       );
