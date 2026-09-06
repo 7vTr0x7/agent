@@ -6,6 +6,8 @@ export interface AppConfig {
   automationEnabled: boolean;
   discoveryEnabled: boolean;
   discoveryIntervalMs: number;
+  staleSubmissionCheckIntervalMs: number;
+  staleSubmissionThresholdMinutes: number;
   jobSources: string;
   genericApplicationAdapterEnabled: boolean;
   applicationRateLimitPerDay: number;
@@ -69,6 +71,14 @@ export function loadConfig(): AppConfig {
     discoveryIntervalMs: positiveInteger(
       "JOB_DISCOVERY_INTERVAL_MS",
       process.env.JOB_DISCOVERY_INTERVAL_MS ?? "900000"
+    ),
+    staleSubmissionCheckIntervalMs: positiveInteger(
+      "STALE_SUBMISSION_CHECK_INTERVAL_MS",
+      process.env.STALE_SUBMISSION_CHECK_INTERVAL_MS ?? "300000"
+    ),
+    staleSubmissionThresholdMinutes: positiveInteger(
+      "STALE_SUBMISSION_THRESHOLD_MINUTES",
+      process.env.STALE_SUBMISSION_THRESHOLD_MINUTES ?? "30"
     ),
     jobSources: process.env.JOB_SOURCES ?? "",
     genericApplicationAdapterEnabled: booleanValue(
