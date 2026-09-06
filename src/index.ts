@@ -123,7 +123,8 @@ async function main(): Promise<void> {
 
     const discoveryWorker = new TaskWorker(
       taskQueue,
-      new Map<string, any>([[MATCH_JOB_TASK, discoveryRuntime.matchTaskHandler]])
+      new Map<string, any>([[MATCH_JOB_TASK, discoveryRuntime.matchTaskHandler]]),
+      { logger }
     );
     stopWorker = () => discoveryWorker.stop();
 
@@ -246,7 +247,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const worker = new TaskWorker(taskQueue, handlers);
+  const worker = new TaskWorker(taskQueue, handlers, { logger });
   stopWorker = () => worker.stop();
   const applicationQueue = new ApplicationQueueService(
     database,
