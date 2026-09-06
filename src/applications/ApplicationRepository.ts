@@ -156,21 +156,30 @@ export class ApplicationRepository {
 
   async beginSubmission(applicationId: string): Promise<boolean> {
     return this.database.transaction(async (client) => {
-      const updated = await client.query<{ status: string }>(
+      const current = await client.query<{ status: string }>(
+        `
+          SELECT status
+          FROM applications
+          WHERE id = $1
+          FOR UPDATE
+        `,
+        [applicationId]
+      );
+
+      const row = current.rows[0];
+      if (!row || (row.status !== "READY" && row.status !== "DRAFTED")) {
+        return false;
+      }
+
+      await client.query(
         `
           UPDATE applications
           SET status = 'SUBMISSION_IN_PROGRESS',
               updated_at = NOW()
           WHERE id = $1
-            AND status IN ('READY', 'DRAFTED')
-          RETURNING status
         `,
         [applicationId]
       );
-
-      if (!updated.rows[0]) {
-        return false;
-      }
 
       await client.query(
         `
@@ -181,9 +190,9 @@ export class ApplicationRepository {
             event_type,
             metadata
           )
-          VALUES ($1, NULL, 'SUBMISSION_IN_PROGRESS', 'APPLICATION_SUBMISSION_STARTED', '{}'::jsonb)
+          VALUES ($1, $2, 'SUBMISSION_IN_PROGRESS', 'APPLICATION_SUBMISSION_STARTED', '{}'::jsonb)
         `,
-        [applicationId]
+        [applicationId, row.status]
       );
 
       return true;
