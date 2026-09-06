@@ -180,7 +180,7 @@ export class ApplicationRepository {
         [row.candidate_profile_id]
       );
       const submissionsUsed = Number(submissionCount.rows[0]?.count ?? "0");
-      if (submissionsUsed >= this.rateLimitPolicy.maxSubmissionsPerDay) return false;
+      if (!this.rateLimitPolicy.evaluate(submissionsUsed).allowed) return false;
 
       const companyCount = await client.query<{ count: string }>(
         `
@@ -229,6 +229,7 @@ export class ApplicationRepository {
         [applicationId]
       );
       if (!updated.rows[0]) return false;
+
       await client.query(
         `
           INSERT INTO application_events (application_id, from_status, to_status, event_type, metadata)
@@ -244,6 +245,7 @@ export class ApplicationRepository {
     if (!Number.isFinite(olderThanMinutes) || olderThanMinutes <= 0) {
       throw new Error("olderThanMinutes must be a positive finite number.");
     }
+
     const result = await this.database.query<{
       id: string;
       candidate_profile_id: string;
@@ -252,16 +254,21 @@ export class ApplicationRepository {
       updated_at: Date;
     }>(
       `
-        SELECT a.id, a.candidate_profile_id, jo.company_name,
-               jo.canonical_url AS target_url, a.updated_at
+        SELECT
+          a.id,
+          a.candidate_profile_id,
+          jo.company_name,
+          jo.canonical_url AS target_url,
+          a.updated_at
         FROM applications a
         INNER JOIN job_opportunities jo ON jo.id = a.job_opportunity_id
         WHERE a.status = 'SUBMISSION_IN_PROGRESS'
-          AND a.updated_at < NOW() - ($1::int * INTERVAL '1 minute')
-        ORDER BY a.updated_at ASC
+          AND a.updated_at < NOW() - ($1 * INTERVAL '1 minute')
+        ORDER BY a.updated_at ASC, a.id ASC
       `,
-      [Math.floor(olderThanMinutes)]
+      [olderThanMinutes]
     );
+
     return result.rows.map((row) => ({
       applicationId: row.id,
       candidateProfileId: row.candidate_profile_id,
@@ -271,20 +278,31 @@ export class ApplicationRepository {
     }));
   }
 
-  async markSubmitted(applicationId: string, confirmationUrl: string | null, externalApplicationId: string | null): Promise<SubmittedApplicationResult> {
+  async markSubmitted(
+    applicationId: string,
+    confirmationUrl: string | null,
+    externalApplicationId: string | null
+  ): Promise<SubmittedApplicationResult> {
     return this.database.transaction(async (client) => {
       const current = await client.query<{ status: string }>(
         `SELECT status FROM applications WHERE id = $1 FOR UPDATE`,
         [applicationId]
       );
       const row = current.rows[0];
-      if (!row) throw new Error("Application not found.");
-      if (row.status === "SENT") return { applicationId, confirmationUrl, externalApplicationId };
+      if (!row) throw new Error(`Application '${applicationId}' was not found.`);
+      if (row.status === "SENT") {
+        return { applicationId, confirmationUrl, externalApplicationId };
+      }
       if (row.status !== "SUBMISSION_IN_PROGRESS") {
         throw new Error(`Application cannot transition from status '${row.status}' to SENT.`);
       }
+
       await client.query(
-        `UPDATE applications SET status = 'SENT', applied_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        `
+          UPDATE applications
+          SET status = 'SENT', applied_at = NOW(), updated_at = NOW()
+          WHERE id = $1
+        `,
         [applicationId]
       );
       await client.query(
@@ -294,21 +312,24 @@ export class ApplicationRepository {
         `,
         [applicationId, JSON.stringify({ confirmationUrl, externalApplicationId })]
       );
+
       return { applicationId, confirmationUrl, externalApplicationId };
     });
   }
 
-  async recoverVerifiedSubmission(applicationId: string, olderThanMinutes: number, evidence: VerifiedSubmissionEvidence): Promise<SubmittedApplicationResult | null> {
+  async recoverVerifiedSubmission(
+    applicationId: string,
+    olderThanMinutes: number,
+    evidence: VerifiedSubmissionEvidence
+  ): Promise<SubmittedApplicationResult | null> {
     if (!Number.isFinite(olderThanMinutes) || olderThanMinutes <= 0) {
       throw new Error("olderThanMinutes must be a positive finite number.");
     }
-    const confirmationUrl = evidence.confirmationUrl.trim();
-    const externalApplicationId = evidence.externalApplicationId.trim();
-    if (!confirmationUrl || !externalApplicationId) {
-      throw new Error("Verified submission evidence requires confirmationUrl and externalApplicationId.");
+    if (!evidence.confirmationUrl.trim() || !evidence.externalApplicationId.trim()) {
+      throw new Error("Verified submission evidence requires a confirmation URL and external application ID.");
     }
     if (evidence.verificationSource !== "INDEPENDENT_CONFIRMATION") {
-      throw new Error("Verified submission evidence must use independent confirmation.");
+      throw new Error("Verified submission evidence must come from independent confirmation.");
     }
 
     return this.database.transaction(async (client) => {
@@ -318,23 +339,26 @@ export class ApplicationRepository {
       );
       const row = current.rows[0];
       if (!row) return null;
-      if (row.status === "SENT") return { applicationId, confirmationUrl, externalApplicationId };
+      if (row.status === "SENT") {
+        return {
+          applicationId,
+          confirmationUrl: evidence.confirmationUrl,
+          externalApplicationId: evidence.externalApplicationId
+        };
+      }
       if (row.status !== "SUBMISSION_IN_PROGRESS") return null;
 
-      const stale = await client.query(
-        `
-          SELECT updated_at < NOW() - ($2::int * INTERVAL '1 minute') AS stale
-          FROM applications
-          WHERE id = $1 AND status = 'SUBMISSION_IN_PROGRESS'
-        `,
-        [applicationId, Math.floor(olderThanMinutes)]
+      const stale = await client.query<{ stale: boolean }>(
+        `SELECT updated_at < NOW() - ($2 * INTERVAL '1 minute') AS stale FROM applications WHERE id = $1`,
+        [applicationId, olderThanMinutes]
       );
       if (!stale.rows[0]?.stale) return null;
 
       await client.query(
         `
-          UPDATE applications SET status = 'SENT', applied_at = NOW(), updated_at = NOW()
-          WHERE id = $1 AND status = 'SUBMISSION_IN_PROGRESS'
+          UPDATE applications
+          SET status = 'SENT', applied_at = NOW(), updated_at = NOW()
+          WHERE id = $1
         `,
         [applicationId]
       );
@@ -343,9 +367,14 @@ export class ApplicationRepository {
           INSERT INTO application_events (application_id, from_status, to_status, event_type, metadata)
           VALUES ($1, 'SUBMISSION_IN_PROGRESS', 'SENT', 'APPLICATION_SUBMISSION_RECOVERED', $2::jsonb)
         `,
-        [applicationId, JSON.stringify({ confirmationUrl, externalApplicationId, verificationSource: evidence.verificationSource })]
+        [applicationId, JSON.stringify(evidence)]
       );
-      return { applicationId, confirmationUrl, externalApplicationId };
+
+      return {
+        applicationId,
+        confirmationUrl: evidence.confirmationUrl,
+        externalApplicationId: evidence.externalApplicationId
+      };
     });
   }
 }
