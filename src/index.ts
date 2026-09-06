@@ -42,6 +42,8 @@ import { FollowUpDraftRepository } from "./applications/FollowUpDraftRepository"
 import { FollowUpScheduler } from "./applications/FollowUpScheduler";
 import { FollowUpTaskDispatcher, PREPARE_FOLLOW_UP_TASK } from "./applications/FollowUpTask";
 import { FollowUpTaskHandler } from "./applications/FollowUpTaskHandler";
+import { createDiscoveryRuntime } from "./discovery/createDiscoveryRuntime";
+import { MATCH_JOB_TASK } from "./matching/MatchTask";
 
 const config = loadConfig();
 const logger = pino({ level: config.logLevel });
@@ -63,6 +65,9 @@ async function main(): Promise<void> {
     {
       nodeEnv: config.nodeEnv,
       automationEnabled: config.automationEnabled,
+      discoveryEnabled: config.discoveryEnabled,
+      discoveryIntervalMs: config.discoveryIntervalMs,
+      configuredJobSources: config.jobSources ? "configured" : "none",
       resumeTailoringEnabled: config.resume.tailoringEnabled,
       gmailEnabled: config.gmail.enabled,
       genericApplicationAdapterEnabled: config.genericApplicationAdapterEnabled,
@@ -80,18 +85,49 @@ async function main(): Promise<void> {
   );
   logger.info({ result }, "AI job-match test completed");
 
-  if (!config.automationEnabled) {
-    logger.info("Application automation is disabled; no application worker will be started.");
-    await database.close();
-    return;
-  }
-
   const candidateProfiles = ConfiguredCandidateProfileResolver.fromEnvironment();
   const candidateProfile = await candidateProfiles.getById(process.env.CANDIDATE_PROFILE_ID ?? "");
   if (!candidateProfile) throw new Error("Configured candidate profile could not be resolved.");
 
-  const excludedCompanies = csvEnvironment("JOB_EXCLUDED_COMPANIES");
   const taskQueue = new TaskQueue(database);
+
+  if (!config.automationEnabled) {
+    if (!config.discoveryEnabled) {
+      logger.info("Application automation and job discovery are disabled; exiting.");
+      await database.close();
+      return;
+    }
+
+    const discoveryRuntime = createDiscoveryRuntime(database, taskQueue, config, candidateProfile);
+    logger.info({ sourceCount: discoveryRuntime.sourceCount }, "Discovery runtime started");
+
+    const discoveryWorker = new TaskWorker(
+      taskQueue,
+      new Map<string, any>([[MATCH_JOB_TASK, discoveryRuntime.matchTaskHandler]])
+    );
+
+    const discoveryLoop = async (): Promise<void> => {
+      while (true) {
+        const results = await discoveryRuntime.runner.runOnce();
+        for (const result of results) {
+          logger.info(
+            { source: result.source, discovered: result.discovered, matching: result.matching },
+            "Discovery source run completed"
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, config.discoveryIntervalMs));
+      }
+    };
+
+    process.once("SIGINT", () => discoveryWorker.stop());
+    process.once("SIGTERM", () => discoveryWorker.stop());
+
+    await Promise.all([discoveryWorker.run(), discoveryLoop()]);
+    await database.close();
+    return;
+  }
+
+  const excludedCompanies = csvEnvironment("JOB_EXCLUDED_COMPANIES");
   const applicationRepository = new ApplicationRepository(database, excludedCompanies);
   const applicationAttemptRepository = new ApplicationAttemptRepository(database);
   const browserSessions = new BrowserSessionService();
@@ -137,6 +173,13 @@ async function main(): Promise<void> {
 
   const handlers = new Map<string, any>([[APPLY_JOB_TASK, applicationTaskHandler]]);
   if (emailHandler) handlers.set(SEND_APPLICATION_EMAIL_TASK, emailHandler);
+
+  let discoveryRuntime: ReturnType<typeof createDiscoveryRuntime> | undefined;
+  if (config.discoveryEnabled) {
+    discoveryRuntime = createDiscoveryRuntime(database, taskQueue, config, candidateProfile);
+    handlers.set(MATCH_JOB_TASK, discoveryRuntime.matchTaskHandler);
+    logger.info({ sourceCount: discoveryRuntime.sourceCount }, "Discovery runtime enabled");
+  }
 
   let gmailSyncDispatcher: GmailSyncTaskDispatcher | undefined;
   let interviewRepository: InterviewRepository | undefined;
@@ -204,6 +247,20 @@ async function main(): Promise<void> {
     }
   };
 
+  const discoveryLoop = async (): Promise<void> => {
+    if (!discoveryRuntime) return;
+    while (true) {
+      const results = await discoveryRuntime.runner.runOnce();
+      for (const result of results) {
+        logger.info(
+          { source: result.source, discovered: result.discovered, matching: result.matching },
+          "Discovery source run completed"
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, config.discoveryIntervalMs));
+    }
+  };
+
   const syncGmailLoop = async (): Promise<void> => {
     if (!gmailSyncDispatcher) return;
     while (true) {
@@ -236,6 +293,7 @@ async function main(): Promise<void> {
   await Promise.all([
     worker.run(),
     enqueueApplicationsLoop(),
+    discoveryLoop(),
     syncGmailLoop(),
     followUpLoop(),
     interviewReminderLoop()
