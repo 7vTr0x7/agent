@@ -76,7 +76,9 @@ describe("VerifiedRecruiterDiscoveryProvider", () => {
       candidateProfileId: "candidate-1"
     });
 
-    expect(result.contacts[0].verified).toBe(true);
+    const contact = result.contacts[0];
+    expect(contact).toBeDefined();
+    expect(contact?.verified).toBe(true);
     expect(verifier.verify).not.toHaveBeenCalled();
   });
 });
