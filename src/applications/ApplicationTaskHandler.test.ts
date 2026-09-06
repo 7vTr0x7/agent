@@ -6,7 +6,7 @@ import { CandidateProfile } from "../candidates/CandidateProfile";
 import { ClaimedTask } from "../queue/TaskQueue";
 import { TailoredResumeArtifactService } from "../resume/TailoredResumeArtifactService";
 import { TailoredResumeRepository, TailoredResumeRecord } from "../resume/TailoredResumeRepository";
-import { ApplicationAttemptRecord } from "./ApplicationAttemptRepository";
+import { ApplicationAttemptRecord, StoredApplicationAttempt } from "./ApplicationAttemptRepository";
 
 class FakeApplications {
   prepared = true;
@@ -64,8 +64,13 @@ class FakeSubmissionService {
 class FakeApplicationAttemptRepository {
   records: ApplicationAttemptRecord[] = [];
 
-  async record(record: ApplicationAttemptRecord): Promise<void> {
+  async record(record: ApplicationAttemptRecord): Promise<StoredApplicationAttempt> {
     this.records.push(record);
+    return {
+      ...record,
+      id: "attempt-1",
+      attemptedAt: record.attemptedAt ?? new Date(0)
+    };
   }
 }
 
