@@ -22,19 +22,16 @@ export function createRecruiterDiscoveryProvider(config: RecruiterDiscoveryProvi
     if (!config.snovClientId || !config.snovClientSecret) {
       throw new Error("Snov recruiter discovery requires SNOV_CLIENT_ID and SNOV_CLIENT_SECRET");
     }
-    return new FallbackRecruiterDiscoveryProvider(
-      new SnovRecruiterDiscoveryProvider({ clientId: config.snovClientId, clientSecret: config.snovClientSecret }),
-      jobPosting,
-      new SnovRecruiterDiscoveryProvider({ clientId: config.snovClientId, clientSecret: config.snovClientSecret })
-    );
+    const snov = new SnovRecruiterDiscoveryProvider({
+      clientId: config.snovClientId,
+      clientSecret: config.snovClientSecret
+    });
+    return new FallbackRecruiterDiscoveryProvider(snov, jobPosting, snov);
   }
 
   if (!config.hunterApiKey) {
     throw new Error("Hunter recruiter discovery requires HUNTER_API_KEY");
   }
-  return new FallbackRecruiterDiscoveryProvider(
-    new HunterRecruiterDiscoveryProvider({ apiKey: config.hunterApiKey }),
-    jobPosting,
-    new HunterRecruiterDiscoveryProvider({ apiKey: config.hunterApiKey })
-  );
+  const hunter = new HunterRecruiterDiscoveryProvider({ apiKey: config.hunterApiKey });
+  return new FallbackRecruiterDiscoveryProvider(hunter, jobPosting, hunter);
 }
