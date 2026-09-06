@@ -111,6 +111,10 @@ export class DiscoveryEngine {
           metadata: error instanceof AppError ? { code: error.code } : undefined
         });
 
+        if (decision.classification === "RATE_LIMIT" && nextRetryAt) {
+          await this.runTracker.applyCooldown(sourceId, nextRetryAt);
+        }
+
         if (decision.retry) {
           await sleep(decision.delayMs);
         } else {
