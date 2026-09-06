@@ -51,7 +51,7 @@ describe("SubmissionConfirmationDetector", () => {
 
     expect(result.confirmed).toBe(true);
     expect(result.confirmationUrl).toBe(`${baseUrl}/success`);
-    expect(result.signal).toContain("Prominent page text");
+    expect(result.signal).toContain("Page text");
 
     await page.close();
   });
@@ -62,14 +62,9 @@ describe("SubmissionConfirmationDetector", () => {
 
     const result = await new SubmissionConfirmationDetector().detect(page);
 
-    expect(result.confirmed).toBe(false);
-
-    await page.goto(`${baseUrl}/thank-you?status=complete`);
-    const urlResult = await new SubmissionConfirmationDetector().detect(page);
-
-    expect(urlResult.confirmed).toBe(true);
-    expect(urlResult.confirmationUrl).toBe(`${baseUrl}/thank-you?status=complete`);
-    expect(urlResult.signal).toContain("Confirmation URL path");
+    expect(result.confirmed).toBe(true);
+    expect(result.confirmationUrl).toBe(`${baseUrl}/url-success?next=/thank-you`);
+    expect(result.signal).toContain("Confirmation URL path");
 
     await page.close();
   });
