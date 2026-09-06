@@ -20,7 +20,7 @@ export interface AppConfig {
   recruiterOutreach: {
     enabled: boolean;
     dryRun: boolean;
-    discoveryProvider: "hunter";
+    discoveryProvider: "hunter" | "snov" | "job-posting";
     minConfidence: number;
     requireVerifiedEmail: boolean;
     maxContactsPerApplication: number;
@@ -30,6 +30,8 @@ export interface AppConfig {
     followUpDayOffsets: number[];
     genericEmailFallback: boolean;
     hunterApiKey: string | null;
+    snovClientId: string | null;
+    snovClientSecret: string | null;
   };
   resume: {
     tailoringEnabled: boolean;
@@ -93,10 +95,7 @@ function booleanValue(name: string, value: string | undefined, fallback: boolean
 
 function dayOffsets(name: string, value: string): number[] {
   const offsets = value.split(",").map((item) => nonNegativeInteger(name, item.trim()));
-  if (offsets.length === 0) {
-    throw new Error(`${name} must contain strictly increasing non-negative integers`);
-  }
-
+  if (offsets.length === 0) throw new Error(`${name} must contain strictly increasing non-negative integers`);
   for (let index = 1; index < offsets.length; index += 1) {
     const previous = offsets[index - 1];
     const current = offsets[index];
@@ -104,7 +103,6 @@ function dayOffsets(name: string, value: string): number[] {
       throw new Error(`${name} must contain strictly increasing non-negative integers`);
     }
   }
-
   return offsets;
 }
 
@@ -114,9 +112,9 @@ export function loadConfig(): AppConfig {
   const gmailEnabled = booleanValue("GMAIL_ENABLED", process.env.GMAIL_ENABLED, false);
   const recruiterOutreachEnabled = booleanValue("RECRUITER_OUTREACH_ENABLED", process.env.RECRUITER_OUTREACH_ENABLED, false);
   const recruiterDryRun = booleanValue("RECRUITER_OUTREACH_DRY_RUN", process.env.RECRUITER_OUTREACH_DRY_RUN, true);
-  const recruiterProvider = process.env.RECRUITER_DISCOVERY_PROVIDER ?? "hunter";
-  if (recruiterProvider !== "hunter") {
-    throw new Error("RECRUITER_DISCOVERY_PROVIDER must be hunter until another provider is explicitly implemented");
+  const recruiterProvider = process.env.RECRUITER_DISCOVERY_PROVIDER ?? "snov";
+  if (recruiterProvider !== "hunter" && recruiterProvider !== "snov" && recruiterProvider !== "job-posting") {
+    throw new Error("RECRUITER_DISCOVERY_PROVIDER must be hunter, snov, or job-posting");
   }
 
   return {
@@ -139,7 +137,7 @@ export function loadConfig(): AppConfig {
     recruiterOutreach: {
       enabled: recruiterOutreachEnabled,
       dryRun: recruiterDryRun,
-      discoveryProvider: "hunter",
+      discoveryProvider: recruiterProvider,
       minConfidence: boundedInteger("RECRUITER_MIN_CONFIDENCE", process.env.RECRUITER_MIN_CONFIDENCE ?? "80", 0, 100),
       requireVerifiedEmail: booleanValue("RECRUITER_REQUIRE_VERIFIED_EMAIL", process.env.RECRUITER_REQUIRE_VERIFIED_EMAIL, true),
       maxContactsPerApplication: positiveInteger("RECRUITER_MAX_CONTACTS_PER_APPLICATION", process.env.RECRUITER_MAX_CONTACTS_PER_APPLICATION ?? "3"),
@@ -148,7 +146,9 @@ export function loadConfig(): AppConfig {
       followUpEnabled: booleanValue("RECRUITER_FOLLOWUP_ENABLED", process.env.RECRUITER_FOLLOWUP_ENABLED, false),
       followUpDayOffsets: dayOffsets("RECRUITER_FOLLOWUP_DAY_OFFSETS", process.env.RECRUITER_FOLLOWUP_DAY_OFFSETS ?? "4,10,18"),
       genericEmailFallback: booleanValue("RECRUITER_GENERIC_EMAIL_FALLBACK", process.env.RECRUITER_GENERIC_EMAIL_FALLBACK, true),
-      hunterApiKey: recruiterOutreachEnabled ? required("HUNTER_API_KEY", process.env.HUNTER_API_KEY) : null
+      hunterApiKey: process.env.HUNTER_API_KEY?.trim() || null,
+      snovClientId: process.env.SNOV_CLIENT_ID?.trim() || null,
+      snovClientSecret: process.env.SNOV_CLIENT_SECRET?.trim() || null
     },
     resume: {
       tailoringEnabled: resumeTailoringEnabled,
