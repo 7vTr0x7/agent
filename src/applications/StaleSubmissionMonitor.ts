@@ -8,6 +8,8 @@ export interface StaleSubmissionMonitorLogger {
 export interface StaleSubmissionMonitorResult {
   staleCount: number;
   submissions: readonly StaleSubmission[];
+  /** @deprecated Stale submissions are intentionally never requeued automatically. */
+  requeued: number;
 }
 
 /**
@@ -29,7 +31,7 @@ export class StaleSubmissionMonitor {
     }
   }
 
-  async runOnce(): Promise<StaleSubmissionMonitorResult> {
+  async runOnce(_olderThanMinutesOverride?: number): Promise<StaleSubmissionMonitorResult> {
     const submissions = await this.applicationRepository.listStaleSubmissions(this.olderThanMinutes);
 
     if (submissions.length > 0) {
@@ -56,6 +58,6 @@ export class StaleSubmissionMonitor {
       this.logger.info({ staleCount: 0 }, "Stale application submission check completed");
     }
 
-    return { staleCount: submissions.length, submissions };
+    return { staleCount: submissions.length, submissions, requeued: 0 };
   }
 }
