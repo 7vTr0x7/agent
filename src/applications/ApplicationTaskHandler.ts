@@ -37,6 +37,7 @@ export class ApplicationTaskHandler {
     const candidateProfile = await this.candidateProfiles.getById(prepared.application.candidateProfileId);
     if (!candidateProfile) throw new Error(`Candidate profile '${prepared.application.candidateProfileId}' could not be loaded.`);
 
+    const candidateName = candidateProfile.fullName ?? ([candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") || "Candidate");
     let applicationProfile = candidateProfile;
     if (this.tailoredResumeArtifacts) {
       const artifact = await this.tailoredResumeArtifacts.create(prepared.application.jobTitle, prepared.application.jobDescription);
@@ -75,7 +76,7 @@ export class ApplicationTaskHandler {
           await this.recruiterDiscoveryDispatcher.enqueue({
             companyName: prepared.application.companyName, companyDomain, jobTitle: prepared.application.jobTitle,
             jobDescription: prepared.application.jobDescription, candidateProfileId: prepared.application.candidateProfileId,
-            jobOpportunityId: prepared.application.jobOpportunityId, applicationId: prepared.application.applicationId
+            candidateName, jobOpportunityId: prepared.application.jobOpportunityId, applicationId: prepared.application.applicationId
           });
         } catch {
           // Queueing recruiter discovery is best-effort and isolated from application state.
@@ -84,7 +85,6 @@ export class ApplicationTaskHandler {
     }
 
     if (!this.emailDispatcher || !candidateProfile.email) return;
-    const candidateName = candidateProfile.fullName ?? ([candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") || "Candidate");
     const context: ApplicationEmailContext = {
       recipient: candidateProfile.email, candidateName, jobTitle: prepared.application.jobTitle,
       companyName: prepared.application.companyName, applicationId: prepared.application.applicationId,
