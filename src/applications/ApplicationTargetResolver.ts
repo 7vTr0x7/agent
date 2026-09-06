@@ -8,13 +8,18 @@ export interface ApplicationTargetResolution {
 }
 
 const APPLY_NAME = /^(?:apply|apply now|apply here|apply on company site|apply externally|easy apply|quick apply|応募|応募する)$/i;
+const SUBMIT_NAME = /^(?:submit|submit application|send application|complete application)$/i;
 
 export class ApplicationTargetResolver {
   async resolve(page: Page, sourceUrl: string): Promise<ApplicationTargetResolution> {
     const currentUrl = page.url() || sourceUrl;
 
-    const formControls = page.locator("input, textarea, select");
-    if (await formControls.count() > 0) {
+    const formCount = await page.locator("form").count();
+    const fieldCount = await page.locator("input, textarea, select").count();
+    const submitCount = await page.getByRole("button", { name: SUBMIT_NAME }).count()
+      + await page.getByRole("link", { name: SUBMIT_NAME }).count();
+
+    if (formCount > 0 || (fieldCount > 0 && submitCount > 0)) {
       return {
         resolved: true,
         url: currentUrl,
@@ -48,8 +53,7 @@ export class ApplicationTargetResolver {
     }
 
     if (linkCount === 1) {
-      const link = links;
-      const href = await link.getAttribute("href");
+      const href = await links.getAttribute("href");
       if (!href) {
         return {
           resolved: false,
@@ -69,9 +73,8 @@ export class ApplicationTargetResolver {
       };
     }
 
-    const button = buttons;
     try {
-      await button.click();
+      await buttons.click();
       await page.waitForLoadState("domcontentloaded").catch(() => undefined);
     } catch (error) {
       return {
