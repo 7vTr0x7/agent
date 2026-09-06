@@ -22,7 +22,10 @@ function isCompanyEmail(email: string, domain: string): boolean {
 }
 
 function contextAround(text: string, index: number): string {
-  return text.slice(Math.max(0, index - 120), Math.min(text.length, index + 120));
+  const lineStart = text.lastIndexOf("\n", index - 1) + 1;
+  const lineEndIndex = text.indexOf("\n", index);
+  const lineEnd = lineEndIndex === -1 ? text.length : lineEndIndex;
+  return text.slice(lineStart, lineEnd);
 }
 
 export function extractExplicitRecruiterEmails(jobDescription: string, companyDomain: string): string[] {
