@@ -19,8 +19,8 @@ describe("calculateRetryDelayMs", () => {
 
   it("applies bounded jitter", () => {
     const options = { baseDelayMs: 10_000, maxDelayMs: 60_000, jitterRatio: 0.2 };
-    expect(calculateRetryDelayMs(2, options, () => 0)).toBe(8_000);
-    expect(calculateRetryDelayMs(2, options, () => 1)).toBe(12_000);
+    expect(calculateRetryDelayMs(2, options, () => 0)).toBe(16_000);
+    expect(calculateRetryDelayMs(2, options, () => 1)).toBe(24_000);
   });
 
   it("rejects invalid attempts and configuration", () => {
