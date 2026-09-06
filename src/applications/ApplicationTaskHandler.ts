@@ -6,6 +6,7 @@ import { ApplicationSubmissionService } from "./ApplicationSubmissionService";
 import { ApplicationEmailContext } from "../notifications/Email";
 import { TailoredResumeArtifactService } from "../resume/TailoredResumeArtifactService";
 import { TailoredResumeRepository } from "../resume/TailoredResumeRepository";
+import { ApplicationAttemptRepository } from "./ApplicationAttemptRepository";
 
 export interface CandidateProfileResolver {
   getById(candidateProfileId: string): Promise<CandidateProfile | null>;
@@ -24,7 +25,8 @@ export class ApplicationTaskHandler {
     private readonly excludedCompanies: readonly string[] = [],
     private readonly emailDispatcher?: ApplicationEmailDispatcher,
     private readonly tailoredResumeArtifacts?: TailoredResumeArtifactService,
-    private readonly tailoredResumeRepository?: TailoredResumeRepository
+    private readonly tailoredResumeRepository?: TailoredResumeRepository,
+    private readonly attemptRepository?: Pick<ApplicationAttemptRepository, "record">
   ) {}
 
   async handle(task: ClaimedTask<ApplyJobTaskPayload>): Promise<void> {
@@ -91,6 +93,18 @@ export class ApplicationTaskHandler {
       excludedCompanies: this.excludedCompanies,
       candidateProfile: applicationProfile
     });
+
+    if (this.attemptRepository) {
+      await this.attemptRepository.record({
+        applicationId: prepared.application.applicationId,
+        adapterName: outcome.adapterName,
+        safetyAllowed: outcome.safetyAllowed,
+        submitted: outcome.submitted,
+        reason: outcome.reason,
+        confirmationUrl: outcome.result?.confirmationUrl ?? null,
+        externalApplicationId: outcome.result?.externalApplicationId ?? null
+      });
+    }
 
     if (!this.emailDispatcher || !candidateProfile.email) {
       return;
