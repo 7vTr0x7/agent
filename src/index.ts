@@ -381,7 +381,9 @@ async function main(): Promise<void> {
       signal: shutdownController.signal,
       logger,
       sleep,
-      runOnce: () => applicationQueueService.enqueueEligibleApplications()
+      runOnce: async () => {
+        await applicationQueueService.enqueueEligibleApplications();
+      }
     });
 
   const staleSubmissionLoop = (): Promise<void> =>
