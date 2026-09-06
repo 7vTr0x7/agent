@@ -10,7 +10,7 @@ import { JobRankingService } from "../jobs/policy/JobRankingService";
 import { DeterministicJobMatcher } from "../matching/DeterministicJobMatcher";
 import { MatchDecisionRepository } from "../matching/MatchDecisionRepository";
 import { MatchPipeline } from "../matching/MatchPipeline";
-import { MatchTaskHandler } from "../matching/MatchTask";
+import { MatchTaskDispatcher, MatchTaskHandler } from "../matching/MatchTask";
 import { DiscoveryMatchDispatcher } from "./queue/DiscoveryMatchDispatcher";
 import { TaskQueue } from "../queue/TaskQueue";
 
@@ -138,8 +138,11 @@ describe("discovery -> canonicalization/deduplication -> matching -> application
     expect(discovered.duplicates).toBe(1);
     expect(discovered.insertedOpportunityIds).toHaveLength(1);
 
+    const opportunityId = discovered.insertedOpportunityIds[0];
+    if (!opportunityId) throw new Error("Expected a discovered opportunity id.");
+
     const opportunity: JobOpportunity = {
-      id: discovered.insertedOpportunityIds[0],
+      id: opportunityId,
       canonicalId: "synthetic-canonical",
       canonicalUrl: discoveredJob.url,
       title: discoveredJob.title,
@@ -167,17 +170,12 @@ describe("discovery -> canonicalization/deduplication -> matching -> application
     } as unknown as TaskQueue;
     const matchDispatcher = new DiscoveryMatchDispatcher(
       opportunities,
-      { enqueue: (id, candidateId, priority) => matchTaskQueue.enqueue({
-        taskType: "MATCH_JOB",
-        payload: { jobOpportunityId: id, candidateProfileId: candidateId },
-        priority,
-        dedupeKey: `match:${id}:${candidateId}`
-      }) } as never,
+      new MatchTaskDispatcher(matchTaskQueue),
       policy,
       profile.id
     );
 
-    const dispatch = await matchDispatcher.dispatch(discovered.insertedOpportunityIds);
+    const dispatch = await matchDispatcher.dispatch([opportunityId]);
     expect(dispatch).toEqual({ enqueued: 1, rejected: 0, missing: 0 });
 
     const decisions = new InMemoryMatchDecisionRepository();
@@ -241,7 +239,7 @@ describe("discovery -> canonicalization/deduplication -> matching -> application
     } as unknown as TaskQueue;
     const dispatcher = new DiscoveryMatchDispatcher(
       opportunities,
-      { enqueue: (...args) => matchTaskQueue.enqueue(...args) } as never,
+      new MatchTaskDispatcher(matchTaskQueue),
       policy,
       profile.id
     );
