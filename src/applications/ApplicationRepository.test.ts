@@ -7,7 +7,16 @@ interface QueryResult<T> {
 describe("ApplicationRepository submission state", () => {
   function createDatabase(
     status: string,
-    options: { dailyCount?: number; companyCount?: number } = {}
+    options: {
+      dailyCount?: number;
+      companyCount?: number;
+      staleSubmissions?: Array<{
+        id: string;
+        candidate_profile_id: string;
+        company_name: string;
+        updated_at: Date;
+      }>;
+    } = {}
   ) {
     const queries: string[] = [];
     const client = {
@@ -61,6 +70,19 @@ describe("ApplicationRepository submission state", () => {
     return {
       queries,
       database: {
+        query: async <T>(text: string): Promise<QueryResult<T>> => {
+          queries.push(text);
+          if (
+            text.includes("WHERE a.status = 'SUBMISSION_IN_PROGRESS'") &&
+            text.includes("updated_at < NOW()")
+          ) {
+            return {
+              rows: options.staleSubmissions ?? []
+            } as QueryResult<T>;
+          }
+
+          return { rows: [] } as QueryResult<T>;
+        },
         transaction: async <T>(callback: (transactionClient: typeof client) => Promise<T>) =>
           callback(client)
       }
@@ -109,5 +131,41 @@ describe("ApplicationRepository submission state", () => {
     await expect(
       repository.markSubmitted("application-3", null, "external-3")
     ).rejects.toThrow("Application cannot transition from status 'READY' to SENT.");
+  });
+
+  it("lists stale submissions without changing their state", async () => {
+    const startedAt = new Date("2026-09-06T10:00:00.000Z");
+    const { database, queries } = createDatabase("READY", {
+      staleSubmissions: [
+        {
+          id: "application-stale-1",
+          candidate_profile_id: "candidate-1",
+          company_name: "Example Co",
+          updated_at: startedAt
+        }
+      ]
+    });
+    const repository = new ApplicationRepository(database as never);
+
+    await expect(repository.listStaleSubmissions(30)).resolves.toEqual([
+      {
+        applicationId: "application-stale-1",
+        candidateProfileId: "candidate-1",
+        companyName: "Example Co",
+        startedAt
+      }
+    ]);
+    expect(queries.some((query) => query.includes("WHERE a.status = 'SUBMISSION_IN_PROGRESS'"))).toBe(true);
+    expect(queries.some((query) => query.includes("updated_at < NOW()"))).toBe(true);
+    expect(queries.some((query) => query.includes("UPDATE applications"))).toBe(false);
+  });
+
+  it("rejects a non-positive stale-submission threshold", async () => {
+    const { database } = createDatabase("READY");
+    const repository = new ApplicationRepository(database as never);
+
+    await expect(repository.listStaleSubmissions(0)).rejects.toThrow(
+      "olderThanMinutes must be a positive finite number."
+    );
   });
 });
