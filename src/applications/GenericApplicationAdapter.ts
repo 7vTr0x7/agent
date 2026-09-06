@@ -12,6 +12,7 @@ import { LeverApplicationAdapter } from "./LeverApplicationAdapter";
 import { AshbyApplicationAdapter } from "./AshbyApplicationAdapter";
 import { WorkdayApplicationAdapter } from "./WorkdayApplicationAdapter";
 import { SmartRecruitersApplicationAdapter } from "./SmartRecruitersApplicationAdapter";
+import { WorkableApplicationAdapter } from "./WorkableApplicationAdapter";
 
 export class GenericApplicationAdapter implements ApplicationAdapter {
   readonly name = "generic-form";
@@ -45,6 +46,10 @@ export class GenericApplicationAdapter implements ApplicationAdapter {
 
     if (new SmartRecruitersApplicationAdapter().canHandle(context.url)) {
       return new SmartRecruitersApplicationAdapter().submit(page, context);
+    }
+
+    if (new WorkableApplicationAdapter().canHandle(context.url)) {
+      return new WorkableApplicationAdapter().submit(page, context);
     }
 
     await page.waitForLoadState("domcontentloaded");
