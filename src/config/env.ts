@@ -4,6 +4,7 @@ export interface AppConfig {
   nodeEnv: string;
   logLevel: string;
   automationEnabled: boolean;
+  applicationDryRun: boolean;
   discoveryEnabled: boolean;
   discoveryIntervalMs: number;
   applicationQueueIntervalMs: number;
@@ -70,6 +71,7 @@ export function loadConfig(): AppConfig {
     nodeEnv: process.env.NODE_ENV ?? "development",
     logLevel: process.env.LOG_LEVEL ?? "info",
     automationEnabled: booleanValue("AUTOMATION_ENABLED", process.env.AUTOMATION_ENABLED, false),
+    applicationDryRun: booleanValue("APPLICATION_DRY_RUN", process.env.APPLICATION_DRY_RUN, true),
     discoveryEnabled: booleanValue("JOB_DISCOVERY_ENABLED", process.env.JOB_DISCOVERY_ENABLED, true),
     discoveryIntervalMs: positiveInteger(
       "JOB_DISCOVERY_INTERVAL_MS",
