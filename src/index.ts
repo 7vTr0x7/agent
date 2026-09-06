@@ -31,6 +31,9 @@ import { GmailApiMailbox } from "./email/GmailApiMailbox";
 import { GmailMessageRepository } from "./email/GmailMessageRepository";
 import { GmailSyncTaskDispatcher, GmailSyncTaskHandler, SYNC_GMAIL_TASK } from "./email/GmailSyncTask";
 import { InterviewRepository } from "./email/InterviewRepository";
+import { InterviewReminderScheduler } from "./email/InterviewReminderScheduler";
+import { InterviewReminderTaskDispatcher, SEND_INTERVIEW_REMINDER_TASK } from "./email/InterviewReminderTask";
+import { InterviewReminderTaskHandler } from "./email/InterviewReminderTaskHandler";
 import { FollowUpDraftRepository } from "./applications/FollowUpDraftRepository";
 import { FollowUpScheduler } from "./applications/FollowUpScheduler";
 import { FollowUpTaskDispatcher, PREPARE_FOLLOW_UP_TASK } from "./applications/FollowUpTask";
@@ -93,10 +96,12 @@ async function main(): Promise<void> {
 
   let emailDispatcher: EmailNotificationTaskDispatcher | undefined;
   let emailHandler: EmailNotificationTaskHandler | undefined;
+  let emailNotifications: EmailNotificationService | undefined;
   if (config.email.enabled && config.email.apiKey && config.email.from) {
     const sender = new ResendEmailSender({ apiKey: config.email.apiKey, from: config.email.from });
+    emailNotifications = new EmailNotificationService(sender);
     emailDispatcher = new EmailNotificationTaskDispatcher(taskQueue);
-    emailHandler = new EmailNotificationTaskHandler(new EmailNotificationService(sender));
+    emailHandler = new EmailNotificationTaskHandler(emailNotifications);
   }
 
   let tailoredResumeArtifacts: TailoredResumeArtifactService | undefined;
@@ -125,6 +130,7 @@ async function main(): Promise<void> {
   if (emailHandler) handlers.set(SEND_APPLICATION_EMAIL_TASK, emailHandler);
 
   let gmailSyncDispatcher: GmailSyncTaskDispatcher | undefined;
+  let interviewRepository: InterviewRepository | undefined;
   if (config.gmail.enabled && config.gmail.clientId && config.gmail.clientSecret && config.gmail.refreshToken && config.gmail.userEmail) {
     const mailbox = new GmailApiMailbox({
       oauth: new GmailOAuthClient({
@@ -134,12 +140,13 @@ async function main(): Promise<void> {
       }),
       userEmail: config.gmail.userEmail
     });
+    interviewRepository = new InterviewRepository(database);
     handlers.set(
       SYNC_GMAIL_TASK,
       new GmailSyncTaskHandler(
         mailbox,
         new GmailMessageRepository(database),
-        new InterviewRepository(database)
+        interviewRepository
       )
     );
     gmailSyncDispatcher = new GmailSyncTaskDispatcher(taskQueue);
@@ -152,6 +159,20 @@ async function main(): Promise<void> {
     followUpScheduler = new FollowUpScheduler(
       followUpDrafts,
       new FollowUpTaskDispatcher(taskQueue)
+    );
+  }
+
+  let interviewReminderScheduler: InterviewReminderScheduler | undefined;
+  if (interviewRepository && emailNotifications && candidateProfile.email) {
+    handlers.set(
+      SEND_INTERVIEW_REMINDER_TASK,
+      new InterviewReminderTaskHandler(emailNotifications, interviewRepository)
+    );
+    interviewReminderScheduler = new InterviewReminderScheduler(
+      interviewRepository,
+      new InterviewReminderTaskDispatcher(taskQueue),
+      candidateProfile.email,
+      candidateProfile.fullName ?? [candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") || "Candidate"
     );
   }
 
@@ -183,10 +204,25 @@ async function main(): Promise<void> {
     }
   };
 
+  const interviewReminderLoop = async (): Promise<void> => {
+    if (!interviewReminderScheduler) return;
+    while (true) {
+      const result = await interviewReminderScheduler.runOnce();
+      if (result.queued > 0) logger.info(result, "Interview reminders queued");
+      await new Promise((resolve) => setTimeout(resolve, 300_000));
+    }
+  };
+
   process.once("SIGINT", () => worker.stop());
   process.once("SIGTERM", () => worker.stop());
 
-  await Promise.all([worker.run(), enqueueApplicationsLoop(), syncGmailLoop(), followUpLoop()]);
+  await Promise.all([
+    worker.run(),
+    enqueueApplicationsLoop(),
+    syncGmailLoop(),
+    followUpLoop(),
+    interviewReminderLoop()
+  ]);
   await database.close();
 }
 
