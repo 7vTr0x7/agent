@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { HunterRecruiterDiscoveryProvider } from "../src/recruiters/HunterRecruiterDiscoveryProvider";
 
 function required(name: string): string {
@@ -27,7 +28,7 @@ async function main(): Promise<void> {
     dryRun: true,
     provider: result.provider,
     companyName,
-    companyDomain: result.contacts.length > 0 ? companyDomain : companyDomain,
+    companyDomain,
     discovered: result.contacts.length,
     contacts: result.contacts.map((contact) => ({
       email: contact.email,
