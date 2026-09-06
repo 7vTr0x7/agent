@@ -17,6 +17,16 @@ const CONFIRMATION_PATTERNS = [
   /application\s+confirmation/i
 ] as const;
 
+const STANDALONE_CONFIRMATION_PATTERNS = [
+  /^application\s+(?:has\s+been\s+)?submitted(?:\s+successfully)?[.!]?$/i,
+  /^application\s+(?:has\s+been\s+)?received[.!]?$/i,
+  /^successfully\s+(?:applied|submitted)[.!]?$/i,
+  /^thank\s+you\s+for\s+applying[.!]?$/i,
+  /^thanks\s+for\s+applying[.!]?$/i,
+  /^application\s+complete[.!]?$/i,
+  /^application\s+confirmation[.!]?$/i
+] as const;
+
 const CONFIRMATION_URL_PATTERN = /(?:thank(?:s|-|_)?(?:you)?|success(?:ful|fully)?|confirmation|application[-_/]?(?:submitted|received|complete))/i;
 
 function normalizeText(value: string): string {
@@ -53,14 +63,13 @@ export class SubmissionConfirmationDetector {
     }
 
     // Some ATS pages replace the entire form with a short confirmation message
-    // without using a heading or status role. A compact body containing only a
-    // known confirmation phrase is safe to recognize; longer arbitrary body
-    // text still requires multiple independent confirmation signals.
-    const compactBodyConfirmation = CONFIRMATION_PATTERNS.some((pattern) =>
-      pattern.test(bodyText) && bodyText.length <= 160
+    // without using a heading or status role. Only an entire compact body that
+    // is itself a known confirmation phrase is accepted here.
+    const standaloneConfirmation = STANDALONE_CONFIRMATION_PATTERNS.some((pattern) =>
+      pattern.test(bodyText)
     );
 
-    if (compactBodyConfirmation) {
+    if (standaloneConfirmation) {
       return {
         confirmed: true,
         confirmationUrl: url,
