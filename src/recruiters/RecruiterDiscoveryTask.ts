@@ -9,6 +9,7 @@ export interface DiscoverRecruitersTaskPayload {
   jobDescription: string;
   location?: string;
   candidateProfileId: string;
+  candidateName?: string;
   jobOpportunityId: string;
   applicationId: string;
 }
