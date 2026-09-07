@@ -61,7 +61,14 @@ export function createDiscoveryRuntime(
 
   const registry = new SourceRegistry();
   for (const sourceConfig of parseSourceConfigs(config.jobSources)) {
-    const source = createJobSource(sourceConfig);
+    const adapterSource = createJobSource(sourceConfig);
+    const source = {
+      name: sourceConfig.id,
+      fetchJobs: async () => {
+        const jobs = await adapterSource.fetchJobs();
+        return jobs.map((job) => ({ ...job, source: sourceConfig.id }));
+      }
+    };
     registry.register({
       source,
       descriptor: {
