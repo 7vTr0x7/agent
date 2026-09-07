@@ -49,7 +49,7 @@ export class TaskWorker {
     this.logger = options.logger ?? noopLogger;
   }
 
-  async runOnce(): Promise<boolean> {
+  async runOnce(taskTypes?: string[]): Promise<boolean> {
     const now = Date.now();
     if (now - this.lastRecoveryAt >= this.staleRecoveryIntervalMs) {
       const recovery = await this.queue.recoverStaleTasks();
@@ -62,7 +62,8 @@ export class TaskWorker {
       }
     }
 
-    const task = await this.queue.claim(this.workerId);
+    const allowedTaskTypes = taskTypes?.length ? taskTypes : [...this.handlers.keys()];
+    const task = await this.queue.claim(this.workerId, allowedTaskTypes);
     if (!task) return false;
 
     this.logger.info(
@@ -122,7 +123,6 @@ export class TaskWorker {
           { workerId: this.workerId, taskId: task.id, taskType: task.taskType },
           "Task failure could not be persisted because the lease is no longer owned"
         );
-        // The lease may have expired and the task may already have been recovered.
       }
     } finally {
       clearInterval(heartbeatTimer);
