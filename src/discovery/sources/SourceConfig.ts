@@ -26,7 +26,13 @@ export function parseSourceConfigs(value: string | undefined): SourceConfig[] {
     throw new Error("JOB_SOURCES must be a JSON array");
   }
 
-  return parsed.map((item, index) => validateSourceConfig(item, index));
+  const configs = parsed.map((item, index) => validateSourceConfig(item, index));
+  const ids = new Set<string>();
+  for (const config of configs) {
+    if (ids.has(config.id)) throw new Error(`JOB_SOURCES contains duplicate id: ${config.id}`);
+    ids.add(config.id);
+  }
+  return configs;
 }
 
 function validateSourceConfig(value: unknown, index: number): SourceConfig {
