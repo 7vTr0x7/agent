@@ -6,6 +6,8 @@ interface Check {
   message: string;
 }
 
+const DEFAULT_JOB_SOURCE = "RemoteOK";
+
 function csv(name: string): string[] {
   return (process.env[name] ?? "").split(",").map((value) => value.trim()).filter(Boolean);
 }
@@ -24,6 +26,7 @@ function main(): void {
   const checks: Check[] = [];
   const databaseUrl = process.env.DATABASE_URL?.trim();
   const candidateProfileId = process.env.CANDIDATE_PROFILE_ID?.trim();
+  const configuredJobSources = process.env.JOB_SOURCES?.trim();
   const jobSources = csv("JOB_SOURCES");
   const discoveryEnabled = bool("JOB_DISCOVERY_ENABLED", true);
   const automationEnabled = bool("AUTOMATION_ENABLED", false);
@@ -41,7 +44,8 @@ function main(): void {
   add(checks, "candidate-profile", candidateProfileId ? "PASS" : "FAIL", candidateProfileId ? "CANDIDATE_PROFILE_ID is configured." : "CANDIDATE_PROFILE_ID is missing.");
 
   if (!discoveryEnabled) add(checks, "job-discovery", "WARN", "Job discovery is disabled.");
-  else if (jobSources.length === 0) add(checks, "job-discovery", "WARN", "JOB_DISCOVERY_ENABLED is true but JOB_SOURCES is empty; no configured discovery sources will run.");
+  else if (jobSources.length === 0 && configuredJobSources !== undefined) add(checks, "job-discovery", "PASS", `JOB_SOURCES is empty, so the built-in ${DEFAULT_JOB_SOURCE} source will be used.`);
+  else if (jobSources.length === 0) add(checks, "job-discovery", "PASS", `No JOB_SOURCES override is set; the built-in ${DEFAULT_JOB_SOURCE} source will be used.`);
   else add(checks, "job-discovery", "PASS", `${jobSources.length} job source(s) configured.`);
 
   if (!automationEnabled) add(checks, "automation", "WARN", "AUTOMATION_ENABLED=false; the process will run discovery only and will not submit applications.");
