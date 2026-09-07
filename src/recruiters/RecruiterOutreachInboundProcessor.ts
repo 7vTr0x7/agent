@@ -35,7 +35,7 @@ export class RecruiterOutreachInboundProcessor {
     }
 
     if (isBounce(content)) {
-      await this.repository.suppressRecruiterEmail(message.senderEmail, "BOUNCE", "gmail-bounce");
+      await this.repository.suppressRecruiterEmail(sequence.recipientEmail, "BOUNCE", "gmail-bounce");
       await this.repository.stopOutreachSequence(sequence.sequenceId, "Delivery failure/bounce received.");
       return { status: "BOUNCE_SUPPRESSED", sequenceId: sequence.sequenceId };
     }
