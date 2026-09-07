@@ -40,6 +40,11 @@ describe("RecruiterOutreachSendService", () => {
     expect(mail.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("supports a dry-run without a Gmail mailbox", async () => {
+    const service = new RecruiterOutreachSendService({ repository: repository(), dryRun: true });
+    await expect(service.send(message, "acme.dev")).resolves.toEqual({ status: "DRY_RUN", messageId: message.id });
+  });
+
   it("blocks suppressed recipients before claiming or sending", async () => {
     const repo = repository({ isSuppressed: jest.fn().mockResolvedValue({ email: true, domain: false }) });
     const mail = mailbox();
