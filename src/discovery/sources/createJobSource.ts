@@ -42,7 +42,7 @@ function createRssSource(config: SourceConfig): JobSource {
 function createApiSource(config: SourceConfig): JobSource {
   const adapter = config.name.toLowerCase();
   if (adapter === "remoteok") return new RemoteOkJobSource(config.feedUrl);
-  if (adapter === "himalayas") {
+  if (adapter === "himalayas" || adapter === "arbeitnow") {
     if (!config.feedUrl) throw new Error(`${adapter} source requires feedUrl`);
     return new PublicJsonJobSource(adapter, config.feedUrl);
   }
