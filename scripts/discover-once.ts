@@ -7,6 +7,19 @@ import { ConfiguredCandidateProfileResolver } from "../src/candidates/Configured
 import { TaskQueue } from "../src/queue/TaskQueue";
 import { createDiscoveryRuntime } from "../src/discovery/createDiscoveryRuntime";
 
+interface SourceRunDiagnostic {
+  source_id: string;
+  source_name: string;
+  status: string;
+  fetched_count: number;
+  inserted_count: number;
+  duplicate_count: number;
+  error_count: number;
+  error_summary: string | null;
+  started_at: Date;
+  finished_at: Date | null;
+}
+
 async function main(): Promise<void> {
   const config = loadConfig();
   const logger = pino({ level: config.logLevel });
@@ -20,8 +33,48 @@ async function main(): Promise<void> {
 
     const runtime = createDiscoveryRuntime(database, new TaskQueue(database), config, candidateProfile);
     const results = await runtime.runner.runOnce();
-    logger.info({ sourceCount: runtime.sourceCount, results }, "Discovery smoke run completed");
-    console.log(JSON.stringify({ sourceCount: runtime.sourceCount, results }, null, 2));
+
+    const diagnostics = await database.query<SourceRunDiagnostic>(
+      `
+        SELECT
+          s.id AS source_id,
+          s.name AS source_name,
+          sr.status,
+          sr.fetched_count,
+          sr.inserted_count,
+          sr.duplicate_count,
+          sr.error_count,
+          sr.error_summary,
+          sr.started_at,
+          sr.finished_at
+        FROM source_runs sr
+        JOIN sources s ON s.id = sr.source_id
+        ORDER BY sr.started_at DESC
+        LIMIT $1
+      `,
+      [Math.max(runtime.sourceCount, 1)]
+    );
+
+    const payload = {
+      sourceCount: runtime.sourceCount,
+      results,
+      diagnostics: diagnostics.rows,
+      actionable: results.length > 0
+        ? "Discovery completed with at least one source result."
+        : diagnostics.rows.length === 0
+          ? "No source run was recorded; inspect source registration/health gating."
+          : diagnostics.rows.map((run) => ({
+              source: run.source_id,
+              status: run.status,
+              error: run.error_summary,
+              fetched: run.fetched_count,
+              inserted: run.inserted_count,
+              duplicates: run.duplicate_count
+            }))
+    };
+
+    logger.info(payload, "Discovery smoke run completed");
+    console.log(JSON.stringify(payload, null, 2));
   } finally {
     await database.close();
   }
