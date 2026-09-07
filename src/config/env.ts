@@ -15,7 +15,12 @@ const DEFAULT_JOB_SOURCES = JSON.stringify([
   { id: "himalayas:json", type: "api", name: "himalayas", feedUrl: "https://himalayas.app/jobs/api?limit=20", status: "APPROVED" },
   { id: "jobicy:json", type: "api", name: "jobicy", feedUrl: "https://jobicy.com/api/v2/remote-jobs?count=200", status: "APPROVED" },
   { id: "weworkremotely:rss", type: "rss", name: "weworkremotely", feedUrl: "https://weworkremotely.com/remote-jobs.rss", status: "APPROVED" },
-  { id: "remotive:rss", type: "rss", name: "remotive", feedUrl: "https://remotive.com/feed", status: "APPROVED" }
+  { id: "remotefirstjobs:react:rss", type: "rss", name: "remotefirstjobs-react", feedUrl: "https://remotefirstjobs.com/rss/react", status: "APPROVED" },
+  { id: "remotefirstjobs:software:rss", type: "rss", name: "remotefirstjobs-software", feedUrl: "https://remotefirstjobs.com/rss/software-development", status: "APPROVED" },
+  { id: "remoteyeah:engineering:rss", type: "rss", name: "remoteyeah-engineering", feedUrl: "https://remoteyeah.com/rss.xml", status: "APPROVED" },
+  { id: "workanywhere:frontend:rss", type: "rss", name: "workanywhere-frontend", feedUrl: "https://www.workanywhere.pro/rss/frontend", status: "APPROVED" },
+  { id: "workanywhere:fullstack:rss", type: "rss", name: "workanywhere-fullstack", feedUrl: "https://www.workanywhere.pro/rss/fullstack", status: "APPROVED" },
+  { id: "hireweb3:rss", type: "rss", name: "hireweb3", feedUrl: "https://hireweb3.io/job/rss", status: "APPROVED" }
 ]);
 
 function required(name: string, value: string | undefined): string { if (!value) throw new Error(`Missing required environment variable: ${name}`); return value; }
