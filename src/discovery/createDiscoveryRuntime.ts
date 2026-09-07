@@ -13,6 +13,7 @@ import { SemanticJobMatcher } from "../matching/SemanticJobMatcher";
 import { MatchPipeline } from "../matching/MatchPipeline";
 import { MatchTaskDispatcher, MatchTaskHandler } from "../matching/MatchTask";
 import { PostgresMatchDecisionRepository } from "../matching/MatchDecisionRepository";
+import { AdaptiveLearningService } from "../learning/AdaptiveLearningService";
 import { DiscoveryMatchDispatcher } from "./queue/DiscoveryMatchDispatcher";
 import { DiscoveryRunner } from "./DiscoveryRunner";
 import { SourceHealthGate } from "./health/SourceHealthGate";
@@ -37,9 +38,13 @@ export function createDiscoveryRuntime(
   const matchDecisions = new PostgresMatchDecisionRepository(database);
   const rankingRepository = new PostgresJobRankingRepository(database);
   const policy = loadJobSearchPolicy();
+  const adaptiveLearning = new AdaptiveLearningService(database);
 
   const semanticMatcher = new SemanticJobMatcher(
-    new OllamaProvider(config.ollama.baseUrl, config.ollama.model, config.ollama.timeoutMs)
+    new OllamaProvider(config.ollama.baseUrl, config.ollama.model, config.ollama.timeoutMs),
+    70,
+    40,
+    () => adaptiveLearning.getGuidance()
   );
   const pipeline = new MatchPipeline(
     new DeterministicJobMatcher(),
