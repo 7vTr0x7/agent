@@ -34,7 +34,7 @@ export class ApplicationRepository {
       const policy = evaluateApplicationPolicy({ matchDecision: row.match_decision, opportunityStatus: row.opportunity_status, hasRanking: row.has_ranking, hasExistingApplication: row.has_application, companyName: row.company_name, excludedCompanies: this.excludedCompanies });
       if (policy.decision === "BLOCK") return { prepared: false, reason: policy.reason };
       if (!row.job_id) return { prepared: false, reason: "No legacy job record is linked to this opportunity." };
-      const inserted = await client.query<{ id: string }>(`INSERT INTO applications (job_id, job_opportunity_id, status) VALUES ($1, $2, 'READY') ON CONFLICT (job_opportunity_id) DO NOTHING RETURNING id`, [row.job_id, jobOpportunityId]);
+      const inserted = await client.query<{ id: string }>(`INSERT INTO applications (job_id, job_opportunity_id, candidate_profile_id, status) VALUES ($1, $2, $3, 'READY') ON CONFLICT (job_opportunity_id) DO NOTHING RETURNING id`, [row.job_id, jobOpportunityId, candidateProfileId]);
       const application = inserted.rows[0];
       if (!application) return { prepared: false, reason: "Application was already created concurrently." };
       await client.query(`INSERT INTO application_events (application_id, from_status, to_status, event_type, metadata) VALUES ($1, NULL, 'READY', 'APPLICATION_PREPARED', $2::jsonb)`, [application.id, JSON.stringify({ jobOpportunityId, candidateProfileId })]);
