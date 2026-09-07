@@ -16,6 +16,8 @@ function main(): void {
       dryRun: config.recruiterOutreach.dryRun,
       outboundEnabled: config.outboundEnabled,
       provider: config.recruiterOutreach.discoveryProvider,
+      gmailAccountTier: config.gmail.accountTier,
+      gmailDailySendLimit: config.gmail.dailySendLimit,
       checks: ["Recruiter outreach is disabled; no recruiter email can be sent."]
     }, null, 2));
     return;
@@ -45,12 +47,16 @@ function main(): void {
     fail("real recruiter outreach allows at most 3 contacts per application.");
   }
 
-  if (!config.recruiterOutreach.dryRun && config.recruiterOutreach.maxMessagesPerHour > 15) {
-    fail("real recruiter outreach allows at most 15 messages per hour.");
+  if (config.recruiterOutreach.maxMessagesPerDay > config.gmail.dailySendLimit) {
+    fail(`RECRUITER_MAX_MESSAGES_PER_DAY=${config.recruiterOutreach.maxMessagesPerDay} exceeds the configured Gmail ${config.gmail.accountTier} daily limit of ${config.gmail.dailySendLimit}.`);
   }
 
-  if (!config.recruiterOutreach.dryRun && config.recruiterOutreach.maxMessagesPerDay > 100) {
-    fail("real recruiter outreach allows at most 100 messages per day.");
+  if (config.recruiterOutreach.maxMessagesPerHour > config.recruiterOutreach.maxMessagesPerDay) {
+    fail("RECRUITER_MAX_MESSAGES_PER_HOUR cannot exceed the daily recruiter send limit.");
+  }
+
+  if (!config.recruiterOutreach.dryRun && config.recruiterOutreach.maxMessagesPerHour < Math.ceil(config.recruiterOutreach.maxMessagesPerDay / 24)) {
+    checks.push("hourly recruiter limit is below the daily/24 pacing required to reach the configured daily ceiling; this is allowed but will reduce throughput.");
   }
 
   if (config.recruiterOutreach.requireVerifiedEmail && config.recruiterOutreach.discoveryProvider === "job-posting") {
@@ -59,14 +65,6 @@ function main(): void {
 
   if (config.recruiterOutreach.maxContactsPerApplication > 3) {
     checks.push("max contacts per application is above the conservative default of 3; review before activation.");
-  }
-
-  if (config.recruiterOutreach.maxMessagesPerHour > 15) {
-    checks.push("hourly recruiter send limit is above the conservative default of 15; review before activation.");
-  }
-
-  if (config.recruiterOutreach.maxMessagesPerDay > 100) {
-    checks.push("daily recruiter send limit is above the conservative preflight threshold of 100; review before activation.");
   }
 
   if (config.recruiterOutreach.followUpEnabled && config.recruiterOutreach.followUpDayOffsets.length === 0) {
@@ -79,6 +77,8 @@ function main(): void {
     dryRun: config.recruiterOutreach.dryRun,
     outboundEnabled: config.outboundEnabled,
     gmailEnabled: config.gmail.enabled,
+    gmailAccountTier: config.gmail.accountTier,
+    gmailDailySendLimit: config.gmail.dailySendLimit,
     provider: config.recruiterOutreach.discoveryProvider,
     requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail,
     minConfidence: config.recruiterOutreach.minConfidence,
