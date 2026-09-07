@@ -94,6 +94,35 @@ describe("PublicJsonJobSource", () => {
     expect(jobs[0]?.postedAt).toBeInstanceOf(Date);
   });
 
+  it("uses the regional default country when an Arbeitnow UK posting has no location", async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [{
+        slug: "uk-frontend-engineer-1",
+        company_name: "Example UK",
+        title: "Frontend Engineer",
+        description: "<p>React and TypeScript</p>",
+        remote: true,
+        url: "https://www.arbeitnow.co.uk/jobs/uk-frontend-engineer-1",
+        job_types: ["Full-time"],
+        location: "",
+        created_at: 1786357845
+      }]
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+
+    const jobs = await new PublicJsonJobSource(
+      "arbeitnow",
+      "https://www.arbeitnow.co.uk/api/job-board-api",
+      "United Kingdom"
+    ).fetchJobs();
+
+    expect(jobs[0]).toMatchObject({
+      source: "arbeitnow:json",
+      companyName: "Example UK",
+      country: "United Kingdom",
+      location: "Worldwide"
+    });
+  });
+
   it("fails closed on non-success responses", async () => {
     global.fetch = jest.fn().mockResolvedValue(new Response("rate limited", { status: 429 }));
 
