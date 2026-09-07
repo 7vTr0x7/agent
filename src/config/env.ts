@@ -15,6 +15,7 @@ const DEFAULT_JOB_SOURCES = JSON.stringify([
   { id: "himalayas:json", type: "api", name: "himalayas", feedUrl: "https://himalayas.app/jobs/api?limit=20", status: "APPROVED" },
   { id: "jobicy:json", type: "api", name: "jobicy", feedUrl: "https://jobicy.com/api/v2/remote-jobs?count=200", status: "APPROVED" },
   { id: "arbeitnow:json", type: "api", name: "arbeitnow", feedUrl: "https://www.arbeitnow.com/api/job-board-api", status: "APPROVED" },
+  { id: "arbeitnow:uk:json", type: "api", name: "arbeitnow", feedUrl: "https://www.arbeitnow.co.uk/api/job-board-api", status: "APPROVED" },
   { id: "weworkremotely:rss", type: "rss", name: "weworkremotely", feedUrl: "https://weworkremotely.com/remote-jobs.rss", status: "APPROVED" },
   { id: "remotefirstjobs:react:rss", type: "rss", name: "remotefirstjobs-react", feedUrl: "https://remotefirstjobs.com/rss/react", status: "APPROVED" },
   { id: "remotefirstjobs:software:rss", type: "rss", name: "remotefirstjobs-software", feedUrl: "https://remotefirstjobs.com/rss/software-development", status: "APPROVED" },
