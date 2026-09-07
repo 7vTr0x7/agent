@@ -77,7 +77,7 @@ describe("RecruiterOutreachSendService", () => {
   it("blocks real delivery when the global outbound kill switch is disabled", async () => {
     const repo = repository();
     const mail = mailbox();
-    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: false, activation: "canary" });
+    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: false, activation: "canary", maxMessagesPerDay: 1, maxMessagesPerHour: 1 });
     await expect(service.send(message, "acme.dev")).resolves.toEqual({
       status: "SKIPPED", messageId: message.id, reason: "Global outbound kill switch is disabled."
     });
@@ -127,7 +127,7 @@ describe("RecruiterOutreachSendService", () => {
     const error = new Error("Gmail unavailable");
     const repo = repository();
     const mail = mailbox({ sendMessage: jest.fn().mockRejectedValue(error) });
-    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true, activation: "canary" });
+    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true, activation: "canary", maxMessagesPerDay: 1, maxMessagesPerHour: 1 });
     await expect(service.send(message, "acme.dev")).rejects.toThrow("Gmail unavailable");
     expect(repo.markOutreachMessageFailed).toHaveBeenCalledWith(message.id, "Gmail unavailable");
   });
