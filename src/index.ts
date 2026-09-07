@@ -56,6 +56,7 @@ import { RecruiterOutreachSendTaskHandler } from "./recruiters/RecruiterOutreach
 import { RecruiterOutreachFollowUpService } from "./recruiters/RecruiterOutreachFollowUpService";
 import { RecruiterOutreachFollowUpScheduler } from "./recruiters/RecruiterOutreachFollowUpScheduler";
 import { RecruiterOutreachSendReconciliationService } from "./recruiters/RecruiterOutreachSendReconciliationService";
+import { RecruiterOutreachRuntimeScheduler } from "./recruiters/RecruiterOutreachRuntimeScheduler";
 import { RecruiterOutreachInboundProcessor } from "./recruiters/RecruiterOutreachInboundProcessor";
 import { createRecruiterDiscoveryProvider } from "./recruiters/createRecruiterDiscoveryProvider";
 
@@ -163,6 +164,7 @@ async function main(): Promise<void> {
   let recruiterSendHandler: RecruiterOutreachSendTaskHandler | undefined;
   let recruiterFollowUpScheduler: RecruiterOutreachFollowUpScheduler | undefined;
   let recruiterReconciliationService: RecruiterOutreachSendReconciliationService | undefined;
+  let recruiterRuntimeScheduler: RecruiterOutreachRuntimeScheduler | undefined;
   let recruiterRepository: RecruiterDiscoveryRepository | undefined;
   if (config.recruiterOutreach.enabled) {
     const provider = createRecruiterDiscoveryProvider({ provider: config.recruiterOutreach.discoveryProvider, hunterApiKey: config.recruiterOutreach.hunterApiKey, snovClientId: config.recruiterOutreach.snovClientId, snovClientSecret: config.recruiterOutreach.snovClientSecret });
@@ -176,6 +178,7 @@ async function main(): Promise<void> {
       recruiterSendHandler = new RecruiterOutreachSendTaskHandler(new RecruiterOutreachSendService({ repository: recruiterRepository, mailbox: gmailMailbox, dryRun: config.recruiterOutreach.dryRun, outboundEnabled: config.outboundEnabled, maxMessagesPerDay: config.recruiterOutreach.maxMessagesPerDay, maxMessagesPerHour: config.recruiterOutreach.maxMessagesPerHour }), recruiterRepository, logger, recruiterFollowUpService);
       if (config.recruiterOutreach.followUpEnabled) recruiterFollowUpScheduler = new RecruiterOutreachFollowUpScheduler(recruiterRepository, recruiterSendDispatcher, true);
       recruiterReconciliationService = new RecruiterOutreachSendReconciliationService(database, recruiterRepository, gmailMailbox);
+      recruiterRuntimeScheduler = new RecruiterOutreachRuntimeScheduler(recruiterFollowUpScheduler, recruiterReconciliationService, logger);
     }
     recruiterDiscoveryDispatcher = new RecruiterDiscoveryTaskDispatcher(taskQueue);
     recruiterDiscoveryHandler = new RecruiterDiscoveryTaskHandler(discovery, config.recruiterOutreach.maxContactsPerApplication, recruiterPreparationDispatcher, logger);
@@ -222,16 +225,14 @@ async function main(): Promise<void> {
   const gmailSyncLoop = (): Promise<void> => runPeriodicLoop({ name: "gmail-sync", intervalMs: config.gmail.syncIntervalMs, signal: shutdownController.signal, logger, sleep, runOnce: async () => { if (!gmailSyncDispatcher) return; await gmailSyncDispatcher.enqueue(); } });
   const interviewReminderLoop = (): Promise<void> => runPeriodicLoop({ name: "interview-reminders", intervalMs: config.interviewReminderIntervalMs, signal: shutdownController.signal, logger, sleep, runOnce: async () => { if (!interviewReminderScheduler) return; await interviewReminderScheduler.runOnce(); } });
   const followUpLoop = (): Promise<void> => runPeriodicLoop({ name: "follow-ups", intervalMs: config.followUpIntervalMs, signal: shutdownController.signal, logger, sleep, runOnce: async () => { if (!followUpScheduler) return; await followUpScheduler.runOnce(); } });
-  const recruiterFollowUpLoop = (): Promise<void> => runPeriodicLoop({ name: "recruiter-follow-up", intervalMs: config.followUpIntervalMs, signal: shutdownController.signal, logger, sleep, runOnce: async () => { if (!recruiterFollowUpScheduler) return; const result = await recruiterFollowUpScheduler.runOnce(); if (result.queued > 0) logger.info(result, "Recruiter follow-up emails queued"); } });
-  const recruiterReconciliationLoop = (): Promise<void> => runPeriodicLoop({ name: "recruiter-send-reconciliation", intervalMs: config.followUpIntervalMs, signal: shutdownController.signal, logger, sleep, runOnce: async () => { if (!recruiterReconciliationService) return; const result = await recruiterReconciliationService.runOnce(); if (result.inspected > 0) logger.info(result, "Recruiter send reconciliation completed"); } });
+  const recruiterMaintenanceLoop = (): Promise<void> => runPeriodicLoop({ name: "recruiter-maintenance", intervalMs: config.followUpIntervalMs, signal: shutdownController.signal, logger, sleep, runOnce: async () => { if (!recruiterRuntimeScheduler) return; await recruiterRuntimeScheduler.runOnce(); } });
 
   const loops: Array<Promise<void>> = [applicationLoop(), staleSubmissionLoop()];
   if (discoveryRuntime) loops.push(discoveryLoop());
   if (gmailSyncDispatcher) loops.push(gmailSyncLoop());
   if (interviewReminderScheduler) loops.push(interviewReminderLoop());
   if (followUpScheduler) loops.push(followUpLoop());
-  if (recruiterFollowUpScheduler) loops.push(recruiterFollowUpLoop());
-  if (recruiterReconciliationService) loops.push(recruiterReconciliationLoop());
+  if (recruiterRuntimeScheduler) loops.push(recruiterMaintenanceLoop());
   await Promise.all([worker.run(), ...loops]);
   await database.close();
 }
