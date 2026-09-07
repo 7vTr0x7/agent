@@ -7,68 +7,34 @@ import { ConfiguredCandidateProfileResolver } from "../src/candidates/Configured
 import { loadConfig } from "../src/config/env";
 import { Database } from "../src/database/Database";
 
-interface Arguments {
-  url?: string;
-  company?: string;
-}
+interface Arguments { url?: string; company?: string; }
 
 function parseArguments(argv: readonly string[]): Arguments {
   const values = new Map<string, string>();
-
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (!argument.startsWith("--")) {
-      throw new Error(`Unexpected argument '${argument}'. Supported arguments: --url and --company.`);
-    }
-
+    if (!argument.startsWith("--")) throw new Error(`Unexpected argument '${argument}'. Supported arguments: --url and --company.`);
     const name = argument.slice(2);
     const value = argv[index + 1];
-    if (!value || value.startsWith("--")) {
-      throw new Error(`Missing value for --${name}.`);
-    }
-
+    if (!value || value.startsWith("--")) throw new Error(`Missing value for --${name}.`);
     values.set(name, value);
     index += 1;
   }
-
   const url = values.get("url");
   const company = values.get("company");
-  if ((url && !company) || (!url && company)) {
-    throw new Error("--url and --company must be supplied together.");
-  }
-
+  if ((url && !company) || (!url && company)) throw new Error("--url and --company must be supplied together.");
   if (url) {
     let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(url);
-    } catch {
-      throw new Error("--url must be a valid URL.");
-    }
-
-    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-      throw new Error("--url must use http or https.");
-    }
+    try { parsedUrl = new URL(url); } catch { throw new Error("--url must be a valid URL."); }
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") throw new Error("--url must use http or https.");
   }
-
   return { url, company };
 }
 
-interface DryRunTarget {
-  url: string;
-  company: string;
-  jobTitle: string;
-  jobOpportunityId: string;
-}
+interface DryRunTarget { url: string; company: string; jobTitle: string; jobOpportunityId: string; }
 
 async function resolveTarget(database: Database, args: Arguments, candidateProfileId: string): Promise<DryRunTarget> {
-  if (args.url && args.company) {
-    return {
-      url: args.url,
-      company: args.company,
-      jobTitle: "Manual dry-run target",
-      jobOpportunityId: "manual"
-    };
-  }
+  if (args.url && args.company) return { url: args.url, company: args.company, jobTitle: "Manual dry-run target", jobOpportunityId: "manual" };
 
   const result = await database.query<{
     job_opportunity_id: string;
@@ -88,25 +54,15 @@ async function resolveTarget(database: Database, args: Arguments, candidateProfi
        AND jo.status = 'ACTIVE'
        AND jo.canonical_url IS NOT NULL
        AND jo.canonical_url <> ''
-       AND NOT EXISTS (
-         SELECT 1 FROM applications a WHERE a.job_opportunity_id = jo.id
-       )
-     ORDER BY jr.score DESC, jr.created_at DESC, jo.created_at DESC
+       AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_opportunity_id = jo.id)
+     ORDER BY jr.rank_score DESC, jr.ranked_at DESC, jo.created_at DESC
      LIMIT 1`,
     [candidateProfileId]
   );
 
   const row = result.rows[0];
-  if (!row) {
-    throw new Error("No fresh APPLY-ranked opportunity is available for the configured candidate profile.");
-  }
-
-  return {
-    url: row.canonical_url,
-    company: row.company_name,
-    jobTitle: row.title,
-    jobOpportunityId: row.job_opportunity_id
-  };
+  if (!row) throw new Error("No fresh APPLY-ranked opportunity is available for the configured candidate profile.");
+  return { url: row.canonical_url, company: row.company_name, jobTitle: row.title, jobOpportunityId: row.job_opportunity_id };
 }
 
 async function main(): Promise<void> {
@@ -115,82 +71,30 @@ async function main(): Promise<void> {
   const candidateProfiles = ConfiguredCandidateProfileResolver.fromEnvironment();
   const candidateProfileId = process.env.CANDIDATE_PROFILE_ID ?? "";
   const candidateProfile = await candidateProfiles.getById(candidateProfileId);
-
-  if (!candidateProfile) {
-    throw new Error("Configured candidate profile could not be resolved.");
-  }
+  if (!candidateProfile) throw new Error("Configured candidate profile could not be resolved.");
 
   const database = new Database(config.databaseUrl);
   try {
     const target = await resolveTarget(database, args, candidateProfile.id);
-    const browserSessions = new BrowserSessionService({
-      headless: process.env.DRY_RUN_HEADLESS !== "false",
-      navigationTimeoutMs: config.ollama.timeoutMs
-    });
+    const browserSessions = new BrowserSessionService({ headless: process.env.DRY_RUN_HEADLESS !== "false", navigationTimeoutMs: config.ollama.timeoutMs });
     const adapters = new ApplicationAdapterRegistry(createHostedAtsApplicationAdapters());
     const applications = {
-      beginSubmission: async (): Promise<boolean> => {
-        throw new Error("Safety violation: dry-run attempted to reserve a real application submission.");
-      },
+      beginSubmission: async (): Promise<boolean> => { throw new Error("Safety violation: dry-run attempted to reserve a real application submission."); },
       cancelSubmission: async (): Promise<void> => undefined,
-      markSubmitted: async (): Promise<void> => {
-        throw new Error("Safety violation: dry-run attempted to mark an application submitted.");
-      }
+      markSubmitted: async (): Promise<void> => { throw new Error("Safety violation: dry-run attempted to mark an application submitted."); }
     };
-
-    const service = new ApplicationSubmissionService(
-      browserSessions,
-      adapters,
-      applications,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      true
-    );
-
+    const service = new ApplicationSubmissionService(browserSessions, adapters, applications, undefined, undefined, undefined, undefined, undefined, undefined, true);
     const applicationId = `dry-run-${Date.now()}`;
     const startedAt = new Date().toISOString();
     const outcome = await service.submit({
-      context: {
-        applicationId,
-        candidateProfileId: candidateProfile.id,
-        jobOpportunityId: target.jobOpportunityId === "manual" ? `dry-run-${Date.now()}` : target.jobOpportunityId,
-        url: target.url
-      },
+      context: { applicationId, candidateProfileId: candidateProfile.id, jobOpportunityId: target.jobOpportunityId === "manual" ? `dry-run-${Date.now()}` : target.jobOpportunityId, url: target.url },
       companyName: target.company,
-      excludedCompanies: (process.env.JOB_EXCLUDED_COMPANIES ?? "")
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean),
+      excludedCompanies: (process.env.JOB_EXCLUDED_COMPANIES ?? "").split(",").map((value) => value.trim()).filter(Boolean),
       candidateProfile
     });
-
-    console.log(JSON.stringify({
-      dryRun: true,
-      selectionMode: args.url ? "manual" : "automatic",
-      startedAt,
-      company: target.company,
-      jobTitle: target.jobTitle,
-      jobOpportunityId: target.jobOpportunityId,
-      requestedUrl: target.url,
-      adapter: outcome.adapterName,
-      safetyAllowed: outcome.safetyAllowed,
-      submitted: outcome.submitted,
-      reason: outcome.reason
-    }, null, 2));
-
-    if (outcome.submitted) {
-      throw new Error("Safety violation: dry-run reported a submitted application.");
-    }
-  } finally {
-    await database.close();
-  }
+    console.log(JSON.stringify({ dryRun: true, selectionMode: args.url ? "manual" : "automatic", startedAt, company: target.company, jobTitle: target.jobTitle, jobOpportunityId: target.jobOpportunityId, requestedUrl: target.url, adapter: outcome.adapterName, safetyAllowed: outcome.safetyAllowed, submitted: outcome.submitted, reason: outcome.reason }, null, 2));
+    if (outcome.submitted) throw new Error("Safety violation: dry-run reported a submitted application.");
+  } finally { await database.close(); }
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+main().catch((error: unknown) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });
