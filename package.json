@@ -15,7 +15,8 @@
     "preflight:recruiter-outreach": "tsx scripts/preflight-recruiter-outreach.ts",
     "reconcile:recruiter-outreach": "tsx scripts/reconcile-recruiter-outreach.ts",
     "doctor": "tsx scripts/doctor.ts",
-    "discover:once": "tsx scripts/discover-once.ts"
+    "discover:once": "tsx scripts/discover-once.ts",
+    "matching:once": "tsx scripts/process-matching-once.ts"
   },
   "dependencies": {
     "@types/node": "^22.0.0",
