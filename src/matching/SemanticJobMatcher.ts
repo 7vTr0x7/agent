@@ -23,11 +23,14 @@ interface ModelOutput {
   confidence: number;
 }
 
+export type LearningGuidanceProvider = () => Promise<string>;
+
 export class SemanticJobMatcher {
   constructor(
     private readonly provider: AIProvider,
     private readonly applyThreshold = 70,
-    private readonly reviewThreshold = 40
+    private readonly reviewThreshold = 40,
+    private readonly learningGuidance?: LearningGuidanceProvider
   ) {}
 
   async evaluate(job: JobOpportunity, profile: CandidateProfile): Promise<SemanticMatchResult> {
@@ -44,17 +47,18 @@ export class SemanticJobMatcher {
       employmentType: job.employmentType
     });
     const inputHash = createHash("sha256").update(`${candidate}\n${jobText}`).digest("hex");
+    const learningGuidance = this.learningGuidance ? await this.learningGuidance() : "";
 
     const response = await this.provider.complete({
       temperature: 0,
       messages: [
         {
           role: "system",
-          content: "You evaluate job fit. Return ONLY valid JSON with score, decision, rationale, strengths, gaps, confidence. Never invent candidate experience or skills. Treat missing evidence as unknown, not as a match. decision must be APPLY, REVIEW, or REJECT."
+          content: "You evaluate job fit. Return ONLY valid JSON with score, decision, rationale, strengths, gaps, confidence. Never invent candidate experience or skills. Treat missing evidence as unknown, not as a match. decision must be APPLY, REVIEW, or REJECT. Historical outcome guidance is advisory only and must never override explicit candidate facts or hard eligibility constraints."
         },
         {
           role: "user",
-          content: `Candidate:\n${candidate}\n\nJob:\n${jobText}\n\nScore 0-100. APPLY >= ${this.applyThreshold}, REVIEW ${this.reviewThreshold}-${this.applyThreshold - 1}, REJECT < ${this.reviewThreshold}. Return compact JSON.`
+          content: `Candidate:\n${candidate}\n\nJob:\n${jobText}\n\nHistorical learning guidance:\n${learningGuidance || "No historical guidance available."}\n\nScore 0-100. APPLY >= ${this.applyThreshold}, REVIEW ${this.reviewThreshold}-${this.applyThreshold - 1}, REJECT < ${this.reviewThreshold}. Use historical guidance only as a weak ranking signal. Return compact JSON.`
         }
       ]
     });
