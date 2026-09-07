@@ -1,3 +1,4 @@
+import { PERMANENTLY_EXCLUDED_COMPANIES } from "../applications/ApplicationPolicy";
 import {
   RecruiterDiscoveryInput,
   RecruiterDiscoveryProvider,
@@ -56,6 +57,15 @@ export class PersistentRecruiterDiscoveryService {
     const domain = input.companyDomain.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0] ?? "";
     if (!domain) throw new Error("A company domain is required for recruiter discovery.");
 
+    if (isPermanentlyExcludedCompany(input.companyName)) {
+      return {
+        status: "SKIPPED",
+        reason: "Company is permanently excluded from recruiter discovery and outreach.",
+        runId: null,
+        contacts: []
+      };
+    }
+
     if (await this.options.repository.hasRecentDiscovery(domain, this.options.provider.name, this.cooldownHours)) {
       return {
         status: "SKIPPED",
@@ -106,6 +116,11 @@ export class PersistentRecruiterDiscoveryService {
       throw error;
     }
   }
+}
+
+function isPermanentlyExcludedCompany(companyName: string): boolean {
+  const normalized = companyName.trim().toLowerCase();
+  return PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.toLowerCase() === normalized);
 }
 
 export function deduplicateRecruiterCandidates(
