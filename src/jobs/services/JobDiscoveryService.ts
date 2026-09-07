@@ -30,7 +30,7 @@ export class JobDiscoveryService {
             country, workplace_type, employment_type, description, posted_at, updated_at,
             last_seen_at, status
           )
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),'ACTIVE')
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,COALESCE($12,NOW()),NOW(),'ACTIVE')
           ON CONFLICT (canonical_id)
           DO UPDATE SET
             canonical_url = EXCLUDED.canonical_url,
