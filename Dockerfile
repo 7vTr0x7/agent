@@ -9,7 +9,7 @@ RUN npm install --omit=optional
 COPY tsconfig.json jest.config.js ./
 COPY src ./src
 
-RUN npm run build && npm prune --omit=dev
+RUN npm run build
 
 RUN mkdir -p /app/data/resumes /app/data/browser
 
