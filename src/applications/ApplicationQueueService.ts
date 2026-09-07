@@ -3,6 +3,7 @@ import { TaskQueue } from "../queue/TaskQueue";
 import { ApplicationTaskDispatcher } from "./ApplicationTask";
 import { ApplicationRateLimitPolicy } from "./ApplicationRateLimitPolicy";
 import { ApplicationCompanyRateLimitPolicy } from "./ApplicationCompanyRateLimitPolicy";
+import { PERMANENTLY_EXCLUDED_COMPANIES } from "./ApplicationPolicy";
 
 interface CandidateApplicationRow {
   job_opportunity_id: string;
@@ -97,6 +98,7 @@ export class ApplicationQueueService {
     }
 
     const companyLimit = this.companyRateLimitPolicy.maxSubmissionsPerCompanyPerDay;
+    const excludedCompanyPlaceholders = PERMANENTLY_EXCLUDED_COMPANIES.map((_, index) => `$${index + 4}`).join(", ");
     const result = await this.database.query<CandidateApplicationRow>(
       `
         WITH company_submission_counts AS (
@@ -136,6 +138,7 @@ export class ApplicationQueueService {
             AND md.decision = 'APPLY'
             AND jo.status = 'ACTIVE'
             AND a.id IS NULL
+            AND LOWER(TRIM(jo.company_name)) NOT IN (${excludedCompanyPlaceholders})
         )
         SELECT job_opportunity_id, candidate_profile_id, tier, rank_score
         FROM eligible_candidates
@@ -143,7 +146,7 @@ export class ApplicationQueueService {
         ORDER BY tier ASC, rank_score DESC
         LIMIT $3
       `,
-      [candidateProfileId, companyLimit, effectiveLimit]
+      [candidateProfileId, companyLimit, effectiveLimit, ...PERMANENTLY_EXCLUDED_COMPANIES.map((name) => name.toLowerCase())]
     );
 
     for (const row of result.rows) {
