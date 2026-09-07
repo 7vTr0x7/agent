@@ -1,6 +1,6 @@
 interface TokenResponse {
   access_token: string;
-  expires_in: number;
+  expires_in?: number;
   token_type: string;
 }
 
@@ -79,11 +79,12 @@ export class GmailOAuthClient {
         if (!token.access_token) {
           throw new Error("Gmail OAuth token refresh returned no access token.");
         }
-        if (!Number.isFinite(token.expires_in) || (token.expires_in ?? 0) <= 0) {
+        const expiresIn = token.expires_in;
+        if (!Number.isFinite(expiresIn) || expiresIn <= 0) {
           throw new Error("Gmail OAuth token refresh returned an invalid expiry.");
         }
         this.accessToken = token.access_token;
-        this.expiresAt = Date.now() + token.expires_in * 1000;
+        this.expiresAt = Date.now() + expiresIn * 1000;
         return token.access_token;
       }
 
