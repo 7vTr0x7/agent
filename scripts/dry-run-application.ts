@@ -6,6 +6,7 @@ import { BrowserSessionService } from "../src/applications/BrowserSession";
 import { ConfiguredCandidateProfileResolver } from "../src/candidates/ConfiguredCandidateProfileResolver";
 import { loadConfig } from "../src/config/env";
 import { Database } from "../src/database/Database";
+import { MigrationRunner } from "../src/database/MigrationRunner";
 
 interface Arguments { url?: string; company?: string; }
 
@@ -115,6 +116,8 @@ async function main(): Promise<void> {
 
   const database = new Database(config.databaseUrl);
   try {
+    await new MigrationRunner(database).run();
+
     const target = await resolveTarget(database, args, candidateProfile.id);
     const browserSessions = new BrowserSessionService({ headless: process.env.DRY_RUN_HEADLESS !== "false", navigationTimeoutMs: config.ollama.timeoutMs });
     const adapters = new ApplicationAdapterRegistry(createHostedAtsApplicationAdapters());
