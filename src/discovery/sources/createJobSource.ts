@@ -5,6 +5,7 @@ import { GreenhouseJobSource } from "../../jobs/sources/GreenhouseJobSource";
 import { AshbyJobSource } from "../../jobs/sources/AshbyJobSource";
 import { RssJobSource } from "../../jobs/sources/RssJobSource";
 import { RemoteOkJobSource } from "../../jobs/sources/RemoteOkJobSource";
+import { PublicJsonJobSource } from "../../jobs/sources/PublicJsonJobSource";
 
 export function createJobSource(config: SourceConfig): JobSource {
   switch (config.type) {
@@ -40,5 +41,9 @@ function createRssSource(config: SourceConfig): JobSource {
 function createApiSource(config: SourceConfig): JobSource {
   const adapter = config.name.toLowerCase();
   if (adapter === "remoteok") return new RemoteOkJobSource(config.feedUrl);
+  if (adapter === "himalayas" || adapter === "jobicy") {
+    if (!config.feedUrl) throw new Error(`${adapter} source requires feedUrl`);
+    return new PublicJsonJobSource(adapter, config.feedUrl);
+  }
   throw new Error(`Unsupported API job source: ${config.name}`);
 }
