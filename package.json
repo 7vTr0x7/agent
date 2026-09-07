@@ -16,7 +16,8 @@
     "reconcile:recruiter-outreach": "tsx scripts/reconcile-recruiter-outreach.ts",
     "doctor": "tsx scripts/doctor.ts",
     "discover:once": "tsx scripts/discover-once.ts",
-    "matching:once": "tsx scripts/process-matching-once.ts"
+    "matching:once": "tsx scripts/process-matching-once.ts",
+    "gmail:authorize": "tsx scripts/gmail-authorize.ts"
   },
   "dependencies": {
     "dotenv": "^17.2.1",
