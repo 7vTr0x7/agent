@@ -6,6 +6,7 @@ import { AshbyJobSource } from "../../jobs/sources/AshbyJobSource";
 import { RssJobSource } from "../../jobs/sources/RssJobSource";
 import { RemoteOkJobSource } from "../../jobs/sources/RemoteOkJobSource";
 import { PublicJsonJobSource } from "../../jobs/sources/PublicJsonJobSource";
+import { FallbackJobSource } from "../../jobs/sources/FallbackJobSource";
 
 export function createJobSource(config: SourceConfig): JobSource {
   switch (config.type) {
@@ -41,9 +42,19 @@ function createRssSource(config: SourceConfig): JobSource {
 function createApiSource(config: SourceConfig): JobSource {
   const adapter = config.name.toLowerCase();
   if (adapter === "remoteok") return new RemoteOkJobSource(config.feedUrl);
-  if (adapter === "himalayas" || adapter === "jobicy") {
+  if (adapter === "himalayas") {
     if (!config.feedUrl) throw new Error(`${adapter} source requires feedUrl`);
     return new PublicJsonJobSource(adapter, config.feedUrl);
+  }
+  if (adapter === "jobicy") {
+    if (!config.feedUrl) throw new Error(`${adapter} source requires feedUrl`);
+    const api = new PublicJsonJobSource(adapter, config.feedUrl);
+    const rss = new RssJobSource({
+      name: config.id,
+      feedUrl: "https://jobicy.com/jobs/feed",
+      defaultCompanyName: "Jobicy"
+    });
+    return new FallbackJobSource(api, rss);
   }
   throw new Error(`Unsupported API job source: ${config.name}`);
 }
