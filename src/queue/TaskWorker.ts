@@ -14,6 +14,12 @@ export interface TaskWorkerLogger {
   error(bindings: Record<string, unknown>, message: string): void;
 }
 
+const noopLogger: TaskWorkerLogger = {
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined
+};
+
 export interface TaskWorkerOptions {
   workerId?: string;
   pollIntervalMs?: number;
@@ -21,12 +27,6 @@ export interface TaskWorkerOptions {
   heartbeatIntervalMs?: number;
   logger?: TaskWorkerLogger;
 }
-
-const noopLogger: TaskWorkerLogger = {
-  info: () => undefined,
-  warn: () => undefined,
-  error: () => undefined
-};
 
 export class TaskWorker {
   private readonly workerId: string;
@@ -136,8 +136,19 @@ export class TaskWorker {
     this.logger.info({ workerId: this.workerId }, "Task worker started");
 
     while (!this.stopped) {
-      const processed = await this.runOnce();
-      if (!processed) {
+      try {
+        const processed = await this.runOnce();
+        if (!processed) {
+          await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
+        }
+      } catch (error: unknown) {
+        this.logger.error(
+          {
+            workerId: this.workerId,
+            error: error instanceof Error ? error.message : String(error)
+          },
+          "Task worker iteration failed; continuing"
+        );
         await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
       }
     }
