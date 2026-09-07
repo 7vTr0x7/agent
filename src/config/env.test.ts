@@ -30,6 +30,25 @@ describe("loadConfig runtime loop intervals", () => {
     expect(config.applicationDryRun).toBe(true);
   });
 
+  it("uses autonomous dry-run defaults when activation variables are absent", async () => {
+    process.env.DATABASE_URL = "postgresql://test/test";
+    delete process.env.AUTOMATION_ENABLED;
+    delete process.env.OUTBOUND_ENABLED;
+    delete process.env.APPLICATION_RATE_LIMIT_PER_DAY;
+    delete process.env.APPLICATION_COMPANY_RATE_LIMIT_PER_DAY;
+
+    const { loadConfig } = await import("./env");
+    const config = loadConfig();
+
+    expect(config.automationEnabled).toBe(true);
+    expect(config.applicationDryRun).toBe(true);
+    expect(config.outboundEnabled).toBe(false);
+    expect(config.applicationRateLimitPerDay).toBe(200);
+    expect(config.applicationCompanyRateLimitPerDay).toBe(10);
+    expect(config.recruiterOutreach.enabled).toBe(false);
+    expect(config.recruiterOutreach.activation).toBe("disabled");
+  });
+
   it("accepts an explicit application dry-run setting", async () => {
     process.env.DATABASE_URL = "postgresql://test/test";
     process.env.APPLICATION_DRY_RUN = "false";
