@@ -43,7 +43,7 @@ describe("RecruiterOutreachSendService", () => {
   it("blocks suppressed recipients before claiming or sending", async () => {
     const repo = repository({ isSuppressed: jest.fn().mockResolvedValue({ email: true, domain: false }) });
     const mail = mailbox();
-    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true });
+    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true, activation: "canary" });
     await expect(service.send(message, "acme.dev")).resolves.toMatchObject({ status: "SKIPPED" });
     expect(repo.claimPreparedOutreachMessageWithinRateLimits).not.toHaveBeenCalled();
     expect(mail.sendMessage).not.toHaveBeenCalled();
@@ -55,7 +55,7 @@ describe("RecruiterOutreachSendService", () => {
       candidateProfileId: "candidate-1", status: "STOPPED", nextActionAt: null, followUpCount: 1
     }) });
     const mail = mailbox();
-    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true });
+    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true, activation: "canary" });
     await expect(service.send(message, "acme.dev")).resolves.toEqual({
       status: "SKIPPED", messageId: message.id, reason: "Outreach sequence is not sendable (status=STOPPED)."
     });
@@ -66,7 +66,7 @@ describe("RecruiterOutreachSendService", () => {
   it("blocks missing sequences before claiming or sending", async () => {
     const repo = repository({ getOutreachSequence: jest.fn().mockResolvedValue(null) });
     const mail = mailbox();
-    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true });
+    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true, activation: "canary" });
     await expect(service.send(message, "acme.dev")).resolves.toEqual({
       status: "SKIPPED", messageId: message.id, reason: "Outreach sequence no longer exists."
     });
@@ -77,7 +77,7 @@ describe("RecruiterOutreachSendService", () => {
   it("blocks real delivery when the global outbound kill switch is disabled", async () => {
     const repo = repository();
     const mail = mailbox();
-    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: false });
+    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: false, activation: "canary" });
     await expect(service.send(message, "acme.dev")).resolves.toEqual({
       status: "SKIPPED", messageId: message.id, reason: "Global outbound kill switch is disabled."
     });
@@ -89,14 +89,14 @@ describe("RecruiterOutreachSendService", () => {
     const repo = repository();
     const mail = mailbox();
     const service = new RecruiterOutreachSendService({
-      repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true,
-      maxMessagesPerHour: 5, maxMessagesPerDay: 20
+      repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true, activation: "canary",
+      maxMessagesPerHour: 1, maxMessagesPerDay: 1
     });
 
     await expect(service.send(message, "acme.dev")).resolves.toEqual({
       status: "SENT", messageId: message.id, gmailMessageId: "gmail-1", gmailThreadId: "thread-1"
     });
-    expect(repo.claimPreparedOutreachMessageWithinRateLimits).toHaveBeenCalledWith(message.id, 20, 5);
+    expect(repo.claimPreparedOutreachMessageWithinRateLimits).toHaveBeenCalledWith(message.id, 1, 1);
     expect(repo.claimPreparedOutreachMessage).not.toHaveBeenCalled();
   });
 
@@ -106,8 +106,8 @@ describe("RecruiterOutreachSendService", () => {
       countSentOutreachMessagesSince: jest.fn().mockResolvedValue(5)
     });
     const service = new RecruiterOutreachSendService({
-      repository: repo, mailbox: mailbox(), dryRun: false, outboundEnabled: true,
-      maxMessagesPerHour: 5, maxMessagesPerDay: 20
+      repository: repo, mailbox: mailbox(), dryRun: false, outboundEnabled: true, activation: "canary",
+      maxMessagesPerHour: 1, maxMessagesPerDay: 1
     });
     const result = await service.send(message, "acme.dev");
     expect(result).toMatchObject({ status: "SKIPPED" });
@@ -117,7 +117,7 @@ describe("RecruiterOutreachSendService", () => {
   it("claims, sends, and records the provider identifiers", async () => {
     const repo = repository();
     const mail = mailbox();
-    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true, maxMessagesPerHour: 5, maxMessagesPerDay: 20 });
+    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true, activation: "canary", maxMessagesPerHour: 1, maxMessagesPerDay: 1 });
     await expect(service.send(message, "acme.dev")).resolves.toEqual({ status: "SENT", messageId: message.id, gmailMessageId: "gmail-1", gmailThreadId: "thread-1" });
     expect(mail.sendMessage).toHaveBeenCalledWith({ to: message.recipientEmail, subject: message.subject, bodyText: message.body, messageId: deterministicMessageId(message.id) });
     expect(repo.markOutreachMessageSent).toHaveBeenCalledWith(message.id, { provider: "gmail", providerMessageId: "gmail-1", providerThreadId: "thread-1" });
@@ -127,7 +127,7 @@ describe("RecruiterOutreachSendService", () => {
     const error = new Error("Gmail unavailable");
     const repo = repository();
     const mail = mailbox({ sendMessage: jest.fn().mockRejectedValue(error) });
-    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true });
+    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true, activation: "canary" });
     await expect(service.send(message, "acme.dev")).rejects.toThrow("Gmail unavailable");
     expect(repo.markOutreachMessageFailed).toHaveBeenCalledWith(message.id, "Gmail unavailable");
   });
