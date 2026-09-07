@@ -23,6 +23,10 @@ CREATE INDEX IF NOT EXISTS idx_job_opportunities_company_name ON job_opportuniti
 CREATE INDEX IF NOT EXISTS idx_job_opportunities_status ON job_opportunities (status);
 CREATE INDEX IF NOT EXISTS idx_job_opportunities_last_seen_at ON job_opportunities (last_seen_at DESC);
 
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS country TEXT,
+  ADD COLUMN IF NOT EXISTS workplace_type TEXT;
+
 CREATE TABLE IF NOT EXISTS job_observations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   job_opportunity_id UUID NOT NULL REFERENCES job_opportunities(id) ON DELETE CASCADE,
