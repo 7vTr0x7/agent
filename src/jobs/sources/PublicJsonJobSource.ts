@@ -3,7 +3,7 @@ import { AppError } from "../../shared/errors/AppError";
 import { Job } from "../domain/Job";
 import { JobSource } from "./JobSource";
 
-type PublicJsonProvider = "himalayas" | "jobicy";
+type PublicJsonProvider = "himalayas" | "jobicy" | "arbeitnow";
 
 export class PublicJsonJobSource implements JobSource {
   readonly name: string;
@@ -25,7 +25,11 @@ export class PublicJsonJobSource implements JobSource {
     }
 
     const payload = (await response.json()) as unknown;
-    const records = this.provider === "himalayas" ? readHimalayas(payload) : readJobicy(payload);
+    const records = this.provider === "himalayas"
+      ? readHimalayas(payload)
+      : this.provider === "jobicy"
+        ? readJobicy(payload)
+        : readArbeitnow(payload);
     return records.map((record) => this.normalize(record));
   }
 
@@ -55,7 +59,7 @@ export class PublicJsonJobSource implements JobSource {
       companyName,
       location,
       country: record.country ?? inferCountry(location),
-      workplaceType: "remote",
+      workplaceType: record.workplaceType ?? "remote",
       employmentType: record.employmentType ?? null,
       description,
       postedAt: parseDate(record.postedAt),
@@ -72,6 +76,7 @@ interface NormalizedPublicJob {
   companyName: string;
   location?: string | null;
   country?: string | null;
+  workplaceType?: "onsite" | "remote" | "hybrid" | null;
   employmentType?: string | null;
   description: string;
   postedAt?: string | number | null;
@@ -108,6 +113,31 @@ function readJobicy(payload: unknown): NormalizedPublicJob[] {
   });
 }
 
+function readArbeitnow(payload: unknown): NormalizedPublicJob[] {
+  const jobs = objectArray(payload, "data");
+  return jobs.flatMap((job) => {
+    const item = job as Record<string, unknown>;
+    const id = stringValue(item.slug) || stringValue(item.url);
+    const title = stringValue(item.title);
+    const url = stringValue(item.url);
+    const description = stringValue(item.description);
+    const location = stringValue(item.location) || "Worldwide";
+    const remote = item.remote === true;
+    const workplaceType = remote ? "remote" : "onsite";
+    return id && title && url && description
+      ? [{ id, title, url, companyName: stringValue(item.company_name) || "Unknown", location, country: inferCountry(location), workplaceType, employmentType: firstString(item.job_types), description, postedAt: item.created_at as string | number | null, updatedAt: null }]
+      : [];
+  });
+}
+
+function firstString(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    const first = value.find((item): item is string => typeof item === "string" && item.trim().length > 0);
+    return first?.trim() ?? null;
+  }
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function objectArray(payload: unknown, field: string): unknown[] {
   if (!payload || typeof payload !== "object") {
     throw new AppError("Job source returned an unexpected payload", { code: "JOB_SOURCE_INVALID_DATA", statusCode: 502 });
@@ -139,7 +169,7 @@ function stripHtml(value: string): string {
 
 function parseDate(value?: string | number | null): Date | null {
   if (value === null || value === undefined || value === "") return null;
-  const date = typeof value === "number" ? new Date(value) : new Date(value);
+  const date = typeof value === "number" ? new Date(value < 10_000_000_000 ? value * 1000 : value) : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -150,5 +180,7 @@ function inferCountry(location: string | null): string | null {
   if (/singapore/.test(normalized)) return "Singapore";
   if (/japan|tokyo|osaka|kyoto/.test(normalized)) return "Japan";
   if (/united states|\busa\b|u\.s\.|america/.test(normalized)) return "United States";
+  if (/germany|berlin|munich|münchen|hamburg|frankfurt|cologne|köln/.test(normalized)) return "Germany";
+  if (/united kingdom|\buk\b|london|england|scotland|wales/.test(normalized)) return "United Kingdom";
   return null;
 }
