@@ -10,13 +10,16 @@ CREATE TABLE IF NOT EXISTS job_opportunities (
   employment_type VARCHAR(50),
   description TEXT NOT NULL,
   posted_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ,
   last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   closed_at TIMESTAMPTZ,
   status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'
     CHECK (status IN ('ACTIVE', 'STALE', 'CLOSED')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE job_opportunities
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_job_opportunities_company_name ON job_opportunities (company_name);
 CREATE INDEX IF NOT EXISTS idx_job_opportunities_status ON job_opportunities (status);
