@@ -10,7 +10,8 @@ export class PublicJsonJobSource implements JobSource {
 
   constructor(
     private readonly provider: PublicJsonProvider,
-    private readonly feedUrl: string
+    private readonly feedUrl: string,
+    private readonly defaultCountry: string | null = null
   ) {
     this.name = `${provider}:json`;
   }
@@ -58,7 +59,7 @@ export class PublicJsonJobSource implements JobSource {
       title,
       companyName,
       location,
-      country: record.country ?? inferCountry(location),
+      country: record.country ?? this.defaultCountry ?? inferCountry(location),
       workplaceType: record.workplaceType ?? "remote",
       employmentType: record.employmentType ?? null,
       description,
