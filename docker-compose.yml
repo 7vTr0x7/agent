@@ -1,0 +1,112 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-job_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-job_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-10m}
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    command: ["serve"]
+
+  ollama-model:
+    image: ollama/ollama:latest
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull \"$${OLLAMA_MODEL}\""]
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://${POSTGRES_USER:-job_agent}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-job_agent}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+      AUTOMATION_ENABLED: ${AUTOMATION_ENABLED:-false}
+      APPLICATION_DRY_RUN: ${APPLICATION_DRY_RUN:-true}
+      OUTBOUND_ENABLED: ${OUTBOUND_ENABLED:-false}
+      JOB_DISCOVERY_ENABLED: ${JOB_DISCOVERY_ENABLED:-true}
+      GENERIC_APPLICATION_ADAPTER_ENABLED: ${GENERIC_APPLICATION_ADAPTER_ENABLED:-false}
+      CANDIDATE_PROFILE_ID: ${CANDIDATE_PROFILE_ID:?Set candidate profile fields in .env}
+      CANDIDATE_YEARS_EXPERIENCE: ${CANDIDATE_YEARS_EXPERIENCE:?Set candidate profile fields in .env}
+      CANDIDATE_SKILLS: ${CANDIDATE_SKILLS:?Set candidate profile fields in .env}
+      CANDIDATE_TARGET_TITLES: ${CANDIDATE_TARGET_TITLES:?Set candidate profile fields in .env}
+      CANDIDATE_FIRST_NAME: ${CANDIDATE_FIRST_NAME:-}
+      CANDIDATE_LAST_NAME: ${CANDIDATE_LAST_NAME:-}
+      CANDIDATE_FULL_NAME: ${CANDIDATE_FULL_NAME:-}
+      CANDIDATE_EMAIL: ${CANDIDATE_EMAIL:-}
+      CANDIDATE_PHONE: ${CANDIDATE_PHONE:-}
+      CANDIDATE_LOCATION: ${CANDIDATE_LOCATION:-India}
+      CANDIDATE_WORK_AUTHORIZATION: ${CANDIDATE_WORK_AUTHORIZATION:-}
+      CANDIDATE_SPONSORSHIP_REQUIRED: ${CANDIDATE_SPONSORSHIP_REQUIRED:-false}
+      CANDIDATE_NOTICE_PERIOD_DAYS: ${CANDIDATE_NOTICE_PERIOD_DAYS:-15}
+      CANDIDATE_LINKEDIN_URL: ${CANDIDATE_LINKEDIN_URL:-}
+      CANDIDATE_GITHUB_URL: ${CANDIDATE_GITHUB_URL:-}
+      CANDIDATE_PORTFOLIO_URL: ${CANDIDATE_PORTFOLIO_URL:-}
+      CANDIDATE_RESUME_PATH: ${CANDIDATE_RESUME_PATH:-}
+      RECRUITER_OUTREACH_ENABLED: ${RECRUITER_OUTREACH_ENABLED:-false}
+      RECRUITER_OUTREACH_DRY_RUN: ${RECRUITER_OUTREACH_DRY_RUN:-true}
+      RECRUITER_OUTREACH_ACTIVATION: ${RECRUITER_OUTREACH_ACTIVATION:-disabled}
+      RECRUITER_LIVE_ACTIVATION_CONFIRMED: ${RECRUITER_LIVE_ACTIVATION_CONFIRMED:-false}
+      RECRUITER_DISCOVERY_PROVIDER: ${RECRUITER_DISCOVERY_PROVIDER:-job-posting}
+      RECRUITER_REQUIRE_VERIFIED_EMAIL: ${RECRUITER_REQUIRE_VERIFIED_EMAIL:-true}
+      RECRUITER_FOLLOWUP_ENABLED: ${RECRUITER_FOLLOWUP_ENABLED:-false}
+      GMAIL_ENABLED: ${GMAIL_ENABLED:-false}
+      GMAIL_ACCOUNT_TIER: ${GMAIL_ACCOUNT_TIER:-consumer}
+      GMAIL_CLIENT_ID: ${GMAIL_CLIENT_ID:-}
+      GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET:-}
+      GMAIL_REFRESH_TOKEN: ${GMAIL_REFRESH_TOKEN:-}
+      GMAIL_USER_EMAIL: ${GMAIL_USER_EMAIL:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
+      RESUME_TAILORING_ENABLED: ${RESUME_TAILORING_ENABLED:-false}
+      RESUME_MASTER_PATH: ${RESUME_MASTER_PATH:-}
+    volumes:
+      - resume_data:/app/data/resumes
+      - browser_data:/app/data/browser
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      ollama-model:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:
+  ollama_data:
+  resume_data:
+  browser_data:
