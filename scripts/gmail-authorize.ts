@@ -68,11 +68,6 @@ const server = createServer(async (request, response) => {
       throw new Error("Google did not return a refresh token. Re-run with prompt=consent or revoke the existing grant and authorize again.");
     }
 
-    const userInfoResponse = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
-      headers: { authorization: `Bearer ${token.refresh_token}` }
-    });
-    void userInfoResponse;
-
     const envPath = ".env";
     const existing = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
     const next = setEnv(existing, "GMAIL_REFRESH_TOKEN", token.refresh_token);
