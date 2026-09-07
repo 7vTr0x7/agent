@@ -19,6 +19,7 @@ describe("JobDiscoveryService", () => {
     expect(result).toEqual({ source: "test", fetched: 1, inserted: 1, duplicates: 0, insertedOpportunityIds: ["opportunity-1"] });
     expect(queries.some((sql) => sql.includes("INSERT INTO job_opportunities"))).toBe(true);
     expect(queries.some((sql) => sql.includes("company_domain"))).toBe(true);
+    expect(queries.some((sql) => sql.includes("COALESCE($12,NOW())"))).toBe(true);
     expect(queries.some((sql) => sql.includes("INSERT INTO job_observations"))).toBe(true);
     expect(queries.some((sql) => sql.includes("INSERT INTO jobs"))).toBe(false);
   });
