@@ -12,7 +12,8 @@
     "dry-run": "tsx scripts/dry-run-application.ts",
     "dry-run:recruiters": "tsx scripts/dry-run-recruiter-discovery.ts",
     "dry-run:recruiter-outreach": "tsx scripts/dry-run-recruiter-outreach.ts",
-    "preflight:recruiter-outreach": "tsx scripts/preflight-recruiter-outreach.ts"
+    "preflight:recruiter-outreach": "tsx scripts/preflight-recruiter-outreach.ts",
+    "reconcile:recruiter-outreach": "tsx scripts/reconcile-recruiter-outreach.ts"
   },
   "dependencies": {
     "@types/node": "^22.0.0",
