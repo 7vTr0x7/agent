@@ -79,4 +79,25 @@ describe("TaskWorker", () => {
     expect(queue.claim).toHaveBeenCalledWith("worker-recovery", ["test"]);
     expect(queue.succeed).toHaveBeenCalledWith("task-after-recovery", "worker-recovery");
   });
+
+  it("survives a transient queue iteration error", async () => {
+    const queue = {} as TaskQueue;
+    const logger: TaskWorkerLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    const worker = new TaskWorker(queue, new Map(), { workerId: "worker-resilient", pollIntervalMs: 0, logger });
+    const runOnce = jest.spyOn(worker, "runOnce")
+      .mockRejectedValueOnce(new Error("database temporarily unavailable"))
+      .mockImplementationOnce(async () => {
+        worker.stop();
+        return false;
+      });
+
+    await worker.run();
+
+    expect(runOnce).toHaveBeenCalledTimes(2);
+    expect(logger.error).toHaveBeenCalledWith(
+      { workerId: "worker-resilient", error: "database temporarily unavailable" },
+      "Task worker iteration failed; continuing"
+    );
+    expect(logger.info).toHaveBeenCalledWith({ workerId: "worker-resilient" }, "Task worker stopped");
+  });
 });
