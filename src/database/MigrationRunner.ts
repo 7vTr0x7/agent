@@ -8,6 +8,27 @@ interface Migration {
   sql: string;
 }
 
+function describeDatabaseError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+
+  const databaseError = error as Error & {
+    code?: string;
+    detail?: string;
+    hint?: string;
+    position?: string;
+  };
+
+  const details = [
+    databaseError.message,
+    databaseError.code ? `code=${databaseError.code}` : null,
+    databaseError.detail ? `detail=${databaseError.detail}` : null,
+    databaseError.hint ? `hint=${databaseError.hint}` : null,
+    databaseError.position ? `position=${databaseError.position}` : null
+  ].filter(Boolean);
+
+  return details.join(" | ");
+}
+
 export class MigrationRunner {
   constructor(private readonly database: Database) {}
 
@@ -40,7 +61,8 @@ export class MigrationRunner {
             [migration.name]
           );
         } catch (error) {
-          throw new AppError(`Migration failed: ${migration.name}`, {
+          const cause = describeDatabaseError(error);
+          throw new AppError(`Migration failed: ${migration.name}: ${cause}`, {
             code: "MIGRATION_FAILED",
             statusCode: 500,
             cause: error
