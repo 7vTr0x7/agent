@@ -45,6 +45,9 @@ export class RemoteOkJobSource implements JobSource {
       });
     }
 
+    // Remote OK's feed can contain non-job metadata records alongside jobs.
+    // Ignore those records rather than allowing one malformed entry to abort the
+    // entire discovery batch.
     return data
       .filter((item): item is RemoteOkJob => isJob(item))
       .map((job) => this.normalize(job));
@@ -88,7 +91,17 @@ export class RemoteOkJobSource implements JobSource {
 }
 
 function isJob(value: unknown): value is RemoteOkJob {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+
+  const item = value as Record<string, unknown>;
+  const hasId = (typeof item.id === "string" && item.id.trim().length > 0)
+    || (typeof item.id === "number" && Number.isFinite(item.id));
+  const hasPosition = typeof item.position === "string" && item.position.trim().length > 0;
+  const hasDescription = typeof item.description === "string" && stripHtml(item.description).length > 0;
+  const hasUrl = typeof item.url === "string" && item.url.trim().length > 0;
+  const hasSlug = typeof item.slug === "string" && item.slug.trim().length > 0;
+
+  return hasId && hasPosition && hasDescription && (hasUrl || hasSlug);
 }
 
 function stripHtml(value: string): string {
