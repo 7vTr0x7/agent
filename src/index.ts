@@ -149,15 +149,15 @@ async function main(): Promise<void> {
     recruiterRepository = new RecruiterDiscoveryRepository(database);
     const discovery = new PersistentRecruiterDiscoveryService({ provider, repository: recruiterRepository, minConfidence: config.recruiterOutreach.minConfidence, requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail });
     recruiterPreparationDispatcher = new RecruiterOutreachPreparationTaskDispatcher(taskQueue);
-    recruiterSendDispatcher = gmailMailbox ? new RecruiterOutreachSendTaskDispatcher(taskQueue) : undefined;
+    recruiterSendDispatcher = new RecruiterOutreachSendTaskDispatcher(taskQueue);
     const recruiterFollowUpService = new RecruiterOutreachFollowUpService(recruiterRepository, { enabled: config.recruiterOutreach.followUpEnabled, dayOffsets: config.recruiterOutreach.followUpDayOffsets });
     recruiterPreparationHandler = new RecruiterOutreachPreparationTaskHandler(new RecruiterOutreachPreparationService({ repository: recruiterRepository, minConfidence: config.recruiterOutreach.minConfidence, requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail, dryRun: config.recruiterOutreach.dryRun }), recruiterSendDispatcher, logger);
-    if (recruiterSendDispatcher && gmailMailbox) {
-      recruiterSendHandler = new RecruiterOutreachSendTaskHandler(new RecruiterOutreachSendService({ repository: recruiterRepository, mailbox: gmailMailbox, dryRun: config.recruiterOutreach.dryRun, outboundEnabled: config.outboundEnabled, activation: config.recruiterOutreach.activation, liveActivationConfirmed: config.recruiterOutreach.liveActivationConfirmed, maxMessagesPerDay: config.recruiterOutreach.maxMessagesPerDay, maxMessagesPerHour: config.recruiterOutreach.maxMessagesPerHour }), recruiterRepository, logger, recruiterFollowUpService);
-      if (config.recruiterOutreach.followUpEnabled) recruiterFollowUpScheduler = new RecruiterOutreachFollowUpScheduler(recruiterRepository, recruiterSendDispatcher, true);
+    recruiterSendHandler = new RecruiterOutreachSendTaskHandler(new RecruiterOutreachSendService({ repository: recruiterRepository, mailbox: gmailMailbox, dryRun: config.recruiterOutreach.dryRun, outboundEnabled: config.outboundEnabled, activation: config.recruiterOutreach.activation, liveActivationConfirmed: config.recruiterOutreach.liveActivationConfirmed, maxMessagesPerDay: config.recruiterOutreach.maxMessagesPerDay, maxMessagesPerHour: config.recruiterOutreach.maxMessagesPerHour }), recruiterRepository, logger, recruiterFollowUpService);
+    if (config.recruiterOutreach.followUpEnabled) recruiterFollowUpScheduler = new RecruiterOutreachFollowUpScheduler(recruiterRepository, recruiterSendDispatcher, true);
+    if (gmailMailbox) {
       recruiterReconciliationService = new RecruiterOutreachSendReconciliationService(database, recruiterRepository, gmailMailbox);
-      recruiterRuntimeScheduler = new RecruiterOutreachRuntimeScheduler(recruiterFollowUpScheduler, recruiterReconciliationService, logger);
     }
+    recruiterRuntimeScheduler = new RecruiterOutreachRuntimeScheduler(recruiterFollowUpScheduler, recruiterReconciliationService, logger);
     recruiterDiscoveryDispatcher = new RecruiterDiscoveryTaskDispatcher(taskQueue);
     recruiterDiscoveryHandler = new RecruiterDiscoveryTaskHandler(discovery, config.recruiterOutreach.maxContactsPerApplication, recruiterPreparationDispatcher, logger);
   }
