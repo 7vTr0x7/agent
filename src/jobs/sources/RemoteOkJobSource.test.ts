@@ -5,10 +5,11 @@ describe("RemoteOkJobSource", () => {
     jest.restoreAllMocks();
   });
 
-  it("normalizes Remote OK JSON jobs", async () => {
+  it("ignores non-job metadata records and normalizes valid jobs", async () => {
     jest.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify([
+          { legal: "Remote OK metadata" },
           {
             id: 123,
             slug: "frontend-engineer-123",
@@ -16,7 +17,7 @@ describe("RemoteOkJobSource", () => {
             company: "Example Corp",
             description: "<p>React and TypeScript</p>",
             url: "https://remoteok.com/remote-jobs/frontend-engineer-123",
-            location: "Worldwide",
+            location: "Bengaluru, India",
             epoch: 1788256800,
             job_type: "full-time"
           }
@@ -34,7 +35,9 @@ describe("RemoteOkJobSource", () => {
       title: "Frontend Engineer",
       companyName: "Example Corp",
       workplaceType: "remote",
-      employmentType: "full-time"
+      employmentType: "full-time",
+      country: "India",
+      description: "React and TypeScript"
     });
   });
 
