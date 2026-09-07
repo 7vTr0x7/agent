@@ -26,12 +26,56 @@ const noSendMailbox: GmailMailbox = {
   async sendMessage() { throw new Error("Dry-run attempted to send a recruiter email."); }
 };
 
+async function ensureTestFixture(database: Database, companyName: string, companyDomain: string, jobTitle: string, jobDescription: string): Promise<{ jobOpportunityId: string; applicationId: string }> {
+  const domain = companyDomain.trim().toLowerCase().replace(/^www\./, "");
+  const key = domain.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "company";
+  const sourceJobId = `recruiter-dry-run-${key}`;
+  const url = `https://example.invalid/recruiter-dry-run/${key}`;
+  const contentHash = `recruiter-dry-run-${key}`;
+  const canonicalId = `recruiter-dry-run-${key}`;
+
+  const jobResult = await database.query<{ id: string }>(
+    `INSERT INTO jobs (source, source_job_id, url, title, company_name, location, description, content_hash)
+     VALUES ('recruiter-dry-run', $1, $2, $3, $4, 'Bengaluru, India', $5, $6)
+     ON CONFLICT (source, source_job_id) DO UPDATE SET title=EXCLUDED.title, company_name=EXCLUDED.company_name, description=EXCLUDED.description, updated_at=NOW()
+     RETURNING id`,
+    [sourceJobId, url, jobTitle, companyName, jobDescription, contentHash]
+  );
+  const jobId = jobResult.rows[0]?.id;
+  if (!jobId) throw new Error("Could not create recruiter dry-run job fixture.");
+
+  const opportunityResult = await database.query<{ id: string }>(
+    `INSERT INTO job_opportunities (canonical_id, canonical_url, title, company_name, location, country, workplace_type, description, status)
+     VALUES ($1, $2, $3, $4, 'Bengaluru, India', 'India', 'hybrid', $5, 'ACTIVE')
+     ON CONFLICT (canonical_id) DO UPDATE SET title=EXCLUDED.title, company_name=EXCLUDED.company_name, location=EXCLUDED.location, description=EXCLUDED.description, status='ACTIVE', last_seen_at=NOW(), updated_at=NOW()
+     RETURNING id`,
+    [canonicalId, url, jobTitle, companyName, jobDescription]
+  );
+  const jobOpportunityId = opportunityResult.rows[0]?.id;
+  if (!jobOpportunityId) throw new Error("Could not create recruiter dry-run opportunity fixture.");
+
+  await database.query(
+    `UPDATE jobs SET job_opportunity_id=$2, updated_at=NOW() WHERE id=$1`,
+    [jobId, jobOpportunityId]
+  );
+
+  const applicationResult = await database.query<{ id: string }>(
+    `INSERT INTO applications (job_id, job_opportunity_id, status)
+     VALUES ($1, $2, 'MATCHED')
+     ON CONFLICT (job_id) DO UPDATE SET job_opportunity_id=EXCLUDED.job_opportunity_id, updated_at=NOW()
+     RETURNING id`,
+    [jobId, jobOpportunityId]
+  );
+  const applicationId = applicationResult.rows[0]?.id;
+  if (!applicationId) throw new Error("Could not create recruiter dry-run application fixture.");
+
+  return { jobOpportunityId, applicationId };
+}
+
 async function main(): Promise<void> {
-  const companyName = required("RECRUITER_TEST_COMPANY_NAME");
-  const companyDomain = required("RECRUITER_TEST_COMPANY_DOMAIN");
-  const jobOpportunityId = required("RECRUITER_TEST_JOB_OPPORTUNITY_ID");
-  const applicationId = required("RECRUITER_TEST_APPLICATION_ID");
-  const candidateProfileId = required("CANDIDATE_PROFILE_ID");
+  const companyName = process.env.RECRUITER_TEST_COMPANY_NAME?.trim() || "some-company";
+  const companyDomain = process.env.RECRUITER_TEST_COMPANY_DOMAIN?.trim() || "company.com";
+  const candidateProfileId = process.env.CANDIDATE_PROFILE_ID?.trim() || "dry-run-candidate";
   const candidateName = process.env.RECRUITER_TEST_CANDIDATE_NAME?.trim() || "Candidate";
   const jobTitle = process.env.RECRUITER_TEST_JOB_TITLE?.trim() || "Frontend Engineer";
   const jobDescription = process.env.RECRUITER_TEST_JOB_DESCRIPTION?.trim() || "Frontend engineering role using React and TypeScript.";
@@ -41,6 +85,7 @@ async function main(): Promise<void> {
   const database = new Database(required("DATABASE_URL"));
   try {
     await new MigrationRunner(database).run();
+    const fixture = await ensureTestFixture(database, companyName, companyDomain, jobTitle, jobDescription);
     const repository = new RecruiterDiscoveryRepository(database);
     const provider = createRecruiterDiscoveryProvider({
       provider: selectedProvider,
@@ -63,8 +108,8 @@ async function main(): Promise<void> {
       jobDescription,
       location,
       candidateProfileId,
-      jobOpportunityId,
-      applicationId
+      jobOpportunityId: fixture.jobOpportunityId,
+      applicationId: fixture.applicationId
     }, Number(process.env.RECRUITER_MAX_CONTACTS_PER_APPLICATION ?? 3));
 
     const preparation = new RecruiterOutreachPreparationService({
@@ -75,7 +120,7 @@ async function main(): Promise<void> {
     });
 
     const prepared = discovered.status === "DISCOVERED"
-      ? await preparation.prepare({ companyName, companyDomain, jobTitle, jobDescription, jobOpportunityId, applicationId, candidateProfileId, candidateName }, discovered.contacts)
+      ? await preparation.prepare({ companyName, companyDomain, jobTitle, jobDescription, jobOpportunityId: fixture.jobOpportunityId, applicationId: fixture.applicationId, candidateProfileId, candidateName }, discovered.contacts)
       : [];
 
     const sendService = new RecruiterOutreachSendService({
