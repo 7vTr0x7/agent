@@ -11,7 +11,7 @@ export interface AppConfig {
 }
 
 const DEFAULT_JOB_SOURCES = JSON.stringify([
-  { id: "remoteok-default", type: "api", name: "remoteok", feedUrl: "https://remoteok.com/api", status: "APPROVED" }
+  { id: "remoteok:json", type: "api", name: "remoteok", feedUrl: "https://remoteok.com/api", status: "APPROVED" }
 ]);
 
 function required(name: string, value: string | undefined): string { if (!value) throw new Error(`Missing required environment variable: ${name}`); return value; }
