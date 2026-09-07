@@ -94,6 +94,23 @@ describe("PersistentRecruiterDiscoveryService", () => {
     return { provider, repository };
   }
 
+  it("skips permanently excluded companies before touching the provider or persistence", async () => {
+    const { provider, repository } = setup();
+    const service = new PersistentRecruiterDiscoveryService({ provider, repository });
+
+    for (const companyName of ["Octopus Technologies", "Sketch Brahma Technologies"]) {
+      const result = await service.discoverAndPersist({ ...input, companyName }, 3);
+
+      expect(result.status).toBe("SKIPPED");
+      expect(result.reason).toContain("permanently excluded");
+    }
+
+    expect(provider.discover).not.toHaveBeenCalled();
+    expect(repository.hasRecentDiscovery).not.toHaveBeenCalled();
+    expect(repository.startDiscoveryRun).not.toHaveBeenCalled();
+    expect(repository.upsertContact).not.toHaveBeenCalled();
+  });
+
   it("skips discovery during the provider cooldown", async () => {
     const { provider, repository } = setup();
     jest.spyOn(repository, "hasRecentDiscovery").mockResolvedValue(true);
