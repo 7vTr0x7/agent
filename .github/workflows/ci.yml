@@ -34,3 +34,6 @@ jobs:
 
       - name: Test
         run: npm test -- --runInBand
+
+      - name: Build Docker image
+        run: docker build --tag job-agent:ci .
