@@ -80,7 +80,7 @@ export class GmailOAuthClient {
           throw new Error("Gmail OAuth token refresh returned no access token.");
         }
         const expiresIn = token.expires_in;
-        if (!Number.isFinite(expiresIn) || expiresIn <= 0) {
+        if (typeof expiresIn !== "number" || !Number.isFinite(expiresIn) || expiresIn <= 0) {
           throw new Error("Gmail OAuth token refresh returned an invalid expiry.");
         }
         this.accessToken = token.access_token;
