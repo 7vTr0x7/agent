@@ -94,7 +94,7 @@ describe("discovery -> canonicalization/deduplication -> matching -> application
     targetCountry: "India",
     allowRemote: true,
     excludedCompanies: ["Octopus Technologies", "Sketch Brahma Technologies"],
-    maxAgeDays: 30
+    maxAgeDays: 0
   };
 
   function job(overrides: Partial<Job> = {}): Job {
@@ -250,5 +250,42 @@ describe("discovery -> canonicalization/deduplication -> matching -> application
       missing: 0
     });
     expect(matchTaskQueue.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("does not reject a strong candidate-eligible role solely because it is outside India", async () => {
+    const opportunities: JobOpportunityRepository = {
+      findById: jest.fn().mockResolvedValue({
+        id: "global-job",
+        companyName: "Global Software Co",
+        title: "Frontend Engineer",
+        description: "React.js TypeScript JavaScript frontend engineering role.",
+        location: "Berlin, Germany",
+        country: "Germany",
+        workplaceType: "onsite"
+      })
+    } as never;
+
+    const matchTaskQueue = {
+      enqueue: jest.fn().mockResolvedValue("match-global")
+    } as unknown as TaskQueue;
+    const dispatcher = new DiscoveryMatchDispatcher(
+      opportunities,
+      new MatchTaskDispatcher(matchTaskQueue),
+      policy,
+      profile.id
+    );
+
+    await expect(dispatcher.dispatch(["global-job"])).resolves.toEqual({
+      enqueued: 1,
+      rejected: 0,
+      missing: 0
+    });
+    expect(matchTaskQueue.enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      taskType: "MATCH_JOB",
+      payload: {
+        jobOpportunityId: "global-job",
+        candidateProfileId: profile.id
+      }
+    }));
   });
 });
