@@ -47,6 +47,18 @@ describe("DeterministicJobMatcher", () => {
     );
   });
 
+  it("recognizes common technology aliases", () => {
+    const result = matcher.evaluate(
+      job("ReactJS, NextJS, TS, Redux Toolkit and NodeJS experience."),
+      profile
+    );
+
+    expect(result.matchedSkills).toEqual(
+      expect.arrayContaining(["React", "Next.js", "TypeScript", "Redux Toolkit", "Node.js"])
+    );
+    expect(result.decision).toBe("APPLY");
+  });
+
   it("rejects a role with an explicit minimum experience blocker", () => {
     const result = matcher.evaluate(
       job("Must have at least 5 years of experience with React."),
@@ -58,6 +70,16 @@ describe("DeterministicJobMatcher", () => {
     expect(result.evidence).toEqual(
       expect.arrayContaining([expect.objectContaining({ type: "HARD_BLOCKER" })])
     );
+  });
+
+  it("recognizes compact required experience syntax", () => {
+    const result = matcher.evaluate(
+      job("React and TypeScript. Experience: 5+ years."),
+      profile
+    );
+
+    expect(result.decision).toBe("REJECT");
+    expect(result.matchScore).toBe(0);
   });
 
   it("does not hard-reject preferred experience", () => {
