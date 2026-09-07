@@ -33,6 +33,26 @@ function main(): void {
     fail("job-posting is discovery-only and cannot provide verified recruiter contacts for real sending.");
   }
 
+  if (!config.recruiterOutreach.dryRun && config.recruiterOutreach.requireVerifiedEmail !== true) {
+    fail("real recruiter outreach requires RECRUITER_REQUIRE_VERIFIED_EMAIL=true.");
+  }
+
+  if (!config.recruiterOutreach.dryRun && config.recruiterOutreach.minConfidence < 80) {
+    fail("real recruiter outreach requires RECRUITER_MIN_CONFIDENCE>=80.");
+  }
+
+  if (!config.recruiterOutreach.dryRun && config.recruiterOutreach.maxContactsPerApplication > 3) {
+    fail("real recruiter outreach allows at most 3 contacts per application.");
+  }
+
+  if (!config.recruiterOutreach.dryRun && config.recruiterOutreach.maxMessagesPerHour > 15) {
+    fail("real recruiter outreach allows at most 15 messages per hour.");
+  }
+
+  if (!config.recruiterOutreach.dryRun && config.recruiterOutreach.maxMessagesPerDay > 100) {
+    fail("real recruiter outreach allows at most 100 messages per day.");
+  }
+
   if (config.recruiterOutreach.requireVerifiedEmail && config.recruiterOutreach.discoveryProvider === "job-posting") {
     checks.push("job-posting contacts remain blocked from sending until a verification provider confirms deliverability.");
   }
