@@ -31,18 +31,46 @@ function parseArguments(argv: readonly string[]): Arguments {
   return { url, company };
 }
 
-interface DryRunTarget { url: string; company: string; jobTitle: string; jobOpportunityId: string; }
+interface DryRunTarget {
+  url: string;
+  company: string;
+  jobTitle: string;
+  jobOpportunityId: string;
+  rankScore: number | null;
+  existingApplication: boolean;
+}
 
 async function resolveTarget(database: Database, args: Arguments, candidateProfileId: string): Promise<DryRunTarget> {
-  if (args.url && args.company) return { url: args.url, company: args.company, jobTitle: "Manual dry-run target", jobOpportunityId: "manual" };
+  if (args.url && args.company) {
+    return {
+      url: args.url,
+      company: args.company,
+      jobTitle: "Manual dry-run target",
+      jobOpportunityId: "manual",
+      rankScore: null,
+      existingApplication: false
+    };
+  }
 
   const result = await database.query<{
     job_opportunity_id: string;
     canonical_url: string;
     company_name: string;
     title: string;
+    rank_score: number;
+    existing_application: boolean;
   }>(
-    `SELECT jo.id AS job_opportunity_id, jo.canonical_url, jo.company_name, jo.title
+    `SELECT jo.id AS job_opportunity_id,
+            jo.canonical_url,
+            jo.company_name,
+            jo.title,
+            jr.rank_score,
+            EXISTS (
+              SELECT 1
+              FROM applications a
+              WHERE a.job_opportunity_id = jo.id
+                AND a.candidate_profile_id = $1
+            ) AS existing_application
      FROM job_opportunities jo
      INNER JOIN match_decisions md
        ON md.job_opportunity_id = jo.id
@@ -54,15 +82,27 @@ async function resolveTarget(database: Database, args: Arguments, candidateProfi
        AND jo.status = 'ACTIVE'
        AND jo.canonical_url IS NOT NULL
        AND jo.canonical_url <> ''
-       AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_opportunity_id = jo.id)
      ORDER BY jr.rank_score DESC, jr.ranked_at DESC, jo.created_at DESC
      LIMIT 1`,
     [candidateProfileId]
   );
 
   const row = result.rows[0];
-  if (!row) throw new Error("No fresh APPLY-ranked opportunity is available for the configured candidate profile.");
-  return { url: row.canonical_url, company: row.company_name, jobTitle: row.title, jobOpportunityId: row.job_opportunity_id };
+  if (!row) {
+    throw new Error(
+      "No ACTIVE APPLY-ranked opportunity is available for the configured candidate profile. " +
+      "Run discovery/matching first or use --url and --company for a manual dry-run target."
+    );
+  }
+
+  return {
+    url: row.canonical_url,
+    company: row.company_name,
+    jobTitle: row.title,
+    jobOpportunityId: row.job_opportunity_id,
+    rankScore: row.rank_score,
+    existingApplication: row.existing_application
+  };
 }
 
 async function main(): Promise<void> {
@@ -92,7 +132,21 @@ async function main(): Promise<void> {
       excludedCompanies: (process.env.JOB_EXCLUDED_COMPANIES ?? "").split(",").map((value) => value.trim()).filter(Boolean),
       candidateProfile
     });
-    console.log(JSON.stringify({ dryRun: true, selectionMode: args.url ? "manual" : "automatic", startedAt, company: target.company, jobTitle: target.jobTitle, jobOpportunityId: target.jobOpportunityId, requestedUrl: target.url, adapter: outcome.adapterName, safetyAllowed: outcome.safetyAllowed, submitted: outcome.submitted, reason: outcome.reason }, null, 2));
+    console.log(JSON.stringify({
+      dryRun: true,
+      selectionMode: args.url ? "manual" : "automatic",
+      startedAt,
+      company: target.company,
+      jobTitle: target.jobTitle,
+      jobOpportunityId: target.jobOpportunityId,
+      rankScore: target.rankScore,
+      existingApplication: target.existingApplication,
+      requestedUrl: target.url,
+      adapter: outcome.adapterName,
+      safetyAllowed: outcome.safetyAllowed,
+      submitted: outcome.submitted,
+      reason: outcome.reason
+    }, null, 2));
     if (outcome.submitted) throw new Error("Safety violation: dry-run reported a submitted application.");
   } finally { await database.close(); }
 }
