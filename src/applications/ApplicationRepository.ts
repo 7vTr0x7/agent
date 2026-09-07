@@ -1,5 +1,5 @@
 import { Database } from "../database/Database";
-import { evaluateApplicationPolicy } from "./ApplicationPolicy";
+import { evaluateApplicationPolicy, PERMANENTLY_EXCLUDED_COMPANIES } from "./ApplicationPolicy";
 import { ApplicationRateLimitPolicy } from "./ApplicationRateLimitPolicy";
 import { ApplicationCompanyRateLimitPolicy } from "./ApplicationCompanyRateLimitPolicy";
 
@@ -20,7 +20,7 @@ export interface StaleSubmission { applicationId: string; candidateProfileId: st
 export interface VerifiedSubmissionEvidence { confirmationUrl: string; externalApplicationId: string; verificationSource: "INDEPENDENT_CONFIRMATION"; }
 
 export class ApplicationRepository {
-  constructor(private readonly database: Database, private readonly excludedCompanies: readonly string[] = [], private readonly rateLimitPolicy = new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 50 }), private readonly companyRateLimitPolicy = new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 5 })) {}
+  constructor(private readonly database: Database, private readonly excludedCompanies: readonly string[] = PERMANENTLY_EXCLUDED_COMPANIES, private readonly rateLimitPolicy = new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 50 }), private readonly companyRateLimitPolicy = new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 5 })) {}
 
   async prepare(jobOpportunityId: string, candidateProfileId: string): Promise<PrepareApplicationResult> {
     return this.database.transaction(async (client) => {
@@ -46,6 +46,9 @@ export class ApplicationRepository {
     return this.database.transaction(async (client) => {
       const current = await client.query<{ status: string; candidate_profile_id: string; company_name: string }>(`SELECT a.status, a.candidate_profile_id, jo.company_name FROM applications a INNER JOIN job_opportunities jo ON jo.id = a.job_opportunity_id WHERE a.id = $1 FOR UPDATE OF a`, [applicationId]);
       const row = current.rows[0]; if (!row || !["READY", "DRAFTED"].includes(row.status)) return false;
+      const companyKey = row.company_name.trim().toLowerCase();
+      const excluded = [...PERMANENTLY_EXCLUDED_COMPANIES, ...this.excludedCompanies].some((name) => name.trim().toLowerCase() === companyKey);
+      if (excluded) return false;
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [row.candidate_profile_id]);
       const submissionCount = await client.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM applications a WHERE a.candidate_profile_id = $1 AND (a.status = 'SUBMISSION_IN_PROGRESS' OR (a.status = 'SENT' AND a.applied_at >= CURRENT_DATE) OR EXISTS (SELECT 1 FROM application_attempts aa WHERE aa.application_id = a.id AND aa.submitted = TRUE AND aa.attempted_at >= CURRENT_DATE))`, [row.candidate_profile_id]);
       const submissionsUsed = Number(submissionCount.rows[0]?.count ?? "0"); if (!this.rateLimitPolicy.evaluate(submissionsUsed).allowed) return false;
