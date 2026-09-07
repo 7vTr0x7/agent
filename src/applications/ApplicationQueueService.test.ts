@@ -102,7 +102,7 @@ describe("ApplicationQueueService", () => {
     expect(query).toHaveBeenNthCalledWith(
       2,
       expect.stringContaining("LIMIT $3"),
-      ["candidate-1", 5, 2]
+      ["candidate-1", 5, 2, "octopus technologies", "sketch brahma technologies"]
     );
   });
 
@@ -127,12 +127,12 @@ describe("ApplicationQueueService", () => {
     expect(query).toHaveBeenNthCalledWith(
       2,
       expect.stringContaining("company_submission_counts"),
-      ["candidate-1", 3, 10]
+      ["candidate-1", 3, 10, "octopus technologies", "sketch brahma technologies"]
     );
     expect(query).toHaveBeenNthCalledWith(
       2,
       expect.stringContaining("company_rank <= GREATEST(0, $2 - company_submissions_used)"),
-      ["candidate-1", 3, 10]
+      ["candidate-1", 3, 10, "octopus technologies", "sketch brahma technologies"]
     );
   });
 });
