@@ -49,7 +49,7 @@ describe("MatchPipeline", () => {
     expect(saved).toHaveLength(1);
   });
 
-  it("falls back to manual review when semantic matching fails", async () => {
+  it("keeps the deterministic decision when semantic matching fails", async () => {
     const repository: MatchDecisionRepository = {
       save: jest.fn().mockResolvedValue(undefined)
     };
@@ -61,9 +61,9 @@ describe("MatchPipeline", () => {
     const result = await pipeline.evaluateAndPersist(job, profile);
 
     expect(result.score).toBeGreaterThanOrEqual(70);
-    expect(result.decision).toBe("REVIEW");
+    expect(result.decision).toBe("APPLY");
     expect(result.semantic).toBeNull();
-    expect(result.confidence).toBe(0.5);
+    expect(result.confidence).toBe(0.75);
     expect(result.reason).toContain("AI assessment unavailable");
     expect(result.evidence).toEqual(
       expect.arrayContaining([
@@ -74,7 +74,7 @@ describe("MatchPipeline", () => {
       job.id,
       profile.id,
       expect.objectContaining({
-        decision: "REVIEW",
+        decision: "APPLY",
         evaluator: "DETERMINISTIC_FALLBACK"
       }),
       expect.any(String)
