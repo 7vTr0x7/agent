@@ -21,6 +21,28 @@ export interface DeterministicMatcherOptions {
   reviewThreshold?: number;
 }
 
+const SKILL_ALIASES: Record<string, string[]> = {
+  "react.js": ["react", "reactjs", "react.js"],
+  react: ["react", "reactjs", "react.js"],
+  "next.js": ["next", "nextjs", "next.js"],
+  nextjs: ["next", "nextjs", "next.js"],
+  "node.js": ["node", "nodejs", "node.js"],
+  node: ["node", "nodejs", "node.js"],
+  "express.js": ["express", "expressjs", "express.js"],
+  express: ["express", "expressjs", "express.js"],
+  javascript: ["javascript", "js", "ecmascript"],
+  js: ["javascript", "js", "ecmascript"],
+  typescript: ["typescript", "ts"],
+  ts: ["typescript", "ts"],
+  "react testing library": ["react testing library", "rtl"],
+  rtl: ["react testing library", "rtl"],
+  "redux toolkit": ["redux toolkit", "@reduxjs/toolkit"],
+  "tailwind css": ["tailwind css", "tailwind"],
+  mongodb: ["mongodb", "mongo db", "mongo"],
+  postgresql: ["postgresql", "postgres", "postgre sql"],
+  postgres: ["postgresql", "postgres", "postgre sql"]
+};
+
 export class DeterministicJobMatcher {
   private readonly applyThreshold: number;
   private readonly reviewThreshold: number;
@@ -34,12 +56,11 @@ export class DeterministicJobMatcher {
     const normalizedText = normalize(`${job.title}\n${job.description}`);
     const evidence: MatchEvidence[] = [];
 
-    const requiredSkills = profile.skills.filter((skill) =>
-      containsTerm(normalizedText, skill)
+    const matchedSkills = profile.skills.filter((skill) =>
+      containsSkill(normalizedText, skill)
     );
-    const matchedSkills = requiredSkills;
     const missingSkills = profile.skills.filter((skill) =>
-      !containsTerm(normalizedText, skill)
+      !containsSkill(normalizedText, skill)
     );
 
     for (const skill of matchedSkills) {
@@ -57,7 +78,7 @@ export class DeterministicJobMatcher {
     }
 
     const titleMatch = profile.targetTitles.some((title) =>
-      containsTerm(normalize(job.title), title)
+      containsPhrase(normalize(job.title), normalize(title))
     );
     if (titleMatch) {
       evidence.push({
@@ -103,9 +124,6 @@ export class DeterministicJobMatcher {
           ? "REVIEW"
           : "REJECT";
 
-    // A preferred experience level is not a hard eligibility requirement.
-    // Keep such roles reviewable when there is otherwise meaningful evidence
-    // of fit instead of turning the preference into an accidental rejection.
     if (
       decision === "REJECT" &&
       hasPreferredExperience(normalizedText) &&
@@ -134,10 +152,15 @@ function normalize(value: string): string {
     .trim();
 }
 
-function containsTerm(text: string, term: string): boolean {
-  const normalizedTerm = normalize(term);
-  if (!normalizedTerm) return false;
-  return (` ${text} `).includes(` ${normalizedTerm} `);
+function containsPhrase(text: string, term: string): boolean {
+  if (!term) return false;
+  return (` ${text} `).includes(` ${term} `);
+}
+
+function containsSkill(text: string, skill: string): boolean {
+  const normalizedSkill = normalize(skill);
+  const aliases = SKILL_ALIASES[normalizedSkill] ?? [normalizedSkill];
+  return aliases.some((alias) => containsPhrase(text, normalize(alias)));
 }
 
 function hasPreferredExperience(text: string): boolean {
@@ -147,7 +170,8 @@ function hasPreferredExperience(text: string): boolean {
 function extractRequiredYears(text: string): number | null {
   const matches = [
     ...text.matchAll(/(?:minimum|at least|required|must have)\s+(\d+(?:\.\d+)?)\s*\+?\s*years?(?:\s+of)?\s+experience/g),
-    ...text.matchAll(/(\d+(?:\.\d+)?)\s*\+\s*years?\s+(?:of\s+)?experience\s+(?:required|mandatory|minimum)/g)
+    ...text.matchAll(/(\d+(?:\.\d+)?)\s*\+\s*years?\s+(?:of\s+)?experience\s+(?:required|mandatory|minimum)/g),
+    ...text.matchAll(/(?:experience|exp)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*\+\s*years?/g)
   ];
 
   const years = matches
