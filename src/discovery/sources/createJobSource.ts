@@ -42,12 +42,17 @@ function createRssSource(config: SourceConfig): JobSource {
 function createApiSource(config: SourceConfig): JobSource {
   const adapter = config.name.toLowerCase();
   if (adapter === "remoteok") return new RemoteOkJobSource(config.feedUrl);
-  if (adapter === "himalayas" || adapter === "arbeitnow") {
-    if (!config.feedUrl) throw new Error(`${adapter} source requires feedUrl`);
+  if (adapter === "himalayas") {
+    if (!config.feedUrl) throw new Error("himalayas source requires feedUrl");
     return new PublicJsonJobSource(adapter, config.feedUrl);
   }
+  if (adapter === "arbeitnow") {
+    if (!config.feedUrl) throw new Error("arbeitnow source requires feedUrl");
+    const isUkFeed = config.feedUrl.toLowerCase().includes("arbeitnow.co.uk");
+    return new PublicJsonJobSource(adapter, config.feedUrl, isUkFeed ? "United Kingdom" : null);
+  }
   if (adapter === "jobicy") {
-    if (!config.feedUrl) throw new Error(`${adapter} source requires feedUrl`);
+    if (!config.feedUrl) throw new Error("jobicy source requires feedUrl");
     const api = new PublicJsonJobSource(adapter, config.feedUrl);
     const rss = new RssJobSource({
       name: config.id,
