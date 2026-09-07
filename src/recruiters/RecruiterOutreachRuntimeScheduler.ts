@@ -2,7 +2,7 @@ import { RecruiterOutreachFollowUpScheduler } from "./RecruiterOutreachFollowUpS
 import { RecruiterOutreachSendReconciliationService } from "./RecruiterOutreachSendReconciliationService";
 
 export interface RecruiterOutreachRuntimeSchedulerResult {
-  followUps: { prepared: number; queued: number };
+  followUps: { prepared: number; queued: number; failed: number };
   reconciliation: { inspected: number; reconciled: number; unresolved: number };
 }
 
@@ -20,7 +20,7 @@ export class RecruiterOutreachRuntimeScheduler {
   ) {}
 
   async runOnce(): Promise<RecruiterOutreachRuntimeSchedulerResult> {
-    const followUps = { prepared: 0, queued: 0 };
+    const followUps = { prepared: 0, queued: 0, failed: 0 };
     const reconciliation = { inspected: 0, reconciled: 0, unresolved: 0 };
 
     if (this.reconciliationService) {
@@ -39,7 +39,7 @@ export class RecruiterOutreachRuntimeScheduler {
       try {
         const result = await this.followUpScheduler.runOnce();
         Object.assign(followUps, result);
-        if (result.queued > 0) {
+        if (result.queued > 0 || result.failed > 0) {
           this.logger.info(result, "Recruiter outreach follow-up scheduling completed");
         }
       } catch (error) {
