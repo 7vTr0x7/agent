@@ -10,13 +10,12 @@ CREATE TABLE IF NOT EXISTS job_opportunities (
   employment_type VARCHAR(50),
   description TEXT NOT NULL,
   posted_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   closed_at TIMESTAMPTZ,
   status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'
     CHECK (status IN ('ACTIVE', 'STALE', 'CLOSED')),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_job_opportunities_company_name ON job_opportunities (company_name);
@@ -70,13 +69,13 @@ inserted_opportunities AS (
   INSERT INTO job_opportunities (
     canonical_id, canonical_url, title, company_name, location, country,
     workplace_type, employment_type, description, posted_at, updated_at,
-    last_seen_at, created_at, updated_at
+    last_seen_at, created_at
   )
   SELECT
     encode(digest(regexp_replace(trim(url), '[?#].*$', ''), 'sha256'), 'hex'),
     regexp_replace(trim(url), '[?#].*$', ''),
     title, company_name, location, country, workplace_type, employment_type,
-    description, posted_at, updated_at, discovered_at, created_at, updated_at
+    description, posted_at, updated_at, discovered_at, created_at
   FROM ranked_jobs
   WHERE row_number = 1
   ON CONFLICT (canonical_id) DO NOTHING
