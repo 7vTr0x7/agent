@@ -30,10 +30,16 @@ export class RecruiterOutreachSendTaskHandler {
       );
 
       if (result.status === "SENT" && this.followUpService) {
-        const followUp = await this.followUpService.scheduleNext(message.sequenceId);
-        this.logger?.info(
-          `[recruiter-outreach] sequence ${message.sequenceId}: follow-up ${followUp.status}${followUp.reason ? ` - ${followUp.reason}` : ""}`
-        );
+        try {
+          const followUp = await this.followUpService.scheduleNext(message.sequenceId);
+          this.logger?.info(
+            `[recruiter-outreach] sequence ${message.sequenceId}: follow-up ${followUp.status}${followUp.reason ? ` - ${followUp.reason}` : ""}`
+          );
+        } catch (error) {
+          this.logger?.error(
+            `[recruiter-outreach] follow-up scheduling failed for sequence ${message.sequenceId}: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
       }
     } catch (error) {
       this.logger?.error(`[recruiter-outreach] send failed: ${error instanceof Error ? error.message : String(error)}`);
