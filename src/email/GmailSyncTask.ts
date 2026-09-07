@@ -43,27 +43,42 @@ export class GmailSyncTaskHandler {
 
     const ids = await this.mailbox.listMessages(task.payload.query, task.payload.maxResults);
     for (const id of ids) {
-      const message = await this.mailbox.getMessage(id);
-      const classification = this.classifier.classify(message);
-      const classified = { ...message, classification };
-      await this.messages.save(classified);
-      const applicationId = await this.messages.associateAndUpdateApplication(classified, classification);
+      try {
+        const message = await this.mailbox.getMessage(id);
+        const classification = this.classifier.classify(message);
+        const classified = { ...message, classification };
+        await this.messages.save(classified);
+        const applicationId = await this.messages.associateAndUpdateApplication(classified, classification);
 
-      if (this.recruiterInboundProcessor) {
-        await this.recruiterInboundProcessor.process(classified);
-      }
+        if (this.recruiterInboundProcessor) {
+          try {
+            await this.recruiterInboundProcessor.process(classified);
+          } catch (error) {
+            console.error("Failed to process recruiter inbound Gmail message", {
+              gmailMessageId: classified.gmailMessageId,
+              gmailThreadId: classified.gmailThreadId,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }
 
-      if (applicationId && classification === "INTERVIEW" && this.interviews) {
-        const details = this.interviewExtractor.extract({
-          subject: classified.subject,
-          bodyText: classified.bodyText
+        if (applicationId && classification === "INTERVIEW" && this.interviews) {
+          const details = this.interviewExtractor.extract({
+            subject: classified.subject,
+            bodyText: classified.bodyText
+          });
+          await this.interviews.upsert(
+            applicationId,
+            classified.gmailMessageId,
+            classified.gmailThreadId,
+            details
+          );
+        }
+      } catch (error) {
+        console.error("Failed to process Gmail sync message", {
+          gmailMessageId: id,
+          error: error instanceof Error ? error.message : String(error)
         });
-        await this.interviews.upsert(
-          applicationId,
-          classified.gmailMessageId,
-          classified.gmailThreadId,
-          details
-        );
       }
     }
   }
