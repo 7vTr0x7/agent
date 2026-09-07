@@ -62,6 +62,38 @@ describe("PublicJsonJobSource", () => {
     });
   });
 
+  it("normalizes Arbeitnow jobs and converts unix timestamps", async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [{
+        slug: "frontend-engineer-1",
+        company_name: "Example Germany",
+        title: "Frontend Engineer",
+        description: "<p>React and TypeScript</p>",
+        remote: true,
+        url: "https://www.arbeitnow.com/jobs/frontend-engineer-1",
+        tags: ["Engineering"],
+        job_types: ["Full-time"],
+        location: "Berlin",
+        created_at: 1786357845
+      }]
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+
+    const jobs = await new PublicJsonJobSource("arbeitnow", "https://www.arbeitnow.com/api/job-board-api").fetchJobs();
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({
+      source: "arbeitnow:json",
+      sourceJobId: "frontend-engineer-1",
+      title: "Frontend Engineer",
+      companyName: "Example Germany",
+      country: "Germany",
+      workplaceType: "remote",
+      employmentType: "Full-time",
+      description: "React and TypeScript"
+    });
+    expect(jobs[0]?.postedAt).toBeInstanceOf(Date);
+  });
+
   it("fails closed on non-success responses", async () => {
     global.fetch = jest.fn().mockResolvedValue(new Response("rate limited", { status: 429 }));
 
