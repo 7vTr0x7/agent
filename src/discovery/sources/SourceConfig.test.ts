@@ -20,4 +20,11 @@ describe("parseSourceConfigs", () => {
   it("rejects unsupported source types", () => {
     expect(() => parseSourceConfigs(JSON.stringify([{ id: "x", type: "scrape", name: "x" }]))).toThrow("type is invalid");
   });
+
+  it("rejects duplicate source identifiers", () => {
+    expect(() => parseSourceConfigs(JSON.stringify([
+      { id: "duplicate", type: "rss", name: "one", feedUrl: "https://example.com/one.xml" },
+      { id: "duplicate", type: "rss", name: "two", feedUrl: "https://example.com/two.xml" }
+    ])).toThrow("duplicate id: duplicate");
+  });
 });
