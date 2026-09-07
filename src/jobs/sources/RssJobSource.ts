@@ -30,7 +30,9 @@ export class RssJobSource implements JobSource {
     const response = await fetch(this.options.feedUrl, {
       headers: {
         accept:
-          "application/rss+xml, application/atom+xml, application/xml, text/xml"
+          "application/rss+xml, application/atom+xml, application/xml, text/xml",
+        "user-agent":
+          "Mozilla/5.0 (compatible; JobAgent/0.1; +https://github.com/7vTr0x7/agent)"
       }
     });
 
