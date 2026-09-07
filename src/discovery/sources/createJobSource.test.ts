@@ -4,6 +4,10 @@ import { RssJobSource } from "../../jobs/sources/RssJobSource";
 import { RemoteOkJobSource } from "../../jobs/sources/RemoteOkJobSource";
 
 describe("createJobSource", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it("creates an RSS source from feed configuration", () => {
     const source = createJobSource({
       id: "weworkremotely:programming",
