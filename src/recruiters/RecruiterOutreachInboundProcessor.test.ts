@@ -54,7 +54,7 @@ describe("RecruiterOutreachInboundProcessor", () => {
     expect(repo.stopped).toEqual(["sequence-1"]);
   });
 
-  it("suppresses and stops on a clear bounce notification", async () => {
+  it("suppresses the original recruiter recipient and stops on a clear bounce notification", async () => {
     const repo = repository();
     const result = await new RecruiterOutreachInboundProcessor(repo).process(message({
       senderEmail: "mailer-daemon@company.com",
@@ -62,7 +62,7 @@ describe("RecruiterOutreachInboundProcessor", () => {
       bodyText: "Delivery failure. The recipient address was rejected."
     }));
     expect(result).toEqual({ status: "BOUNCE_SUPPRESSED", sequenceId: "sequence-1" });
-    expect(repo.suppressed).toEqual(["mailer-daemon@company.com"]);
+    expect(repo.suppressed).toEqual(["recruiter@company.com"]);
     expect(repo.stopped).toEqual(["sequence-1"]);
   });
 
