@@ -4,7 +4,7 @@ import { RecruiterOutreachPreparationTaskHandler } from "./RecruiterOutreachPrep
 import { RecruiterOutreachSendService } from "./RecruiterOutreachSendService";
 import { RecruiterOutreachSendTaskHandler } from "./RecruiterOutreachSendTaskHandler";
 import { SEND_RECRUITER_EMAIL_TASK } from "./RecruiterOutreachSendTask";
-import { RecruiterDiscoveryTaskPayload } from "./RecruiterDiscoveryTask";
+import { DiscoverRecruitersTaskPayload } from "./RecruiterDiscoveryTask";
 import { StoredRecruiterContact } from "./RecruiterDiscoveryRepository";
 
 function recruiterContact(): StoredRecruiterContact {
@@ -24,7 +24,7 @@ function recruiterContact(): StoredRecruiterContact {
 }
 
 function discoveryTask(): any {
-  const payload: RecruiterDiscoveryTaskPayload = {
+  const payload: DiscoverRecruitersTaskPayload = {
     companyName: "Acme Co",
     companyDomain: "acme.dev",
     jobTitle: "Frontend Engineer",
@@ -150,7 +150,7 @@ describe("Recruiter outreach end-to-end pipeline", () => {
     expect(repository.markOutreachMessageSent).not.toHaveBeenCalled();
   });
 
-  it("does not enqueue outreach for a failed discovery result", async () => {
+  it("does not enqueue outreach for a skipped discovery result", async () => {
     const preparationDispatcher = { enqueue: jest.fn() };
     const discovery = {
       discoverAndPersist: jest.fn().mockResolvedValue({
