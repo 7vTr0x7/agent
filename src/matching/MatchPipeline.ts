@@ -76,26 +76,26 @@ function combine(
     .digest("hex");
 
   if (!semantic) {
-    const fallbackDecision = semanticFallback && deterministic.decision === "APPLY"
-      ? "REVIEW"
-      : deterministic.decision;
+    // Deterministic matching is the safety-preserving baseline. AI improves
+    // ranking quality when available, but an infrastructure/model outage must
+    // never turn an otherwise eligible APPLY into a manual-review dead end.
     const fallbackReason = semanticFallback
-      ? `${deterministic.reason} AI assessment unavailable; manual review required.`
+      ? `${deterministic.reason} AI assessment unavailable; deterministic rules remain authoritative.`
       : deterministic.reason;
 
     return {
       score: deterministic.matchScore,
-      decision: fallbackDecision,
+      decision: deterministic.decision,
       reason: fallbackReason,
       matchedSkills: deterministic.matchedSkills,
       missingSkills: deterministic.missingSkills,
       evidence: semanticFallback
         ? [
             ...deterministic.evidence,
-            { type: "AI_FALLBACK", detail: "Semantic matching was unavailable; deterministic rules were used." }
+            { type: "AI_FALLBACK", detail: "Semantic matching was unavailable; deterministic rules remain authoritative." }
           ]
         : deterministic.evidence,
-      confidence: semanticFallback ? 0.5 : 1,
+      confidence: semanticFallback ? 0.75 : 1,
       model: null,
       inputHash,
       deterministic,
