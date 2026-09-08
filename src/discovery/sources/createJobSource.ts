@@ -8,6 +8,9 @@ import { RemoteOkJobSource } from "../../jobs/sources/RemoteOkJobSource";
 import { PublicJsonJobSource } from "../../jobs/sources/PublicJsonJobSource";
 import { FallbackJobSource } from "../../jobs/sources/FallbackJobSource";
 import { StructuredDataJobSource } from "../../jobs/sources/StructuredDataJobSource";
+import { TechmapJobSource } from "../../jobs/sources/TechmapJobSource";
+import { AdzunaJobSource } from "../../jobs/sources/AdzunaJobSource";
+import { JoobleJobSource } from "../../jobs/sources/JoobleJobSource";
 
 export function createJobSource(config: SourceConfig): JobSource {
   switch (config.type) {
@@ -22,18 +25,9 @@ export function createJobSource(config: SourceConfig): JobSource {
 
 function createAtsSource(config: SourceConfig): JobSource {
   const adapter = config.name.toLowerCase();
-  if (adapter === "lever") {
-    if (!config.boardToken) throw new Error("Lever source requires boardToken");
-    return new LeverJobSource(config.boardToken, undefined, config.companyDomain);
-  }
-  if (adapter === "greenhouse") {
-    if (!config.boardToken) throw new Error("Greenhouse source requires boardToken");
-    return new GreenhouseJobSource(config.boardToken, undefined, config.companyDomain);
-  }
-  if (adapter === "ashby") {
-    if (!config.boardName) throw new Error("Ashby source requires boardName");
-    return new AshbyJobSource(config.boardName, undefined, config.companyDomain);
-  }
+  if (adapter === "lever") { if (!config.boardToken) throw new Error("Lever source requires boardToken"); return new LeverJobSource(config.boardToken, undefined, config.companyDomain); }
+  if (adapter === "greenhouse") { if (!config.boardToken) throw new Error("Greenhouse source requires boardToken"); return new GreenhouseJobSource(config.boardToken, undefined, config.companyDomain); }
+  if (adapter === "ashby") { if (!config.boardName) throw new Error("Ashby source requires boardName"); return new AshbyJobSource(config.boardName, undefined, config.companyDomain); }
   throw new Error(`Unsupported ATS adapter: ${config.name}`);
 }
 
@@ -45,34 +39,40 @@ function createRssSource(config: SourceConfig): JobSource {
 function createApiSource(config: SourceConfig): JobSource {
   const adapter = config.name.toLowerCase();
   if (adapter === "remoteok") return new RemoteOkJobSource(config.feedUrl);
-  if (adapter === "himalayas") {
-    if (!config.feedUrl) throw new Error("himalayas source requires feedUrl");
-    return new PublicJsonJobSource(adapter, config.feedUrl);
-  }
-  if (adapter === "arbeitnow") {
-    if (!config.feedUrl) throw new Error("arbeitnow source requires feedUrl");
-    const isUkFeed = config.feedUrl.toLowerCase().includes("arbeitnow.co.uk");
+  if (adapter === "himalayas" || adapter === "arbeitnow") {
+    if (!config.feedUrl) throw new Error(`${adapter} source requires feedUrl`);
+    const isUkFeed = adapter === "arbeitnow" && config.feedUrl.toLowerCase().includes("arbeitnow.co.uk");
     return new PublicJsonJobSource(adapter, config.feedUrl, isUkFeed ? "United Kingdom" : null);
   }
   if (adapter === "jobicy") {
     if (!config.feedUrl) throw new Error("jobicy source requires feedUrl");
-    const api = new PublicJsonJobSource(adapter, config.feedUrl);
-    const rss = new RssJobSource({
-      name: config.id,
-      feedUrl: "https://jobicy.com/jobs/feed",
-      defaultCompanyName: "Jobicy"
-    });
-    return new FallbackJobSource(api, rss);
+    return new FallbackJobSource(new PublicJsonJobSource(adapter, config.feedUrl), new RssJobSource({ name: config.id, feedUrl: "https://jobicy.com/jobs/feed", defaultCompanyName: "Jobicy" }));
+  }
+  if (adapter === "techmap") {
+    const apiKey = resolveApiKey(config); if (!apiKey) throw new Error(`Missing API key for source ${config.id}`);
+    if (!config.apiUrl) throw new Error("techmap source requires apiUrl");
+    if (!config.portals?.length) throw new Error("techmap source requires portals");
+    return new TechmapJobSource({ apiUrl: config.apiUrl, apiKey, portals: config.portals, countryCode: config.countryCode, city: config.city, workPlace: config.workPlace, query: config.query, page: 1, limit: config.resultOnPage });
+  }
+  if (adapter === "adzuna") {
+    const appId = process.env.ADZUNA_APP_ID?.trim(); const appKey = process.env.ADZUNA_APP_KEY?.trim();
+    if (!appId || !appKey) throw new Error("Adzuna requires ADZUNA_APP_ID and ADZUNA_APP_KEY");
+    return new AdzunaJobSource({ appId, appKey, countryCode: config.countryCode ?? "in", pages: config.pages ?? 1, resultsPerPage: config.resultsPerPage ?? 50, queries: config.queries, locations: config.locations });
+  }
+  if (adapter === "jooble") {
+    const apiKey = resolveApiKey(config); if (!apiKey) throw new Error(`Missing API key for source ${config.id}`);
+    if (!config.apiUrl) throw new Error("jooble source requires apiUrl");
+    return new JoobleJobSource({ apiKey, apiBaseUrl: config.apiUrl, keywords: config.query ?? "React Frontend TypeScript", location: config.city ?? "Bengaluru, India", resultOnPage: config.resultOnPage });
   }
   throw new Error(`Unsupported API job source: ${config.name}`);
 }
 
+function resolveApiKey(config: SourceConfig): string | null {
+  if (!config.apiKeyEnv) return null;
+  return process.env[config.apiKeyEnv]?.trim() || null;
+}
+
 function createStructuredDataSource(config: SourceConfig): JobSource {
   if (!config.url) throw new Error(`${config.type} source requires url: ${config.name}`);
-  return new StructuredDataJobSource({
-    id: config.id,
-    url: config.url,
-    defaultCompanyName: config.name,
-    companyDomain: config.companyDomain
-  });
+  return new StructuredDataJobSource({ id: config.id, url: config.url, defaultCompanyName: config.name, companyDomain: config.companyDomain });
 }
