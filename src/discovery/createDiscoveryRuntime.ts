@@ -12,6 +12,7 @@ import { DeterministicJobMatcher } from "../matching/DeterministicJobMatcher";
 import { SemanticJobMatcher } from "../matching/SemanticJobMatcher";
 import { MatchPipeline } from "../matching/MatchPipeline";
 import { MatchTaskDispatcher, MatchTaskHandler } from "../matching/MatchTask";
+import { MatchQueueService } from "../matching/MatchQueueService";
 import { PostgresMatchDecisionRepository } from "../matching/MatchDecisionRepository";
 import { AdaptiveLearningService } from "../learning/AdaptiveLearningService";
 import { DiscoveryMatchDispatcher } from "./queue/DiscoveryMatchDispatcher";
@@ -25,6 +26,7 @@ import { SourceRegistry } from "./sources/SourceRegistry";
 export interface DiscoveryRuntime {
   runner: DiscoveryRunner;
   matchTaskHandler: MatchTaskHandler;
+  matchQueueService: MatchQueueService;
   sourceCount: number;
 }
 
@@ -89,6 +91,10 @@ export function createDiscoveryRuntime(
     policy,
     candidateProfile.id
   );
+  const matchQueueService = new MatchQueueService(
+    database,
+    new MatchTaskDispatcher(taskQueue)
+  );
 
   const runner = new DiscoveryRunner(
     new JobDiscoveryService(database),
@@ -101,6 +107,7 @@ export function createDiscoveryRuntime(
   return {
     runner,
     matchTaskHandler,
+    matchQueueService,
     sourceCount: registry.listRunnable().length
   };
 }
