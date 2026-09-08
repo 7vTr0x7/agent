@@ -33,7 +33,19 @@ export class ApplicationTaskHandler {
   async handle(task: ClaimedTask<ApplyJobTaskPayload>): Promise<void> {
     if (task.taskType !== APPLY_JOB_TASK) throw new Error(`Unsupported application task type: ${task.taskType}`);
     const prepared = await this.applications.prepare(task.payload.jobOpportunityId, task.payload.candidateProfileId);
-    if (!prepared.prepared) return;
+    if (!prepared.prepared) {
+      console.warn(JSON.stringify({
+        level: 40,
+        taskId: task.id,
+        taskType: task.taskType,
+        jobOpportunityId: task.payload.jobOpportunityId,
+        candidateProfileId: task.payload.candidateProfileId,
+        reason: prepared.reason,
+        msg: "Application task blocked before browser submission"
+      }));
+      return;
+    }
+
     const candidateProfile = await this.candidateProfiles.getById(prepared.application.candidateProfileId);
     if (!candidateProfile) throw new Error(`Candidate profile '${prepared.application.candidateProfileId}' could not be loaded.`);
 
@@ -58,6 +70,21 @@ export class ApplicationTaskHandler {
       excludedCompanies: this.excludedCompanies,
       candidateProfile: applicationProfile
     });
+
+    console.log(JSON.stringify({
+      level: 30,
+      taskId: task.id,
+      taskType: task.taskType,
+      applicationId: prepared.application.applicationId,
+      jobOpportunityId: prepared.application.jobOpportunityId,
+      companyName: prepared.application.companyName,
+      jobTitle: prepared.application.jobTitle,
+      adapterName: outcome.adapterName,
+      submitted: outcome.submitted,
+      safetyAllowed: outcome.safetyAllowed,
+      reason: outcome.reason,
+      msg: "Application submission outcome"
+    }));
 
     if (this.attemptRepository) {
       await this.attemptRepository.record({
