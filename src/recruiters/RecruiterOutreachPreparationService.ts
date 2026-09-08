@@ -42,24 +42,15 @@ export class RecruiterOutreachPreparationService {
     this.dryRun = options.dryRun ?? true;
   }
 
-  async prepare(
-    input: RecruiterOutreachPreparationInput,
-    contacts: StoredRecruiterContact[]
-  ): Promise<PreparedRecruiterOutreach[]> {
+  async prepare(input: RecruiterOutreachPreparationInput, contacts: StoredRecruiterContact[]): Promise<PreparedRecruiterOutreach[]> {
     if (!input.jobOpportunityId.trim()) throw new Error("jobOpportunityId is required for recruiter outreach.");
     if (!input.applicationId.trim()) throw new Error("applicationId is required for recruiter outreach.");
     if (!input.candidateProfileId.trim()) throw new Error("candidateProfileId is required for recruiter outreach.");
 
     const prepared: PreparedRecruiterOutreach[] = [];
-
     for (const contact of contacts) {
       const suppressed = await this.options.repository.isSuppressed(contact.email, input.companyDomain);
-      const duplicate = await this.options.repository.isOutreachSequenceDuplicate(
-        contact.id,
-        input.jobOpportunityId,
-        input.candidateProfileId
-      );
-
+      const duplicate = await this.options.repository.isOutreachSequenceDuplicate(contact.id, input.jobOpportunityId, input.candidateProfileId);
       const candidate: RecruiterContactCandidate = {
         email: contact.email,
         fullName: contact.fullName,
@@ -75,18 +66,20 @@ export class RecruiterOutreachPreparationService {
         sources: []
       };
 
+      // Public job-posting contacts are explicitly published by the employer
+      // in recruiting context. They do not need Hunter/Snov verification.
+      const requiresVerification = this.requireVerifiedEmail && contact.provider !== "job-posting";
       const safety = evaluateRecruiterOutreachSafety({
         companyName: input.companyName,
         companyDomain: input.companyDomain,
         contact: candidate,
         minConfidence: this.minConfidence,
-        requireVerifiedEmail: this.requireVerifiedEmail,
+        requireVerifiedEmail: requiresVerification,
         suppressedEmail: suppressed.email,
         suppressedDomain: suppressed.domain,
         duplicateSequence: duplicate,
         dryRun: this.dryRun
       });
-
       if (!safety.allowed) continue;
 
       const sequence = await this.options.repository.createOutreachSequence({
@@ -105,23 +98,17 @@ export class RecruiterOutreachPreparationService {
         subject: `Interest in ${input.jobTitle} at ${input.companyName}`,
         body: buildInitialMessage(input, contact)
       });
-
       prepared.push({ contact, sequence, message });
     }
-
     return prepared;
   }
 }
 
-function buildInitialMessage(
-  input: RecruiterOutreachPreparationInput,
-  contact: StoredRecruiterContact
-): string {
+function buildInitialMessage(input: RecruiterOutreachPreparationInput, contact: StoredRecruiterContact): string {
   const greeting = contact.fullName ? `Hi ${contact.fullName.split(" ")[0]},` : "Hi,";
   const role = input.jobTitle.trim();
   const company = input.companyName.trim();
   const candidate = input.candidateName.trim() || "Candidate";
-
   return [
     greeting,
     "",
