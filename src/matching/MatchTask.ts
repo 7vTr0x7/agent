@@ -83,7 +83,11 @@ export class MatchTaskHandler {
     // other, and recruiter discovery never depends on application outcome.
     const dispatches: Promise<unknown>[] = [];
 
-    if (this.applications) {
+    // Only an APPLY match is eligible for the application queue. REVIEW jobs
+    // remain eligible for recruiter discovery without creating pointless
+    // APPLY_JOB tasks that will immediately be rejected by the application
+    // handler's defense-in-depth guard.
+    if (this.applications && match.decision === "APPLY") {
       dispatches.push(this.applications.enqueue(jobOpportunityId, candidateProfileId, 30));
     }
 
