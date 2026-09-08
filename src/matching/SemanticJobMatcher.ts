@@ -51,6 +51,7 @@ export class SemanticJobMatcher {
 
     const response = await this.provider.complete({
       temperature: 0,
+      maxTokens: 256,
       messages: [
         {
           role: "system",
