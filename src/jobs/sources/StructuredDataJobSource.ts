@@ -62,9 +62,12 @@ function extractJobs(html: string, options: StructuredDataJobSourceOptions): Job
   const seen = new Set<string>();
 
   for (const match of scripts) {
+    const json = match[1];
+    if (json === undefined) continue;
+
     let parsed: unknown;
     try {
-      parsed = JSON.parse(decodeHtml(match[1]));
+      parsed = JSON.parse(decodeHtml(json));
     } catch {
       continue;
     }
