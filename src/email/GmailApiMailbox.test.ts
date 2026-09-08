@@ -1,11 +1,15 @@
 import { GmailApiMailbox, buildMimeMessage } from "./GmailApiMailbox";
+import type { GmailOAuthClient } from "./GmailOAuthClient";
 
 function response(status: number, body: unknown, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), { status, headers });
 }
 
 describe("GmailApiMailbox", () => {
-  const oauth = { getAccessToken: jest.fn().mockResolvedValue("access-token"), invalidateAccessToken: jest.fn() } as never;
+  const oauth = {
+    getAccessToken: jest.fn().mockResolvedValue("access-token"),
+    invalidateAccessToken: jest.fn()
+  } as unknown as GmailOAuthClient;
 
   beforeEach(() => {
     jest.clearAllMocks();
