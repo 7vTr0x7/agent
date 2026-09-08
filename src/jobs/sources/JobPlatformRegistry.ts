@@ -10,7 +10,7 @@ export interface JobPlatformDefinition {
 }
 
 const activeAdapterNames = new Set([
-  "Remote OK", "We Work Remotely", "Himalayas", "Jobicy", "Remotive", "Greenhouse", "Lever", "Ashby"
+  "Remote OK", "We Work Remotely", "Himalayas", "Jobicy", "Greenhouse", "Lever", "Ashby"
 ]);
 
 const configurableNames = new Set([
@@ -36,7 +36,6 @@ function definition(name: string, index: number): JobPlatformDefinition {
 }
 
 export const JOB_PLATFORM_REGISTRY: readonly JobPlatformDefinition[] = names.map(definition);
-
 export const JOB_PLATFORM_COUNT = JOB_PLATFORM_REGISTRY.length;
 
 export function findJobPlatform(value: string): JobPlatformDefinition | undefined {
