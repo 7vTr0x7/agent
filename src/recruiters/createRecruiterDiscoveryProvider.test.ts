@@ -3,7 +3,7 @@ import { createRecruiterDiscoveryProvider } from "./createRecruiterDiscoveryProv
 describe("createRecruiterDiscoveryProvider", () => {
   it("uses the public-web provider without external credentials", () => {
     const provider = createRecruiterDiscoveryProvider({ provider: "public-web" });
-    expect(provider.name).toBe("job-posting");
+    expect(provider.name).toBe("public-web");
   });
 
   it("ignores legacy external-provider credentials for the public-web provider", () => {
@@ -13,6 +13,6 @@ describe("createRecruiterDiscoveryProvider", () => {
       snovClientId: "legacy-client-id",
       snovClientSecret: "legacy-client-secret"
     });
-    expect(provider.name).toBe("job-posting");
+    expect(provider.name).toBe("public-web");
   });
 });
