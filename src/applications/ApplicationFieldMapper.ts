@@ -52,6 +52,7 @@ const UNSAFE_KEYS = new Set<ApplicationFieldKey>([
 
 function normalize(value: string | null | undefined): string {
   return (value ?? "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
