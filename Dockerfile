@@ -8,6 +8,7 @@ RUN npm install --omit=optional
 
 COPY tsconfig.json jest.config.js ./
 COPY src ./src
+COPY scripts ./scripts
 
 RUN npm run build
 
