@@ -35,10 +35,6 @@ export class ApplicationRepository {
       const policy = evaluateApplicationPolicy({ matchDecision: row.match_decision, opportunityStatus: row.opportunity_status, hasRanking: row.has_ranking, hasExistingApplication: row.has_application, companyName: row.company_name, excludedCompanies: this.excludedCompanies });
       if (policy.decision === "BLOCK") return { prepared: false, reason: policy.reason };
 
-      // The modern discovery pipeline stores canonical opportunities, while the
-      // application schema still requires a jobs.id foreign key. Materialize the
-      // bridge lazily for newly discovered opportunities so APPLY_JOB cannot be
-      // blocked merely because the legacy ingestion path was not used.
       let jobId = row.job_id;
       if (!jobId) {
         await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`materialize-job:${jobOpportunityId}`]);
@@ -51,9 +47,7 @@ export class ApplicationRepository {
         if (!jobId) {
           const recovered = await client.query<{ id: string }>(`SELECT id FROM jobs WHERE job_opportunity_id = $1 OR regexp_replace(trim(url), '[?#].*$', '') = $2 ORDER BY CASE WHEN job_opportunity_id = $1 THEN 0 ELSE 1 END, created_at ASC, id ASC LIMIT 1`, [jobOpportunityId, row.canonical_url]);
           jobId = recovered.rows[0]?.id ?? null;
-          if (jobId) {
-            await client.query(`UPDATE jobs SET job_opportunity_id = $1 WHERE id = $2 AND job_opportunity_id IS NULL`, [jobOpportunityId, jobId]);
-          }
+          if (jobId) await client.query(`UPDATE jobs SET job_opportunity_id = $1 WHERE id = $2 AND job_opportunity_id IS NULL`, [jobOpportunityId, jobId]);
         }
       }
       if (!jobId) return { prepared: false, reason: "Unable to materialize a legacy job record for this opportunity." };
@@ -76,7 +70,7 @@ export class ApplicationRepository {
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [row.candidate_profile_id]);
       const submissionCount = await client.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM applications a WHERE a.candidate_profile_id = $1 AND (a.status = 'SUBMISSION_IN_PROGRESS' OR (a.status = 'SENT' AND a.applied_at >= CURRENT_DATE) OR EXISTS (SELECT 1 FROM application_attempts aa WHERE aa.application_id = a.id AND aa.submitted = TRUE AND aa.attempted_at >= CURRENT_DATE))`, [row.candidate_profile_id]);
       const submissionsUsed = Number(submissionCount.rows[0]?.count ?? "0"); if (!this.rateLimitPolicy.evaluate(submissionsUsed).allowed) return false;
-      const companyCount = await client.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM applications a INNER JOIN job_opportunities jo ON jo.id = a.job_opportunity_id WHERE a.candidate_profile_id = $1 AND LOWER(TRIM(jo.company_name)) = LOWER(TRIM($2)) AND (a.status = 'SUBMISSION_IN_PROGRESS' OR (a.status = 'SENT' AND a.applied_at >= CURRENT_DATE) OR EXISTS (SELECT 1 FROM application_attempts aa WHERE aa.application_id = a.id AND aa.submitted = TRUE AND aa.attempted_at >= CURRENT_DATE))`, [applicationId, row.company_name]);
+      const companyCount = await client.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM applications a INNER JOIN job_opportunities jo ON jo.id = a.job_opportunity_id WHERE a.candidate_profile_id = $1 AND LOWER(TRIM(jo.company_name)) = LOWER(TRIM($2)) AND (a.status = 'SUBMISSION_IN_PROGRESS' OR (a.status = 'SENT' AND a.applied_at >= CURRENT_DATE) OR EXISTS (SELECT 1 FROM application_attempts aa WHERE aa.application_id = a.id AND aa.submitted = TRUE AND aa.attempted_at >= CURRENT_DATE))`, [row.candidate_profile_id, row.company_name]);
       const companySubmissionsUsed = Number(companyCount.rows[0]?.count ?? "0"); if (companySubmissionsUsed >= this.companyRateLimitPolicy.maxSubmissionsPerCompanyPerDay) return false;
       await client.query(`UPDATE applications SET status = 'SUBMISSION_IN_PROGRESS', updated_at = NOW() WHERE id = $1`, [applicationId]);
       await client.query(`INSERT INTO application_events (application_id, from_status, to_status, event_type, metadata) VALUES ($1, $2, 'SUBMISSION_IN_PROGRESS', 'APPLICATION_SUBMISSION_STARTED', $3::jsonb)`, [applicationId, row.status, JSON.stringify({ dailySubmissionsUsed: submissionsUsed, companySubmissionsUsed })]);
