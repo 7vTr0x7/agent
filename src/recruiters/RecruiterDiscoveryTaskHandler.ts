@@ -49,7 +49,8 @@ export class RecruiterDiscoveryTaskHandler {
           applicationId: task.payload.applicationId,
           candidateProfileId: task.payload.candidateProfileId,
           candidateName: task.payload.candidateName ?? "Candidate",
-          contacts: result.contacts
+          contacts: result.contacts,
+          applicationOutcome: task.payload.applicationOutcome
         });
       }
     } catch (error) {
