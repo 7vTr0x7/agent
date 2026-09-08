@@ -17,6 +17,9 @@ const PUBLIC_PATHS = [
   "/sitemap.xml", "/sitemap_index.xml"
 ] as const;
 const SITEMAP_RELEVANCE = /(career|job|join|work-with-us|talent|recruit|hiring|people|hr|contact)/i;
+const LINKEDIN_RECRUITER_TERMS = ["recruiter", "recruiting", "talent acquisition", "talent partner", "technical recruiter", "hr", "human resources", "hiring manager"];
+
+type PublicLinkedInProfile = { name: string; title?: string; url: string; snippet: string };
 
 function normalizeDomain(value: string): string {
   return value.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0]?.replace(/^www\./, "") ?? "";
@@ -28,7 +31,6 @@ function looksLikeRecruitingMailbox(email: string): boolean {
   const local = localPart(email).replace(/[._+-]/g, "");
   return GENERIC_RECRUITING_LOCAL_PARTS.test(local) || /^(recruit|talent|hr|hiring|career|jobs?)/i.test(local);
 }
-
 function contextAround(text: string, index: number): string {
   const startCandidates = [text.lastIndexOf(".", index - 1), text.lastIndexOf("!", index - 1), text.lastIndexOf("?", index - 1), text.lastIndexOf("\n", index - 1), text.lastIndexOf(">", index - 1)];
   const sentenceStart = Math.max(...startCandidates) + 1;
@@ -36,34 +38,28 @@ function contextAround(text: string, index: number): string {
   const sentenceEnd = endCandidates.length > 0 ? Math.min(...endCandidates) : text.length;
   return text.slice(sentenceStart, sentenceEnd);
 }
-
-function stripHtml(value: string): string {
-  return value
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&#64;|&#x40;/gi, "@")
-    .replace(/&#46;|&#x2e;/gi, ".")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function normalizeObfuscatedEmails(text: string): string {
   return text.replace(OBFUSCATED_EMAIL_PATTERN, (_match, local: string, domain: string, tld: string) => `${local}@${domain}.${tld}`);
 }
-
 function isRecruitingContextForEmail(email: string, context: string): boolean {
   if (NON_RECRUITING_CONTEXT.test(context)) return false;
   return RECRUITING_CONTEXT.test(context) || looksLikeRecruitingMailbox(email);
+}
+function stripHtml(value: string): string {
+  return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<noscript[\s\S]*?<\/noscript>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&#64;|&#x40;/gi, "@").replace(/&#46;|&#x2e;/gi, ".").replace(/\s+/g, " ").trim();
+}
+function isStrongNameEmailMatch(email: string, name: string): boolean {
+  const local = localPart(email).replace(/[^a-z0-9]/gi, "").toLowerCase();
+  const parts = name.toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter(Boolean);
+  if (parts.length < 2 || local.length < 4) return false;
+  const first = parts[0] ?? "";
+  const last = parts[parts.length - 1] ?? "";
+  return (first.length >= 3 && local.includes(first) && last.length >= 3 && local.includes(last)) || local === `${first}${last}` || local === `${first[0]}${last}`;
 }
 
 export function extractExplicitRecruiterEmails(jobDescription: string, companyDomain: string): string[] {
   return extractRecruiterEmailsFromPublicText(jobDescription, companyDomain);
 }
-
 function extractRecruiterEmailsFromPublicText(text: string, companyDomain: string): string[] {
   const domain = normalizeDomain(companyDomain);
   if (!domain) return [];
@@ -71,54 +67,35 @@ function extractRecruiterEmailsFromPublicText(text: string, companyDomain: strin
   const found = new Set<string>();
   const matches = [
     ...[...(normalizedText.matchAll(EMAIL_PATTERN))].map((match) => ({ value: match[0], index: match.index ?? -1 })),
-    ...[...((normalizedText.matchAll(/mailto:([^\s"'<>?#]+)/gi)))].map((match) => ({ value: match[1], index: match.index ?? -1 }))
+    ...[...normalizedText.matchAll(/mailto:([^\s"'<>?#]+)/gi)].map((match) => ({ value: match[1], index: match.index ?? -1 }))
   ];
   for (const match of matches) {
     if (!match.value || match.index < 0) continue;
     const email = normalizeEmail(match.value.replace(/^mailto:/i, "").replace(/[),;]+$/g, ""));
     if (!isCompanyEmail(email, domain) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
-    const context = contextAround(normalizedText, match.index);
-    if (!isRecruitingContextForEmail(email, context)) continue;
+    if (!isRecruitingContextForEmail(email, contextAround(normalizedText, match.index))) continue;
     found.add(email);
   }
   return [...found];
 }
-
 function extractSitemapUrls(xml: string, domain: string): string[] {
   const urls = new Set<string>();
   for (const match of xml.matchAll(/<loc>\s*(https?:\/\/[^<\s]+)\s*<\/loc>/gi)) {
     const raw = match[1];
     if (!raw) continue;
-    try {
-      const url = new URL(raw);
-      if (normalizeDomain(url.hostname) !== domain) continue;
-      if (SITEMAP_RELEVANCE.test(`${url.pathname}${url.search}`)) urls.add(url.toString());
-    } catch { /* ignore malformed sitemap entries */ }
+    try { const url = new URL(raw); if (normalizeDomain(url.hostname) === domain && SITEMAP_RELEVANCE.test(`${url.pathname}${url.search}`)) urls.add(url.toString()); } catch { /* ignore malformed sitemap entries */ }
   }
   return [...urls].slice(0, 25);
 }
-
 async function fetchText(url: string, timeoutMs = 5000): Promise<string | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      redirect: "follow",
-      headers: {
-        accept: "text/html,application/xhtml+xml,application/xml,text/xml;q=0.9,*/*;q=0.8",
-        "user-agent": "job-agent-public-recruiter-discovery/2.0"
-      }
-    });
+    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,application/xhtml+xml,application/xml,text/xml;q=0.9,*/*;q=0.8", "user-agent": "job-agent-public-recruiter-discovery/3.0" } });
     if (!response.ok) return null;
     return await response.text();
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
+  } catch { return null; } finally { clearTimeout(timeout); }
 }
-
 async function fetchPublicCompanyPages(companyDomain: string): Promise<Array<{ url: string; text: string }>> {
   const domain = normalizeDomain(companyDomain);
   if (!domain) return [];
@@ -132,11 +109,57 @@ async function fetchPublicCompanyPages(companyDomain: string): Promise<Array<{ u
   return [...pages, ...sitemapPages.filter((page): page is { url: string; text: string } => Boolean(page.text))];
 }
 
+function searchUrl(query: string): string {
+  return `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+}
+function parsePublicLinkedInProfiles(html: string): PublicLinkedInProfile[] {
+  const results: PublicLinkedInProfile[] = [];
+  const seen = new Set<string>();
+  const anchorPattern = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  for (const match of html.matchAll(anchorPattern)) {
+    const rawUrl = match[1] ?? "";
+    const label = stripHtml(match[2] ?? "");
+    let decoded = rawUrl.replace(/&amp;/g, "&");
+    try {
+      if (decoded.startsWith("//")) decoded = `https:${decoded}`;
+      const target = new URL(decoded);
+      if (target.hostname !== "www.linkedin.com" && target.hostname !== "linkedin.com") continue;
+      const profilePath = target.pathname.match(/^\/in\/([^/?#]+)/i);
+      if (!profilePath || !label) continue;
+      const url = `https://www.linkedin.com/in/${profilePath[1]}`;
+      if (seen.has(url)) continue;
+      const normalizedLabel = label.replace(/\s*\|\s*LinkedIn.*$/i, "").trim();
+      if (!normalizedLabel || normalizedLabel.length > 100) continue;
+      const parts = normalizedLabel.split(/\s+-\s+|\s+\|\s+/).map((v) => v.trim()).filter(Boolean);
+      const name = parts[0] ?? normalizedLabel;
+      const title = parts.slice(1).join(" - ") || undefined;
+      seen.add(url);
+      results.push({ name, title, url, snippet: normalizedLabel });
+    } catch { /* ignore search-engine tracking links */ }
+  }
+  return results.slice(0, 10);
+}
+async function discoverPublicLinkedInProfiles(companyName: string, jobTitle: string): Promise<PublicLinkedInProfile[]> {
+  const queries = [
+    `site:linkedin.com/in "${companyName}" recruiter`,
+    `site:linkedin.com/in "${companyName}" "talent acquisition"`,
+    `site:linkedin.com/in "${companyName}" "technical recruiter"`,
+    `site:linkedin.com/in "${companyName}" "hiring manager"`
+  ];
+  const pages = await Promise.all(queries.map(async (query) => fetchText(searchUrl(`${query} "${jobTitle}"`), 7000)));
+  const profiles = new Map<string, PublicLinkedInProfile>();
+  for (const page of pages) for (const profile of page ? parsePublicLinkedInProfiles(page) : []) profiles.set(profile.url, profile);
+  return [...profiles.values()].filter((profile) => {
+    const haystack = `${profile.name} ${profile.title ?? ""} ${profile.snippet}`.toLowerCase();
+    return LINKEDIN_RECRUITER_TERMS.some((term) => haystack.includes(term));
+  }).slice(0, 10);
+}
+
 export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryProvider {
-  readonly name = "job-posting";
+  readonly name = "public-web";
 
   async discover(input: RecruiterDiscoveryInput): Promise<RecruiterDiscoveryResult> {
-    const pages = await fetchPublicCompanyPages(input.companyDomain);
+    const [pages, linkedinProfiles] = await Promise.all([fetchPublicCompanyPages(input.companyDomain), discoverPublicLinkedInProfiles(input.companyName, input.jobTitle)]);
     const sources = [{ url: "job-description", text: input.jobDescription }, ...pages];
     const contacts = new Map<string, RecruiterContactCandidate>();
 
@@ -145,27 +168,24 @@ export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryP
       for (const email of extractRecruiterEmailsFromPublicText(normalizedText, input.companyDomain)) {
         const isJobPosting = source.url === "job-description";
         const confidence = isJobPosting ? 100 : looksLikeRecruitingMailbox(email) ? 96 : 88;
-        const existing = contacts.get(email);
         const sourceEntry = { url: isJobPosting ? undefined : source.url, type: isJobPosting ? "job_posting" : "public_company_page", confidence };
-        if (existing) {
-          existing.sources.push(sourceEntry);
-          existing.confidence = Math.max(existing.confidence ?? 0, confidence);
-        } else {
-          contacts.set(email, {
-            email,
-            title: looksLikeRecruitingMailbox(email) ? "Recruiting contact from public company source" : "Recruiting contact from public company source",
-            department: "recruiting",
-            confidence,
-            verified: false,
-            verificationStatus: "unverified_public_source",
-            provider: this.name,
-            sources: [sourceEntry]
-          });
-        }
+        const existing = contacts.get(email);
+        if (existing) { existing.sources.push(sourceEntry); existing.confidence = Math.max(existing.confidence ?? 0, confidence); }
+        else contacts.set(email, { email, title: "Recruiting contact from public company source", department: "recruiting", confidence, verified: false, verificationStatus: "unverified_public_source", provider: this.name, sources: [sourceEntry] });
       }
     }
 
-    return { provider: this.name, contacts: [...contacts.values()], discoveredAt: new Date() };
+    for (const contact of contacts.values()) {
+      const match = linkedinProfiles.find((profile) => isStrongNameEmailMatch(contact.email, profile.name));
+      if (!match) continue;
+      contact.fullName = match.name;
+      contact.title = match.title || "Recruiting / Talent Acquisition";
+      contact.linkedinProfileUrl = match.url;
+      contact.confidence = Math.min(100, (contact.confidence ?? 0) + 5);
+      contact.sources.push({ url: match.url, type: "public_linkedin_search", confidence: 95 });
+    }
+
+    return { provider: this.name, contacts: [...contacts.values()].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0)), discoveredAt: new Date() };
   }
 
   async verify(email: string): Promise<RecruiterVerificationResult> {
