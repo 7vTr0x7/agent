@@ -10,7 +10,7 @@ export interface PrepareRecruiterOutreachTaskPayload {
   jobTitle: string;
   jobDescription: string;
   jobOpportunityId: string;
-  applicationId: string;
+  applicationId?: string;
   candidateProfileId: string;
   candidateName: string;
   contacts: StoredRecruiterContact[];
