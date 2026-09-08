@@ -117,19 +117,22 @@ export class ApplicationQueueService {
           SELECT
             md.job_opportunity_id,
             md.candidate_profile_id,
-            jr.tier,
-            jr.rank_score,
+            COALESCE(jr.tier, CASE WHEN md.match_score >= 60 THEN 1 WHEN md.match_score >= 45 THEN 2 ELSE 3 END) AS tier,
+            COALESCE(jr.rank_score, md.match_score) AS rank_score,
             ROW_NUMBER() OVER (
               PARTITION BY LOWER(TRIM(jo.company_name))
-              ORDER BY jr.tier ASC, jr.rank_score DESC, jo.last_seen_at DESC
+              ORDER BY
+                COALESCE(jr.tier, CASE WHEN md.match_score >= 60 THEN 1 WHEN md.match_score >= 45 THEN 2 ELSE 3 END) ASC,
+                COALESCE(jr.rank_score, md.match_score) DESC,
+                jo.last_seen_at DESC
             ) AS company_rank,
             COALESCE(csc.submissions_used, 0) AS company_submissions_used
           FROM match_decisions md
-          INNER JOIN job_rankings jr
-            ON jr.job_opportunity_id = md.job_opportunity_id
-           AND jr.candidate_profile_id = md.candidate_profile_id
           INNER JOIN job_opportunities jo
             ON jo.id = md.job_opportunity_id
+          LEFT JOIN job_rankings jr
+            ON jr.job_opportunity_id = md.job_opportunity_id
+           AND jr.candidate_profile_id = md.candidate_profile_id
           LEFT JOIN applications a
             ON a.job_opportunity_id = md.job_opportunity_id
           LEFT JOIN company_submission_counts csc
