@@ -20,6 +20,12 @@ export interface GmailMessage {
   classification: GmailClassification;
 }
 
+export interface GmailAttachment {
+  filename: string;
+  contentType: string;
+  content: Buffer;
+}
+
 export interface GmailMailbox {
   listMessages(query: string, maxResults?: number): Promise<readonly string[]>;
   getMessage(messageId: string): Promise<GmailMessage>;
@@ -31,5 +37,6 @@ export interface GmailMailbox {
     inReplyTo?: string;
     references?: string;
     messageId?: string;
+    attachments?: readonly GmailAttachment[];
   }): Promise<{ gmailMessageId: string; gmailThreadId: string }>;
 }
