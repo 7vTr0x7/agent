@@ -112,7 +112,7 @@ function buildInitialMessage(input: RecruiterOutreachPreparationInput, contact: 
   const role = input.jobTitle.trim();
   const company = input.companyName.trim();
   const candidate = input.candidateName.trim() || "Candidate";
-  const outcome = input.applicationOutcome ?? "SUBMITTED";
+  const outcome = input.applicationOutcome ?? "NOT_ATTEMPTED";
 
   const applicationLine = outcome === "SUBMITTED"
     ? `I’ve applied for the role and wanted to reach out directly in case you’re involved in the hiring process.`
