@@ -41,18 +41,6 @@ function runInsideComposeApp(): never {
   process.exit();
 }
 
-function resolveHostDatabaseUrl(databaseUrl: string): string {
-  try {
-    const url = new URL(databaseUrl);
-    if (url.hostname === "postgres") {
-      url.hostname = "127.0.0.1";
-    }
-    return url.toString();
-  } catch {
-    return databaseUrl;
-  }
-}
-
 async function main(): Promise<void> {
   if (!isRunningInsideDocker() && process.env.DISCOVER_ONCE_IN_CONTAINER !== "1") {
     runInsideComposeApp();
@@ -60,7 +48,10 @@ async function main(): Promise<void> {
 
   const config = loadConfig();
   const logger = pino({ level: config.logLevel });
-  const database = new Database(resolveHostDatabaseUrl(config.databaseUrl));
+  // Keep the configured DATABASE_URL untouched. Inside Compose, the hostname
+  // `postgres` is the correct service address; rewriting it to 127.0.0.1 would
+  // incorrectly point the app container back at itself.
+  const database = new Database(config.databaseUrl);
 
   try {
     await new MigrationRunner(database).run();
