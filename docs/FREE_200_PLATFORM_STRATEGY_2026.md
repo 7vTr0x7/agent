@@ -13,10 +13,10 @@ The project therefore uses four layers:
 
 ## Research basis
 
-- Greenhouse's public Job Board API exposes published jobs without authentication; its application POST endpoint is authenticated. This makes Greenhouse excellent for discovery and a separate path for application submission. See the official Greenhouse Job Board API documentation.
-- Lever's public postings API exposes published postings and supports programmatic applications when the employer's account provides the required application API key. Public postings can therefore be discovered without a paid aggregator.
-- Current open-source job aggregation projects demonstrate that 100+ public job sources can be normalized through APIs, RSS/Atom feeds, and public career pages. We use this as an architecture reference, not as a dependency and not as permission to bypass protected sites.
-- Public feed examples verified during research include Python.org Jobs, LaraJobs, FOSS Jobs, Jobspresso, HasJob, Golang Projects, VueJobs, Landing.jobs, We Work Remotely, and other RSS/Atom sources.
+- Greenhouse's public Job Board API exposes published jobs without authentication; its application POST endpoint is authenticated. This makes Greenhouse excellent for discovery and a separate path for application submission. citeturn0search1turn0search4
+- Lever's public postings API exposes published postings and supports programmatic applications when the employer's account provides the required application API key. Public postings can therefore be discovered without a paid aggregator. citeturn0search0turn0search5
+- Current open-source job aggregation projects demonstrate that 100+ public job sources can be normalized through APIs, RSS/Atom feeds, and public career pages. We use this as an architecture reference, not as a dependency and not as permission to bypass protected sites. citeturn2view0
+- Public feed examples verified during research include Python.org Jobs, LaraJobs, FOSS Jobs, Jobspresso, HasJob, Golang Projects, VueJobs, Landing.jobs, We Work Remotely, and other RSS/Atom sources. citeturn3search0turn5search0turn5search4turn7search0turn8search0
 
 ## What "200 platforms" means here
 
@@ -33,9 +33,9 @@ This avoids generating empty jobs from dead URLs and avoids violating login/CAPT
 
 ## Free public feed federation
 
-`FreePublicJobFeedBundleSource` now fans out across a maintained set of public RSS/Atom job feeds. Each feed is isolated with `Promise.allSettled`, so a broken feed does not stop discovery from the other sources.
+`FreePublicJobFeedBundleSource` now fans out across **50+ public RSS/Atom job feeds**. Each feed is isolated with `Promise.allSettled`, so a broken board does not stop discovery from the other sources.
 
-The bundle currently includes public feeds for:
+The bundle includes, among others:
 
 - We Work Remotely (general + frontend)
 - Python.org Jobs
@@ -43,11 +43,34 @@ The bundle currently includes public feeds for:
 - FOSS Jobs
 - Jobspresso
 - HasJob
-- Golang Projects
+- Golang Projects and Golang Remote Jobs
 - VueJobs
-- Landing.jobs remote
+- Landing.jobs
 - I Love Remote
-- Freelancer
+- Freelancer / freelancermap
+- FreshRemote
+- Functional Jobs
+- Guru
+- Jobhunt.ai
+- Krop
+- Mozilla Careers
+- NODESK
+- NTEN
+- Pangian
+- Privacy-First Jobs
+- Code for America Jobs
+- Smashing Jobs
+- Stack Overflow Jobs
+- Virtual Vocations
+- WordPress Jobs / WP Hired
+- Dribbble Jobs
+- Django / Rails / Angular / Ember / Drupal boards
+- RemotePython
+- CryptoJobsList / Cryptocurrency Jobs
+- CodePen Jobs
+- RemoteJobr
+- Berlin Startup Jobs
+- 42jobs React / Android
 
 The existing Remote OK, Himalayas, Jobicy, Arbeitnow and other direct sources remain enabled separately.
 
@@ -76,4 +99,6 @@ This means a role can still reach the recruiter-outreach pipeline when the appli
 
 ## Important API-cost notes
 
-Adzuna and Jooble remain optional. Adzuna documents request limits and usage terms; Jooble documents a free API plan with a lifetime request quota. They are not required for the free-first path. Techmap is also optional and is not required for discovery.
+Adzuna and Jooble remain optional. Adzuna documents request limits and usage terms; Jooble documents a free API plan with a lifetime request quota. They are not required for the free-first path. citeturn0search7turn0search2
+
+Techmap is also optional and is not required for discovery.
