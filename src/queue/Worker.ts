@@ -52,6 +52,8 @@ export class Worker {
           continue;
         }
 
+        // The queue uses a five-minute default lease. Refresh well before expiry
+        // so network/browser/API tasks can safely run for several minutes.
         const heartbeatTimer = setInterval(() => {
           void this.queue.heartbeat(task.id, this.workerId).catch(() => undefined);
         }, this.heartbeatIntervalMs);
