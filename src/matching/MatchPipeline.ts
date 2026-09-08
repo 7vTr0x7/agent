@@ -21,6 +21,7 @@ export interface CombinedMatchResult {
 
 const APPLY_THRESHOLD = 30;
 const REVIEW_THRESHOLD = 20;
+const MATCHER_VERSION = "matcher-v3";
 
 export class MatchPipeline {
   constructor(
@@ -59,7 +60,7 @@ export class MatchPipeline {
 }
 
 function combine(deterministic: DeterministicMatchResult, semantic: SemanticMatchResult | null, job: JobOpportunity, profile: CandidateProfile, semanticFallback = false): CombinedMatchResult {
-  const inputHash = createHash("sha256").update(JSON.stringify({ jobId: job.id, jobVersion: job.updatedAt, profile })).digest("hex");
+  const inputHash = `${MATCHER_VERSION}:${createHash("sha256").update(JSON.stringify({ jobId: job.id, jobVersion: job.updatedAt, profile })).digest("hex")}`;
 
   if (!semantic) {
     const fallbackReason = semanticFallback ? `${deterministic.reason} AI assessment unavailable; deterministic rules remain authoritative.` : deterministic.reason;
