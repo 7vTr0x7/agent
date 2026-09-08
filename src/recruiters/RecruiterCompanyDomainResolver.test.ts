@@ -1,8 +1,9 @@
 import { resolveEmployerDomainFromJobUrl } from "./RecruiterCompanyDomainResolver";
 
 describe("resolveEmployerDomainFromJobUrl", () => {
-  it("resolves a direct employer URL", () => {
-    expect(resolveEmployerDomainFromJobUrl("https://careers.acme.com/jobs/frontend")).toBe("careers.acme.com");
+  it("resolves and normalizes a direct employer URL", () => {
+    expect(resolveEmployerDomainFromJobUrl("https://careers.acme.com/jobs/frontend")).toBe("acme.com");
+    expect(resolveEmployerDomainFromJobUrl("https://jobs.acme.co.in/frontend")).toBe("acme.co.in");
   });
 
   it("does not mistake marketplace or ATS hosts for employers", () => {
