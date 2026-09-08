@@ -1,4 +1,5 @@
 import { TaskQueue } from "../queue/TaskQueue";
+import { RecruiterApplicationOutcome } from "./RecruiterOutreachPreparationService";
 
 export const DISCOVER_RECRUITERS_TASK = "DISCOVER_RECRUITERS";
 
@@ -12,6 +13,7 @@ export interface DiscoverRecruitersTaskPayload {
   candidateName?: string;
   jobOpportunityId: string;
   applicationId: string;
+  applicationOutcome?: RecruiterApplicationOutcome;
 }
 
 export class RecruiterDiscoveryTaskDispatcher {
