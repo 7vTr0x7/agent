@@ -21,6 +21,7 @@ export interface RecruiterContactCandidate {
   verified: boolean;
   verificationStatus?: string;
   provider: string;
+  linkedinProfileUrl?: string;
   sources: Array<{
     url?: string;
     type?: string;
