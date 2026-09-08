@@ -86,6 +86,17 @@ describe("RecruiterOutreachPreparationService", () => {
     expect(prepared.message.body).toContain("I’ve applied for the role");
   });
 
+  it("uses truthful wording when the application failed", async () => {
+    const { repo } = repository();
+    const service = new RecruiterOutreachPreparationService({ repository: repo as never, dryRun: true });
+
+    const result = await service.prepare({ ...input, applicationOutcome: "FAILED" }, [contact()]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.message.body).toContain("I attempted to apply for the role");
+    expect(result[0]?.message.body).not.toContain("I’ve applied for the role");
+  });
+
   it("blocks suppressed contacts before creating a sequence", async () => {
     const { repo, calls } = repository({ suppressed: { email: true, domain: false } });
     const service = new RecruiterOutreachPreparationService({ repository: repo as never });
