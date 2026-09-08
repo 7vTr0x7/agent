@@ -122,9 +122,9 @@ describe("RecruiterOutreachSendService", () => {
   it("claims, sends, and records the provider identifiers", async () => {
     const repo = repository();
     const mail = mailbox();
-    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true, activation: "canary", maxMessagesPerHour: 1, maxMessagesPerDay: 1 });
+    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true, activation: "canary", maxMessagesPerHour: 1, maxMessagesPerDay: 1, attachResume: false });
     await expect(service.send(message, "acme.dev")).resolves.toEqual({ status: "SENT", messageId: message.id, gmailMessageId: "gmail-1", gmailThreadId: "thread-1" });
-    expect(mail.sendMessage).toHaveBeenCalledWith({ to: message.recipientEmail, subject: message.subject, bodyText: message.body, messageId: deterministicMessageId(message.id) });
+    expect(mail.sendMessage).toHaveBeenCalledWith({ to: message.recipientEmail, subject: message.subject, bodyText: message.body, messageId: deterministicMessageId(message.id), attachments: undefined });
     expect(repo.markOutreachMessageSent).toHaveBeenCalledWith(message.id, { provider: "gmail", providerMessageId: "gmail-1", providerThreadId: "thread-1" });
   });
 
