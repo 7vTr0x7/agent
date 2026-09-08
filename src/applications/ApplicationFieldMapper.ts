@@ -30,7 +30,7 @@ const FIELD_ALIASES: Readonly<Record<ApplicationFieldKey, readonly string[]>> = 
   firstName: ["first name", "firstname", "given name", "forename"],
   lastName: ["last name", "lastname", "surname", "family name"],
   fullName: ["full name", "name", "candidate name", "your name"],
-  email: ["email", "email address", "e-mail", "e-mail address"],
+  email: ["email", "email address", "emailaddress", "e-mail", "e-mail address"],
   phone: ["phone", "phone number", "mobile", "mobile number", "telephone", "contact number"],
   location: ["location", "current location", "city", "current city", "address"],
   workAuthorization: ["work authorization", "work eligibility", "right to work", "authorized to work"],
@@ -68,6 +68,14 @@ function fieldParts(field: ApplicationField): readonly string[] {
 function resolveKey(field: ApplicationField): { key: ApplicationFieldKey | null; confidence: number } {
   const parts = fieldParts(field);
   if (parts.length === 0) return { key: null, confidence: 0 };
+
+  // Email is a universally safe identity/contact field. Resolve common DOM
+  // variants such as emailAddress before the general alias scorer so a
+  // compound field name cannot become ambiguous with another field.
+  const emailParts = parts.filter((part) =>
+    part === "email" || part === "email address" || part === "e mail" || part === "e mail address"
+  );
+  if (emailParts.length > 0) return { key: "email", confidence: 1 };
 
   const matches = (Object.entries(FIELD_ALIASES) as [ApplicationFieldKey, readonly string[]][])
     .map(([key, aliases]) => {
