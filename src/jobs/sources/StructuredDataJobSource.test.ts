@@ -40,7 +40,7 @@ describe("StructuredDataJobSource", () => {
       country: "India",
       employmentType: "FULL_TIME"
     });
-    expect(jobs[0].contentHash).toHaveLength(64);
+    expect(jobs[0]!.contentHash).toHaveLength(64);
   });
 
   it("supports @graph and ignores malformed/non-job JSON-LD", async () => {
@@ -57,7 +57,7 @@ describe("StructuredDataJobSource", () => {
 
     const jobs = await new StructuredDataJobSource({ id: "example", url: "https://example.com" }).fetchJobs();
     expect(jobs).toHaveLength(1);
-    expect(jobs[0].title).toBe("React Developer");
+    expect(jobs[0]!.title).toBe("React Developer");
   });
 
   it("fails clearly on a non-success response", async () => {
