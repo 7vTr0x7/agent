@@ -58,7 +58,10 @@ export function createDiscoveryRuntime(
     opportunityRepository,
     candidateProfile,
     pipeline,
-    ranking
+    ranking,
+    taskQueue,
+    config,
+    csvEnvironment("JOB_EXCLUDED_COMPANIES")
   );
 
   const registry = new SourceRegistry();
@@ -110,4 +113,8 @@ export function createDiscoveryRuntime(
     matchQueueService,
     sourceCount: registry.listRunnable().length
   };
+}
+
+function csvEnvironment(name: string): string[] {
+  return (process.env[name] ?? "").split(",").map((value) => value.trim()).filter(Boolean);
 }
