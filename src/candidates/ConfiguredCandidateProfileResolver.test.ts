@@ -21,6 +21,52 @@ describe("ConfiguredCandidateProfileResolver", () => {
     });
   });
 
+  it("uses the Gmail mailbox address as the candidate email when explicitly enabled and no candidate email is configured", async () => {
+    const resolver = ConfiguredCandidateProfileResolver.fromEnvironment({
+      CANDIDATE_PROFILE_ID: "candidate-1",
+      CANDIDATE_YEARS_EXPERIENCE: "3",
+      CANDIDATE_SKILLS: "React.js",
+      CANDIDATE_TARGET_TITLES: "Frontend Engineer",
+      GMAIL_ENABLED: "true",
+      GMAIL_USER_EMAIL: "candidate@gmail.com"
+    });
+
+    await expect(resolver.getById("candidate-1")).resolves.toMatchObject({
+      email: "candidate@gmail.com"
+    });
+  });
+
+  it("prefers an explicitly configured candidate email over the Gmail mailbox address", async () => {
+    const resolver = ConfiguredCandidateProfileResolver.fromEnvironment({
+      CANDIDATE_PROFILE_ID: "candidate-1",
+      CANDIDATE_YEARS_EXPERIENCE: "3",
+      CANDIDATE_SKILLS: "React.js",
+      CANDIDATE_TARGET_TITLES: "Frontend Engineer",
+      CANDIDATE_EMAIL: "candidate@example.com",
+      GMAIL_ENABLED: "true",
+      GMAIL_USER_EMAIL: "candidate@gmail.com"
+    });
+
+    await expect(resolver.getById("candidate-1")).resolves.toMatchObject({
+      email: "candidate@example.com"
+    });
+  });
+
+  it("does not use Gmail as a candidate email source when Gmail is disabled", async () => {
+    const resolver = ConfiguredCandidateProfileResolver.fromEnvironment({
+      CANDIDATE_PROFILE_ID: "candidate-1",
+      CANDIDATE_YEARS_EXPERIENCE: "3",
+      CANDIDATE_SKILLS: "React.js",
+      CANDIDATE_TARGET_TITLES: "Frontend Engineer",
+      GMAIL_ENABLED: "false",
+      GMAIL_USER_EMAIL: "candidate@gmail.com"
+    });
+
+    await expect(resolver.getById("candidate-1")).resolves.toMatchObject({
+      email: undefined
+    });
+  });
+
   it("returns null for an unknown candidate profile", async () => {
     const resolver = new ConfiguredCandidateProfileResolver({
       id: "candidate-1",
