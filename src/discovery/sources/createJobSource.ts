@@ -8,6 +8,7 @@ import { RemoteOkJobSource } from "../../jobs/sources/RemoteOkJobSource";
 import { PublicJsonJobSource } from "../../jobs/sources/PublicJsonJobSource";
 import { FallbackJobSource } from "../../jobs/sources/FallbackJobSource";
 import { StructuredDataJobSource } from "../../jobs/sources/StructuredDataJobSource";
+import { FreePublicJobFeedBundleSource } from "../../jobs/sources/FreePublicJobFeedBundleSource";
 import { TechmapJobSource } from "../../jobs/sources/TechmapJobSource";
 import { AdzunaJobSource } from "../../jobs/sources/AdzunaJobSource";
 import { JoobleJobSource } from "../../jobs/sources/JoobleJobSource";
@@ -33,6 +34,7 @@ function createRssSource(config: SourceConfig): JobSource { if (!config.feedUrl)
 function createApiSource(config: SourceConfig): JobSource {
   const adapter = config.name.toLowerCase();
   if (adapter === "remoteok") return new RemoteOkJobSource(config.feedUrl);
+  if (adapter === "free-public-feeds") return new FreePublicJobFeedBundleSource();
   if (adapter === "himalayas" || adapter === "arbeitnow") { if (!config.feedUrl) throw new Error(`${adapter} source requires feedUrl`); const isUkFeed = adapter === "arbeitnow" && config.feedUrl.toLowerCase().includes("arbeitnow.co.uk"); return new PublicJsonJobSource(adapter, config.feedUrl, isUkFeed ? "United Kingdom" : null); }
   if (adapter === "jobicy") { if (!config.feedUrl) throw new Error("jobicy source requires feedUrl"); return new FallbackJobSource(new PublicJsonJobSource(adapter, config.feedUrl), new RssJobSource({ name: config.id, feedUrl: "https://jobicy.com/jobs/feed", defaultCompanyName: "Jobicy" })); }
   if (adapter === "techmap") { const apiKey = resolveApiKey(config); if (!apiKey) throw new Error(`Missing API key for source ${config.id}`); if (!config.apiUrl) throw new Error("techmap source requires apiUrl"); return new TechmapJobSource({ apiUrl: config.apiUrl, apiKey, portals: config.portals, countryCode: config.countryCode, city: config.city, workPlace: config.workPlace, title: config.title, skills: config.skills, dateCreated: config.dateCreated, page: 1, limit: config.resultOnPage }); }
