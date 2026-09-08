@@ -48,8 +48,11 @@ export class DeterministicJobMatcher {
   private readonly reviewThreshold: number;
 
   constructor(options: DeterministicMatcherOptions = {}) {
-    this.applyThreshold = options.applyThreshold ?? 70;
-    this.reviewThreshold = options.reviewThreshold ?? 40;
+    // User policy: jobs scoring 30/100 or higher are eligible for application.
+    // The application queue still enforces exclusions, deduplication, ranking,
+    // rate limits and other application safety checks.
+    this.applyThreshold = options.applyThreshold ?? 30;
+    this.reviewThreshold = options.reviewThreshold ?? 20;
   }
 
   evaluate(job: JobOpportunity, profile: CandidateProfile): DeterministicMatchResult {
@@ -111,10 +114,8 @@ export class DeterministicJobMatcher {
     }
 
     // Do not divide by every skill on the resume. A job posting is not expected
-    // to mention unrelated candidate skills, and treating those omissions as
-    // negative evidence was causing relevant frontend/full-stack roles to be
-    // systematically rejected. Five matched skills can saturate the skill
-    // component at 70 points; additional matches are still recorded as evidence.
+    // to mention unrelated candidate skills. Five matched skills saturate the
+    // skill component at 70 points; additional matches are still evidence.
     const skillScore = Math.min(70, matchedSkills.length * 14);
     const titleBonus = titleMatch ? 20 : 0;
     const experienceBonus = requiredYears !== null && requiredYears <= profile.yearsExperience ? 10 : 0;
