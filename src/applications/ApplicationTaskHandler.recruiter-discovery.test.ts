@@ -47,7 +47,7 @@ describe("ApplicationTaskHandler recruiter discovery integration", () => {
     );
   }
 
-  it("queues recruiter discovery even when the application is not submitted", async () => {
+  it("queues recruiter discovery with the truthful failed application outcome when the application is not submitted", async () => {
     const dispatcher = { enqueue: jest.fn().mockResolvedValue("discovery-task-1") };
     const handler = createHandler(dispatcher);
 
@@ -65,7 +65,8 @@ describe("ApplicationTaskHandler recruiter discovery integration", () => {
       candidateProfileId: "candidate-1",
       candidateName: "Salman Shaikh",
       jobOpportunityId: "job-1",
-      applicationId: "application-1"
+      applicationId: "application-1",
+      applicationOutcome: "FAILED"
     });
   });
 
