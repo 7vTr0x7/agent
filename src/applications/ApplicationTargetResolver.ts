@@ -7,10 +7,11 @@ export interface ApplicationTargetResolution {
   reason: string;
 }
 
-const APPLY_NAME = /^(?:apply|apply now|apply here|apply on company site|apply externally|easy apply|quick apply|応募|応募する)$/i;
+const APPLY_NAME = /\bapply\b|easy apply|quick apply|応募(?:する)?/i;
 const SUBMIT_NAME = /^(?:submit|submit application|send application|complete application)$/i;
 const AUTH_PATH = /(?:^|\/)(?:login|log-in|signin|sign-in|signup|sign-up|register|registration)(?:\/|$)/i;
 const AUTH_TEXT = /(?:sign in|sign-in|log in|log-in|create account|register|registration|forgot password)/i;
+const EXCLUDED_APPLY_NAME = /(?:privacy|policy|terms|help|support|jobs?|careers?|login|sign in|register|account|cookie)/i;
 
 export class ApplicationTargetResolver {
   async resolve(page: Page, sourceUrl: string): Promise<ApplicationTargetResolution> {
@@ -71,13 +72,17 @@ export class ApplicationTargetResolver {
       };
     }
 
-    const links = page.getByRole("link", { name: APPLY_NAME });
-    const buttons = page.getByRole("button", { name: APPLY_NAME });
-    const linkCount = await links.count();
-    const buttonCount = await buttons.count();
-    const total = linkCount + buttonCount;
+    const candidates = await page.locator('a, button, input[type="submit"], input[type="button"]').evaluateAll((elements) =>
+      elements.map((element, index) => ({
+        index,
+        name: (element.getAttribute("aria-label") || element.textContent || (element as HTMLInputElement).value || "").trim(),
+        href: element instanceof HTMLAnchorElement ? element.href : null
+      }))
+    );
 
-    if (total === 0) {
+    const applyCandidates = candidates.filter(({ name }) => APPLY_NAME.test(name) && !EXCLUDED_APPLY_NAME.test(name));
+
+    if (applyCandidates.length === 0) {
       return {
         resolved: false,
         url: effectiveUrl,
@@ -86,7 +91,7 @@ export class ApplicationTargetResolver {
       };
     }
 
-    if (total > 1) {
+    if (applyCandidates.length > 1) {
       return {
         resolved: false,
         url: effectiveUrl,
@@ -95,19 +100,11 @@ export class ApplicationTargetResolver {
       };
     }
 
-    if (linkCount === 1) {
-      const href = await links.getAttribute("href");
-      if (!href) {
-        return {
-          resolved: false,
-          url: effectiveUrl,
-          startedFromJobPage,
-          reason: "The application link has no destination URL."
-        };
-      }
+    const candidate = applyCandidates[0];
+    const locator = page.locator('a, button, input[type="submit"], input[type="button"]').nth(candidate.index);
 
-      const targetUrl = new URL(href, effectiveUrl).toString();
-      if (targetUrl === effectiveUrl) {
+    if (candidate.href) {
+      if (candidate.href === effectiveUrl) {
         return {
           resolved: false,
           url: effectiveUrl,
@@ -115,13 +112,12 @@ export class ApplicationTargetResolver {
           reason: "The application link points back to the same page; manual review is required."
         };
       }
-
-      await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
-      return this.resolveInternal(page, targetUrl, true);
+      await page.goto(candidate.href, { waitUntil: "domcontentloaded" });
+      return this.resolveInternal(page, candidate.href, true);
     }
 
     try {
-      await buttons.click();
+      await locator.click();
       await page.waitForLoadState("domcontentloaded").catch(() => undefined);
     } catch (error) {
       return {
