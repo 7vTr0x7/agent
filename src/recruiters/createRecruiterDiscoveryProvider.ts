@@ -11,10 +11,9 @@ export interface RecruiterDiscoveryProviderConfig {
  * Free-first recruiter discovery.
  *
  * No Hunter/Snov/Apollo credentials are required. The provider searches the
- * job posting plus first-party company pages, career/contact pages, sitemaps,
- * mailto links and common obfuscated email forms. Keeping discovery local to
- * public sources avoids paid databases and prevents the application from
- * depending on an external lead-enrichment vendor.
+ * job posting, first-party company pages, career/contact pages, sitemaps,
+ * public search results and public LinkedIn profile evidence. It never logs
+ * into LinkedIn or scrapes authenticated/private LinkedIn data.
  */
 export function createRecruiterDiscoveryProvider(_config: RecruiterDiscoveryProviderConfig): RecruiterDiscoveryProvider {
   return new JobPostingRecruiterDiscoveryProvider();
