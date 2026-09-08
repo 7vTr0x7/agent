@@ -1,4 +1,6 @@
 import "dotenv/config";
+import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import pino from "pino";
 import { loadConfig } from "../src/config/env";
 import { Database } from "../src/database/Database";
@@ -20,12 +22,31 @@ interface SourceRunDiagnostic {
   finished_at: Date | null;
 }
 
+function isRunningInsideDocker(): boolean {
+  return existsSync("/.dockerenv");
+}
+
+function runInsideComposeApp(): never {
+  const result = spawnSync(
+    "docker",
+    ["compose", "exec", "-T", "app", "node", "dist/scripts/discover-once.js"],
+    { stdio: "inherit" }
+  );
+
+  if (result.error) {
+    throw new Error(`Unable to execute discovery inside the Docker app container: ${result.error.message}`);
+  }
+
+  process.exitCode = result.status ?? 1;
+  process.exit();
+}
+
 function resolveHostDatabaseUrl(databaseUrl: string): string {
   try {
     const url = new URL(databaseUrl);
     // Docker Compose resolves the service name `postgres` only inside the
-    // Compose network. This smoke script normally runs on the host, where
-    // PostgreSQL is exposed on loopback by docker-compose.yml.
+    // Compose network. Host-side execution is delegated to the app container
+    // so it uses the exact same DATABASE_URL and credentials as the running app.
     if (url.hostname === "postgres") {
       url.hostname = "127.0.0.1";
     }
@@ -36,6 +57,14 @@ function resolveHostDatabaseUrl(databaseUrl: string): string {
 }
 
 async function main(): Promise<void> {
+  // Running this command from the host should not create a second, potentially
+  // mismatched database configuration. Execute the compiled script in the
+  // already-running Compose app container, where DATABASE_URL matches the
+  // PostgreSQL service credentials exactly.
+  if (!isRunningInsideDocker() && process.env.DISCOVER_ONCE_IN_CONTAINER !== "1") {
+    runInsideComposeApp();
+  }
+
   const config = loadConfig();
   const logger = pino({ level: config.logLevel });
   const database = new Database(resolveHostDatabaseUrl(config.databaseUrl));
