@@ -25,14 +25,56 @@ describe("SubmissionButtonResolver", () => {
     }
   });
 
-  it("refuses to resolve when multiple submit-like buttons exist", async () => {
+  it("resolves an input submit control by its value", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+
+    try {
+      await page.setContent(`
+        <form>
+          <button type="button">Cancel</button>
+          <input type="submit" value="Apply Now" />
+        </form>
+      `);
+
+      const result = await new SubmissionButtonResolver().resolveVerified(page);
+
+      expect(result.found).toBe(true);
+      expect(result.locator).not.toBeNull();
+      expect(await result.locator?.getAttribute("value")).toBe("Apply Now");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("resolves a submit control by aria-label when it has no visible text", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+
+    try {
+      await page.setContent(`
+        <form>
+          <button type="submit" aria-label="Apply Now"></button>
+        </form>
+      `);
+
+      const result = await new SubmissionButtonResolver().resolveVerified(page);
+
+      expect(result.found).toBe(true);
+      expect(result.locator).not.toBeNull();
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("refuses to resolve when multiple submit-like controls exist", async () => {
     const browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
 
     try {
       await page.setContent(`
         <button>Apply Now</button>
-        <button>Submit Application</button>
+        <input type="submit" value="Submit Application" />
       `);
 
       const result = await new SubmissionButtonResolver().resolveVerified(page);
