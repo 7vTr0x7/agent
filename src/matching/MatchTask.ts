@@ -30,8 +30,8 @@ export class MatchTaskDispatcher {
 }
 
 export class MatchTaskHandler {
-  private readonly applications: ApplicationTaskDispatcher;
-  private readonly recruiters: RecruiterDiscoveryTaskDispatcher;
+  private readonly applications?: ApplicationTaskDispatcher;
+  private readonly recruiters?: RecruiterDiscoveryTaskDispatcher;
   private readonly recruiterEnabled: boolean;
   private readonly excludedCompanies: readonly string[];
 
@@ -44,9 +44,10 @@ export class MatchTaskHandler {
     config?: AppConfig,
     excludedCompanies: readonly string[] = []
   ) {
-    if (!taskQueue) throw new Error("MatchTaskHandler requires a task queue.");
-    this.applications = new ApplicationTaskDispatcher(taskQueue);
-    this.recruiters = new RecruiterDiscoveryTaskDispatcher(taskQueue);
+    if (taskQueue) {
+      this.applications = new ApplicationTaskDispatcher(taskQueue);
+      this.recruiters = new RecruiterDiscoveryTaskDispatcher(taskQueue);
+    }
     this.recruiterEnabled = config?.recruiterOutreach.enabled ?? false;
     this.excludedCompanies = excludedCompanies;
   }
@@ -75,7 +76,7 @@ export class MatchTaskHandler {
       rankedAndEligible = result.persisted;
     }
 
-    if (!rankedAndEligible) return;
+    if (!rankedAndEligible || !this.applications) return;
 
     // MATCH_JOB is the synchronization barrier. Once a job is matched and
     // eligible, application and recruiter outreach become independent sibling
@@ -89,7 +90,7 @@ export class MatchTaskHandler {
     job: Awaited<ReturnType<JobOpportunityRepository["findById"]>>,
     candidateProfileId: string
   ): Promise<string | null> {
-    if (!job || !this.recruiterEnabled) return null;
+    if (!job || !this.recruiterEnabled || !this.recruiters) return null;
     if (isExcludedCompany(job.companyName, this.excludedCompanies)) return null;
 
     const companyDomain = job.companyDomain ?? resolveEmployerDomainFromJobUrl(job.canonicalUrl);
