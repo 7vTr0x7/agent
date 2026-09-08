@@ -24,12 +24,12 @@ export interface DeterministicMatcherOptions {
 const SKILL_ALIASES: Record<string, string[]> = {
   "react.js": ["react", "reactjs", "react.js"],
   react: ["react", "reactjs", "react.js"],
-  "next.js": ["next", "nextjs", "next.js"],
-  nextjs: ["next", "nextjs", "next.js"],
-  "node.js": ["node", "nodejs", "node.js"],
-  node: ["node", "nodejs", "node.js"],
-  "express.js": ["express", "expressjs", "express.js"],
-  express: ["express", "expressjs", "express.js"],
+  "next.js": ["next", "nextjs", "next.js", "next js"],
+  nextjs: ["next", "nextjs", "next.js", "next js"],
+  "node.js": ["node", "nodejs", "node.js", "node js"],
+  node: ["node", "nodejs", "node.js", "node js"],
+  "express.js": ["express", "expressjs", "express.js", "express js"],
+  express: ["express", "expressjs", "express.js", "express js"],
   javascript: ["javascript", "js", "ecmascript"],
   js: ["javascript", "js", "ecmascript"],
   typescript: ["typescript", "ts"],
@@ -49,8 +49,6 @@ export class DeterministicJobMatcher {
 
   constructor(options: DeterministicMatcherOptions = {}) {
     // User policy: jobs scoring 30/100 or higher are eligible for application.
-    // The application queue still enforces exclusions, deduplication, ranking,
-    // rate limits and other application safety checks.
     this.applyThreshold = options.applyThreshold ?? 30;
     this.reviewThreshold = options.reviewThreshold ?? 20;
   }
@@ -59,82 +57,35 @@ export class DeterministicJobMatcher {
     const normalizedText = normalize(`${job.title}\n${job.description}`);
     const evidence: MatchEvidence[] = [];
 
-    const matchedSkills = profile.skills.filter((skill) =>
-      containsSkill(normalizedText, skill)
-    );
-    const missingSkills = profile.skills.filter((skill) =>
-      !containsSkill(normalizedText, skill)
-    );
+    const matchedSkills = profile.skills.filter((skill) => containsSkill(normalizedText, skill));
+    const missingSkills = profile.skills.filter((skill) => !containsSkill(normalizedText, skill));
 
     for (const skill of matchedSkills) {
-      evidence.push({
-        type: "SKILL_MATCH",
-        detail: `Candidate skill is relevant to the job and appears in the posting: ${skill}`
-      });
+      evidence.push({ type: "SKILL_MATCH", detail: `Candidate skill is relevant to the job and appears in the posting: ${skill}` });
     }
-
     for (const skill of missingSkills) {
-      evidence.push({
-        type: "SKILL_GAP",
-        detail: `Candidate skill is not mentioned in the posting: ${skill}`
-      });
+      evidence.push({ type: "SKILL_GAP", detail: `Candidate skill is not mentioned in the posting: ${skill}` });
     }
 
-    const titleMatch = profile.targetTitles.some((title) =>
-      containsPhrase(normalize(job.title), normalize(title))
-    );
-    if (titleMatch) {
-      evidence.push({
-        type: "TITLE_MATCH",
-        detail: "Job title matches a candidate target title."
-      });
-    }
+    const titleMatch = profile.targetTitles.some((title) => containsPhrase(normalize(job.title), normalize(title)));
+    if (titleMatch) evidence.push({ type: "TITLE_MATCH", detail: "Job title matches a candidate target title." });
 
     const requiredYears = extractRequiredYears(normalizedText);
     if (requiredYears !== null) {
       if (requiredYears > profile.yearsExperience) {
-        evidence.push({
-          type: "HARD_BLOCKER",
-          detail: `Job explicitly requires approximately ${requiredYears}+ years; candidate has ${profile.yearsExperience}.`
-        });
-        return {
-          matchScore: 0,
-          decision: "REJECT",
-          matchedSkills,
-          missingSkills,
-          evidence,
-          reason: "Deterministic hard blocker: explicit minimum experience exceeds candidate experience."
-        };
+        evidence.push({ type: "HARD_BLOCKER", detail: `Job explicitly requires approximately ${requiredYears}+ years; candidate has ${profile.yearsExperience}.` });
+        return { matchScore: 0, decision: "REJECT", matchedSkills, missingSkills, evidence, reason: "Deterministic hard blocker: explicit minimum experience exceeds candidate experience." };
       }
-
-      evidence.push({
-        type: "EXPERIENCE",
-        detail: `Candidate meets the explicit ${requiredYears}+ year requirement.`
-      });
+      evidence.push({ type: "EXPERIENCE", detail: `Candidate meets the explicit ${requiredYears}+ year requirement.` });
     }
 
-    // Do not divide by every skill on the resume. A job posting is not expected
-    // to mention unrelated candidate skills. Five matched skills saturate the
-    // skill component at 70 points; additional matches are still evidence.
     const skillScore = Math.min(70, matchedSkills.length * 14);
     const titleBonus = titleMatch ? 20 : 0;
     const experienceBonus = requiredYears !== null && requiredYears <= profile.yearsExperience ? 10 : 0;
     const matchScore = Math.min(100, skillScore + titleBonus + experienceBonus);
+    let decision: JobDecision = matchScore >= this.applyThreshold ? "APPLY" : matchScore >= this.reviewThreshold ? "REVIEW" : "REJECT";
 
-    let decision: JobDecision =
-      matchScore >= this.applyThreshold
-        ? "APPLY"
-        : matchScore >= this.reviewThreshold
-          ? "REVIEW"
-          : "REJECT";
-
-    if (
-      decision === "REJECT" &&
-      hasPreferredExperience(normalizedText) &&
-      (titleMatch || matchedSkills.length > 0)
-    ) {
-      decision = "REVIEW";
-    }
+    if (decision === "REJECT" && hasPreferredExperience(normalizedText) && (titleMatch || matchedSkills.length > 0)) decision = "REVIEW";
 
     return {
       matchScore,
@@ -142,18 +93,17 @@ export class DeterministicJobMatcher {
       matchedSkills,
       missingSkills,
       evidence,
-      reason: `${matchedSkills.length} candidate skills appear in the job posting; ` +
-        `${titleMatch ? "target title matched" : "target title not matched"}.`
+      reason: `${matchedSkills.length} candidate skills appear in the job posting; ${titleMatch ? "target title matched" : "target title not matched"}.`
     };
   }
 }
 
 function normalize(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9+#.]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return value.toLowerCase().replace(/[^a-z0-9+#.]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function compact(value: string): string {
+  return value.replace(/[^a-z0-9]+/g, "");
 }
 
 function containsPhrase(text: string, term: string): boolean {
@@ -164,7 +114,11 @@ function containsPhrase(text: string, term: string): boolean {
 function containsSkill(text: string, skill: string): boolean {
   const normalizedSkill = normalize(skill);
   const aliases = SKILL_ALIASES[normalizedSkill] ?? [normalizedSkill];
-  return aliases.some((alias) => containsPhrase(text, normalize(alias)));
+  const compactText = compact(text);
+  return aliases.some((alias) => {
+    const normalizedAlias = normalize(alias);
+    return containsPhrase(text, normalizedAlias) || compactText.includes(compact(normalizedAlias));
+  });
 }
 
 function hasPreferredExperience(text: string): boolean {
@@ -177,10 +131,6 @@ function extractRequiredYears(text: string): number | null {
     ...text.matchAll(/(\d+(?:\.\d+)?)\s*\+\s*years?\s+(?:of\s+)?experience\s+(?:required|mandatory|minimum)/g),
     ...text.matchAll(/(?:experience|exp)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*\+\s*years?/g)
   ];
-
-  const years = matches
-    .map((match) => Number(match[1]))
-    .filter((value) => Number.isFinite(value));
-
+  const years = matches.map((match) => Number(match[1])).filter((value) => Number.isFinite(value));
   return years.length > 0 ? Math.max(...years) : null;
 }
