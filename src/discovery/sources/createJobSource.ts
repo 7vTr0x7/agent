@@ -7,12 +7,15 @@ import { RssJobSource } from "../../jobs/sources/RssJobSource";
 import { RemoteOkJobSource } from "../../jobs/sources/RemoteOkJobSource";
 import { PublicJsonJobSource } from "../../jobs/sources/PublicJsonJobSource";
 import { FallbackJobSource } from "../../jobs/sources/FallbackJobSource";
+import { StructuredDataJobSource } from "../../jobs/sources/StructuredDataJobSource";
 
 export function createJobSource(config: SourceConfig): JobSource {
   switch (config.type) {
     case "ats": return createAtsSource(config);
     case "rss": return createRssSource(config);
     case "api": return createApiSource(config);
+    case "web":
+    case "structured-data": return createStructuredDataSource(config);
     default: throw new Error(`No job-source adapter is registered for source type: ${config.type}`);
   }
 }
@@ -62,4 +65,14 @@ function createApiSource(config: SourceConfig): JobSource {
     return new FallbackJobSource(api, rss);
   }
   throw new Error(`Unsupported API job source: ${config.name}`);
+}
+
+function createStructuredDataSource(config: SourceConfig): JobSource {
+  if (!config.url) throw new Error(`${config.type} source requires url: ${config.name}`);
+  return new StructuredDataJobSource({
+    id: config.id,
+    url: config.url,
+    defaultCompanyName: config.name,
+    companyDomain: config.companyDomain
+  });
 }
