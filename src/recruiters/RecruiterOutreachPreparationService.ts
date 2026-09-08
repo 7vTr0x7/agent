@@ -7,6 +7,8 @@ import {
 } from "./RecruiterDiscoveryRepository";
 import { evaluateRecruiterOutreachSafety } from "./RecruiterOutreachSafetyGate";
 
+export type RecruiterApplicationOutcome = "SUBMITTED" | "FAILED" | "BLOCKED" | "NOT_ATTEMPTED";
+
 export interface RecruiterOutreachPreparationInput {
   companyName: string;
   companyDomain: string;
@@ -16,6 +18,7 @@ export interface RecruiterOutreachPreparationInput {
   applicationId: string;
   candidateProfileId: string;
   candidateName: string;
+  applicationOutcome?: RecruiterApplicationOutcome;
 }
 
 export interface PreparedRecruiterOutreach {
@@ -95,7 +98,7 @@ export class RecruiterOutreachPreparationService {
         messageType: "INITIAL",
         sequenceStep: 0,
         recipientEmail: contact.email,
-        subject: `Interest in ${input.jobTitle} at ${input.companyName}`,
+        subject: `Application for ${input.jobTitle} at ${input.companyName}`,
         body: buildInitialMessage(input, contact)
       });
       prepared.push({ contact, sequence, message });
@@ -109,12 +112,23 @@ function buildInitialMessage(input: RecruiterOutreachPreparationInput, contact: 
   const role = input.jobTitle.trim();
   const company = input.companyName.trim();
   const candidate = input.candidateName.trim() || "Candidate";
+  const outcome = input.applicationOutcome ?? "SUBMITTED";
+
+  const applicationLine = outcome === "SUBMITTED"
+    ? `I’ve applied for the role and wanted to reach out directly in case you’re involved in the hiring process.`
+    : outcome === "FAILED"
+      ? `I attempted to apply for the role, but the application could not be completed successfully, so I wanted to reach out directly regarding the opportunity.`
+      : outcome === "BLOCKED"
+        ? `I was unable to complete the application through the available application flow, so I wanted to reach out directly regarding the opportunity.`
+        : `I’m reaching out directly regarding the opportunity in case you’re involved in the hiring process.`;
+
   return [
     greeting,
     "",
     `I’m ${candidate}, and I’m interested in the ${role} opportunity at ${company}.`,
     "",
-    "I’m reaching out directly regarding the opportunity in case you’re involved in the hiring process. I’d be happy to share my resume or any additional information that would be useful for the team.",
+    applicationLine,
+    "I’d be happy to share my resume or any additional information that would be useful for the team.",
     "",
     "Thank you for your time.",
     "",
