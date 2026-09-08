@@ -23,7 +23,10 @@ export class ApplicationTaskHandler {
     private readonly emailDispatcher?: ApplicationEmailDispatcher,
     private readonly tailoredResumeArtifacts?: TailoredResumeArtifactService,
     private readonly tailoredResumeRepository?: TailoredResumeRepository,
-    private readonly attemptRepository?: Pick<ApplicationAttemptRepository, "record">
+    private readonly attemptRepository?: Pick<ApplicationAttemptRepository, "record">,
+    // Kept as an ignored compatibility slot for callers from the previous
+    // workflow. Recruiter discovery is now owned by MATCH_JOB fan-out.
+    _legacyRecruiterDiscoveryDispatcher?: unknown
   ) {}
 
   async handle(task: ClaimedTask<ApplyJobTaskPayload>): Promise<void> {
@@ -69,13 +72,7 @@ export class ApplicationTaskHandler {
       });
     } catch (error) {
       const reason = `Application submission failed: ${error instanceof Error ? error.message : String(error)}`;
-      outcome = {
-        submitted: false,
-        safetyAllowed: false,
-        reason,
-        adapterName: "submission-error",
-        result: null
-      };
+      outcome = { submitted: false, safetyAllowed: false, reason, adapterName: "submission-error", result: null };
       console.error(JSON.stringify({
         level: 50,
         taskId: task.id,
