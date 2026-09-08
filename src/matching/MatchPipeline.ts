@@ -19,6 +19,9 @@ export interface CombinedMatchResult {
   semantic: SemanticMatchResult | null;
 }
 
+const APPLY_THRESHOLD = 30;
+const REVIEW_THRESHOLD = 20;
+
 export class MatchPipeline {
   constructor(
     private readonly deterministic: DeterministicJobMatcher,
@@ -26,10 +29,7 @@ export class MatchPipeline {
     private readonly decisions: MatchDecisionRepository
   ) {}
 
-  async evaluateAndPersist(
-    job: JobOpportunity,
-    profile: CandidateProfile
-  ): Promise<CombinedMatchResult> {
+  async evaluateAndPersist(job: JobOpportunity, profile: CandidateProfile): Promise<CombinedMatchResult> {
     const deterministic = this.deterministic.evaluate(job, profile);
     let semantic: SemanticMatchResult | null = null;
     let semanticFallback = false;
@@ -43,7 +43,6 @@ export class MatchPipeline {
     }
 
     const result = combine(deterministic, semantic, job, profile, semanticFallback);
-
     await this.decisions.save(job.id, profile.id, {
       matchScore: result.score,
       decision: result.decision,
@@ -53,48 +52,24 @@ export class MatchPipeline {
       reason: result.reason,
       model: result.model,
       confidence: result.confidence,
-      evaluator: semantic
-        ? "DETERMINISTIC_PLUS_AI"
-        : semanticFallback
-          ? "DETERMINISTIC_FALLBACK"
-          : "DETERMINISTIC_RULES"
+      evaluator: semantic ? "DETERMINISTIC_PLUS_AI" : semanticFallback ? "DETERMINISTIC_FALLBACK" : "DETERMINISTIC_RULES"
     }, result.inputHash);
-
     return result;
   }
 }
 
-function combine(
-  deterministic: DeterministicMatchResult,
-  semantic: SemanticMatchResult | null,
-  job: JobOpportunity,
-  profile: CandidateProfile,
-  semanticFallback = false
-): CombinedMatchResult {
-  const inputHash = createHash("sha256")
-    .update(JSON.stringify({ jobId: job.id, jobVersion: job.updatedAt, profile }))
-    .digest("hex");
+function combine(deterministic: DeterministicMatchResult, semantic: SemanticMatchResult | null, job: JobOpportunity, profile: CandidateProfile, semanticFallback = false): CombinedMatchResult {
+  const inputHash = createHash("sha256").update(JSON.stringify({ jobId: job.id, jobVersion: job.updatedAt, profile })).digest("hex");
 
   if (!semantic) {
-    // Deterministic matching is the safety-preserving baseline. AI improves
-    // ranking quality when available, but an infrastructure/model outage must
-    // never turn an otherwise eligible APPLY into a manual-review dead end.
-    const fallbackReason = semanticFallback
-      ? `${deterministic.reason} AI assessment unavailable; deterministic rules remain authoritative.`
-      : deterministic.reason;
-
+    const fallbackReason = semanticFallback ? `${deterministic.reason} AI assessment unavailable; deterministic rules remain authoritative.` : deterministic.reason;
     return {
       score: deterministic.matchScore,
       decision: deterministic.decision,
       reason: fallbackReason,
       matchedSkills: deterministic.matchedSkills,
       missingSkills: deterministic.missingSkills,
-      evidence: semanticFallback
-        ? [
-            ...deterministic.evidence,
-            { type: "AI_FALLBACK", detail: "Semantic matching was unavailable; deterministic rules remain authoritative." }
-          ]
-        : deterministic.evidence,
+      evidence: semanticFallback ? [...deterministic.evidence, { type: "AI_FALLBACK", detail: "Semantic matching was unavailable; deterministic rules remain authoritative." }] : deterministic.evidence,
       confidence: semanticFallback ? 0.75 : 1,
       model: null,
       inputHash,
@@ -104,7 +79,7 @@ function combine(
   }
 
   const score = Math.round(deterministic.matchScore * 0.6 + semantic.score * 0.4);
-  const decision = score >= 70 ? "APPLY" : score >= 40 ? "REVIEW" : "REJECT";
+  const decision = score >= APPLY_THRESHOLD ? "APPLY" : score >= REVIEW_THRESHOLD ? "REVIEW" : "REJECT";
 
   return {
     score,
@@ -112,11 +87,7 @@ function combine(
     reason: `${deterministic.reason} AI assessment: ${semantic.rationale}`,
     matchedSkills: unique([...deterministic.matchedSkills, ...semantic.strengths]),
     missingSkills: unique([...deterministic.missingSkills, ...semantic.gaps]),
-    evidence: [
-      ...deterministic.evidence,
-      ...semantic.strengths.map((detail) => ({ type: "AI_STRENGTH", detail })),
-      ...semantic.gaps.map((detail) => ({ type: "AI_GAP", detail }))
-    ],
+    evidence: [...deterministic.evidence, ...semantic.strengths.map((detail) => ({ type: "AI_STRENGTH", detail })), ...semantic.gaps.map((detail) => ({ type: "AI_GAP", detail }))],
     confidence: semantic.confidence,
     model: semantic.model,
     inputHash,
