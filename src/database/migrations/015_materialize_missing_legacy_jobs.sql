@@ -1,6 +1,18 @@
--- Materialize a legacy jobs row for every opportunity that predates or bypassed
--- the legacy jobs ingestion path. Applications still reference jobs.id, while
--- the newer opportunity pipeline is the source of truth for job metadata.
+-- Repair the bridge between the newer job_opportunities pipeline and the
+-- legacy jobs table required by the application foreign key.
+-- Prefer an existing legacy job for the same canonical URL; otherwise create
+-- a deterministic materialized job row from the opportunity.
+UPDATE jobs j
+SET job_opportunity_id = jo.id
+FROM job_opportunities jo
+WHERE j.job_opportunity_id IS NULL
+  AND regexp_replace(trim(j.url), '[?#].*$', '') = jo.canonical_url
+  AND NOT EXISTS (
+    SELECT 1
+    FROM jobs linked
+    WHERE linked.job_opportunity_id = jo.id
+  );
+
 INSERT INTO jobs (
   source,
   source_job_id,
@@ -41,14 +53,11 @@ WHERE NOT EXISTS (
   SELECT 1
   FROM jobs j
   WHERE j.job_opportunity_id = jo.id
+)
+AND NOT EXISTS (
+  SELECT 1
+  FROM jobs existing
+  WHERE regexp_replace(trim(existing.url), '[?#].*$', '') = jo.canonical_url
 );
-
--- A URL may already have a legacy job row that was not linked during an
--- earlier migration. Prefer the existing row before relying on synthesized rows.
-UPDATE jobs j
-SET job_opportunity_id = jo.id
-FROM job_opportunities jo
-WHERE j.job_opportunity_id IS NULL
-  AND regexp_replace(trim(j.url), '[?#].*$', '') = jo.canonical_url;
 
 CREATE INDEX IF NOT EXISTS idx_jobs_job_opportunity_id ON jobs (job_opportunity_id);
