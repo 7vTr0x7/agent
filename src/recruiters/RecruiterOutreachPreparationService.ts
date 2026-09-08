@@ -102,7 +102,7 @@ export class RecruiterOutreachPreparationService {
         messageType: "INITIAL",
         sequenceStep: 0,
         recipientEmail: contact.email,
-        subject: `Application for ${input.jobTitle} at ${input.companyName}`,
+        subject: `Interest in ${input.jobTitle} at ${input.companyName}`,
         body: buildInitialMessage(input, contact)
       });
 
@@ -127,7 +127,7 @@ function buildInitialMessage(
     "",
     `I’m ${candidate}, and I’m interested in the ${role} opportunity at ${company}.`,
     "",
-    "I’ve applied for the role and wanted to reach out directly in case you’re involved in the hiring process. I’d be happy to share any additional information that would be useful for the team.",
+    "I’m reaching out directly regarding the opportunity in case you’re involved in the hiring process. I’d be happy to share my resume or any additional information that would be useful for the team.",
     "",
     "Thank you for your time.",
     "",
