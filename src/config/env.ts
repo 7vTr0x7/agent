@@ -22,7 +22,8 @@ const BASE_JOB_SOURCES = [
   { id: "remoteyeah:engineering:rss", type: "rss", name: "remoteyeah-engineering", feedUrl: "https://remoteyeah.com/rss.xml", status: "APPROVED" },
   { id: "workanywhere:frontend:rss", type: "rss", name: "workanywhere-frontend", feedUrl: "https://www.workanywhere.pro/rss/frontend", status: "APPROVED" },
   { id: "workanywhere:fullstack:rss", type: "rss", name: "workanywhere-fullstack", feedUrl: "https://www.workanywhere.pro/rss/fullstack", status: "APPROVED" },
-  { id: "hireweb3:rss", type: "rss", name: "hireweb3", feedUrl: "https://hireweb3.io/job/rss", status: "APPROVED" }
+  { id: "hireweb3:rss", type: "rss", name: "hireweb3", feedUrl: "https://hireweb3.io/job/rss", status: "APPROVED" },
+  { id: "free-public-job-feeds:bundle", type: "api", name: "free-public-feeds", status: "APPROVED" }
 ];
 
 const BROAD_TECHMAP_PORTALS: string[] = [];
