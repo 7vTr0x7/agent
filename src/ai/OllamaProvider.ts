@@ -43,10 +43,11 @@ export class OllamaProvider implements AIProvider {
           stream: false,
           keep_alive: "10m",
           format: "json",
+          think: false,
           messages: request.messages,
           options: {
             temperature: request.temperature ?? 0,
-            num_predict: 700
+            num_predict: request.maxTokens ?? 256
           }
         })
       });
