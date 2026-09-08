@@ -3,15 +3,24 @@ import { WorkdayApplicationAdapter } from "./WorkdayApplicationAdapter";
 import { ApplicationContext } from "./ApplicationAdapter";
 
 describe("WorkdayApplicationAdapter", () => {
+  jest.setTimeout(30_000);
+
   let browser: Browser;
   let page: Page;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     browser = await chromium.launch({ headless: true });
+  });
+
+  beforeEach(async () => {
     page = await browser.newPage();
   });
 
   afterEach(async () => {
+    await page.close();
+  });
+
+  afterAll(async () => {
     await browser.close();
   });
 
