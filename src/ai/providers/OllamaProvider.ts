@@ -20,7 +20,8 @@ export class OllamaProvider implements AIProvider {
 
   async complete(request: AICompletionRequest): Promise<AICompletionResponse> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const effectiveTimeoutMs = Math.min(this.timeoutMs, 30000);
+    const timer = setTimeout(() => controller.abort(), effectiveTimeoutMs);
     const startedAt = Date.now();
 
     try {
@@ -31,9 +32,10 @@ export class OllamaProvider implements AIProvider {
           model: this.model,
           messages: request.messages,
           stream: false,
+          format: "json",
           options: {
             temperature: request.temperature ?? 0,
-            ...(request.maxTokens ? { num_predict: request.maxTokens } : {})
+            num_predict: request.maxTokens ?? 256
           }
         }),
         signal: controller.signal
