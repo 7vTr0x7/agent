@@ -1,5 +1,6 @@
 import { TaskQueue } from "../queue/TaskQueue";
 import { StoredRecruiterContact } from "./RecruiterDiscoveryRepository";
+import { RecruiterApplicationOutcome } from "./RecruiterOutreachPreparationService";
 
 export const PREPARE_RECRUITER_OUTREACH_TASK = "PREPARE_RECRUITER_OUTREACH";
 
@@ -13,6 +14,7 @@ export interface PrepareRecruiterOutreachTaskPayload {
   candidateProfileId: string;
   candidateName: string;
   contacts: StoredRecruiterContact[];
+  applicationOutcome?: RecruiterApplicationOutcome;
 }
 
 export class RecruiterOutreachPreparationTaskDispatcher {
