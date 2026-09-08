@@ -8,8 +8,38 @@ export interface RecruiterOutreachSendOptions { repository: RecruiterDiscoveryRe
 export type RecruiterOutreachSendResult = | { status: "DRY_RUN"; messageId: string } | { status: "SENT"; messageId: string; gmailMessageId: string; gmailThreadId: string } | { status: "SKIPPED"; messageId: string; reason: string };
 function deterministicMessageId(messageId:string):string{return `<recruiter-outreach-${messageId}@job-agent.local>`;}
 const DEFAULT_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const RESUME_DIRECTORIES = ["/app/data/resumes", "./data/resumes", "./resumes"];
 function attachmentContentType(filePath: string): string { return path.extname(filePath).toLowerCase() === ".pdf" ? "application/pdf" : "application/octet-stream"; }
-async function loadResumeAttachment(resumePath: string | null | undefined, maxBytes: number): Promise<GmailAttachment | null> { if (!resumePath?.trim()) return null; const resolved = path.resolve(resumePath.trim()); const stat = await fs.stat(resolved); if (!stat.isFile()) throw new Error(`Configured recruiter resume path is not a file: ${resolved}`); if (stat.size <= 0) throw new Error(`Configured recruiter resume file is empty: ${resolved}`); if (stat.size > maxBytes) throw new Error(`Configured recruiter resume exceeds the ${maxBytes}-byte attachment safety limit.`); const content = await fs.readFile(resolved); return { filename: path.basename(resolved), contentType: attachmentContentType(resolved), content }; }
+async function resolveResumePath(configuredPath: string | null | undefined): Promise<string | null> {
+  if (configuredPath?.trim()) return configuredPath.trim();
+  const candidates: Array<{ path: string; mtimeMs: number }> = [];
+  for (const directory of RESUME_DIRECTORIES) {
+    try {
+      const entries = await fs.readdir(directory, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile() || !/\.pdf$/i.test(entry.name)) continue;
+        const candidatePath = path.join(directory, entry.name);
+        const stat = await fs.stat(candidatePath);
+        if (stat.isFile()) candidates.push({ path: candidatePath, mtimeMs: stat.mtimeMs });
+      }
+    } catch {
+      // A missing optional resume directory is not an outreach failure.
+    }
+  }
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path));
+  return candidates[0]?.path ?? null;
+}
+async function loadResumeAttachment(resumePath: string | null | undefined, maxBytes: number): Promise<GmailAttachment | null> {
+  const selectedPath = await resolveResumePath(resumePath);
+  if (!selectedPath) return null;
+  const resolved = path.resolve(selectedPath);
+  const stat = await fs.stat(resolved);
+  if (!stat.isFile()) throw new Error(`Configured recruiter resume path is not a file: ${resolved}`);
+  if (stat.size <= 0) throw new Error(`Configured recruiter resume file is empty: ${resolved}`);
+  if (stat.size > maxBytes) throw new Error(`Configured recruiter resume exceeds the ${maxBytes}-byte attachment safety limit.`);
+  const content = await fs.readFile(resolved);
+  return { filename: path.basename(resolved), contentType: attachmentContentType(resolved), content };
+}
 function envBoolean(name:string,fallback:boolean):boolean{const value=process.env[name];if(value===undefined)return fallback;if(value==="true")return true;if(value==="false")return false;return fallback;}
 export class RecruiterOutreachSendService {
  private readonly dryRun:boolean; private readonly outboundEnabled:boolean; private readonly activation:RecruiterOutreachActivation; private readonly liveActivationConfirmed:boolean; private readonly maxMessagesPerDay:number; private readonly maxMessagesPerHour:number; private readonly resumePath:string|null; private readonly attachResume:boolean; private readonly maxAttachmentBytes:number;
@@ -17,4 +47,4 @@ export class RecruiterOutreachSendService {
  async send(message:RecruiterOutreachMessageRecord,companyDomain:string):Promise<RecruiterOutreachSendResult>{if(message.status!=="PREPARED")return{status:"SKIPPED",messageId:message.id,reason:`Message is not PREPARED (status=${message.status}).`};const sequence=await this.options.repository.getOutreachSequence(message.sequenceId);if(!sequence)return{status:"SKIPPED",messageId:message.id,reason:"Outreach sequence no longer exists."};if(sequence.status!=="READY"&&sequence.status!=="ACTIVE")return{status:"SKIPPED",messageId:message.id,reason:`Outreach sequence is not sendable (status=${sequence.status}).`};const suppression=await this.options.repository.isSuppressed(message.recipientEmail,companyDomain);if(suppression.email||suppression.domain)return{status:"SKIPPED",messageId:message.id,reason:suppression.email?"Recipient is suppressed.":"Company domain is suppressed."};if(this.dryRun)return{status:"DRY_RUN",messageId:message.id};const activation=evaluateRecruiterOutreachActivation({activation:this.activation,dryRun:this.dryRun,liveActivationConfirmed:this.liveActivationConfirmed,maxMessagesPerDay:this.maxMessagesPerDay,maxMessagesPerHour:this.maxMessagesPerHour});if(!activation.allowed)return{status:"SKIPPED",messageId:message.id,reason:activation.reason};if(!this.outboundEnabled)return{status:"SKIPPED",messageId:message.id,reason:"Global outbound kill switch is disabled."};if(!this.options.mailbox)return{status:"SKIPPED",messageId:message.id,reason:"Gmail mailbox is not configured for live recruiter outreach."};let claimed:RecruiterOutreachMessageRecord|null=null;const repositoryWithAtomicClaim=this.options.repository as RecruiterDiscoveryRepository & { claimPreparedOutreachMessageWithinRateLimits?: (messageId:string,maxMessagesPerDay:number,maxMessagesPerHour:number)=>Promise<RecruiterOutreachMessageRecord|null> };if(typeof repositoryWithAtomicClaim.claimPreparedOutreachMessageWithinRateLimits === "function"){claimed=await repositoryWithAtomicClaim.claimPreparedOutreachMessageWithinRateLimits(message.id,this.maxMessagesPerDay,this.maxMessagesPerHour);}else{const now=Date.now();const dayCount=await this.options.repository.countSentOutreachMessagesSince(new Date(now-24*60*60*1000));if(dayCount>=this.maxMessagesPerDay)return{status:"SKIPPED",messageId:message.id,reason:"Daily recruiter outreach send limit reached."};const hourCount=await this.options.repository.countSentOutreachMessagesSince(new Date(now-60*60*1000));if(hourCount>=this.maxMessagesPerHour)return{status:"SKIPPED",messageId:message.id,reason:"Hourly recruiter outreach send limit reached."};claimed=await this.options.repository.claimPreparedOutreachMessage(message.id);}if(!claimed){const hourCount=await this.options.repository.countSentOutreachMessagesSince(new Date(Date.now()-60*60*1000));const dayCount=await this.options.repository.countSentOutreachMessagesSince(new Date(Date.now()-24*60*60*1000));const reason=dayCount>=this.maxMessagesPerDay?"Daily recruiter outreach send limit reached.":hourCount>=this.maxMessagesPerHour?"Hourly recruiter outreach send limit reached.":"Message was already claimed or is no longer sendable.";return{status:"SKIPPED",messageId:message.id,reason};}
  try{const resumeAttachment=this.attachResume&&claimed.messageType==="INITIAL"?await loadResumeAttachment(this.resumePath,this.maxAttachmentBytes):null;const sent=await this.options.mailbox.sendMessage({to:claimed.recipientEmail,subject:claimed.subject,bodyText:claimed.body,messageId:deterministicMessageId(claimed.id),attachments:resumeAttachment?[resumeAttachment]:undefined});await this.options.repository.markOutreachMessageSent(claimed.id,{provider:"gmail",providerMessageId:sent.gmailMessageId,providerThreadId:sent.gmailThreadId});return{status:"SENT",messageId:claimed.id,gmailMessageId:sent.gmailMessageId,gmailThreadId:sent.gmailThreadId};}catch(error){const reason=error instanceof Error?error.message:String(error);await this.options.repository.markOutreachMessageFailed(claimed.id,reason);throw error;}}
 }
-export { deterministicMessageId, loadResumeAttachment };
+export { deterministicMessageId, loadResumeAttachment, resolveResumePath };
