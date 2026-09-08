@@ -33,8 +33,31 @@ export class ApplicationRepository {
       if (!row) return { prepared: false, reason: "No eligible match decision exists." };
       const policy = evaluateApplicationPolicy({ matchDecision: row.match_decision, opportunityStatus: row.opportunity_status, hasRanking: row.has_ranking, hasExistingApplication: row.has_application, companyName: row.company_name, excludedCompanies: this.excludedCompanies });
       if (policy.decision === "BLOCK") return { prepared: false, reason: policy.reason };
-      if (!row.job_id) return { prepared: false, reason: "No legacy job record is linked to this opportunity." };
-      const inserted = await client.query<{ id: string }>(`INSERT INTO applications (job_id, job_opportunity_id, candidate_profile_id, status) VALUES ($1, $2, $3, 'READY') ON CONFLICT (job_opportunity_id) DO NOTHING RETURNING id`, [row.job_id, jobOpportunityId, candidateProfileId]);
+
+      // The modern discovery pipeline stores canonical opportunities, while the
+      // application schema still requires a jobs.id foreign key. Materialize the
+      // bridge lazily for newly discovered opportunities so APPLY_JOB cannot be
+      // blocked merely because the legacy ingestion path was not used.
+      let jobId = row.job_id;
+      if (!jobId) {
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`materialize-job:${jobOpportunityId}`]);
+        const existing = await client.query<{ id: string }>(`SELECT id FROM jobs WHERE job_opportunity_id = $1 ORDER BY created_at ASC, id ASC LIMIT 1`, [jobOpportunityId]);
+        jobId = existing.rows[0]?.id ?? null;
+        if (!jobId) {
+          const inserted = await client.query<{ id: string }>(`INSERT INTO jobs (source, source_job_id, url, title, company_name, location, country, workplace_type, employment_type, description, posted_at, discovered_at, content_hash, created_at, updated_at, job_opportunity_id) VALUES ('opportunity-materialized', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, NOW()), encode(digest($2 || ':' || $1, 'sha256'), 'hex'), COALESCE($12, NOW()), COALESCE($13, $12, NOW()), $1) ON CONFLICT (content_hash) DO NOTHING RETURNING id`, [jobOpportunityId, row.canonical_url, row.job_title, row.company_name, null, null, null, null, row.job_description, row.posted_at, row.updated_at, row.updated_at, jobOpportunityId]);
+          jobId = inserted.rows[0]?.id ?? null;
+        }
+        if (!jobId) {
+          const recovered = await client.query<{ id: string }>(`SELECT id FROM jobs WHERE job_opportunity_id = $1 OR regexp_replace(trim(url), '[?#].*$', '') = $2 ORDER BY CASE WHEN job_opportunity_id = $1 THEN 0 ELSE 1 END, created_at ASC, id ASC LIMIT 1`, [jobOpportunityId, row.canonical_url]);
+          jobId = recovered.rows[0]?.id ?? null;
+          if (jobId) {
+            await client.query(`UPDATE jobs SET job_opportunity_id = $1 WHERE id = $2 AND job_opportunity_id IS NULL`, [jobOpportunityId, jobId]);
+          }
+        }
+      }
+      if (!jobId) return { prepared: false, reason: "Unable to materialize a legacy job record for this opportunity." };
+
+      const inserted = await client.query<{ id: string }>(`INSERT INTO applications (job_id, job_opportunity_id, candidate_profile_id, status) VALUES ($1, $2, $3, 'READY') ON CONFLICT (job_opportunity_id) DO NOTHING RETURNING id`, [jobId, jobOpportunityId, candidateProfileId]);
       const application = inserted.rows[0];
       if (!application) return { prepared: false, reason: "Application was already created concurrently." };
       await client.query(`INSERT INTO application_events (application_id, from_status, to_status, event_type, metadata) VALUES ($1, NULL, 'READY', 'APPLICATION_PREPARED', $2::jsonb)`, [application.id, JSON.stringify({ jobOpportunityId, candidateProfileId })]);
