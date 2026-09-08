@@ -4,8 +4,8 @@ describe("recruiter activation configuration", () => {
 
   it("defaults recruiter activation to disabled", async () => {
     process.env.DATABASE_URL = "postgresql://test/test";
-    delete process.env.RECRUITER_OUTREACH_ACTIVATION;
-    delete process.env.RECRUITER_LIVE_ACTIVATION_CONFIRMED;
+    process.env.RECRUITER_OUTREACH_ACTIVATION = "disabled";
+    process.env.RECRUITER_LIVE_ACTIVATION_CONFIRMED = "false";
     const { loadConfig } = await import("./env");
     const config = loadConfig();
     expect(config.recruiterOutreach.activation).toBe("disabled");
