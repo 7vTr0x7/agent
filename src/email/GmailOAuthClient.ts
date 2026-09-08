@@ -54,6 +54,11 @@ export class GmailOAuthClient {
     return this.refreshPromise;
   }
 
+  invalidateAccessToken(): void {
+    this.accessToken = null;
+    this.expiresAt = 0;
+  }
+
   private async refreshAccessToken(): Promise<string> {
     for (let attempt = 0; ; attempt += 1) {
       let response: Response;
