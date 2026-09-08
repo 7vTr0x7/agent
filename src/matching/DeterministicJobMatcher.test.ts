@@ -103,4 +103,26 @@ describe("DeterministicJobMatcher", () => {
     expect(result.decision).toBe("REJECT");
     expect(result.matchScore).toBeLessThan(40);
   });
+
+  it("does not penalize unrelated resume skills enough to reject a strong frontend role", () => {
+    const broadProfile: CandidateProfile = {
+      ...profile,
+      skills: [
+        "React", "Next.js", "TypeScript", "JavaScript", "Redux Toolkit",
+        "Tailwind CSS", "Node.js", "Express.js", "MongoDB", "Docker",
+        "Git", "Jest", "React Testing Library", "REST APIs"
+      ]
+    };
+
+    const result = matcher.evaluate(
+      job("Build and maintain a React and TypeScript frontend with Next.js. JavaScript experience required."),
+      broadProfile
+    );
+
+    expect(result.matchedSkills).toEqual(
+      expect.arrayContaining(["React", "Next.js", "TypeScript", "JavaScript"])
+    );
+    expect(result.matchScore).toBeGreaterThanOrEqual(70);
+    expect(result.decision).toBe("APPLY");
+  });
 });
