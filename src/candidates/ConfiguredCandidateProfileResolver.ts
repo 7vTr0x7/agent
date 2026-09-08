@@ -29,6 +29,11 @@ export class ConfiguredCandidateProfileResolver {
   }
 
   static fromEnvironment(env: NodeJS.ProcessEnv = process.env): ConfiguredCandidateProfileResolver {
+    const configuredCandidateEmail = optional(env, "CANDIDATE_EMAIL");
+    const gmailUserEmail = optional(env, "GMAIL_USER_EMAIL");
+    const gmailEnabled = env["GMAIL_ENABLED"] === "true";
+    const candidateEmail = configuredCandidateEmail ?? (gmailEnabled ? gmailUserEmail : undefined);
+
     const profile: CandidateProfile = {
       id: required(env, "CANDIDATE_PROFILE_ID"),
       yearsExperience: positiveNumber(env, "CANDIDATE_YEARS_EXPERIENCE"),
@@ -37,7 +42,7 @@ export class ConfiguredCandidateProfileResolver {
       firstName: optional(env, "CANDIDATE_FIRST_NAME"),
       lastName: optional(env, "CANDIDATE_LAST_NAME"),
       fullName: optional(env, "CANDIDATE_FULL_NAME"),
-      email: optional(env, "CANDIDATE_EMAIL"),
+      email: candidateEmail,
       phone: optional(env, "CANDIDATE_PHONE"),
       location: optional(env, "CANDIDATE_LOCATION"),
       workAuthorization: optional(env, "CANDIDATE_WORK_AUTHORIZATION"),
