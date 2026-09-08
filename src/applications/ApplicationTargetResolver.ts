@@ -11,7 +11,7 @@ const APPLY_NAME = /\bapply\b|easy apply|quick apply|応募(?:する)?/i;
 const SUBMIT_NAME = /^(?:submit|submit application|send application|complete application)$/i;
 const AUTH_PATH = /(?:^|\/)(?:login|log-in|signin|sign-in|signup|sign-up|register|registration)(?:\/|$)/i;
 const AUTH_TEXT = /(?:sign in|sign-in|log in|log-in|create account|register|registration|forgot password)/i;
-const EXCLUDED_APPLY_NAME = /(?:privacy|policy|terms|help|support|jobs?|careers?|login|sign in|register|account|cookie)/i;
+const EXCLUDED_APPLY_NAME = /^(?:privacy|privacy policy|policy|terms|help|support|jobs?|careers?|login|sign in|register|account|cookie)$/i;
 
 export class ApplicationTargetResolver {
   async resolve(page: Page, sourceUrl: string): Promise<ApplicationTargetResolution> {
@@ -101,6 +101,15 @@ export class ApplicationTargetResolver {
     }
 
     const candidate = applyCandidates[0];
+    if (!candidate) {
+      return {
+        resolved: false,
+        url: effectiveUrl,
+        startedFromJobPage,
+        reason: "Application entry point could not be resolved safely; manual review is required."
+      };
+    }
+
     const locator = page.locator('a, button, input[type="submit"], input[type="button"]').nth(candidate.index);
 
     if (candidate.href) {
