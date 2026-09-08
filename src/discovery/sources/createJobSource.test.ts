@@ -3,6 +3,7 @@ import { PublicJsonJobSource } from "../../jobs/sources/PublicJsonJobSource";
 import { RssJobSource } from "../../jobs/sources/RssJobSource";
 import { RemoteOkJobSource } from "../../jobs/sources/RemoteOkJobSource";
 import { FallbackJobSource } from "../../jobs/sources/FallbackJobSource";
+import { StructuredDataJobSource } from "../../jobs/sources/StructuredDataJobSource";
 
 describe("createJobSource", () => {
   afterEach(() => {
@@ -49,6 +50,18 @@ describe("createJobSource", () => {
 
     expect(germany).toBeInstanceOf(PublicJsonJobSource);
     expect(uk).toBeInstanceOf(PublicJsonJobSource);
+  });
+
+  it("creates a public structured-data source without making a network call", () => {
+    const source = createJobSource({
+      id: "example:web",
+      name: "example",
+      type: "web",
+      url: "https://example.com/jobs"
+    });
+
+    expect(source).toBeInstanceOf(StructuredDataJobSource);
+    expect(source.name).toBe("example:web");
   });
 
   it("constructs every default API and RSS source without making network calls", () => {
