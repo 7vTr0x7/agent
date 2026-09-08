@@ -37,10 +37,15 @@ export interface RecoverStaleTasksResult {
   recovered: number;
 }
 
+// Tasks may perform network/browser/API work. A one-minute lease is too short for
+// legitimate long-running tasks such as Gmail synchronization or application flows.
+// The worker heartbeat keeps the lease alive while the handler is active.
+export const DEFAULT_TASK_LEASE_DURATION_MS = 5 * 60_000;
+
 export class TaskQueue {
   constructor(
     private readonly database: Database,
-    private readonly leaseDurationMs = 60_000
+    private readonly leaseDurationMs = DEFAULT_TASK_LEASE_DURATION_MS
   ) {}
 
   getDatabase(): Database {
