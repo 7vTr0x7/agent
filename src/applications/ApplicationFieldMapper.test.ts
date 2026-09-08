@@ -34,6 +34,24 @@ describe("ApplicationFieldMapper", () => {
     ]));
   });
 
+  it("maps camelCase emailAddress fields as email", () => {
+    const field: ApplicationField = {
+      name: "emailAddress",
+      type: "text",
+      required: true,
+      label: null,
+      placeholder: null
+    };
+
+    const mapping = new ApplicationFieldMapper().map([field], profile)[0];
+    expect(mapping).toEqual(expect.objectContaining({
+      key: "email",
+      value: "salman@example.com",
+      confidence: 1,
+      autoFill: true
+    }));
+  });
+
   it("refuses ambiguous required fields", () => {
     const fields: ApplicationField[] = [
       { name: "name_or_email", type: "text", required: true, label: "Name / Email", placeholder: null }
