@@ -47,23 +47,14 @@ export class PersistentRecruiterDiscoveryService {
     input: RecruiterDiscoveryInput,
     maxContacts: number
   ): Promise<PersistentRecruiterDiscoveryResult> {
-    if (!input.candidateProfileId.trim()) {
-      throw new Error("candidateProfileId is required for recruiter discovery.");
-    }
-    if (!Number.isInteger(maxContacts) || maxContacts < 1) {
-      throw new Error("maxContacts must be a positive integer.");
-    }
+    if (!input.candidateProfileId.trim()) throw new Error("candidateProfileId is required for recruiter discovery.");
+    if (!Number.isInteger(maxContacts) || maxContacts < 1) throw new Error("maxContacts must be a positive integer.");
 
     const domain = input.companyDomain.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0] ?? "";
     if (!domain) throw new Error("A company domain is required for recruiter discovery.");
 
     if (isPermanentlyExcludedCompany(input.companyName)) {
-      return {
-        status: "SKIPPED",
-        reason: "Company is permanently excluded from recruiter discovery and outreach.",
-        runId: null,
-        contacts: []
-      };
+      return { status: "SKIPPED", reason: "Company is permanently excluded from recruiter discovery and outreach.", runId: null, contacts: [] };
     }
 
     if (await this.options.repository.hasRecentDiscovery(domain, this.options.provider.name, this.cooldownHours)) {
@@ -86,7 +77,11 @@ export class PersistentRecruiterDiscoveryService {
     try {
       const discovered = await this.options.provider.discover(input);
       const eligible = discovered.contacts.filter((contact) => {
-        if (this.requireVerifiedEmail && !contact.verified) return false;
+        // A job-posting provider only emits addresses explicitly published in
+        // recruiting/hiring context on the employer's job posting. These are
+        // intentionally allowed without third-party verification; Hunter/Snov
+        // contacts remain subject to the configured verified-email requirement.
+        if (this.requireVerifiedEmail && !contact.verified && this.options.provider.name !== "job-posting") return false;
         return (contact.confidence ?? 0) >= this.minConfidence;
       });
       const uniqueCandidates = deduplicateRecruiterCandidates(eligible);
@@ -94,11 +89,7 @@ export class PersistentRecruiterDiscoveryService {
       const persisted: Array<StoredRecruiterContact & Pick<RankedRecruiterContact, "score" | "reasons">> = [];
 
       for (const candidate of ranked) {
-        const contact = await this.options.repository.upsertContact(
-          input.companyName,
-          domain,
-          candidate
-        );
+        const contact = await this.options.repository.upsertContact(input.companyName, domain, candidate);
         await this.options.repository.addSources(contact.id, candidate);
         persisted.push({ ...contact, score: candidate.score, reasons: candidate.reasons });
       }
@@ -123,9 +114,7 @@ function isPermanentlyExcludedCompany(companyName: string): boolean {
   return PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.toLowerCase() === normalized);
 }
 
-export function deduplicateRecruiterCandidates(
-  contacts: RecruiterContactCandidate[]
-): RecruiterContactCandidate[] {
+export function deduplicateRecruiterCandidates(contacts: RecruiterContactCandidate[]): RecruiterContactCandidate[] {
   const byEmail = new Map<string, RecruiterContactCandidate>();
 
   for (const contact of contacts) {
@@ -141,10 +130,9 @@ export function deduplicateRecruiterCandidates(
 
     const existingConfidence = existing.confidence ?? -1;
     const candidateConfidence = normalized.confidence ?? -1;
-    const shouldReplace =
-      normalized.verified !== existing.verified
-        ? normalized.verified
-        : candidateConfidence > existingConfidence;
+    const shouldReplace = normalized.verified !== existing.verified
+      ? normalized.verified
+      : candidateConfidence > existingConfidence;
 
     if (shouldReplace) byEmail.set(email, normalized);
   }
