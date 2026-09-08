@@ -76,14 +76,22 @@ export class MatchTaskHandler {
       rankedAndEligible = result.persisted;
     }
 
-    if (!rankedAndEligible || !this.applications) return;
+    if (!rankedAndEligible) return;
 
-    // MATCH_JOB is the synchronization barrier. Once a job is matched and
-    // eligible, application and recruiter outreach become independent sibling
-    // pipelines. Neither waits for the other or for an application outcome.
-    const applicationPromise = this.applications.enqueue(jobOpportunityId, candidateProfileId, 30);
-    const recruiterPromise = this.enqueueRecruiterDiscoveryIfEligible(job, candidateProfileId);
-    await Promise.all([applicationPromise, recruiterPromise]);
+    // MATCH_JOB is the fan-out point. Application submission and recruiter
+    // discovery are independent sibling pipelines. Neither waits for the
+    // other, and recruiter discovery never depends on application outcome.
+    const dispatches: Promise<unknown>[] = [];
+
+    if (this.applications) {
+      dispatches.push(this.applications.enqueue(jobOpportunityId, candidateProfileId, 30));
+    }
+
+    if (this.recruiters) {
+      dispatches.push(this.enqueueRecruiterDiscoveryIfEligible(job, candidateProfileId));
+    }
+
+    await Promise.all(dispatches);
   }
 
   private async enqueueRecruiterDiscoveryIfEligible(
