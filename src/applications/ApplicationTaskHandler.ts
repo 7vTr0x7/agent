@@ -127,7 +127,8 @@ export class ApplicationTaskHandler {
           await this.recruiterDiscoveryDispatcher.enqueue({
             companyName: prepared.application.companyName, companyDomain, jobTitle: prepared.application.jobTitle,
             jobDescription: prepared.application.jobDescription, candidateProfileId: prepared.application.candidateProfileId,
-            candidateName, jobOpportunityId: prepared.application.jobOpportunityId, applicationId: prepared.application.applicationId
+            candidateName, jobOpportunityId: prepared.application.jobOpportunityId, applicationId: prepared.application.applicationId,
+            applicationOutcome: outcome.submitted ? "SUBMITTED" : (outcome.safetyAllowed ? "FAILED" : "BLOCKED")
           });
         } catch (error) {
           console.error(JSON.stringify({
