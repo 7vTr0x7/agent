@@ -12,11 +12,16 @@ const SUBMIT_PATTERNS = [
   /^send application$/i
 ];
 
+function isSubmitLabel(value: string): boolean {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return SUBMIT_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
 export class SubmissionButtonResolver {
   resolve(page: Page): SubmitButtonResolution {
-    const candidates = page.getByRole("button").filter({
-      hasText: /^(submit(?: application)?|apply(?: now)?|send application)$/i
-    });
+    const candidates = page
+      .locator('button, input[type="submit"], input[type="image"]')
+      .filter({ hasText: /^(submit(?: application)?|apply(?: now)?|send application)$/i });
 
     return {
       found: false,
@@ -26,15 +31,18 @@ export class SubmissionButtonResolver {
   }
 
   async resolveVerified(page: Page): Promise<SubmitButtonResolution> {
-    const buttons = page.getByRole("button");
-    const count = await buttons.count();
+    const controls = page.locator(
+      'button, input[type="submit"], input[type="image"]'
+    );
+    const count = await controls.count();
     const matches: Locator[] = [];
 
     for (let index = 0; index < count; index += 1) {
-      const button = buttons.nth(index);
-      const text = (await button.innerText()).trim();
-      if (SUBMIT_PATTERNS.some((pattern) => pattern.test(text))) {
-        matches.push(button);
+      const control = controls.nth(index);
+      const text = await this.readAccessibleLabel(control);
+
+      if (isSubmitLabel(text)) {
+        matches.push(control);
       }
     }
 
@@ -71,5 +79,18 @@ export class SubmissionButtonResolver {
       locator: button,
       reason: "A unique visible and enabled submit button was verified."
     };
+  }
+
+  private async readAccessibleLabel(control: Locator): Promise<string> {
+    const text = (await control.innerText().catch(() => "")).trim();
+    if (text) return text;
+
+    const value = ((await control.getAttribute("value")) ?? "").trim();
+    if (value) return value;
+
+    const ariaLabel = ((await control.getAttribute("aria-label")) ?? "").trim();
+    if (ariaLabel) return ariaLabel;
+
+    return ((await control.getAttribute("title")) ?? "").trim();
   }
 }
