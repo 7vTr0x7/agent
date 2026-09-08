@@ -2,7 +2,7 @@ import { ClaimedTask } from "../queue/TaskQueue";
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { APPLY_JOB_TASK, ApplyJobTaskPayload } from "./ApplicationTask";
 import { ApplicationRepository } from "./ApplicationRepository";
-import { ApplicationSubmissionService } from "./ApplicationSubmissionService";
+import { ApplicationSubmissionService, ApplicationSubmissionOutcome } from "./ApplicationSubmissionService";
 import { ApplicationEmailContext } from "../notifications/Email";
 import { TailoredResumeArtifactService } from "../resume/TailoredResumeArtifactService";
 import { TailoredResumeRepository } from "../resume/TailoredResumeRepository";
@@ -64,12 +64,35 @@ export class ApplicationTaskHandler {
       applicationProfile = { ...candidateProfile, resumePath: artifact.resumePath };
     }
 
-    const outcome = await this.submissions.submit({
-      context: { jobOpportunityId: prepared.application.jobOpportunityId, candidateProfileId: prepared.application.candidateProfileId, applicationId: prepared.application.applicationId, url: prepared.application.url },
-      companyName: prepared.application.companyName,
-      excludedCompanies: this.excludedCompanies,
-      candidateProfile: applicationProfile
-    });
+    let outcome: ApplicationSubmissionOutcome;
+    try {
+      outcome = await this.submissions.submit({
+        context: { jobOpportunityId: prepared.application.jobOpportunityId, candidateProfileId: prepared.application.candidateProfileId, applicationId: prepared.application.applicationId, url: prepared.application.url },
+        companyName: prepared.application.companyName,
+        excludedCompanies: this.excludedCompanies,
+        candidateProfile: applicationProfile
+      });
+    } catch (error) {
+      const reason = `Application submission failed: ${error instanceof Error ? error.message : String(error)}`;
+      outcome = {
+        submitted: false,
+        safetyAllowed: false,
+        reason,
+        adapterName: "submission-error",
+        result: null
+      };
+      console.error(JSON.stringify({
+        level: 50,
+        taskId: task.id,
+        taskType: task.taskType,
+        applicationId: prepared.application.applicationId,
+        jobOpportunityId: prepared.application.jobOpportunityId,
+        companyName: prepared.application.companyName,
+        jobTitle: prepared.application.jobTitle,
+        reason,
+        msg: "Application submission threw; recruiter outreach will continue independently"
+      }));
+    }
 
     console.log(JSON.stringify({
       level: 30,
@@ -88,14 +111,15 @@ export class ApplicationTaskHandler {
 
     if (this.attemptRepository) {
       await this.attemptRepository.record({
-        applicationId: prepared.application.applicationId, adapterName: outcome.adapterName, safetyAllowed: outcome.safetyAllowed,
+        applicationId: prepared.application.applicationId, adapterName: outcome.adapterName ?? "unknown", safetyAllowed: outcome.safetyAllowed,
         submitted: outcome.submitted, reason: outcome.reason, confirmationUrl: outcome.result?.confirmationUrl ?? null,
         externalApplicationId: outcome.result?.externalApplicationId ?? null
       });
     }
 
-    // Recruiter discovery is independent of application success/failure, but never
-    // runs for a permanently/configured excluded company and never guesses an ATS domain.
+    // Recruiter discovery/outreach is deliberately independent of application
+    // success. A blocked or failed application still gets a chance to reach a
+    // verified recruiter, subject to the recruiter safety/rate-limit gates.
     if (this.recruiterDiscoveryDispatcher && !isExcludedCompany(prepared.application.companyName, this.excludedCompanies)) {
       const companyDomain = prepared.application.companyDomain ?? resolveEmployerDomainFromJobUrl(prepared.application.url);
       if (companyDomain) {
@@ -105,9 +129,22 @@ export class ApplicationTaskHandler {
             jobDescription: prepared.application.jobDescription, candidateProfileId: prepared.application.candidateProfileId,
             candidateName, jobOpportunityId: prepared.application.jobOpportunityId, applicationId: prepared.application.applicationId
           });
-        } catch {
-          // Queueing recruiter discovery is best-effort and isolated from application state.
+        } catch (error) {
+          console.error(JSON.stringify({
+            level: 50,
+            applicationId: prepared.application.applicationId,
+            companyName: prepared.application.companyName,
+            reason: error instanceof Error ? error.message : String(error),
+            msg: "Recruiter discovery could not be queued"
+          }));
         }
+      } else {
+        console.warn(JSON.stringify({
+          level: 40,
+          applicationId: prepared.application.applicationId,
+          companyName: prepared.application.companyName,
+          msg: "Recruiter discovery skipped because employer domain could not be resolved"
+        }));
       }
     }
 
