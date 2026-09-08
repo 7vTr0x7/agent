@@ -5,6 +5,11 @@ export type RecruiterDiscoveryProviderId = "public-web";
 
 export interface RecruiterDiscoveryProviderConfig {
   provider: RecruiterDiscoveryProviderId;
+  /** @deprecated Kept only for backwards-compatible callers; public-web never uses it. */
+  hunterApiKey?: string;
+  /** @deprecated Kept only for backwards-compatible callers; public-web never uses them. */
+  snovClientId?: string;
+  snovClientSecret?: string;
 }
 
 /**
