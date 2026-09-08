@@ -20,10 +20,25 @@ interface SourceRunDiagnostic {
   finished_at: Date | null;
 }
 
+function resolveHostDatabaseUrl(databaseUrl: string): string {
+  try {
+    const url = new URL(databaseUrl);
+    // Docker Compose resolves the service name `postgres` only inside the
+    // Compose network. This smoke script normally runs on the host, where
+    // PostgreSQL is exposed on loopback by docker-compose.yml.
+    if (url.hostname === "postgres") {
+      url.hostname = "127.0.0.1";
+    }
+    return url.toString();
+  } catch {
+    return databaseUrl;
+  }
+}
+
 async function main(): Promise<void> {
   const config = loadConfig();
   const logger = pino({ level: config.logLevel });
-  const database = new Database(config.databaseUrl);
+  const database = new Database(resolveHostDatabaseUrl(config.databaseUrl));
 
   try {
     await new MigrationRunner(database).run();
