@@ -15,7 +15,7 @@ export interface RecruiterOutreachPreparationInput {
   jobTitle: string;
   jobDescription: string;
   jobOpportunityId: string;
-  applicationId: string;
+  applicationId?: string;
   candidateProfileId: string;
   candidateName: string;
   applicationOutcome?: RecruiterApplicationOutcome;
@@ -47,7 +47,6 @@ export class RecruiterOutreachPreparationService {
 
   async prepare(input: RecruiterOutreachPreparationInput, contacts: StoredRecruiterContact[]): Promise<PreparedRecruiterOutreach[]> {
     if (!input.jobOpportunityId.trim()) throw new Error("jobOpportunityId is required for recruiter outreach.");
-    if (!input.applicationId.trim()) throw new Error("applicationId is required for recruiter outreach.");
     if (!input.candidateProfileId.trim()) throw new Error("candidateProfileId is required for recruiter outreach.");
 
     const prepared: PreparedRecruiterOutreach[] = [];
@@ -69,8 +68,6 @@ export class RecruiterOutreachPreparationService {
         sources: []
       };
 
-      // Public job-posting contacts are explicitly published by the employer
-      // in recruiting context. They do not need Hunter/Snov verification.
       const requiresVerification = this.requireVerifiedEmail && contact.provider !== "job-posting";
       const safety = evaluateRecruiterOutreachSafety({
         companyName: input.companyName,
@@ -88,7 +85,7 @@ export class RecruiterOutreachPreparationService {
       const sequence = await this.options.repository.createOutreachSequence({
         recruiterContactId: contact.id,
         jobOpportunityId: input.jobOpportunityId,
-        applicationId: input.applicationId,
+        applicationId: input.applicationId ?? null,
         candidateProfileId: input.candidateProfileId
       });
       if (!sequence) continue;
