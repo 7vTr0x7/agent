@@ -99,8 +99,8 @@ export class MatchTaskHandler {
     return this.recruiters.enqueue({
       companyName: job.companyName,
       companyDomain,
-      jobTitle: job.jobTitle,
-      jobDescription: job.jobDescription,
+      jobTitle: job.title,
+      jobDescription: job.description,
       location: job.location ?? undefined,
       candidateProfileId,
       candidateName,
