@@ -68,11 +68,11 @@ describe("RecruiterOutreachPreparationService", () => {
     candidateName: "Salman Shaikh"
   };
 
-  it("prepares a deterministic initial message but does not send it", async () => {
+  it("prepares a deterministic initial message for a submitted application but does not send it", async () => {
     const { repo, calls } = repository();
     const service = new RecruiterOutreachPreparationService({ repository: repo as never, dryRun: true });
 
-    const result = await service.prepare(input, [contact()]);
+    const result = await service.prepare({ ...input, applicationOutcome: "SUBMITTED" }, [contact()]);
 
     expect(result).toHaveLength(1);
     expect(calls.sequences).toBe(1);
@@ -94,6 +94,17 @@ describe("RecruiterOutreachPreparationService", () => {
 
     expect(result).toHaveLength(1);
     expect(result[0]?.message.body).toContain("I attempted to apply for the role");
+    expect(result[0]?.message.body).not.toContain("I’ve applied for the role");
+  });
+
+  it("uses direct outreach wording when no application was attempted", async () => {
+    const { repo } = repository();
+    const service = new RecruiterOutreachPreparationService({ repository: repo as never, dryRun: true });
+
+    const result = await service.prepare(input, [contact()]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.message.body).toContain("I’m reaching out directly regarding the opportunity");
     expect(result[0]?.message.body).not.toContain("I’ve applied for the role");
   });
 
