@@ -110,9 +110,12 @@ export class DeterministicJobMatcher {
       });
     }
 
-    const skillScore = profile.skills.length === 0
-      ? 0
-      : Math.round((matchedSkills.length / profile.skills.length) * 70);
+    // Do not divide by every skill on the resume. A job posting is not expected
+    // to mention unrelated candidate skills, and treating those omissions as
+    // negative evidence was causing relevant frontend/full-stack roles to be
+    // systematically rejected. Five matched skills can saturate the skill
+    // component at 70 points; additional matches are still recorded as evidence.
+    const skillScore = Math.min(70, matchedSkills.length * 14);
     const titleBonus = titleMatch ? 20 : 0;
     const experienceBonus = requiredYears !== null && requiredYears <= profile.yearsExperience ? 10 : 0;
     const matchScore = Math.min(100, skillScore + titleBonus + experienceBonus);
@@ -138,7 +141,7 @@ export class DeterministicJobMatcher {
       matchedSkills,
       missingSkills,
       evidence,
-      reason: `${matchedSkills.length}/${profile.skills.length} candidate skills appear in the job posting; ` +
+      reason: `${matchedSkills.length} candidate skills appear in the job posting; ` +
         `${titleMatch ? "target title matched" : "target title not matched"}.`
     };
   }
