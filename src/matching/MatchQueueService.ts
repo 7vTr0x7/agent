@@ -9,6 +9,8 @@ export interface MatchQueueResult {
   queued: number;
 }
 
+const CURRENT_MATCHER_VERSION = "matcher-v3";
+
 export class MatchQueueService {
   constructor(
     private readonly database: Database,
@@ -24,7 +26,7 @@ export class MatchQueueService {
           ON md.job_opportunity_id = jo.id
          AND md.candidate_profile_id = $1
         WHERE jo.status = 'ACTIVE'
-          AND md.id IS NULL
+          AND (md.id IS NULL OR md.input_hash IS NULL OR md.input_hash NOT LIKE $2)
         ORDER BY
           CASE
             WHEN LOWER(COALESCE(jo.location, '')) LIKE '%bangalore%'
@@ -33,9 +35,9 @@ export class MatchQueueService {
             ELSE 3
           END,
           jo.last_seen_at DESC
-        LIMIT $2
+        LIMIT $3
       `,
-      [candidateProfileId, limit]
+      [candidateProfileId, `${CURRENT_MATCHER_VERSION}:%`, limit]
     );
 
     for (const row of result.rows) {
