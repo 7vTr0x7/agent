@@ -7,9 +7,6 @@ import { ApplicationEmailContext } from "../notifications/Email";
 import { TailoredResumeArtifactService } from "../resume/TailoredResumeArtifactService";
 import { TailoredResumeRepository } from "../resume/TailoredResumeRepository";
 import { ApplicationAttemptRepository } from "./ApplicationAttemptRepository";
-import { RecruiterDiscoveryTaskDispatcher } from "../recruiters/RecruiterDiscoveryTask";
-import { resolveEmployerDomainFromJobUrl } from "../recruiters/RecruiterCompanyDomainResolver";
-import { PERMANENTLY_EXCLUDED_COMPANIES } from "./ApplicationPolicy";
 
 export interface CandidateProfileResolver { getById(candidateProfileId: string): Promise<CandidateProfile | null>; }
 export interface ApplicationEmailDispatcher {
@@ -26,8 +23,7 @@ export class ApplicationTaskHandler {
     private readonly emailDispatcher?: ApplicationEmailDispatcher,
     private readonly tailoredResumeArtifacts?: TailoredResumeArtifactService,
     private readonly tailoredResumeRepository?: TailoredResumeRepository,
-    private readonly attemptRepository?: Pick<ApplicationAttemptRepository, "record">,
-    private readonly recruiterDiscoveryDispatcher?: RecruiterDiscoveryTaskDispatcher
+    private readonly attemptRepository?: Pick<ApplicationAttemptRepository, "record">
   ) {}
 
   async handle(task: ClaimedTask<ApplyJobTaskPayload>): Promise<void> {
@@ -49,7 +45,6 @@ export class ApplicationTaskHandler {
     const candidateProfile = await this.candidateProfiles.getById(prepared.application.candidateProfileId);
     if (!candidateProfile) throw new Error(`Candidate profile '${prepared.application.candidateProfileId}' could not be loaded.`);
 
-    const candidateName = candidateProfile.fullName ?? ([candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") || "Candidate");
     let applicationProfile = candidateProfile;
     if (this.tailoredResumeArtifacts) {
       const artifact = await this.tailoredResumeArtifacts.create(prepared.application.jobTitle, prepared.application.jobDescription);
@@ -90,7 +85,7 @@ export class ApplicationTaskHandler {
         companyName: prepared.application.companyName,
         jobTitle: prepared.application.jobTitle,
         reason,
-        msg: "Application submission threw; recruiter outreach will continue independently"
+        msg: "Application submission threw"
       }));
     }
 
@@ -117,39 +112,8 @@ export class ApplicationTaskHandler {
       });
     }
 
-    // Recruiter discovery/outreach is deliberately independent of application
-    // success. A blocked or failed application still gets a chance to reach a
-    // verified recruiter, subject to the recruiter safety/rate-limit gates.
-    if (this.recruiterDiscoveryDispatcher && !isExcludedCompany(prepared.application.companyName, this.excludedCompanies)) {
-      const companyDomain = prepared.application.companyDomain ?? resolveEmployerDomainFromJobUrl(prepared.application.url);
-      if (companyDomain) {
-        try {
-          await this.recruiterDiscoveryDispatcher.enqueue({
-            companyName: prepared.application.companyName, companyDomain, jobTitle: prepared.application.jobTitle,
-            jobDescription: prepared.application.jobDescription, candidateProfileId: prepared.application.candidateProfileId,
-            candidateName, jobOpportunityId: prepared.application.jobOpportunityId, applicationId: prepared.application.applicationId,
-            applicationOutcome: outcome.submitted ? "SUBMITTED" : (outcome.safetyAllowed ? "FAILED" : "BLOCKED")
-          });
-        } catch (error) {
-          console.error(JSON.stringify({
-            level: 50,
-            applicationId: prepared.application.applicationId,
-            companyName: prepared.application.companyName,
-            reason: error instanceof Error ? error.message : String(error),
-            msg: "Recruiter discovery could not be queued"
-          }));
-        }
-      } else {
-        console.warn(JSON.stringify({
-          level: 40,
-          applicationId: prepared.application.applicationId,
-          companyName: prepared.application.companyName,
-          msg: "Recruiter discovery skipped because employer domain could not be resolved"
-        }));
-      }
-    }
-
     if (!this.emailDispatcher || !candidateProfile.email) return;
+    const candidateName = candidateProfile.fullName ?? ([candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") || "Candidate");
     const context: ApplicationEmailContext = {
       recipient: candidateProfile.email, candidateName, jobTitle: prepared.application.jobTitle,
       companyName: prepared.application.companyName, applicationId: prepared.application.applicationId,
@@ -158,9 +122,4 @@ export class ApplicationTaskHandler {
     if (outcome.submitted) await this.emailDispatcher.enqueueApplicationSubmitted(context);
     else await this.emailDispatcher.enqueueApplicationBlocked(context);
   }
-}
-
-function isExcludedCompany(companyName: string, configuredExcluded: readonly string[]): boolean {
-  const normalized = companyName.trim().toLowerCase();
-  return [...PERMANENTLY_EXCLUDED_COMPANIES, ...configuredExcluded].some((name) => name.trim().toLowerCase() === normalized);
 }
