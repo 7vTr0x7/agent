@@ -15,7 +15,7 @@
     "preflight:recruiter-outreach": "tsx scripts/preflight-recruiter-outreach.ts",
     "reconcile:recruiter-outreach": "tsx scripts/reconcile-recruiter-outreach.ts",
     "doctor": "tsx scripts/doctor.ts",
-    "discover:once": "tsx scripts/discover-once.ts",
+    "discover:once": "tsx src/scripts/discover-once.ts",
     "matching:once": "tsx scripts/process-matching-once.ts",
     "gmail:authorize": "tsx scripts/gmail-authorize.ts",
     "gmail:verify": "tsx scripts/gmail-verify.ts"
