@@ -10,7 +10,7 @@ export interface AppConfig {
   gmail: { enabled: boolean; accountTier: "consumer" | "workspace"; dailySendLimit: number; clientId: string | null; clientSecret: string | null; refreshToken: string | null; userEmail: string | null; syncQuery: string; syncIntervalMs: number; };
 }
 
-const DEFAULT_JOB_SOURCES = JSON.stringify([
+const BASE_JOB_SOURCES = [
   { id: "remoteok:json", type: "api", name: "remoteok", feedUrl: "https://remoteok.com/api", status: "APPROVED" },
   { id: "himalayas:json", type: "api", name: "himalayas", feedUrl: "https://himalayas.app/jobs/api?limit=20", status: "APPROVED" },
   { id: "jobicy:json", type: "api", name: "jobicy", feedUrl: "https://jobicy.com/api/v2/remote-jobs?count=200", status: "APPROVED" },
@@ -23,8 +23,27 @@ const DEFAULT_JOB_SOURCES = JSON.stringify([
   { id: "workanywhere:frontend:rss", type: "rss", name: "workanywhere-frontend", feedUrl: "https://www.workanywhere.pro/rss/frontend", status: "APPROVED" },
   { id: "workanywhere:fullstack:rss", type: "rss", name: "workanywhere-fullstack", feedUrl: "https://www.workanywhere.pro/rss/fullstack", status: "APPROVED" },
   { id: "hireweb3:rss", type: "rss", name: "hireweb3", feedUrl: "https://hireweb3.io/job/rss", status: "APPROVED" }
-]);
+];
 
+const BROAD_TECHMAP_PORTALS = [
+  "naukri", "linkedin", "shine", "foundit", "hirist", "recruitee", "workable", "taleo", "stepstone", "infojobs", "jobcloud", "recooty", "eploy", "deel", "workstream", "join", "jobaps", "arbeitsagentur", "eures", "seek", "techmap"
+];
+
+function defaultJobSources(): string {
+  const sources: unknown[] = [...BASE_JOB_SOURCES];
+  if (process.env.TECHMAP_RAPIDAPI_KEY?.trim() && booleanValue("TECHMAP_ENABLED", process.env.TECHMAP_ENABLED, true)) {
+    sources.push({ id: "techmap:broad", type: "api", name: "techmap", apiUrl: "https://daily-international-job-postings.p.rapidapi.com/api/v2/jobs/search", apiKeyEnv: "TECHMAP_RAPIDAPI_KEY", portals: csv("TECHMAP_PORTALS", BROAD_TECHMAP_PORTALS), countryCode: "in", city: process.env.TECHMAP_CITY ?? "Bengaluru", title: process.env.TECHMAP_TITLE ?? "React OR Frontend OR \"Front End\" OR Next.js OR TypeScript", skills: process.env.TECHMAP_SKILLS ?? "Javascript,Typescript,React,Next.js", dateCreated: process.env.TECHMAP_DATE_CREATED ?? new Date().toISOString().slice(0, 7), resultOnPage: Number(process.env.TECHMAP_RESULTS_PER_PAGE ?? "50"), status: "APPROVED" });
+  }
+  if (process.env.ADZUNA_APP_ID?.trim() && process.env.ADZUNA_APP_KEY?.trim() && booleanValue("ADZUNA_ENABLED", process.env.ADZUNA_ENABLED, true)) {
+    sources.push({ id: "adzuna:india", type: "api", name: "adzuna", countryCode: "in", pages: 1, resultsPerPage: 50, queries: csv("ADZUNA_QUERIES", ["React", "Frontend Engineer", "Front End Developer", "Next.js", "TypeScript"]), locations: csv("ADZUNA_LOCATIONS", ["Bengaluru", "India"]), status: "APPROVED" });
+  }
+  if (process.env.JOOBLE_API_KEY?.trim() && booleanValue("JOOBLE_ENABLED", process.env.JOOBLE_ENABLED, true)) {
+    sources.push({ id: "jooble:india", type: "api", name: "jooble", apiUrl: process.env.JOOBLE_API_BASE_URL ?? "https://in.jooble.org/api", apiKeyEnv: "JOOBLE_API_KEY", city: "Bengaluru, India", query: "React Frontend TypeScript Next.js", resultOnPage: 100, status: "APPROVED" });
+  }
+  return JSON.stringify(sources);
+}
+
+function csv(name: string, fallback: string[]): string[] { return (process.env[name] ?? fallback.join(",")).split(",").map((v) => v.trim()).filter(Boolean); }
 function required(name: string, value: string | undefined): string { if (!value) throw new Error(`Missing required environment variable: ${name}`); return value; }
 function positiveInteger(name: string, value: string | undefined): number { const parsed = Number(value); if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive integer`); return parsed; }
 function nonNegativeInteger(name: string, value: string): number { const parsed = Number(value); if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${name} must be a non-negative integer`); return parsed; }
@@ -46,18 +65,14 @@ export function loadConfig(): AppConfig {
   const recruiterLiveActivationConfirmed = booleanValue("RECRUITER_LIVE_ACTIVATION_CONFIRMED", process.env.RECRUITER_LIVE_ACTIVATION_CONFIRMED, false);
   const recruiterProvider = process.env.RECRUITER_DISCOVERY_PROVIDER ?? "job-posting";
   if (recruiterProvider !== "hunter" && recruiterProvider !== "snov" && recruiterProvider !== "job-posting") throw new Error("RECRUITER_DISCOVERY_PROVIDER must be hunter, snov, or job-posting");
-  const hunterApiKey = process.env.HUNTER_API_KEY?.trim() || null;
-  const snovClientId = process.env.SNOV_CLIENT_ID?.trim() || null;
-  const snovClientSecret = process.env.SNOV_CLIENT_SECRET?.trim() || null;
+  const hunterApiKey = process.env.HUNTER_API_KEY?.trim() || null; const snovClientId = process.env.SNOV_CLIENT_ID?.trim() || null; const snovClientSecret = process.env.SNOV_CLIENT_SECRET?.trim() || null;
   if (recruiterOutreachEnabled && recruiterProvider === "hunter" && !hunterApiKey) throw new Error("Missing required environment variable: HUNTER_API_KEY");
   if (recruiterOutreachEnabled && recruiterProvider === "snov" && (!snovClientId || !snovClientSecret)) throw new Error("Missing required environment variables: SNOV_CLIENT_ID and SNOV_CLIENT_SECRET");
-  const recruiterDefaultDailyLimit = gmailDailySendLimit;
-  const recruiterDefaultHourlyLimit = Math.ceil(gmailDailySendLimit / 24);
-  const recruiterMaxMessagesPerDay = positiveInteger("RECRUITER_MAX_MESSAGES_PER_DAY", process.env.RECRUITER_MAX_MESSAGES_PER_DAY ?? String(recruiterDefaultDailyLimit));
-  const recruiterMaxMessagesPerHour = positiveInteger("RECRUITER_MAX_MESSAGES_PER_HOUR", process.env.RECRUITER_MAX_MESSAGES_PER_HOUR ?? String(recruiterDefaultHourlyLimit));
+  const recruiterDefaultDailyLimit = gmailDailySendLimit; const recruiterDefaultHourlyLimit = Math.ceil(gmailDailySendLimit / 24);
+  const recruiterMaxMessagesPerDay = positiveInteger("RECRUITER_MAX_MESSAGES_PER_DAY", process.env.RECRUITER_MAX_MESSAGES_PER_DAY ?? String(recruiterDefaultDailyLimit)); const recruiterMaxMessagesPerHour = positiveInteger("RECRUITER_MAX_MESSAGES_PER_HOUR", process.env.RECRUITER_MAX_MESSAGES_PER_HOUR ?? String(recruiterDefaultHourlyLimit));
   const configuredJobSources = process.env.JOB_SOURCES?.trim();
   return {
-    nodeEnv: process.env.NODE_ENV ?? "development", logLevel: process.env.LOG_LEVEL ?? "info", automationEnabled: booleanValue("AUTOMATION_ENABLED", process.env.AUTOMATION_ENABLED, true), applicationDryRun: booleanValue("APPLICATION_DRY_RUN", process.env.APPLICATION_DRY_RUN, true), outboundEnabled: booleanValue("OUTBOUND_ENABLED", process.env.OUTBOUND_ENABLED, false), discoveryEnabled: booleanValue("JOB_DISCOVERY_ENABLED", process.env.JOB_DISCOVERY_ENABLED, true), discoveryIntervalMs: positiveInteger("JOB_DISCOVERY_INTERVAL_MS", process.env.JOB_DISCOVERY_INTERVAL_MS ?? "900000"), applicationQueueIntervalMs: positiveInteger("APPLICATION_QUEUE_INTERVAL_MS", process.env.APPLICATION_QUEUE_INTERVAL_MS ?? "30000"), staleSubmissionCheckIntervalMs: positiveInteger("STALE_SUBMISSION_CHECK_INTERVAL_MS", process.env.STALE_SUBMISSION_CHECK_INTERVAL_MS ?? "300000"), staleSubmissionThresholdMinutes: positiveInteger("STALE_SUBMISSION_THRESHOLD_MINUTES", process.env.STALE_SUBMISSION_THRESHOLD_MINUTES ?? "30"), followUpIntervalMs: positiveInteger("FOLLOW_UP_INTERVAL_MS", process.env.FOLLOW_UP_INTERVAL_MS ?? "300000"), interviewReminderIntervalMs: positiveInteger("INTERVIEW_REMINDER_INTERVAL_MS", process.env.INTERVIEW_REMINDER_INTERVAL_MS ?? "300000"), jobSources: configuredJobSources || DEFAULT_JOB_SOURCES, genericApplicationAdapterEnabled: booleanValue("GENERIC_APPLICATION_ADAPTER_ENABLED", process.env.GENERIC_APPLICATION_ADAPTER_ENABLED, true), applicationRateLimitPerDay: positiveInteger("APPLICATION_RATE_LIMIT_PER_DAY", process.env.APPLICATION_RATE_LIMIT_PER_DAY ?? "200"), applicationCompanyRateLimitPerDay: positiveInteger("APPLICATION_COMPANY_RATE_LIMIT_PER_DAY", process.env.APPLICATION_COMPANY_RATE_LIMIT_PER_DAY ?? "10"),
+    nodeEnv: process.env.NODE_ENV ?? "development", logLevel: process.env.LOG_LEVEL ?? "info", automationEnabled: booleanValue("AUTOMATION_ENABLED", process.env.AUTOMATION_ENABLED, true), applicationDryRun: booleanValue("APPLICATION_DRY_RUN", process.env.APPLICATION_DRY_RUN, true), outboundEnabled: booleanValue("OUTBOUND_ENABLED", process.env.OUTBOUND_ENABLED, false), discoveryEnabled: booleanValue("JOB_DISCOVERY_ENABLED", process.env.JOB_DISCOVERY_ENABLED, true), discoveryIntervalMs: positiveInteger("JOB_DISCOVERY_INTERVAL_MS", process.env.JOB_DISCOVERY_INTERVAL_MS ?? "900000"), applicationQueueIntervalMs: positiveInteger("APPLICATION_QUEUE_INTERVAL_MS", process.env.APPLICATION_QUEUE_INTERVAL_MS ?? "30000"), staleSubmissionCheckIntervalMs: positiveInteger("STALE_SUBMISSION_CHECK_INTERVAL_MS", process.env.STALE_SUBMISSION_CHECK_INTERVAL_MS ?? "300000"), staleSubmissionThresholdMinutes: positiveInteger("STALE_SUBMISSION_THRESHOLD_MINUTES", process.env.STALE_SUBMISSION_THRESHOLD_MINUTES ?? "30"), followUpIntervalMs: positiveInteger("FOLLOW_UP_INTERVAL_MS", process.env.FOLLOW_UP_INTERVAL_MS ?? "300000"), interviewReminderIntervalMs: positiveInteger("INTERVIEW_REMINDER_INTERVAL_MS", process.env.INTERVIEW_REMINDER_INTERVAL_MS ?? "300000"), jobSources: configuredJobSources || defaultJobSources(), genericApplicationAdapterEnabled: booleanValue("GENERIC_APPLICATION_ADAPTER_ENABLED", process.env.GENERIC_APPLICATION_ADAPTER_ENABLED, true), applicationRateLimitPerDay: positiveInteger("APPLICATION_RATE_LIMIT_PER_DAY", process.env.APPLICATION_RATE_LIMIT_PER_DAY ?? "200"), applicationCompanyRateLimitPerDay: positiveInteger("APPLICATION_COMPANY_RATE_LIMIT_PER_DAY", process.env.APPLICATION_COMPANY_RATE_LIMIT_PER_DAY ?? "10"),
     recruiterOutreach: { enabled: recruiterOutreachEnabled, dryRun: recruiterDryRun, activation: recruiterActivation, liveActivationConfirmed: recruiterLiveActivationConfirmed, discoveryProvider: recruiterProvider, minConfidence: boundedInteger("RECRUITER_MIN_CONFIDENCE", process.env.RECRUITER_MIN_CONFIDENCE ?? "80", 0, 100), requireVerifiedEmail: booleanValue("RECRUITER_REQUIRE_VERIFIED_EMAIL", process.env.RECRUITER_REQUIRE_VERIFIED_EMAIL, true), maxContactsPerApplication: positiveInteger("RECRUITER_MAX_CONTACTS_PER_APPLICATION", process.env.RECRUITER_MAX_CONTACTS_PER_APPLICATION ?? "3"), maxMessagesPerDay: recruiterMaxMessagesPerDay, maxMessagesPerHour: recruiterMaxMessagesPerHour, followUpEnabled: booleanValue("RECRUITER_FOLLOWUP_ENABLED", process.env.RECRUITER_FOLLOWUP_ENABLED, true), followUpDayOffsets: dayOffsets("RECRUITER_FOLLOWUP_DAY_OFFSETS", process.env.RECRUITER_FOLLOWUP_DAY_OFFSETS ?? "4,10,18"), genericEmailFallback: booleanValue("RECRUITER_GENERIC_EMAIL_FALLBACK", process.env.RECRUITER_GENERIC_EMAIL_FALLBACK, true), hunterApiKey, snovClientId, snovClientSecret },
     resume: { tailoringEnabled: resumeTailoringEnabled, masterPath: resumeTailoringEnabled ? required("RESUME_MASTER_PATH", process.env.RESUME_MASTER_PATH) : null, outputDirectory: process.env.RESUME_OUTPUT_DIRECTORY ?? "./data/resumes" },
     ollama: { baseUrl: (process.env.OLLAMA_BASE_URL ?? "http://localhost:11434").replace(/\/+$/, ""), model: process.env.OLLAMA_MODEL ?? "qwen3:8b", timeoutMs: positiveInteger("OLLAMA_TIMEOUT_MS", process.env.OLLAMA_TIMEOUT_MS ?? "120000") },
