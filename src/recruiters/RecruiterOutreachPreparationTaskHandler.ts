@@ -35,7 +35,8 @@ export class RecruiterOutreachPreparationTaskHandler {
           jobOpportunityId: task.payload.jobOpportunityId,
           applicationId: task.payload.applicationId,
           candidateProfileId: task.payload.candidateProfileId,
-          candidateName: task.payload.candidateName
+          candidateName: task.payload.candidateName,
+          applicationOutcome: task.payload.applicationOutcome
         },
         task.payload.contacts
       );
