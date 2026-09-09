@@ -6,38 +6,45 @@ import { JOB_PLATFORM_REGISTRY } from "./JobPlatformRegistry";
 /** Public-search federation for platforms without a stable free API/feed. */
 export class PlatformSearchJobSource implements JobSource {
   readonly name = "platform-search-federation";
-  private cursor = 0;
-  constructor(private readonly batchSize = 20, private readonly maxJobsPerPlatform = 3) {}
 
   async fetchJobs(): Promise<Job[]> {
     const platforms = JOB_PLATFORM_REGISTRY;
     if (!platforms.length) return [];
-    const batch: (typeof platforms)[number][] = [];
-    for (let i = 0; i < Math.min(this.batchSize, platforms.length); i += 1) {
-      const platform = platforms[(this.cursor + i) % platforms.length];
-      if (platform) batch.push(platform);
-    }
-    this.cursor = (this.cursor + batch.length) % platforms.length;
-    const results = await mapWithConcurrency(batch, 4, async (platform) => {
+
+    // Every registered platform is searched on every discovery cycle. There is
+    // intentionally no platform-count or jobs-per-platform cap here. Network
+    // concurrency remains bounded so public sites are not hammered.
+    const results = await mapWithConcurrency(platforms, 4, async (platform) => {
       try {
-        return await discoverPlatform(platform.name, this.maxJobsPerPlatform);
+        return await discoverPlatform(platform.name);
       } catch {
         return [];
       }
     });
+
     return results.flat();
   }
 }
 
-async function discoverPlatform(platformName: string, maxJobs: number): Promise<Job[]> {
+async function discoverPlatform(platformName: string): Promise<Job[]> {
   const query = `"${platformName}" (React OR "Frontend Engineer" OR "Front End Developer" OR Next.js OR TypeScript) (Bengaluru OR Bangalore OR India OR remote)`;
   const xml = await fetchText(`https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`, 7000);
   if (!xml) return [];
-  const links = [...xml.matchAll(/<link>(https?:\/\/[^<]+)<\/link>/gi)].map(m => decodeXml(m[1] ?? "")).filter(u => /^https?:\/\//i.test(u) && !/bing\.com|microsoft\.com/i.test(u)).slice(0, maxJobs * 2);
-  const jobs = await mapWithConcurrency([...new Set(links)], 4, async url => {
-    try { const html = await fetchText(url, 6000); return html ? parseJobPosting(html, url, platformName) : null; } catch { return null; }
-  });
-  return jobs.filter((job): job is Job => Boolean(job)).slice(0, maxJobs);
+
+  // Keep every public search result returned by the platform query. Do not
+  // truncate to an arbitrary number of jobs per platform.
+  const links = [...xml.matchAll(/<link>(https?:\/\/[^<]+)<\/link>/gi)]
+    .map(m => decodeXml(m[1] ?? ""))
+    .filter(u => /^https?:\/\//i.test(u) && !/bing\.com|microsoft\.com/i.test(u));
+
+  return (await mapWithConcurrency([...new Set(links)], 4, async url => {
+    try {
+      const html = await fetchText(url, 6000);
+      return html ? parseJobPosting(html, url, platformName) : null;
+    } catch {
+      return null;
+    }
+  })).filter((job): job is Job => Boolean(job));
 }
 
 function parseJobPosting(html: string, sourceUrl: string, platformName: string): Job | null {
