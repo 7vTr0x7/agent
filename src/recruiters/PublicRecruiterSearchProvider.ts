@@ -120,6 +120,34 @@ function buildQueries(input: RecruiterDiscoveryInput): string[] {
   ];
 }
 
+async function verifyMxViaDnsOverHttps(domain: string): Promise<boolean | null> {
+  const endpoints = [
+    `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain)}&type=MX`,
+    `https://dns.google/resolve?name=${encodeURIComponent(domain)}&type=MX`
+  ];
+
+  for (const endpoint of endpoints) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    try {
+      const response = await fetch(endpoint, {
+        signal: controller.signal,
+        headers: { accept: "application/dns-json" }
+      });
+      if (!response.ok) continue;
+      const payload = await response.json() as { Answer?: Array<{ type?: number }> };
+      const answers = Array.isArray(payload.Answer) ? payload.Answer : [];
+      return answers.some((answer) => answer.type === 15);
+    } catch {
+      // Try the next public DNS-over-HTTPS resolver.
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  return null;
+}
+
 export class PublicRecruiterSearchProvider implements RecruiterDiscoveryProvider {
   readonly name = "public-web";
 
@@ -171,6 +199,11 @@ export class PublicRecruiterSearchProvider implements RecruiterDiscoveryProvider
    * that the individual mailbox exists: only an SMTP-level probe or a trusted
    * verification provider can establish that, and SMTP probes are unreliable
    * and can be intrusive.
+   *
+   * The runtime first uses the local resolver and then falls back to two public
+   * DNS-over-HTTPS resolvers. This prevents container/VPC DNS failures from
+   * incorrectly turning every otherwise valid recruiter into an ineligible
+   * contact.
    */
   async verify(email: string): Promise<RecruiterVerificationResult> {
     const normalized = normalizeEmail(email);
@@ -183,16 +216,28 @@ export class PublicRecruiterSearchProvider implements RecruiterDiscoveryProvider
 
     try {
       const records = await dns.resolveMx(domain);
-      if (!records.length) {
+      if (records.length > 0) {
+        return {
+          email: normalized,
+          verified: true,
+          status: "domain_mx_verified",
+          confidence: 75
+        };
+      }
+      return { email: normalized, verified: false, status: "no_mx_record", confidence: 0 };
+    } catch {
+      const dohResult = await verifyMxViaDnsOverHttps(domain);
+      if (dohResult === true) {
+        return {
+          email: normalized,
+          verified: true,
+          status: "domain_mx_verified_doh",
+          confidence: 75
+        };
+      }
+      if (dohResult === false) {
         return { email: normalized, verified: false, status: "no_mx_record", confidence: 0 };
       }
-      return {
-        email: normalized,
-        verified: true,
-        status: "domain_mx_verified",
-        confidence: 75
-      };
-    } catch {
       return { email: normalized, verified: false, status: "mx_lookup_failed", confidence: 0 };
     }
   }
