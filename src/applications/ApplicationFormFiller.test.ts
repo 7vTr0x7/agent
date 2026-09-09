@@ -141,6 +141,45 @@ describe("ApplicationFormFiller", () => {
       await browser.close();
     }
   });
+
+  it("fills explicit standardized radio and checkbox answers", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    try {
+      await page.setContent(`
+        <form>
+          <fieldset>
+            <legend>Will you require visa sponsorship?</legend>
+            <label><input type="radio" name="sponsorship" value="yes" /> Yes</label>
+            <label><input type="radio" name="sponsorship" value="no" /> No</label>
+          </fieldset>
+          <label><input id="consent" name="consent" type="checkbox" /> I agree</label>
+        </form>
+      `);
+
+      const profile: CandidateProfile = {
+        id: "candidate-4",
+        yearsExperience: 3,
+        skills: ["React"],
+        targetTitles: ["Frontend Engineer"],
+        standardizedAnswers: {
+          sponsorshipRequired: false
+        }
+      };
+
+      const fields = await new FormFieldDetector().detect(page);
+      const mappings = new ApplicationFieldMapper().map(fields, profile);
+      const result = await new ApplicationFormFiller().fill(page, mappings);
+
+      expect(await page.locator('input[name="sponsorship"][value="no"]').isChecked()).toBe(true);
+      expect(result.results.find((entry) => entry.mapping.key === "sponsorshipRequired")?.filled).toBe(true);
+    } finally {
+      await context.close();
+      await browser.close();
+    }
+  });
 });
 
 async function expectInputValue(page: import("playwright").Page, selector: string, expected: string): Promise<void> {
