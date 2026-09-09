@@ -2,6 +2,7 @@ import { TaskQueue } from "../queue/TaskQueue";
 import { RecruiterApplicationOutcome } from "./RecruiterOutreachPreparationService";
 
 export const DISCOVER_RECRUITERS_TASK = "DISCOVER_RECRUITERS";
+const RECRUITER_DISCOVERY_DEDUPE_VERSION = "v2";
 
 export interface DiscoverRecruitersTaskPayload {
   companyName: string;
@@ -24,7 +25,7 @@ export class RecruiterDiscoveryTaskDispatcher {
       taskType: DISCOVER_RECRUITERS_TASK,
       payload,
       priority,
-      dedupeKey: `recruiter-discovery:${payload.jobOpportunityId}:${payload.candidateProfileId}`
+      dedupeKey: `recruiter-discovery:${RECRUITER_DISCOVERY_DEDUPE_VERSION}:${payload.jobOpportunityId}:${payload.candidateProfileId}`
     });
   }
 }
