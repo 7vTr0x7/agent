@@ -33,6 +33,7 @@ export class ConfiguredCandidateProfileResolver {
     const gmailUserEmail = optional(env, "GMAIL_USER_EMAIL");
     const gmailEnabled = env["GMAIL_ENABLED"] === "true";
     const candidateEmail = configuredCandidateEmail ?? (gmailEnabled ? gmailUserEmail : undefined);
+    const standardizedAnswers = jsonAnswers(env);
 
     const profile: CandidateProfile = {
       id: required(env, "CANDIDATE_PROFILE_ID"),
@@ -51,7 +52,8 @@ export class ConfiguredCandidateProfileResolver {
       linkedinUrl: optional(env, "CANDIDATE_LINKEDIN_URL"),
       githubUrl: optional(env, "CANDIDATE_GITHUB_URL"),
       portfolioUrl: optional(env, "CANDIDATE_PORTFOLIO_URL"),
-      resumePath: optional(env, "CANDIDATE_RESUME_PATH")
+      resumePath: optional(env, "CANDIDATE_RESUME_PATH"),
+      standardizedAnswers
     };
 
     return new ConfiguredCandidateProfileResolver(profile);
@@ -99,4 +101,29 @@ function optionalBoolean(env: NodeJS.ProcessEnv, name: string): boolean | undefi
   if (raw === "true") return true;
   if (raw === "false") return false;
   throw new Error(`${name} must be true or false`);
+}
+
+function jsonAnswers(env: NodeJS.ProcessEnv): Readonly<Record<string, string | boolean | number>> | undefined {
+  const raw = optional(env, "CANDIDATE_STANDARDIZED_ANSWERS_JSON");
+  if (!raw) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`CANDIDATE_STANDARDIZED_ANSWERS_JSON must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("CANDIDATE_STANDARDIZED_ANSWERS_JSON must be a JSON object.");
+  }
+
+  const result: Record<string, string | boolean | number> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!["string", "boolean", "number"].includes(typeof value)) {
+      throw new Error(`CANDIDATE_STANDARDIZED_ANSWERS_JSON contains unsupported value for '${key}'.`);
+    }
+    result[key] = value as string | boolean | number;
+  }
+  return result;
 }
