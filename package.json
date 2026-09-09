@@ -17,6 +17,7 @@
     "preflight:recruiter-outreach": "tsx scripts/preflight-recruiter-outreach.ts",
     "preflight:autonomous": "tsx scripts/preflight-autonomous-runtime.ts",
     "reconcile:recruiter-outreach": "tsx scripts/reconcile-recruiter-outreach.ts",
+    "requeue:recruiter-discovery": "tsx scripts/requeue-recruiter-discovery.ts",
     "doctor": "tsx scripts/doctor.ts",
     "discover:once": "tsx src/scripts/discover-once.ts",
     "matching:once": "tsx scripts/process-matching-once.ts",
