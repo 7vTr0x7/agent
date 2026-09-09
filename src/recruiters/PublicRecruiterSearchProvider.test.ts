@@ -43,6 +43,34 @@ describe("PublicRecruiterSearchProvider email verification", () => {
     }
   });
 
+  it("falls back to DNS-over-HTTPS when the local resolver fails", async () => {
+    const resolveMx = jest.spyOn(dns, "resolveMx").mockRejectedValue(new Error("EAI_AGAIN"));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("cloudflare-dns.com")) {
+        return new Response(JSON.stringify({ Answer: [{ type: 15, data: "10 mail.example.com." }] }), {
+          status: 200,
+          headers: { "content-type": "application/dns-json" }
+        });
+      }
+      return new Response(JSON.stringify({ Answer: [] }), { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const provider = new PublicRecruiterSearchProvider();
+      await expect(provider.verify("recruiter@example.com")).resolves.toEqual({
+        email: "recruiter@example.com",
+        verified: true,
+        status: "domain_mx_verified_doh",
+        confidence: 75
+      });
+    } finally {
+      resolveMx.mockRestore();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("does not claim mailbox-level verification", async () => {
     const resolveMx = jest.spyOn(dns, "resolveMx").mockResolvedValue([
       { exchange: "mail.example.com", priority: 10 }
