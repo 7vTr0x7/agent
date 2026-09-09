@@ -52,7 +52,12 @@ describe("PersistentRecruiterDiscoveryService", () => {
           candidate({ email: "other@example.com", fullName: "Other Recruiter", confidence: 88 })
         ]
       }),
-      verify: jest.fn()
+      verify: jest.fn(async (email: string) => ({
+        email,
+        verified: true,
+        status: "domain_mx_verified",
+        confidence: 75
+      }))
     };
     const repository = {
       hasRecentDiscovery: jest.fn().mockResolvedValue(false),
