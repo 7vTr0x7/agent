@@ -51,7 +51,9 @@ export class SemanticJobMatcher {
 
     const response = await this.provider.complete({
       temperature: 0,
-      maxTokens: 256,
+      // Compact structured output is sufficient for the matcher and keeps
+      // local Ollama generation fast enough for queue processing.
+      maxTokens: 64,
       messages: [
         {
           role: "system",
