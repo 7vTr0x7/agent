@@ -5,27 +5,18 @@ import { MatchPipeline } from "./MatchPipeline";
 import { JobRankingService } from "../jobs/policy/JobRankingService";
 import { ApplicationTaskDispatcher } from "../applications/ApplicationTask";
 import { RecruiterDiscoveryTaskDispatcher } from "../recruiters/RecruiterDiscoveryTask";
-import { resolveEmployerDomainFromJobData } from "../recruiters/RecruiterCompanyDomainResolver";
+import { resolveEmployerDomainFromJobData, resolveEmployerDomainFromPublicSearch } from "../recruiters/RecruiterCompanyDomainResolver";
 import { PERMANENTLY_EXCLUDED_COMPANIES } from "../applications/ApplicationPolicy";
 import { AppConfig } from "../config/env";
 
 export const MATCH_JOB_TASK = "MATCH_JOB";
 
-export interface MatchJobTaskPayload {
-  jobOpportunityId: string;
-  candidateProfileId: string;
-}
+export interface MatchJobTaskPayload { jobOpportunityId: string; candidateProfileId: string; }
 
 export class MatchTaskDispatcher {
   constructor(private readonly queue: TaskQueue) {}
-
   async enqueue(jobOpportunityId: string, candidateProfileId: string, priority = 0): Promise<string> {
-    return this.queue.enqueue<MatchJobTaskPayload>({
-      taskType: MATCH_JOB_TASK,
-      payload: { jobOpportunityId, candidateProfileId },
-      priority,
-      dedupeKey: `match:${jobOpportunityId}:${candidateProfileId}`
-    });
+    return this.queue.enqueue<MatchJobTaskPayload>({ taskType: MATCH_JOB_TASK, payload: { jobOpportunityId, candidateProfileId }, priority, dedupeKey: `match:${jobOpportunityId}:${candidateProfileId}` });
   }
 }
 
@@ -54,47 +45,22 @@ export class MatchTaskHandler {
 
   async handle(task: ClaimedTask<MatchJobTaskPayload>): Promise<void> {
     if (task.taskType !== MATCH_JOB_TASK) throw new Error(`Unsupported match task type: ${task.taskType}`);
-
     const { jobOpportunityId, candidateProfileId } = task.payload;
-    if (candidateProfileId !== this.profiles.id) {
-      throw new Error(`Unknown candidate profile: ${candidateProfileId}`);
-    }
-
+    if (candidateProfileId !== this.profiles.id) throw new Error(`Unknown candidate profile: ${candidateProfileId}`);
     const job = await this.opportunities.findById(jobOpportunityId);
     if (!job) throw new Error(`Job opportunity not found: ${jobOpportunityId}`);
 
     const match = await this.pipeline.evaluateAndPersist(job, this.profiles);
-
     let rankedAndEligible = true;
     if (this.ranking) {
-      const result = await this.ranking.rankAndPersist({
-        job,
-        candidateProfileId,
-        deterministicMatchScore: match.deterministic.matchScore,
-        semanticMatchScore: match.semantic?.score ?? null
-      });
+      const result = await this.ranking.rankAndPersist({ job, candidateProfileId, deterministicMatchScore: match.deterministic.matchScore, semanticMatchScore: match.semantic?.score ?? null });
       rankedAndEligible = result.persisted;
     }
-
     if (!rankedAndEligible) return;
 
-    // MATCH_JOB is the fan-out point. Application submission and recruiter
-    // discovery are independent sibling pipelines. Neither waits for the
-    // other, and recruiter discovery never depends on application outcome.
     const dispatches: Promise<unknown>[] = [];
-
-    // Only an APPLY match is eligible for the application queue. REVIEW jobs
-    // remain eligible for recruiter discovery without creating pointless
-    // APPLY_JOB tasks that will immediately be rejected by the application
-    // handler's defense-in-depth guard.
-    if (this.applications && match.decision === "APPLY") {
-      dispatches.push(this.applications.enqueue(jobOpportunityId, candidateProfileId, 30));
-    }
-
-    if (this.recruiters) {
-      dispatches.push(this.enqueueRecruiterDiscoveryIfEligible(job, candidateProfileId));
-    }
-
+    if (this.applications && match.decision === "APPLY") dispatches.push(this.applications.enqueue(jobOpportunityId, candidateProfileId, 30));
+    if (this.recruiters) dispatches.push(this.enqueueRecruiterDiscoveryIfEligible(job, candidateProfileId));
     await Promise.all(dispatches);
   }
 
@@ -105,11 +71,10 @@ export class MatchTaskHandler {
     if (!job || !this.recruiterEnabled || !this.recruiters) return null;
     if (isExcludedCompany(job.companyName, this.excludedCompanies)) return null;
 
-    const companyDomain = resolveEmployerDomainFromJobData(
-      job.companyDomain,
-      job.canonicalUrl,
-      job.description
-    );
+    let companyDomain = resolveEmployerDomainFromJobData(job.companyDomain, job.canonicalUrl, job.description);
+    if (!companyDomain) {
+      companyDomain = await resolveEmployerDomainFromPublicSearch(job.companyName);
+    }
     if (!companyDomain) return null;
 
     const candidateName = this.profiles.fullName ?? ([this.profiles.firstName, this.profiles.lastName].filter(Boolean).join(" ") || "Candidate");
