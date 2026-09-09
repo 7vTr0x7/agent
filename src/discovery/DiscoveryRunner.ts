@@ -11,6 +11,9 @@ export interface DiscoveryRunResult {
   matching: DispatchMatchResult;
 }
 
+const SOURCE_CONCURRENCY = 3;
+const SOURCE_TIMEOUT_MS = 3 * 60 * 1000;
+
 export class DiscoveryRunner {
   constructor(
     private readonly discovery: JobDiscoveryService,
@@ -21,39 +24,81 @@ export class DiscoveryRunner {
   ) {}
 
   async runOnce(): Promise<DiscoveryRunResult[]> {
-    const results: DiscoveryRunResult[] = [];
+    const results = await mapWithConcurrency(this.sources, SOURCE_CONCURRENCY, async (registered) => {
+      return this.runSource(registered);
+    });
 
-    for (const registered of this.sources) {
-      const { descriptor, source } = registered;
-      if (!(await this.health.canRun(descriptor))) continue;
-
-      const runId = await this.runs.start(descriptor);
-
-      try {
-        const discovered = await this.discovery.discover(source);
-        const matching = await this.matchDispatcher.dispatch(discovered.insertedOpportunityIds);
-        await this.runs.complete(runId, descriptor.id, "SUCCEEDED", {
-          fetched: discovered.fetched,
-          inserted: discovered.inserted,
-          duplicates: discovered.duplicates
-        });
-        results.push({ source: descriptor.id, discovered, matching });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await this.runs.recordError(runId, descriptor.id, {
-          classification: "UNKNOWN",
-          message
-        });
-        await this.runs.complete(
-          runId,
-          descriptor.id,
-          "FAILED",
-          { fetched: 0, inserted: 0, duplicates: 0 },
-          message
-        );
-      }
-    }
-
-    return results;
+    return results.flatMap((result) => result ? [result] : []);
   }
+
+  private async runSource(registered: RegisteredSource): Promise<DiscoveryRunResult | null> {
+    const { descriptor, source } = registered;
+    if (!(await this.health.canRun(descriptor))) return null;
+
+    const runId = await this.runs.start(descriptor);
+
+    try {
+      const discovered = await withTimeout(
+        this.discovery.discover(source),
+        SOURCE_TIMEOUT_MS,
+        `Discovery source ${descriptor.id} exceeded ${SOURCE_TIMEOUT_MS / 1000}s timeout`
+      );
+      const matching = await this.matchDispatcher.dispatch(discovered.insertedOpportunityIds);
+      await this.runs.complete(runId, descriptor.id, "SUCCEEDED", {
+        fetched: discovered.fetched,
+        inserted: discovered.inserted,
+        duplicates: discovered.duplicates
+      });
+      return { source: descriptor.id, discovered, matching };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.runs.recordError(runId, descriptor.id, {
+        classification: "UNKNOWN",
+        message
+      });
+      await this.runs.complete(
+        runId,
+        descriptor.id,
+        "FAILED",
+        { fetched: 0, inserted: 0, duplicates: 0 },
+        message
+      );
+      return null;
+    }
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  if (!items.length) return [];
+  const output: R[] = new Array(items.length);
+  let index = 0;
+
+  async function worker(): Promise<void> {
+    while (true) {
+      const current = index++;
+      if (current >= items.length) return;
+      output[current] = await mapper(items[current] as T);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, () => worker())
+  );
+  return output;
 }
