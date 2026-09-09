@@ -181,7 +181,7 @@ describe("ApplicationSubmissionService", () => {
     expect(repository.calls).toHaveLength(0);
   });
 
-  it("returns a known adapter block to READY so it can be retried safely", async () => {
+  it("keeps the durable reservation in progress when the adapter cannot confirm a submission", async () => {
     const adapter = new RecordingAdapter();
     adapter.shouldSubmit = false;
     const repository = new RecordingApplicationRepository();
@@ -216,13 +216,9 @@ describe("ApplicationSubmissionService", () => {
 
     expect(result.submitted).toBe(false);
     expect(result.safetyAllowed).toBe(true);
+    expect(result.reason).toContain("Submission remains in progress");
     expect(adapter.submitted).toBe(true);
-    expect(repository.cancelCalls).toEqual([
-      {
-        applicationId: "application-3",
-        reason: "Synthetic submission was blocked."
-      }
-    ]);
+    expect(repository.cancelCalls).toHaveLength(0);
     expect(repository.calls).toHaveLength(0);
   });
 
