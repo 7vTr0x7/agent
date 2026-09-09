@@ -1,13 +1,10 @@
 import { BrowserSessionService } from "./BrowserSession";
 import { ApplicationAdapterRegistry, ApplicationContext, ApplicationSubmissionResult } from "./ApplicationAdapter";
-import { ApplicationFieldMapper } from "./ApplicationFieldMapper";
-import { ApplicationFormFiller } from "./ApplicationFormFiller";
-import { FormFieldDetector } from "./FormFieldDetector";
-import { SubmissionSafetyGate } from "./SubmissionSafetyGate";
-import { ApplicationTargetResolver } from "./ApplicationTargetResolver";
-import { ApplicationHazardDetector } from "./ApplicationHazardDetector";
+import { ApplicationSubmissionRequest } from "./ApplicationSubmissionRequest";
+import { ApplicationFlowController } from "./ApplicationFlowController";
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { ApplicationRepository } from "./ApplicationRepository";
+import { ApplicationTargetResolver } from "./ApplicationTargetResolver";
 
 export interface ApplicationSubmissionRequest {
   context: ApplicationContext;
@@ -29,13 +26,14 @@ export class ApplicationSubmissionService {
     private readonly browserSessions: BrowserSessionService,
     private readonly adapters: ApplicationAdapterRegistry,
     private readonly applications: Pick<ApplicationRepository, "beginSubmission" | "cancelSubmission" | "markSubmitted">,
-    private readonly detector = new FormFieldDetector(),
-    private readonly mapper = new ApplicationFieldMapper(),
-    private readonly filler = new ApplicationFormFiller(),
-    private readonly safetyGate = new SubmissionSafetyGate(),
+    private readonly detector = undefined,
+    private readonly mapper = undefined,
+    private readonly filler = undefined,
+    private readonly safetyGate = undefined,
     private readonly targetResolver = new ApplicationTargetResolver(),
-    private readonly hazardDetector = new ApplicationHazardDetector(),
-    private readonly dryRun = false
+    private readonly hazardDetector = undefined,
+    private readonly dryRun = false,
+    private readonly flowController?: ApplicationFlowController
   ) {}
 
   async submit(request: ApplicationSubmissionRequest): Promise<ApplicationSubmissionOutcome> {
@@ -66,38 +64,24 @@ export class ApplicationSubmissionService {
         };
       }
 
-      const hazards = await this.hazardDetector.detect(session.page);
-      if (hazards.length > 0) {
-        return {
-          submitted: false,
-          safetyAllowed: false,
-          reason: hazards.map((hazard) => hazard.reason).join(" "),
-          adapterName: adapter.name,
-          result: null
-        };
-      }
-
       const resolvedContext: ApplicationContext = {
         ...request.context,
         url: target.url
       };
 
-      const fields = await this.detector.detect(session.page);
-      const mappings = this.mapper.map(fields, request.candidateProfile);
-      const fillResult = await this.filler.fill(session.page, mappings);
-      const safety = this.safetyGate.evaluate({
-        url: target.url,
-        companyName: request.companyName,
-        excludedCompanies: request.excludedCompanies,
-        mappings,
-        fillResults: fillResult.results
-      });
+      const flow = this.flowController ?? new ApplicationFlowController();
+      const prepared = await flow.prepare(
+        session.page,
+        request.candidateProfile,
+        request.companyName,
+        request.excludedCompanies
+      );
 
-      if (!safety.allowed) {
+      if (!prepared.allowed) {
         return {
           submitted: false,
           safetyAllowed: false,
-          reason: safety.reasons.join(" "),
+          reason: prepared.reasons.join(" "),
           adapterName: adapter.name,
           result: null
         };
@@ -107,7 +91,7 @@ export class ApplicationSubmissionService {
         return {
           submitted: false,
           safetyAllowed: true,
-          reason: "Dry run completed: application page was resolved, hazards were clear, fields were mapped and filled, and the safety gate allowed submission. No application was submitted.",
+          reason: `Dry run completed across ${prepared.pagesProcessed} application page(s): fields were mapped and filled, every page passed the safety gate, and no application was submitted.`,
           adapterName: adapter.name,
           result: null
         };
