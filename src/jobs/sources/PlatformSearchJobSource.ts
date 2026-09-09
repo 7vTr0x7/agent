@@ -12,10 +12,18 @@ export class PlatformSearchJobSource implements JobSource {
   async fetchJobs(): Promise<Job[]> {
     const platforms = JOB_PLATFORM_REGISTRY;
     if (!platforms.length) return [];
-    const batch = Array.from({ length: Math.min(this.batchSize, platforms.length) }, (_, i) => platforms[(this.cursor + i) % platforms.length]).filter(Boolean);
+    const batch: (typeof platforms)[number][] = [];
+    for (let i = 0; i < Math.min(this.batchSize, platforms.length); i += 1) {
+      const platform = platforms[(this.cursor + i) % platforms.length];
+      if (platform) batch.push(platform);
+    }
     this.cursor = (this.cursor + batch.length) % platforms.length;
     const results = await mapWithConcurrency(batch, 4, async (platform) => {
-      try { return await discoverPlatform(platform.name, this.maxJobsPerPlatform); } catch { return []; }
+      try {
+        return await discoverPlatform(platform.name, this.maxJobsPerPlatform);
+      } catch {
+        return [];
+      }
     });
     return results.flat();
   }
@@ -49,7 +57,7 @@ function parseJobPosting(html: string, sourceUrl: string, platformName: string):
   const companyName = stringValue(hiring?.name) || stringValue(posting.organization);
   const companyDomain = companyDomainFromOrganization(hiring?.sameAs ?? hiring?.url);
   const location = parseLocation(posting.jobLocation) || stringValue(posting.jobLocationType) || "Worldwide";
-  const workplaceType = /telecommute|remote/i.test(`${posting.jobLocationType ?? ""} ${location}`) ? "remote" : /hybrid/i.test(location) ? "hybrid" : "onsite";
+  const workplaceType: Job["workplaceType"] = /telecommute|remote/i.test(`${posting.jobLocationType ?? ""} ${location}`) ? "remote" : /hybrid/i.test(location) ? "hybrid" : "onsite";
   if (!title || !description || !url || !companyName) return null;
   const sourceJobId = `${platformName}:${url}`;
   const contentHash = createHash("sha256").update([platformName, sourceJobId, title, url, description].join("|"), "utf8").digest("hex");
