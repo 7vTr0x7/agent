@@ -70,10 +70,14 @@ export function resolveEmployerDomainFromJobData(
 
   add(resolveEmployerDomainFromJobUrl(companyDomain ?? ""), 4);
 
-  // ATS/job-board canonical hosts are explicitly blocked, so this fails
-  // closed for aggregator-only opportunities.
+  // A canonical URL is only useful as employer-domain evidence when its host
+  // is not a known job board/ATS. Generic job-board domains must never become
+  // the employer domain merely because no stronger employer evidence exists.
   add(resolveEmployerDomainFromJobUrl(canonicalUrl), 1);
 
+  // Do not infer an employer from an aggregator-only canonical URL. A domain
+  // discovered solely from canonicalUrl has only the weakest evidence and is
+  // not sufficient to establish employer identity.
   let bestDomain: string | null = null;
   let bestScore = -1;
   for (const [domain, score] of candidates) {
@@ -82,5 +86,7 @@ export function resolveEmployerDomainFromJobData(
       bestScore = score;
     }
   }
+
+  if (bestScore < 3) return null;
   return bestDomain;
 }
