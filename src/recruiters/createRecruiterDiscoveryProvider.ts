@@ -1,4 +1,4 @@
-import { JobPostingRecruiterDiscoveryProvider } from "./JobPostingRecruiterDiscoveryProvider";
+import { PublicRecruiterSearchProvider } from "./PublicRecruiterSearchProvider";
 import { RecruiterDiscoveryProvider } from "./RecruiterDiscovery";
 
 export type RecruiterDiscoveryProviderId = "public-web";
@@ -15,11 +15,10 @@ export interface RecruiterDiscoveryProviderConfig {
 /**
  * Free-first recruiter discovery.
  *
- * No Hunter/Snov/Apollo credentials are required. The provider searches the
- * job posting, first-party company pages, career/contact pages, sitemaps,
- * public search results and public LinkedIn profile evidence. It never logs
- * into LinkedIn or scrapes authenticated/private LinkedIn data.
+ * Uses public search-engine result pages through a text-rendering proxy so
+ * containerized environments are not dependent on direct search-engine HTML
+ * access. It never logs into LinkedIn or scrapes authenticated/private data.
  */
 export function createRecruiterDiscoveryProvider(_config: RecruiterDiscoveryProviderConfig): RecruiterDiscoveryProvider {
-  return new JobPostingRecruiterDiscoveryProvider();
+  return new PublicRecruiterSearchProvider();
 }
