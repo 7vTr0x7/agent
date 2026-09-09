@@ -11,40 +11,48 @@ export class PlatformSearchJobSource implements JobSource {
     const platforms = JOB_PLATFORM_REGISTRY;
     if (!platforms.length) return [];
 
-    // Every registered platform is searched on every discovery cycle. There is
-    // intentionally no platform-count or jobs-per-platform cap here. Network
-    // concurrency remains bounded so public sites are not hammered.
+    // Search the complete registry on every discovery cycle. There is deliberately
+    // no platform-count or jobs-per-platform cap. Downstream deduplication,
+    // matching, queue capacity and application limits control processing.
     const results = await mapWithConcurrency(platforms, 4, async (platform) => {
-      try {
-        return await discoverPlatform(platform.name);
-      } catch {
-        return [];
-      }
+      try { return await discoverPlatform(platform.name); } catch { return []; }
     });
-
     return results.flat();
   }
 }
 
 async function discoverPlatform(platformName: string): Promise<Job[]> {
-  const query = `"${platformName}" (React OR "Frontend Engineer" OR "Front End Developer" OR Next.js OR TypeScript) (Bengaluru OR Bangalore OR India OR remote)`;
-  const xml = await fetchText(`https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`, 7000);
-  if (!xml) return [];
+  const queries = [
+    `"${platformName}" (React OR "Frontend Engineer" OR "Front End Developer" OR Next.js OR TypeScript) (Bengaluru OR Bangalore OR India OR remote)`,
+    `"${platformName}" (React OR Next.js OR TypeScript) Bengaluru Bangalore India remote jobs`,
+    `site:${platformSearchDomain(platformName)} (React OR "Frontend Engineer" OR Next.js OR TypeScript) (Bengaluru OR Bangalore OR India OR remote)`,
+  ];
 
-  // Keep every public search result returned by the platform query. Do not
-  // truncate to an arbitrary number of jobs per platform.
-  const links = [...xml.matchAll(/<link>(https?:\/\/[^<]+)<\/link>/gi)]
-    .map(m => decodeXml(m[1] ?? ""))
-    .filter(u => /^https?:\/\//i.test(u) && !/bing\.com|microsoft\.com/i.test(u));
+  const searchResults = await mapWithConcurrency(queries, 3, async (query) => {
+    try {
+      const xml = await fetchText(`https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`, 7000);
+      if (!xml) return [] as string[];
+      return [...xml.matchAll(/<link>(https?:\/\/[^<]+)<\/link>/gi)]
+        .map(m => decodeXml(m[1] ?? ""))
+        .filter(u => /^https?:\/\//i.test(u) && !/bing\.com|microsoft\.com/i.test(u));
+    } catch { return [] as string[]; }
+  });
 
-  return (await mapWithConcurrency([...new Set(links)], 4, async url => {
+  const links = [...new Set(searchResults.flat())];
+  const jobs = await mapWithConcurrency(links, 4, async url => {
     try {
       const html = await fetchText(url, 6000);
       return html ? parseJobPosting(html, url, platformName) : null;
-    } catch {
-      return null;
-    }
-  })).filter((job): job is Job => Boolean(job));
+    } catch { return null; }
+  });
+  return jobs.filter((job): job is Job => Boolean(job));
+}
+
+function platformSearchDomain(platformName: string): string {
+  const knownDomains: Record<string, string> = {
+    "Naukri": "naukri.com", "LinkedIn Jobs": "linkedin.com", "Indeed India": "in.indeed.com", "Instahyre": "instahyre.com", "Cutshort": "cutshort.io", "Hirist": "hirist.tech", "Foundit": "foundit.in", "TimesJobs": "timesjobs.com", "Shine": "shine.com", "Wellfound": "wellfound.com", "Glassdoor India": "glassdoor.co.in", "Internshala": "internshala.com", "Unstop": "unstop.com", "Remote OK": "remoteok.com", "We Work Remotely": "weworkremotely.com", "Himalayas": "himalayas.app", "Jobicy": "jobicy.com", "Remotive": "remotive.com", "Remote.co": "remote.co", "Working Nomads": "workingnomads.com", "Jobspresso": "jobspresso.co", "Landing.jobs": "landing.jobs", "No Fluff Jobs": "nofluffjobs.com", "Y Combinator Jobs": "ycombinator.com", "Greenhouse": "greenhouse.io", "Lever": "lever.co", "Ashby": "ashbyhq.com", "Adzuna": "adzuna.com", "Jooble": "jooble.org", "JobStreet": "jobstreet.com", "SEEK": "seek.com.au", "MyCareersFuture": "mycareersfuture.gov.sg"
+  };
+  return knownDomains[platformName] ?? `${platformName.toLowerCase().replace(/[^a-z0-9]+/g, "")}.com`;
 }
 
 function parseJobPosting(html: string, sourceUrl: string, platformName: string): Job | null {
