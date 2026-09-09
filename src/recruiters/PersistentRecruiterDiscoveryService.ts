@@ -50,7 +50,7 @@ export class PersistentRecruiterDiscoveryService {
       const discovered = await this.options.provider.discover(input);
       const candidates = await this.verifyDiscoveredContacts(discovered.contacts);
       const eligible = candidates.filter((contact) => {
-        if (this.requireVerifiedEmail && !contact.verified) return false;
+        if (this.requireVerifiedEmail && !contact.verified && this.options.provider.name !== "job-posting") return false;
         return (contact.confidence ?? 0) >= this.minConfidence;
       });
       const uniqueCandidates = deduplicateRecruiterCandidates(eligible);
@@ -62,7 +62,7 @@ export class PersistentRecruiterDiscoveryService {
         persisted.push({ ...contact, score: candidate.score, reasons: candidate.reasons });
       }
       await this.options.repository.finishDiscoveryRun(run.id, "SUCCEEDED", uniqueCandidates.length);
-      return { status: "DISCOVERED", reason: `Persisted ${persisted.length} verified recruiter contact(s) from ${uniqueCandidates.length} eligible contact(s).`, runId: run.id, contacts: persisted };
+      return { status: "DISCOVERED", reason: `Persisted ${persisted.length} eligible recruiter contact(s) from ${uniqueCandidates.length} eligible contact(s).`, runId: run.id, contacts: persisted };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await this.options.repository.finishDiscoveryRun(run.id, "FAILED", 0, message);
@@ -71,8 +71,11 @@ export class PersistentRecruiterDiscoveryService {
   }
 
   private async verifyDiscoveredContacts(contacts: RecruiterContactCandidate[]): Promise<RecruiterContactCandidate[]> {
-    const results = await Promise.all(contacts.map(async (contact) => {
-      if (contact.verified || !this.requireVerifiedEmail) return contact;
+    if (!this.requireVerifiedEmail) return contacts;
+    if (this.options.provider.name === "job-posting") return contacts;
+
+    return Promise.all(contacts.map(async (contact) => {
+      if (contact.verified) return contact;
       try {
         const verification = await this.options.provider.verify(contact.email);
         if (!verification || !verification.verified) return contact;
@@ -86,7 +89,6 @@ export class PersistentRecruiterDiscoveryService {
         return contact;
       }
     }));
-    return results;
   }
 }
 
