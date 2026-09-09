@@ -66,7 +66,7 @@ describe("ApplicationFieldMapper", () => {
     expect(mapping.reason).toContain("manual review");
   });
 
-  it("does not automatically answer policy-sensitive fields", () => {
+  it("does not automatically answer policy-sensitive fields without an explicit standardized answer", () => {
     const fields: ApplicationField[] = [
       { name: "sponsorship", type: "radio", required: true, label: "Will you require visa sponsorship?", placeholder: null },
       { name: "experience", type: "text", required: true, label: "Years of experience", placeholder: null }
@@ -83,6 +83,25 @@ describe("ApplicationFieldMapper", () => {
     expect(sponsorship.autoFill).toBe(false);
     expect(experience.key).toBe("yearsExperience");
     expect(experience.autoFill).toBe(false);
+  });
+
+  it("auto-fills a policy-sensitive field only when an explicit standardized answer exists", () => {
+    const standardizedProfile: CandidateProfile = {
+      ...profile,
+      standardizedAnswers: {
+        sponsorshipRequired: false,
+        yearsExperience: 3
+      }
+    };
+
+    const fields: ApplicationField[] = [
+      { name: "sponsorship", type: "radio", required: true, label: "Will you require visa sponsorship?", placeholder: null },
+      { name: "experience", type: "text", required: true, label: "Years of experience", placeholder: null }
+    ];
+
+    const result = new ApplicationFieldMapper().map(fields, standardizedProfile);
+    expect(result[0]).toEqual(expect.objectContaining({ key: "sponsorshipRequired", value: false, autoFill: true }));
+    expect(result[1]).toEqual(expect.objectContaining({ key: "yearsExperience", value: 3, autoFill: true }));
   });
 
   it("never auto-fills an unsupported required field", () => {
