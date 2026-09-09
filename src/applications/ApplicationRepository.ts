@@ -20,7 +20,7 @@ export interface StaleSubmission { applicationId: string; candidateProfileId: st
 export interface VerifiedSubmissionEvidence { confirmationUrl: string; externalApplicationId: string; verificationSource: "INDEPENDENT_CONFIRMATION"; }
 
 export class ApplicationRepository {
-  constructor(private readonly database: Database, private readonly excludedCompanies: readonly string[] = PERMANENTLY_EXCLUDED_COMPANIES, private readonly rateLimitPolicy = new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 50 }), private readonly companyRateLimitPolicy = new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 5 })) {}
+  constructor(private readonly database: Database, private readonly excludedCompanies: readonly string[] = PERMANENTLY_EXCLUDED_COMPANIES, private readonly rateLimitPolicy = new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 200 }), private readonly companyRateLimitPolicy = new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 20 })) {}
 
   async prepare(jobOpportunityId: string, candidateProfileId: string): Promise<PrepareApplicationResult> {
     return this.database.transaction(async (client) => {
