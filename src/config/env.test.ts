@@ -78,19 +78,20 @@ describe("loadConfig runtime loop intervals", () => {
     expect(() => loadConfig()).toThrow("APPLICATION_QUEUE_INTERVAL_MS must be a positive integer");
   });
 
-  it("uses current, known-public RSS endpoints in the built-in discovery set", async () => {
+  it("uses current, known-public RSS endpoints plus the platform federation in the built-in discovery set", async () => {
     process.env.DATABASE_URL = "postgresql://test/test";
     delete process.env.JOB_SOURCES;
 
     const { loadConfig } = await import("./env");
-    const sources = JSON.parse(loadConfig().jobSources) as Array<{ id: string; feedUrl?: string }>;
+    const sources = JSON.parse(loadConfig().jobSources) as Array<{ id: string; feedUrl?: string; name?: string }>;
     const byId = new Map(sources.map((source) => [source.id, source]));
 
-    expect(sources).toHaveLength(13);
+    expect(sources).toHaveLength(14);
     expect(byId.get("remotefirstjobs:react:rss")?.feedUrl).toBe("https://remotefirstjobs.com/rss/jobs/react.rss");
     expect(byId.get("remotefirstjobs:software:rss")?.feedUrl).toBe("https://remotefirstjobs.com/rss/jobs/software-development.rss");
     expect(byId.get("realworkfromanywhere:frontend:rss")?.feedUrl).toBe("https://www.realworkfromanywhere.com/remote-frontend-jobs/rss.xml");
     expect(byId.get("realworkfromanywhere:fullstack:rss")?.feedUrl).toBe("https://www.realworkfromanywhere.com/remote-fullstack-jobs/rss.xml");
+    expect(byId.get("platform-search:federation")?.name).toBe("platform-search");
     expect(byId.has("workanywhere:frontend:rss")).toBe(false);
     expect(byId.has("workanywhere:fullstack:rss")).toBe(false);
   });
