@@ -10,18 +10,19 @@ describe("TaskQueue PostgreSQL integration", () => {
     const database = new Database(databaseUrl!);
     const queue = new TaskQueue(database, 5_000);
     const dedupeKey = `postgres-e2e-${Date.now()}-${Math.random()}`;
+    const taskType = `POSTGRES_E2E_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
     try {
       await new MigrationRunner(database).run();
 
       const firstId = await queue.enqueue({
-        taskType: "POSTGRES_E2E",
+        taskType,
         payload: { source: "integration-test" },
         priority: 10,
         dedupeKey
       });
       const duplicateId = await queue.enqueue({
-        taskType: "POSTGRES_E2E",
+        taskType,
         payload: { source: "duplicate" },
         priority: 1,
         dedupeKey
@@ -29,7 +30,7 @@ describe("TaskQueue PostgreSQL integration", () => {
 
       expect(duplicateId).toBe(firstId);
 
-      const claimed = await queue.claim("postgres-e2e-worker");
+      const claimed = await queue.claim("postgres-e2e-worker", [taskType]);
       expect(claimed).not.toBeNull();
       expect(claimed?.id).toBe(firstId);
       expect(claimed?.attempts).toBe(1);
