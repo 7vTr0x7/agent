@@ -17,11 +17,11 @@ const BASE_JOB_SOURCES = [
   { id: "arbeitnow:json", type: "api", name: "arbeitnow", feedUrl: "https://www.arbeitnow.com/api/job-board-api", status: "APPROVED" },
   { id: "arbeitnow:uk:json", type: "api", name: "arbeitnow", feedUrl: "https://www.arbeitnow.co.uk/api/job-board-api", status: "APPROVED" },
   { id: "weworkremotely:rss", type: "rss", name: "weworkremotely", feedUrl: "https://weworkremotely.com/remote-jobs.rss", status: "APPROVED" },
-  { id: "remotefirstjobs:react:rss", type: "rss", name: "remotefirstjobs-react", feedUrl: "https://remotefirstjobs.com/rss/react", status: "APPROVED" },
-  { id: "remotefirstjobs:software:rss", type: "rss", name: "remotefirstjobs-software", feedUrl: "https://remotefirstjobs.com/rss/software-development", status: "APPROVED" },
+  { id: "remotefirstjobs:react:rss", type: "rss", name: "remotefirstjobs-react", feedUrl: "https://remotefirstjobs.com/rss/jobs/react.rss", status: "APPROVED" },
+  { id: "remotefirstjobs:software:rss", type: "rss", name: "remotefirstjobs-software", feedUrl: "https://remotefirstjobs.com/rss/jobs/software-development.rss", status: "APPROVED" },
   { id: "remoteyeah:engineering:rss", type: "rss", name: "remoteyeah-engineering", feedUrl: "https://remoteyeah.com/rss.xml", status: "APPROVED" },
-  { id: "workanywhere:frontend:rss", type: "rss", name: "workanywhere-frontend", feedUrl: "https://www.workanywhere.pro/rss/frontend", status: "APPROVED" },
-  { id: "workanywhere:fullstack:rss", type: "rss", name: "workanywhere-fullstack", feedUrl: "https://www.workanywhere.pro/rss/fullstack", status: "APPROVED" },
+  { id: "realworkfromanywhere:frontend:rss", type: "rss", name: "realworkfromanywhere-frontend", feedUrl: "https://www.realworkfromanywhere.com/remote-frontend-jobs/rss.xml", status: "APPROVED" },
+  { id: "realworkfromanywhere:fullstack:rss", type: "rss", name: "realworkfromanywhere-fullstack", feedUrl: "https://www.realworkfromanywhere.com/remote-fullstack-jobs/rss.xml", status: "APPROVED" },
   { id: "hireweb3:rss", type: "rss", name: "hireweb3", feedUrl: "https://hireweb3.io/job/rss", status: "APPROVED" },
   { id: "free-public-job-feeds:bundle", type: "api", name: "free-public-feeds", status: "APPROVED" }
 ];
