@@ -1,3 +1,4 @@
+import { promises as dns } from "node:dns";
 import {
   RecruiterContactCandidate,
   RecruiterDiscoveryInput,
@@ -51,13 +52,7 @@ export function isPlausibleRecruiterEmail(email: string): boolean {
   if (/%[0-9a-f]{2}/i.test(normalized)) return false;
   if (/^[^@]+%[^@]*@/i.test(normalized)) return false;
   if (!/^[a-z0-9][a-z0-9._+\-]*@[a-z0-9.-]+\.[a-z]{2,}$/i.test(normalized)) return false;
-
-  // Search engines sometimes expose fragments of URL/query text immediately
-  // before @company.com (for example, `%22` becoming `22@company.com`). A
-  // numeric-only local part is not useful recruiter evidence, so reject it.
   if (/^\d+$/.test(localPart)) return false;
-
-  // Reject malformed dot placement and empty-looking local parts.
   if (localPart.startsWith(".") || localPart.endsWith(".") || localPart.includes("..")) return false;
   return true;
 }
@@ -97,7 +92,7 @@ async function fetchText(url: string, timeoutMs = 9000): Promise<string | null> 
       redirect: "follow",
       headers: {
         accept: "text/plain,text/html,application/xhtml+xml,*/*;q=0.8",
-        "user-agent": "job-agent-public-recruiter-discovery/4.2"
+        "user-agent": "job-agent-public-recruiter-discovery/4.3"
       }
     });
     if (!response.ok) return null;
@@ -170,12 +165,35 @@ export class PublicRecruiterSearchProvider implements RecruiterDiscoveryProvider
     };
   }
 
+  /**
+   * Free deliverability check. This verifies that the employer domain publishes
+   * an MX record capable of receiving mail. It intentionally does not claim
+   * that the individual mailbox exists: only an SMTP-level probe or a trusted
+   * verification provider can establish that, and SMTP probes are unreliable
+   * and can be intrusive.
+   */
   async verify(email: string): Promise<RecruiterVerificationResult> {
-    return {
-      email: normalizeEmail(email),
-      verified: false,
-      status: "verification_provider_required",
-      confidence: 0
-    };
+    const normalized = normalizeEmail(email);
+    if (!isPlausibleRecruiterEmail(normalized)) {
+      return { email: normalized, verified: false, status: "invalid_email_format", confidence: 0 };
+    }
+
+    const domain = normalized.split("@")[1] ?? "";
+    if (!domain) return { email: normalized, verified: false, status: "missing_email_domain", confidence: 0 };
+
+    try {
+      const records = await dns.resolveMx(domain);
+      if (!records.length) {
+        return { email: normalized, verified: false, status: "no_mx_record", confidence: 0 };
+      }
+      return {
+        email: normalized,
+        verified: true,
+        status: "domain_mx_verified",
+        confidence: 75
+      };
+    } catch {
+      return { email: normalized, verified: false, status: "mx_lookup_failed", confidence: 0 };
+    }
   }
 }
