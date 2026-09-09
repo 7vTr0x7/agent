@@ -20,6 +20,10 @@ describe("ApplicationFlowController", () => {
       resumePath: undefined
     };
 
+    await page.route("http://application.test/**", async (route) => {
+      await route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><html><body></body></html>" });
+    });
+    await page.goto("http://application.test/");
     await page.setContent(`
       <form id="application">
         <label for="first">First name</label>
@@ -65,6 +69,10 @@ describe("ApplicationFlowController", () => {
       targetTitles: ["Frontend Engineer"]
     };
 
+    await page.route("http://application.test/**", async (route) => {
+      await route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><html><body></body></html>" });
+    });
+    await page.goto("http://application.test/");
     await page.setContent(`
       <form>
         <label for="email">Email</label>
