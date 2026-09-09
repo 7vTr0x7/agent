@@ -9,6 +9,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm run build && npm test -- --runInBand",
     "dry-run": "tsx scripts/dry-run-application.ts",
     "dry-run:recruiters": "tsx scripts/dry-run-recruiter-discovery.ts",
     "dry-run:recruiter-outreach": "tsx scripts/dry-run-recruiter-outreach.ts",
