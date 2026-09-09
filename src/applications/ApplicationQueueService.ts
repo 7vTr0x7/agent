@@ -45,8 +45,8 @@ export class ApplicationQueueService {
   constructor(
     databaseOrTaskQueue: Database | TaskQueue,
     dispatcherOrRepository: ApplicationTaskDispatcher | unknown,
-    rateLimitPolicy = new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 50 }),
-    companyRateLimitPolicy = new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 5 })
+    rateLimitPolicy = new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 200 }),
+    companyRateLimitPolicy = new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 20 })
   ) {
     if (databaseOrTaskQueue instanceof TaskQueue) {
       this.database = databaseOrTaskQueue.getDatabase();
