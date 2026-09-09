@@ -8,6 +8,7 @@ import {
 
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const OBFUSCATED_EMAIL_PATTERN = /([A-Z0-9._%+-]+)\s*(?:\[at\]|\(at\)|\{at\}|\s+at\s+)\s*([A-Z0-9.-]+)\s*(?:\[dot\]|\(dot\)|\{dot\}|\s+dot\s+)\s*([A-Z]{2,})/gi;
+const LINKEDIN_PROFILE_PATTERN = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
 const RECRUITING_CONTEXT = /(recruiter|recruiting|talent(?:\s+acquisition)?|hiring|human\s*resources|\bhr\b|people\s*(?:team|ops)|careers?|staffing|jobs?\s+team|join\s+us|work\s+with\s+us)/i;
 const NON_RECRUITING_CONTEXT = /(technical\s+questions?|engineering\s+questions?|customer\s+support|technical\s+support|support\s+questions?|sales|billing|privacy|legal|security|press|media|partnerships?)/i;
 const GENERIC_RECRUITING_LOCAL_PARTS = /^(careers?|jobs?|job|recruiting|recruitment|talent|talentacquisition|hr|people|hiring|staffing|joinus|workwithus|humanresources|resourcing)$/i;
@@ -96,7 +97,7 @@ async function fetchText(url: string, timeoutMs = 5000): Promise<string | null> 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,application/xhtml+xml,application/xml,text/xml;q=0.9,*/*;q=0.8", "user-agent": "job-agent-public-recruiter-discovery/3.2" } });
+    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,application/xhtml+xml,application/xml,text/xml;q=0.9,*/*;q=0.8", "user-agent": "job-agent-public-recruiter-discovery/3.3" } });
     if (!response.ok) return null;
     return await response.text();
   } catch { return null; } finally { clearTimeout(timeout); }
@@ -118,35 +119,56 @@ async function fetchPublicCompanyPages(companyDomain: string): Promise<Array<{ u
   return [...pages, ...discoveredPages, ...nestedPages.filter((page): page is { url: string; text: string } => Boolean(page.text))];
 }
 
-function searchUrl(query: string): string {
-  return `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+function searchUrls(query: string): string[] {
+  const encoded = encodeURIComponent(query);
+  return [
+    `https://www.bing.com/search?format=rss&q=${encoded}`,
+    `https://html.duckduckgo.com/html/?q=${encoded}`,
+    `https://www.google.com/search?q=${encoded}&gbv=1`
+  ];
 }
 function parsePublicLinkedInProfiles(html: string): PublicLinkedInProfile[] {
   const results: PublicLinkedInProfile[] = [];
   const seen = new Set<string>();
+  const text = stripHtml(html).replace(/&quot;/gi, '"');
+  for (const match of text.matchAll(LINKEDIN_PROFILE_PATTERN)) {
+    const rawUrl = match[0];
+    try {
+      const pathPart = new URL(rawUrl).pathname.split("/").filter(Boolean).pop();
+      if (!pathPart) continue;
+      const url = `https://www.linkedin.com/in/${pathPart}`;
+      if (seen.has(url)) continue;
+      const position = match.index ?? 0;
+      const snippet = text.slice(Math.max(0, position - 180), Math.min(text.length, position + 300));
+      const nameTitle = snippet.match(/([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|\|)\s*([^|.]{3,90})/);
+      const name = nameTitle?.[1]?.trim() || pathPart.replace(/[-_]+/g, " ");
+      const title = nameTitle?.[2]?.trim();
+      seen.add(url);
+      results.push({ name, title, url, snippet });
+    } catch { /* ignore malformed search results */ }
+  }
+
   const anchorPattern = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   for (const match of html.matchAll(anchorPattern)) {
-    const rawUrl = match[1] ?? "";
+    const rawUrl = (match[1] ?? "").replace(/&amp;/g, "&");
     const label = stripHtml(match[2] ?? "");
-    let decoded = rawUrl.replace(/&amp;/g, "&");
     try {
-      if (decoded.startsWith("//")) decoded = `https:${decoded}`;
-      const target = new URL(decoded);
-      if (target.hostname !== "www.linkedin.com" && target.hostname !== "linkedin.com") continue;
+      if (!/^https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\//i.test(rawUrl)) continue;
+      const target = new URL(rawUrl);
       const profilePath = target.pathname.match(/^\/in\/([^/?#]+)/i);
       if (!profilePath || !label) continue;
       const url = `https://www.linkedin.com/in/${profilePath[1]}`;
       if (seen.has(url)) continue;
       const normalizedLabel = label.replace(/\s*\|\s*LinkedIn.*$/i, "").trim();
-      if (!normalizedLabel || normalizedLabel.length > 100) continue;
       const parts = normalizedLabel.split(/\s+-\s+|\s+\|\s+/).map((v) => v.trim()).filter(Boolean);
       const name = parts[0] ?? normalizedLabel;
       const title = parts.slice(1).join(" - ") || undefined;
+      if (!name || name.length > 100) continue;
       seen.add(url);
       results.push({ name, title, url, snippet: normalizedLabel });
     } catch { /* ignore search-engine tracking links */ }
   }
-  return results.slice(0, 10);
+  return results.slice(0, 20);
 }
 
 async function discoverPublicLinkedInEvidence(companyName: string, companyDomain: string, jobTitle: string): Promise<{ profiles: PublicLinkedInProfile[]; emails: string[] }> {
@@ -161,11 +183,19 @@ async function discoverPublicLinkedInEvidence(companyName: string, companyDomain
     `"${companyName}" "@${domain}" recruiter`,
     `"${companyName}" "@${domain}" "talent acquisition"`
   ];
-  const pages = await Promise.all(queries.map(async (query) => fetchText(searchUrl(`${query} "${jobTitle}"`), 7000)));
+  const pages: string[] = [];
+  for (const query of queries) {
+    const queryVariants = [`${query} "${jobTitle}"`, query];
+    for (const variant of queryVariants) {
+      const responses = await Promise.all(searchUrls(variant).map((url) => fetchText(url, 7000)));
+      for (const response of responses) if (response) pages.push(response);
+      if (responses.some(Boolean)) break;
+    }
+  }
+
   const profiles = new Map<string, PublicLinkedInProfile>();
   const emails = new Set<string>();
   for (const page of pages) {
-    if (!page) continue;
     for (const profile of parsePublicLinkedInProfiles(page)) profiles.set(profile.url, profile);
     for (const email of extractRecruiterEmailsFromPublicText(stripHtml(page), domain)) emails.add(email);
   }
