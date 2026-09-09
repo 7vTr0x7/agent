@@ -54,10 +54,12 @@ export class RecruiterDiscoveryTaskHandler {
         });
       }
     } catch (error) {
-      // The application itself must never be failed because recruiter discovery failed.
       this.logger?.error(
         `[recruiter-discovery] ${task.payload.companyName}: ${error instanceof Error ? error.message : String(error)}`
       );
+      // Do not acknowledge a transient discovery failure as successful. The
+      // task queue will retry it with its normal backoff and max-attempt guard.
+      throw error;
     }
   }
 }
