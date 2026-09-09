@@ -15,10 +15,7 @@ export interface RecruiterInboundRepository {
 }
 
 type RecruiterRepository = RecruiterDiscoveryRepository | RecruiterInboundRepository;
-
-type RecruiterRepositoryWithDatabase = {
-  database: Database;
-};
+type RecruiterDiscoveryRepositoryWithDatabase = RecruiterDiscoveryRepository & { database: Database };
 
 export class RecruiterOutreachInboundProcessor {
   constructor(private readonly repository: RecruiterRepository) {}
@@ -57,12 +54,17 @@ export class RecruiterOutreachInboundProcessor {
     rfcMessageId: string | null,
     inReplyTo: string | null
   ): Promise<{ sequenceId: string; recipientEmail: string; companyDomain: string } | null> {
-    const repository = this.repository as Partial<RecruiterInboundRepository>;
-    if (typeof repository.findActiveOutreachSequenceByProviderMessage === "function") {
-      return repository.findActiveOutreachSequenceByProviderMessage(gmailMessageId, gmailThreadId, rfcMessageId, inReplyTo);
+    const inboundRepository = this.repository as Partial<RecruiterInboundRepository>;
+    if (typeof inboundRepository.findActiveOutreachSequenceByProviderMessage === "function") {
+      return inboundRepository.findActiveOutreachSequenceByProviderMessage(
+        gmailMessageId,
+        gmailThreadId,
+        rfcMessageId,
+        inReplyTo
+      );
     }
 
-    const database = this.database;
+    const database = (this.repository as RecruiterDiscoveryRepositoryWithDatabase).database;
     const result = await database.query<{
       sequence_id: string;
       recipient_email: string;
@@ -89,15 +91,16 @@ export class RecruiterOutreachInboundProcessor {
   }
 
   private async suppressRecruiterEmail(email: string, reason: string, source: string): Promise<void> {
-    const repository = this.repository as Partial<RecruiterInboundRepository>;
-    if (typeof repository.suppressRecruiterEmail === "function") {
-      await repository.suppressRecruiterEmail(email, reason, source);
+    const inboundRepository = this.repository as Partial<RecruiterInboundRepository>;
+    if (typeof inboundRepository.suppressRecruiterEmail === "function") {
+      await inboundRepository.suppressRecruiterEmail(email, reason, source);
       return;
     }
 
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail) return;
-    await this.database.query(
+    const database = (this.repository as RecruiterDiscoveryRepositoryWithDatabase).database;
+    await database.query(
       `INSERT INTO recruiter_suppressions (email, reason, source)
        SELECT $1, $2, $3
        WHERE NOT EXISTS (
@@ -105,10 +108,6 @@ export class RecruiterOutreachInboundProcessor {
        )`,
       [normalizedEmail, reason, source]
     );
-  }
-
-  private get database(): Database {
-    return (this.repository as unknown as RecruiterRepositoryWithDatabase).database;
   }
 }
 
