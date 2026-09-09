@@ -57,6 +57,9 @@ export class RecruiterOutreachPreparationTaskHandler {
       this.logger?.error(
         `[recruiter-outreach] ${task.payload.companyName}: ${error instanceof Error ? error.message : String(error)}`
       );
+      // Preparation is durable/idempotent, so transient failures should be
+      // retried instead of being acknowledged as a successful task.
+      throw error;
     }
   }
 }
