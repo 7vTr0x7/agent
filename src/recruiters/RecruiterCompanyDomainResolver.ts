@@ -20,7 +20,7 @@ function registrableHost(hostname: string): string {
 
 function normalizeEmployerHost(hostname: string): string | null {
   let normalized = hostname.trim().toLowerCase().replace(/^www\./, "");
-  if (!normalized || BLOCKED_HOSTS.has(normalized) || normalized.includes("localhost")) return null;
+  if (!normalized || !normalized.includes(".") || BLOCKED_HOSTS.has(normalized) || normalized.includes("localhost")) return null;
   if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) return null;
   normalized = normalized.replace(CAREERS_SUBDOMAINS, "");
   const registrable = registrableHost(normalized);
@@ -30,7 +30,9 @@ function normalizeEmployerHost(hostname: string): string | null {
 
 export function resolveEmployerDomainFromJobUrl(value: string): string | null {
   try {
-    const url = new URL(value.trim());
+    const raw = value.trim();
+    if (!raw) return null;
+    const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
     if (url.protocol !== "https:" && url.protocol !== "http:") return null;
     return normalizeEmployerHost(url.hostname);
   } catch {
