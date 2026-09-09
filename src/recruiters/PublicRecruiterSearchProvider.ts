@@ -6,9 +6,13 @@ import {
   RecruiterVerificationResult
 } from "./RecruiterDiscovery";
 
-const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+// Deliberately exclude '%' from the local part. Percent is technically valid in
+// RFC email syntax, but search-engine URLs commonly contain percent-encoded
+// query text such as %22company%22%20%22@company.com, which must never become a
+// recruiter contact.
+const EMAIL_PATTERN = /[A-Z0-9._+\-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const RECRUITING_CONTEXT = /(recruiter|recruiting|talent acquisition|talent partner|technical recruiter|hiring manager|human resources|\bhr\b|careers?|staffing|hiring)/i;
-const NON_RECRUITING_CONTEXT = /(customer support|technical support|sales|billing|privacy|legal|security|press|media|partnerships?)/i;
+const NON_RECRUITING_CONTEXT = /(customer support|technical support|sales|billing|privacy|legal|security|press|media|partnerships?|helpdesk|help desk)/i;
 const LINKEDIN_PROFILE_PATTERN = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
 
 function normalizeDomain(value: string): string {
@@ -40,12 +44,19 @@ function isCompanyEmail(email: string, domain: string): boolean {
   return normalizeEmail(email).endsWith(`@${domain}`);
 }
 
+function isPlausibleEmail(email: string): boolean {
+  const normalized = normalizeEmail(email);
+  if (/%[0-9a-f]{2}/i.test(normalized)) return false;
+  if (/^[^@]+%[^@]*@/i.test(normalized)) return false;
+  return /^[a-z0-9][a-z0-9._+\-]*@[a-z0-9.-]+\.[a-z]{2,}$/i.test(normalized);
+}
+
 function extractEmails(text: string, domain: string): string[] {
   const normalized = stripHtml(text ?? "");
   const found = new Set<string>();
   for (const match of normalized.matchAll(EMAIL_PATTERN)) {
     const email = normalizeEmail(match[0] ?? "");
-    if (!email || !isCompanyEmail(email, domain)) continue;
+    if (!email || !isPlausibleEmail(email) || !isCompanyEmail(email, domain)) continue;
     const context = emailContext(normalized, match.index ?? 0);
     if (NON_RECRUITING_CONTEXT.test(context)) continue;
     if (RECRUITING_CONTEXT.test(context)) found.add(email);
@@ -75,7 +86,7 @@ async function fetchText(url: string, timeoutMs = 9000): Promise<string | null> 
       redirect: "follow",
       headers: {
         accept: "text/plain,text/html,application/xhtml+xml,*/*;q=0.8",
-        "user-agent": "job-agent-public-recruiter-discovery/4.0"
+        "user-agent": "job-agent-public-recruiter-discovery/4.1"
       }
     });
     if (!response.ok) return null;
