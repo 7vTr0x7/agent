@@ -37,7 +37,7 @@ export class ApplicationSubmissionService {
     private readonly targetResolver = new ApplicationTargetResolver(),
     private readonly hazardDetector = new ApplicationHazardDetector(),
     private readonly dryRun = false,
-    private readonly flowController?: ApplicationFlowController
+    private readonly flowController = new ApplicationFlowController()
   ) {}
 
   async submit(request: ApplicationSubmissionRequest): Promise<ApplicationSubmissionOutcome> {
@@ -62,22 +62,20 @@ export class ApplicationSubmissionService {
         };
       }
 
-      if (this.flowController) {
-        const flow = await this.flowController.prepare(
-          session.page,
-          request.candidateProfile,
-          request.companyName,
-          request.excludedCompanies
-        );
-        if (!flow.allowed) {
-          return {
-            submitted: false,
-            safetyAllowed: false,
-            reason: flow.reasons.join(" ") || "Application flow was not allowed to proceed safely.",
-            adapterName: adapter.name,
-            result: null
-          };
-        }
+      const flow = await this.flowController.prepare(
+        session.page,
+        request.candidateProfile,
+        request.companyName,
+        request.excludedCompanies
+      );
+      if (!flow.allowed) {
+        return {
+          submitted: false,
+          safetyAllowed: false,
+          reason: flow.reasons.join(" ") || "Application flow was not allowed to proceed safely.",
+          adapterName: adapter.name,
+          result: null
+        };
       }
 
       if (this.dryRun) {
@@ -95,8 +93,8 @@ export class ApplicationSubmissionService {
       if (!reserved) {
         return {
           submitted: false,
-          safetyAllowed: false,
-          reason: "Application submission could not be reserved safely.",
+          safetyAllowed: true,
+          reason: "Application has already been completed or is otherwise not eligible for submission.",
           adapterName: adapter.name,
           result: null
         };
@@ -107,7 +105,7 @@ export class ApplicationSubmissionService {
         return {
           submitted: false,
           safetyAllowed: true,
-          reason: result.reason,
+          reason: `Submission remains in progress because the application provider could not confirm completion. ${result.reason}`,
           adapterName: adapter.name,
           result
         };
