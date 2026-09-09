@@ -6,6 +6,9 @@ const BLOCKED_HOSTS = new Set([
 ]);
 const CAREERS_SUBDOMAINS = /^(careers?|jobs?|job|hire|hiring|talent|recruiting|recruitment|people|hr|apply|workwithus|joinus)\./i;
 const COMMON_TWO_PART_PUBLIC_SUFFIXES = new Set(["co.uk", "org.uk", "ac.uk", "com.au", "net.au", "org.au", "co.in", "firm.in", "net.in", "org.in", "gen.in", "ind.in"]);
+const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com", "yahoo.co.in", "icloud.com", "proton.me", "protonmail.com"]);
+const EMAIL_PATTERN = /[A-Z0-9._+\-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
 
 function registrableHost(hostname: string): string {
   const parts = hostname.split(".").filter(Boolean);
@@ -15,16 +18,67 @@ function registrableHost(hostname: string): string {
   return parts.slice(-2).join(".");
 }
 
+function normalizeEmployerHost(hostname: string): string | null {
+  let normalized = hostname.trim().toLowerCase().replace(/^www\./, "");
+  if (!normalized || BLOCKED_HOSTS.has(normalized) || normalized.includes("localhost")) return null;
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) return null;
+  normalized = normalized.replace(CAREERS_SUBDOMAINS, "");
+  const registrable = registrableHost(normalized);
+  if (!registrable || BLOCKED_HOSTS.has(registrable) || GENERIC_EMAIL_DOMAINS.has(registrable)) return null;
+  return registrable;
+}
+
 export function resolveEmployerDomainFromJobUrl(value: string): string | null {
   try {
     const url = new URL(value.trim());
     if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    let hostname = url.hostname.toLowerCase().replace(/^www\./, "");
-    if (!hostname || BLOCKED_HOSTS.has(hostname) || hostname.includes("localhost")) return null;
-    if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) return null;
-    hostname = hostname.replace(CAREERS_SUBDOMAINS, "");
-    return registrableHost(hostname);
+    return normalizeEmployerHost(url.hostname);
   } catch {
     return null;
   }
+}
+
+/**
+ * Resolve an employer domain using evidence already present in a job.
+ * Explicit employer-domain emails/links in the public job description are
+ * stronger evidence than an aggregator/ATS canonical URL. We never guess a
+ * domain from the company name alone.
+ */
+export function resolveEmployerDomainFromJobData(
+  companyDomain: string | null | undefined,
+  canonicalUrl: string,
+  jobDescription: string
+): string | null {
+  const candidates = new Map<string, number>();
+  const add = (domain: string | null, weight: number): void => {
+    if (!domain) return;
+    candidates.set(domain, (candidates.get(domain) ?? 0) + weight);
+  };
+
+  const normalizedDescription = jobDescription ?? "";
+  for (const match of normalizedDescription.matchAll(EMAIL_PATTERN)) {
+    const emailDomain = match[0]?.split("@")[1]?.toLowerCase();
+    if (!emailDomain || GENERIC_EMAIL_DOMAINS.has(emailDomain)) continue;
+    add(normalizeEmployerHost(emailDomain), 5);
+  }
+
+  for (const match of normalizedDescription.matchAll(URL_PATTERN)) {
+    add(resolveEmployerDomainFromJobUrl(match[0]), 3);
+  }
+
+  add(resolveEmployerDomainFromJobUrl(companyDomain ?? ""), 4);
+
+  // ATS/job-board canonical hosts are explicitly blocked, so this fails
+  // closed for aggregator-only opportunities.
+  add(resolveEmployerDomainFromJobUrl(canonicalUrl), 1);
+
+  let bestDomain: string | null = null;
+  let bestScore = -1;
+  for (const [domain, score] of candidates) {
+    if (score > bestScore) {
+      bestDomain = domain;
+      bestScore = score;
+    }
+  }
+  return bestDomain;
 }
