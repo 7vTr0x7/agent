@@ -14,12 +14,10 @@ export interface RecruiterInboundRepository {
   suppressRecruiterEmail(email: string, reason: string, source: string): Promise<void>;
 }
 
-type RecruiterRepositoryRuntime = RecruiterDiscoveryRepository & {
-  database: Database;
-};
+type RecruiterRepositoryDatabaseAccess = { database: Database };
 
 export class RecruiterOutreachInboundProcessor {
-  constructor(private readonly repository: RecruiterRepositoryRuntime) {}
+  constructor(private readonly repository: RecruiterDiscoveryRepository) {}
 
   async process(message: GmailMessage): Promise<RecruiterInboundOutcome> {
     if (!message.senderEmail) return { status: "IGNORED", reason: "Inbound message has no sender email." };
@@ -49,14 +47,17 @@ export class RecruiterOutreachInboundProcessor {
     return { status: "REPLY_STOPPED", sequenceId: sequence.sequenceId };
   }
 
+  private get database(): Database {
+    return (this.repository as unknown as RecruiterRepositoryDatabaseAccess).database;
+  }
+
   private async findActiveOutreachSequenceByProviderMessage(
     gmailMessageId: string,
     gmailThreadId: string,
     rfcMessageId: string | null,
     inReplyTo: string | null
   ): Promise<{ sequenceId: string; recipientEmail: string; companyDomain: string } | null> {
-    const database = this.repository.database;
-    const result = await database.query<{
+    const result = await this.database.query<{
       sequence_id: string;
       recipient_email: string;
       company_domain: string;
@@ -88,7 +89,7 @@ export class RecruiterOutreachInboundProcessor {
   private async suppressRecruiterEmail(email: string, reason: string, source: string): Promise<void> {
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail) return;
-    await this.repository.database.query(
+    await this.database.query(
       `INSERT INTO recruiter_suppressions (email, reason, source)
        SELECT $1, $2, $3
        WHERE NOT EXISTS (
