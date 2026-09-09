@@ -1,4 +1,7 @@
-import { resolveEmployerDomainFromJobUrl } from "./RecruiterCompanyDomainResolver";
+import {
+  resolveEmployerDomainFromJobData,
+  resolveEmployerDomainFromJobUrl
+} from "./RecruiterCompanyDomainResolver";
 
 describe("resolveEmployerDomainFromJobUrl", () => {
   it("resolves and normalizes a direct employer URL", () => {
@@ -14,5 +17,37 @@ describe("resolveEmployerDomainFromJobUrl", () => {
   it("fails closed for invalid URLs", () => {
     expect(resolveEmployerDomainFromJobUrl("not-a-url")).toBeNull();
     expect(resolveEmployerDomainFromJobUrl("http://localhost:3000/jobs/1")).toBeNull();
+  });
+});
+
+describe("resolveEmployerDomainFromJobData", () => {
+  it("prefers an employer email domain from the job description over an ATS URL", () => {
+    expect(
+      resolveEmployerDomainFromJobData(
+        null,
+        "https://boards.greenhouse.io/acme/jobs/123",
+        "For recruiting questions contact talent@acme.co.in."
+      )
+    ).toBe("acme.co.in");
+  });
+
+  it("uses an employer link embedded in the job description", () => {
+    expect(
+      resolveEmployerDomainFromJobData(
+        null,
+        "https://weworkremotely.com/remote-jobs/example",
+        "Company website: https://www.example-company.com/careers"
+      )
+    ).toBe("example-company.com");
+  });
+
+  it("rejects generic personal email domains as employer evidence", () => {
+    expect(
+      resolveEmployerDomainFromJobData(
+        null,
+        "https://weworkremotely.com/remote-jobs/example",
+        "Recruiting contact: recruiter@gmail.com"
+      )
+    ).toBeNull();
   });
 });
