@@ -78,12 +78,17 @@ function extractRecruiterEmailsFromPublicText(text: string, companyDomain: strin
   }
   return [...found];
 }
-function extractSitemapUrls(xml: string, domain: string): string[] {
+function extractSitemapLocs(xml: string, domain: string, filterRelevant: boolean): string[] {
   const urls = new Set<string>();
   for (const match of xml.matchAll(/<loc>\s*(https?:\/\/[^<\s]+)\s*<\/loc>/gi)) {
     const raw = match[1];
     if (!raw) continue;
-    try { const url = new URL(raw); if (normalizeDomain(url.hostname) === domain && SITEMAP_RELEVANCE.test(`${url.pathname}${url.search}`)) urls.add(url.toString()); } catch { /* ignore malformed sitemap entries */ }
+    try {
+      const url = new URL(raw);
+      if (normalizeDomain(url.hostname) !== domain) continue;
+      if (filterRelevant && !SITEMAP_RELEVANCE.test(`${url.pathname}${url.search}`)) continue;
+      urls.add(url.toString());
+    } catch { /* ignore malformed sitemap entries */ }
   }
   return [...urls].slice(0, 25);
 }
@@ -91,7 +96,7 @@ async function fetchText(url: string, timeoutMs = 5000): Promise<string | null> 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,application/xhtml+xml,application/xml,text/xml;q=0.9,*/*;q=0.8", "user-agent": "job-agent-public-recruiter-discovery/3.0" } });
+    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,application/xhtml+xml,application/xml,text/xml;q=0.9,*/*;q=0.8", "user-agent": "job-agent-public-recruiter-discovery/3.1" } });
     if (!response.ok) return null;
     return await response.text();
   } catch { return null; } finally { clearTimeout(timeout); }
@@ -102,11 +107,15 @@ async function fetchPublicCompanyPages(companyDomain: string): Promise<Array<{ u
   const urls = PUBLIC_PATHS.map((path) => `https://${domain}${path}`);
   const initial = await Promise.all(urls.map(async (url) => ({ url, text: await fetchText(url) })));
   const pages = initial.filter((page): page is { url: string; text: string } => Boolean(page.text));
-  const sitemapUrls = pages.flatMap((page) => /<sitemapindex/i.test(page.text) || /<urlset/i.test(page.text) ? extractSitemapUrls(page.text, domain) : []);
-  const discoveredUrls = [...new Set(sitemapUrls)].slice(0, 25);
+  const sitemapCandidates = pages.flatMap((page) => /<sitemapindex/i.test(page.text) ? extractSitemapLocs(page.text, domain, false) : /<urlset/i.test(page.text) ? extractSitemapLocs(page.text, domain, true) : []);
+  const discoveredUrls = [...new Set(sitemapCandidates)].slice(0, 25);
   if (discoveredUrls.length === 0) return pages;
-  const sitemapPages = await Promise.all(discoveredUrls.map(async (url) => ({ url, text: await fetchText(url) })));
-  return [...pages, ...sitemapPages.filter((page): page is { url: string; text: string } => Boolean(page.text))];
+  const discovered = await Promise.all(discoveredUrls.map(async (url) => ({ url, text: await fetchText(url) })));
+  const discoveredPages = discovered.filter((page): page is { url: string; text: string } => Boolean(page.text));
+  const nestedRelevant = discoveredPages.flatMap((page) => /<sitemapindex/i.test(page.text) ? extractSitemapLocs(page.text, domain, true) : []);
+  if (nestedRelevant.length === 0) return [...pages, ...discoveredPages];
+  const nestedPages = await Promise.all([...new Set(nestedRelevant)].slice(0, 25).map(async (url) => ({ url, text: await fetchText(url) })));
+  return [...pages, ...discoveredPages, ...nestedPages.filter((page): page is { url: string; text: string } => Boolean(page.text))];
 }
 
 function searchUrl(query: string): string {
@@ -165,7 +174,8 @@ export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryP
 
     for (const source of sources) {
       const normalizedText = normalizeObfuscatedEmails(source.text ?? "");
-      for (const email of extractRecruiterEmailsFromPublicText(normalizedText, input.companyDomain)) {
+      const searchableText = source.url === "job-description" ? normalizedText : stripHtml(normalizedText);
+      for (const email of extractRecruiterEmailsFromPublicText(searchableText, input.companyDomain)) {
         const isJobPosting = source.url === "job-description";
         const confidence = isJobPosting ? 100 : looksLikeRecruitingMailbox(email) ? 96 : 88;
         const sourceEntry = { url: isJobPosting ? undefined : source.url, type: isJobPosting ? "job_posting" : "public_company_page", confidence };
