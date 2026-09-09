@@ -9,7 +9,11 @@ export interface SubmitButtonResolution {
 const SUBMIT_PATTERNS = [
   /^submit(?: application)?$/i,
   /^apply(?: now)?$/i,
-  /^send application$/i
+  /^send application$/i,
+  /^finish application$/i,
+  /^complete application$/i,
+  /^complete and submit$/i,
+  /^finish and submit$/i
 ];
 
 function isSubmitLabel(value: string): boolean {
@@ -21,7 +25,7 @@ export class SubmissionButtonResolver {
   resolve(page: Page): SubmitButtonResolution {
     const candidates = page
       .locator('button, input[type="submit"], input[type="image"]')
-      .filter({ hasText: /^(submit(?: application)?|apply(?: now)?|send application)$/i });
+      .filter({ hasText: /^(submit(?: application)?|apply(?: now)?|send application|finish application|complete application|complete and submit|finish and submit)$/i });
 
     return {
       found: false,
