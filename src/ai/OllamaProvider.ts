@@ -26,9 +26,12 @@ export class OllamaProvider implements AIProvider {
     const startedAt = Date.now();
 
     const controller = new AbortController();
+    // Matching must remain bounded because MatchPipeline already has a
+    // deterministic fallback. A slow local model must never stall the queue.
+    const effectiveTimeoutMs = Math.min(this.timeoutMs, 10000);
     const timeout = setTimeout(
       () => controller.abort(),
-      this.timeoutMs
+      effectiveTimeoutMs
     );
 
     try {
@@ -47,7 +50,9 @@ export class OllamaProvider implements AIProvider {
           messages: request.messages,
           options: {
             temperature: request.temperature ?? 0,
-            num_predict: request.maxTokens ?? 256
+            // The matcher asks for compact JSON; a small output budget avoids
+            // spending tens of seconds generating unnecessary explanation.
+            num_predict: Math.min(request.maxTokens ?? 96, 96)
           }
         })
       });
