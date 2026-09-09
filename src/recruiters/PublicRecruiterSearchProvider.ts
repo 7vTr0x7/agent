@@ -44,11 +44,22 @@ function isCompanyEmail(email: string, domain: string): boolean {
   return normalizeEmail(email).endsWith(`@${domain}`);
 }
 
-function isPlausibleEmail(email: string): boolean {
+export function isPlausibleRecruiterEmail(email: string): boolean {
   const normalized = normalizeEmail(email);
+  const localPart = normalized.split("@")[0] ?? "";
+
   if (/%[0-9a-f]{2}/i.test(normalized)) return false;
   if (/^[^@]+%[^@]*@/i.test(normalized)) return false;
-  return /^[a-z0-9][a-z0-9._+\-]*@[a-z0-9.-]+\.[a-z]{2,}$/i.test(normalized);
+  if (!/^[a-z0-9][a-z0-9._+\-]*@[a-z0-9.-]+\.[a-z]{2,}$/i.test(normalized)) return false;
+
+  // Search engines sometimes expose fragments of URL/query text immediately
+  // before @company.com (for example, `%22` becoming `22@company.com`). A
+  // numeric-only local part is not useful recruiter evidence, so reject it.
+  if (/^\d+$/.test(localPart)) return false;
+
+  // Reject malformed dot placement and empty-looking local parts.
+  if (localPart.startsWith(".") || localPart.endsWith(".") || localPart.includes("..")) return false;
+  return true;
 }
 
 function extractEmails(text: string, domain: string): string[] {
@@ -56,7 +67,7 @@ function extractEmails(text: string, domain: string): string[] {
   const found = new Set<string>();
   for (const match of normalized.matchAll(EMAIL_PATTERN)) {
     const email = normalizeEmail(match[0] ?? "");
-    if (!email || !isPlausibleEmail(email) || !isCompanyEmail(email, domain)) continue;
+    if (!email || !isPlausibleRecruiterEmail(email) || !isCompanyEmail(email, domain)) continue;
     const context = emailContext(normalized, match.index ?? 0);
     if (NON_RECRUITING_CONTEXT.test(context)) continue;
     if (RECRUITING_CONTEXT.test(context)) found.add(email);
@@ -86,7 +97,7 @@ async function fetchText(url: string, timeoutMs = 9000): Promise<string | null> 
       redirect: "follow",
       headers: {
         accept: "text/plain,text/html,application/xhtml+xml,*/*;q=0.8",
-        "user-agent": "job-agent-public-recruiter-discovery/4.1"
+        "user-agent": "job-agent-public-recruiter-discovery/4.2"
       }
     });
     if (!response.ok) return null;
