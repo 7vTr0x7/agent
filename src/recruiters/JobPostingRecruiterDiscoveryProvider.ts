@@ -96,7 +96,7 @@ async function fetchText(url: string, timeoutMs = 5000): Promise<string | null> 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,application/xhtml+xml,application/xml,text/xml;q=0.9,*/*;q=0.8", "user-agent": "job-agent-public-recruiter-discovery/3.1" } });
+    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,application/xhtml+xml,application/xml,text/xml;q=0.9,*/*;q=0.8", "user-agent": "job-agent-public-recruiter-discovery/3.2" } });
     if (!response.ok) return null;
     return await response.text();
   } catch { return null; } finally { clearTimeout(timeout); }
@@ -148,27 +148,44 @@ function parsePublicLinkedInProfiles(html: string): PublicLinkedInProfile[] {
   }
   return results.slice(0, 10);
 }
-async function discoverPublicLinkedInProfiles(companyName: string, jobTitle: string): Promise<PublicLinkedInProfile[]> {
+
+async function discoverPublicLinkedInEvidence(companyName: string, companyDomain: string, jobTitle: string): Promise<{ profiles: PublicLinkedInProfile[]; emails: string[] }> {
+  const domain = normalizeDomain(companyDomain);
   const queries = [
     `site:linkedin.com/in "${companyName}" recruiter`,
     `site:linkedin.com/in "${companyName}" "talent acquisition"`,
     `site:linkedin.com/in "${companyName}" "technical recruiter"`,
-    `site:linkedin.com/in "${companyName}" "hiring manager"`
+    `site:linkedin.com/in "${companyName}" "hiring manager"`,
+    `site:linkedin.com/in "${companyName}" "@${domain}" recruiter`,
+    `site:linkedin.com "${companyName}" "@${domain}" recruiter`,
+    `"${companyName}" "@${domain}" recruiter`,
+    `"${companyName}" "@${domain}" "talent acquisition"`
   ];
   const pages = await Promise.all(queries.map(async (query) => fetchText(searchUrl(`${query} "${jobTitle}"`), 7000)));
   const profiles = new Map<string, PublicLinkedInProfile>();
-  for (const page of pages) for (const profile of page ? parsePublicLinkedInProfiles(page) : []) profiles.set(profile.url, profile);
-  return [...profiles.values()].filter((profile) => {
-    const haystack = `${profile.name} ${profile.title ?? ""} ${profile.snippet}`.toLowerCase();
-    return LINKEDIN_RECRUITER_TERMS.some((term) => haystack.includes(term));
-  }).slice(0, 10);
+  const emails = new Set<string>();
+  for (const page of pages) {
+    if (!page) continue;
+    for (const profile of parsePublicLinkedInProfiles(page)) profiles.set(profile.url, profile);
+    for (const email of extractRecruiterEmailsFromPublicText(stripHtml(page), domain)) emails.add(email);
+  }
+  return {
+    profiles: [...profiles.values()].filter((profile) => {
+      const haystack = `${profile.name} ${profile.title ?? ""} ${profile.snippet}`.toLowerCase();
+      return LINKEDIN_RECRUITER_TERMS.some((term) => haystack.includes(term));
+    }).slice(0, 10),
+    emails: [...emails]
+  };
 }
 
 export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryProvider {
   readonly name = "public-web";
 
   async discover(input: RecruiterDiscoveryInput): Promise<RecruiterDiscoveryResult> {
-    const [pages, linkedinProfiles] = await Promise.all([fetchPublicCompanyPages(input.companyDomain), discoverPublicLinkedInProfiles(input.companyName, input.jobTitle)]);
+    const [{ profiles: linkedinProfiles, emails: searchEmails }, pages] = await Promise.all([
+      discoverPublicLinkedInEvidence(input.companyName, input.companyDomain, input.jobTitle),
+      fetchPublicCompanyPages(input.companyDomain)
+    ]);
     const sources = [{ url: "job-description", text: input.jobDescription }, ...pages];
     const contacts = new Map<string, RecruiterContactCandidate>();
 
@@ -183,6 +200,25 @@ export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryP
         if (existing) { existing.sources.push(sourceEntry); existing.confidence = Math.max(existing.confidence ?? 0, confidence); }
         else contacts.set(email, { email, title: "Recruiting contact from public company source", department: "recruiting", confidence, verified: false, verificationStatus: "unverified_public_source", provider: this.name, sources: [sourceEntry] });
       }
+    }
+
+    for (const email of searchEmails) {
+      const existing = contacts.get(email);
+      if (existing) {
+        existing.sources.push({ type: "public_search_result", confidence: 92 });
+        existing.confidence = Math.max(existing.confidence ?? 0, 92);
+        continue;
+      }
+      contacts.set(email, {
+        email,
+        title: "Recruiting contact from public search result",
+        department: "recruiting",
+        confidence: looksLikeRecruitingMailbox(email) ? 94 : 90,
+        verified: false,
+        verificationStatus: "unverified_public_source",
+        provider: this.name,
+        sources: [{ type: "public_search_result", confidence: 92 }]
+      });
     }
 
     for (const contact of contacts.values()) {
