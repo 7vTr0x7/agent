@@ -71,11 +71,16 @@ export class MatchTaskHandler {
     if (!job || !this.recruiterEnabled || !this.recruiters) return null;
     if (isExcludedCompany(job.companyName, this.excludedCompanies)) return null;
 
+    // Feed descriptions can contain third-party employers, support vendors,
+    // or unrelated links/emails. Never turn those into the employer domain.
+    // The old flow accepted e.g. fastly.com as the domain for a We Work
+    // Remotely listing. A job-provided domain is accepted only when it is
+    // plausibly tied to the advertised company; otherwise public search is
+    // used as the independent identity check and we fail closed if that fails.
     let companyDomain = resolveEmployerDomainFromJobData(job.companyDomain, job.canonicalUrl, job.description);
-    if (!companyDomain) {
-      companyDomain = await resolveEmployerDomainFromPublicSearch(job.companyName);
-    }
-    if (!companyDomain) return null;
+    if (companyDomain && !domainMatchesCompanyName(companyDomain, job.companyName)) companyDomain = null;
+    if (!companyDomain) companyDomain = await resolveEmployerDomainFromPublicSearch(job.companyName);
+    if (!companyDomain || !domainMatchesCompanyName(companyDomain, job.companyName)) return null;
 
     const candidateName = this.profiles.fullName ?? ([this.profiles.firstName, this.profiles.lastName].filter(Boolean).join(" ") || "Candidate");
     return this.recruiters.enqueue({
@@ -90,6 +95,17 @@ export class MatchTaskHandler {
       applicationOutcome: "NOT_ATTEMPTED"
     }, 40);
   }
+}
+
+function companyTokens(companyName: string): string[] {
+  return companyName.toLowerCase().replace(/&/g, " and ").split(/[^a-z0-9]+/).filter((token) => token.length >= 3 && !["the", "and", "inc", "ltd", "llc", "corp", "company", "limited", "private", "pvt"].includes(token));
+}
+
+function domainMatchesCompanyName(domain: string, companyName: string): boolean {
+  const tokens = companyTokens(companyName);
+  if (tokens.length === 0) return false;
+  const host = domain.split(".")[0] ?? domain;
+  return tokens.some((token) => host.includes(token));
 }
 
 function isExcludedCompany(companyName: string, configuredExcluded: readonly string[]): boolean {
