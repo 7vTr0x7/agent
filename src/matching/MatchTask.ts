@@ -5,7 +5,7 @@ import { MatchPipeline } from "./MatchPipeline";
 import { JobRankingService } from "../jobs/policy/JobRankingService";
 import { ApplicationTaskDispatcher } from "../applications/ApplicationTask";
 import { RecruiterDiscoveryTaskDispatcher } from "../recruiters/RecruiterDiscoveryTask";
-import { resolveEmployerDomainFromJobUrl } from "../recruiters/RecruiterCompanyDomainResolver";
+import { resolveEmployerDomainFromJobData } from "../recruiters/RecruiterCompanyDomainResolver";
 import { PERMANENTLY_EXCLUDED_COMPANIES } from "../applications/ApplicationPolicy";
 import { AppConfig } from "../config/env";
 
@@ -105,7 +105,11 @@ export class MatchTaskHandler {
     if (!job || !this.recruiterEnabled || !this.recruiters) return null;
     if (isExcludedCompany(job.companyName, this.excludedCompanies)) return null;
 
-    const companyDomain = job.companyDomain ?? resolveEmployerDomainFromJobUrl(job.canonicalUrl);
+    const companyDomain = resolveEmployerDomainFromJobData(
+      job.companyDomain,
+      job.canonicalUrl,
+      job.description
+    );
     if (!companyDomain) return null;
 
     const candidateName = this.profiles.fullName ?? ([this.profiles.firstName, this.profiles.lastName].filter(Boolean).join(" ") || "Candidate");
