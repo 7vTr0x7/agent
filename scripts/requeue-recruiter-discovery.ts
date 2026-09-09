@@ -71,7 +71,7 @@ async function main(): Promise<void> {
 
       const companyDomain = resolveEmployerDomainFromJobData(
         job.company_domain,
-        job.canonicalUrl,
+        job.canonical_url,
         job.description
       );
       if (!companyDomain) {
