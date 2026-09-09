@@ -4,9 +4,10 @@ import {
 } from "./RecruiterCompanyDomainResolver";
 
 describe("resolveEmployerDomainFromJobUrl", () => {
-  it("resolves and normalizes a direct employer URL", () => {
+  it("resolves and normalizes a direct employer URL or bare domain", () => {
     expect(resolveEmployerDomainFromJobUrl("https://careers.acme.com/jobs/frontend")).toBe("acme.com");
     expect(resolveEmployerDomainFromJobUrl("https://jobs.acme.co.in/frontend")).toBe("acme.co.in");
+    expect(resolveEmployerDomainFromJobUrl("acme.com")).toBe("acme.com");
   });
 
   it("does not mistake marketplace or ATS hosts for employers", () => {
@@ -39,6 +40,16 @@ describe("resolveEmployerDomainFromJobData", () => {
         "Company website: https://www.example-company.com/careers"
       )
     ).toBe("example-company.com");
+  });
+
+  it("accepts a configured bare employer domain", () => {
+    expect(
+      resolveEmployerDomainFromJobData(
+        "acme.co.in",
+        "https://boards.greenhouse.io/acme/jobs/123",
+        ""
+      )
+    ).toBe("acme.co.in");
   });
 
   it("rejects generic personal email domains as employer evidence", () => {
