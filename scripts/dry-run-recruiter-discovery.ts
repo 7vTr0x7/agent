@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { createRecruiterDiscoveryProvider, RecruiterDiscoveryProviderId } from "../src/recruiters/createRecruiterDiscoveryProvider";
+import { createRecruiterDiscoveryProvider } from "../src/recruiters/createRecruiterDiscoveryProvider";
 
 function required(name: string): string {
   const value = process.env[name]?.trim();
@@ -7,26 +7,13 @@ function required(name: string): string {
   return value;
 }
 
-function selectedProvider(): RecruiterDiscoveryProviderId {
-  const configured = process.env.RECRUITER_TEST_PROVIDER?.trim() || process.env.RECRUITER_DISCOVERY_PROVIDER?.trim();
-  if (configured === "hunter" || configured === "snov" || configured === "job-posting") return configured;
-  return process.env.HUNTER_API_KEY?.trim() ? "hunter" : "job-posting";
-}
-
 async function main(): Promise<void> {
   const companyName = required("RECRUITER_TEST_COMPANY_NAME");
   const companyDomain = required("RECRUITER_TEST_COMPANY_DOMAIN");
   const jobTitle = process.env.RECRUITER_TEST_JOB_TITLE?.trim() || "Frontend Engineer";
   const jobDescription = process.env.RECRUITER_TEST_JOB_DESCRIPTION?.trim() || "Frontend engineering role using React and TypeScript.";
-  const providerId = selectedProvider();
 
-  const provider = createRecruiterDiscoveryProvider({
-    provider: providerId,
-    hunterApiKey: process.env.HUNTER_API_KEY?.trim() || null,
-    snovClientId: process.env.SNOV_CLIENT_ID?.trim() || null,
-    snovClientSecret: process.env.SNOV_CLIENT_SECRET?.trim() || null
-  });
-
+  const provider = createRecruiterDiscoveryProvider({ provider: "public-web" });
   const result = await provider.discover({
     companyName,
     companyDomain,
@@ -48,6 +35,7 @@ async function main(): Promise<void> {
     confidence: contact.confidence,
     verified: contact.verified,
     verificationStatus: contact.verificationStatus,
+    linkedinProfileUrl: contact.linkedinProfileUrl,
     sourceCount: contact.sources?.length ?? 0
   }));
 
@@ -63,9 +51,7 @@ async function main(): Promise<void> {
     jobTitle,
     discovered: result.contacts.length,
     sendEligible,
-    note: providerId === "job-posting"
-      ? "Public job-posting contacts are discovery-only and remain unverified until a verification provider confirms deliverability."
-      : "Discovery completed without sending recruiter email. Real sending remains disabled by default.",
+    note: "Public-web discovery only. No recruiter email is sent by this command. Public contacts remain unverified until an approved verification provider confirms deliverability.",
     contacts
   }, null, 2));
 }
