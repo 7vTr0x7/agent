@@ -1,0 +1,60 @@
+import { promises as dns } from "node:dns";
+import { PublicRecruiterSearchProvider, isPlausibleRecruiterEmail } from "./PublicRecruiterSearchProvider";
+
+describe("PublicRecruiterSearchProvider email verification", () => {
+  it("rejects search-engine artifacts and malformed recruiter addresses", () => {
+    expect(isPlausibleRecruiterEmail("22@accenture.com")).toBe(false);
+    expect(isPlausibleRecruiterEmail("%22accenture%22%20@accenture.com")).toBe(false);
+    expect(isPlausibleRecruiterEmail(".recruiter@accenture.com")).toBe(false);
+    expect(isPlausibleRecruiterEmail("recruiter..name@accenture.com")).toBe(false);
+    expect(isPlausibleRecruiterEmail("keri.williams@accenture.com")).toBe(true);
+  });
+
+  it("marks a recruiter email as domain_mx_verified when the employer domain has MX records", async () => {
+    const resolveMx = jest.spyOn(dns, "resolveMx").mockResolvedValue([
+      { exchange: "mail.accenture.com", priority: 10 }
+    ]);
+    try {
+      const provider = new PublicRecruiterSearchProvider();
+      await expect(provider.verify("keri.williams@accenture.com")).resolves.toEqual({
+        email: "keri.williams@accenture.com",
+        verified: true,
+        status: "domain_mx_verified",
+        confidence: 75
+      });
+      expect(resolveMx).toHaveBeenCalledWith("accenture.com");
+    } finally {
+      resolveMx.mockRestore();
+    }
+  });
+
+  it("does not mark an address verified when the employer domain has no MX records", async () => {
+    const resolveMx = jest.spyOn(dns, "resolveMx").mockResolvedValue([]);
+    try {
+      const provider = new PublicRecruiterSearchProvider();
+      await expect(provider.verify("recruiter@example.com")).resolves.toEqual({
+        email: "recruiter@example.com",
+        verified: false,
+        status: "no_mx_record",
+        confidence: 0
+      });
+    } finally {
+      resolveMx.mockRestore();
+    }
+  });
+
+  it("does not claim mailbox-level verification", async () => {
+    const resolveMx = jest.spyOn(dns, "resolveMx").mockResolvedValue([
+      { exchange: "mail.example.com", priority: 10 }
+    ]);
+    try {
+      const provider = new PublicRecruiterSearchProvider();
+      const result = await provider.verify("recruiter@example.com");
+      expect(result.status).toBe("domain_mx_verified");
+      expect(result.verified).toBe(true);
+      expect(result.status).not.toBe("mailbox_verified");
+    } finally {
+      resolveMx.mockRestore();
+    }
+  });
+});
