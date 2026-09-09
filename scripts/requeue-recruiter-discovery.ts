@@ -41,13 +41,20 @@ async function main(): Promise<void> {
     const requestedLimit = Number.parseInt(process.env.RECRUITER_REQUEUE_LIMIT ?? "500", 10);
     const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : 500;
 
+    // Recovery/backfill must preserve the same eligibility boundary as the
+    // normal MATCH_JOB fan-out. Never discover or contact recruiters for an
+    // arbitrary ACTIVE opportunity that has not matched the candidate.
     const result = await database.query<JobRow>(
-      `SELECT id, company_name, company_domain, canonical_url, title, description, location
-       FROM job_opportunities
-       WHERE status = 'ACTIVE'
-       ORDER BY updated_at DESC
-       LIMIT $1`,
-      [limit]
+      `SELECT jo.id, jo.company_name, jo.company_domain, jo.canonical_url, jo.title, jo.description, jo.location
+       FROM job_opportunities jo
+       JOIN match_decisions md
+         ON md.job_opportunity_id = jo.id
+        AND md.candidate_profile_id = $1
+        AND md.decision IN ('APPLY', 'REVIEW')
+       WHERE jo.status = 'ACTIVE'
+       ORDER BY jo.updated_at DESC
+       LIMIT $2`,
+      [candidateProfileId, limit]
     );
 
     const queue = new TaskQueue(database);
@@ -64,7 +71,7 @@ async function main(): Promise<void> {
 
       const companyDomain = resolveEmployerDomainFromJobData(
         job.company_domain,
-        job.canonical_url,
+        job.canonicalUrl,
         job.description
       );
       if (!companyDomain) {
@@ -92,6 +99,7 @@ async function main(): Promise<void> {
       queued,
       skippedExcluded,
       skippedNoDomain,
+      eligibility: "MATCH_DECISION_APPLY_OR_REVIEW",
       dedupeVersion: "v2"
     }, null, 2));
   } finally {
