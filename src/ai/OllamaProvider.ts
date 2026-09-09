@@ -26,9 +26,9 @@ export class OllamaProvider implements AIProvider {
     const startedAt = Date.now();
 
     const controller = new AbortController();
-    // Matching must remain bounded because MatchPipeline already has a
-    // deterministic fallback. A slow local model must never stall the queue.
-    const effectiveTimeoutMs = Math.min(this.timeoutMs, 10000);
+    // Matching already has a deterministic fallback. Keep local-model latency
+    // tightly bounded so one slow Ollama generation cannot stall the queue.
+    const effectiveTimeoutMs = Math.min(this.timeoutMs, 5000);
     const timeout = setTimeout(
       () => controller.abort(),
       effectiveTimeoutMs
@@ -50,9 +50,9 @@ export class OllamaProvider implements AIProvider {
           messages: request.messages,
           options: {
             temperature: request.temperature ?? 0,
-            // The matcher asks for compact JSON; a small output budget avoids
-            // spending tens of seconds generating unnecessary explanation.
-            num_predict: Math.min(request.maxTokens ?? 96, 96)
+            // The matcher needs only a compact JSON decision. Keep generation
+            // small so the local model spends less time producing prose.
+            num_predict: Math.min(request.maxTokens ?? 64, 64)
           }
         })
       });
