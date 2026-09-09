@@ -1,13 +1,37 @@
 import { promises as dns } from "node:dns";
 import { PublicRecruiterSearchProvider, isPlausibleRecruiterEmail } from "./PublicRecruiterSearchProvider";
 
-describe("PublicRecruiterSearchProvider email verification", () => {
+describe("PublicRecruiterSearchProvider", () => {
   it("rejects search-engine artifacts and malformed recruiter addresses", () => {
     expect(isPlausibleRecruiterEmail("22@accenture.com")).toBe(false);
     expect(isPlausibleRecruiterEmail("%22accenture%22%20@accenture.com")).toBe(false);
     expect(isPlausibleRecruiterEmail(".recruiter@accenture.com")).toBe(false);
     expect(isPlausibleRecruiterEmail("recruiter..name@accenture.com")).toBe(false);
     expect(isPlausibleRecruiterEmail("keri.williams@accenture.com")).toBe(true);
+  });
+
+  it("accepts an explicitly recruiting mailbox even when the search snippet omits recruiting keywords", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("dns")) return new Response(JSON.stringify({ Answer: [] }), { status: 200 });
+      return new Response("Acme Corp careers result: recruiting@acme.com", { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const provider = new PublicRecruiterSearchProvider();
+      const result = await provider.discover({
+        companyName: "Acme Corp",
+        companyDomain: "acme.com",
+        jobTitle: "Frontend Developer",
+        jobDescription: "",
+        candidateProfileId: "candidate-1"
+      });
+      expect(result.contacts.map((contact) => contact.email)).toContain("recruiting@acme.com");
+      expect(result.contacts[0]?.confidence).toBeGreaterThanOrEqual(94);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("marks a recruiter email as domain_mx_verified when the employer domain has MX records", async () => {
