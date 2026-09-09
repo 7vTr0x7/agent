@@ -17,7 +17,7 @@ async function resolvePublicDomains(companies:string[], concurrency:number):Prom
   const resolved=new Map<string,string|null>();
   let nextIndex=0;
   let completed=0;
-  const worker=async():Promise<void=>{ while(true){ const index=nextIndex++; if(index>=companies.length) return; const company=companies[index]; const domain=await resolveEmployerDomainFromPublicSearch(company); resolved.set(companyKey(company),domain); completed++; if(completed%10===0||completed===companies.length) console.log(`[requeue-recruiter-discovery] resolved employer domains ${completed}/${companies.length}`); } };
+  const worker=async():Promise<void>=>{ while(true){ const index=nextIndex++; if(index>=companies.length) return; const company=companies[index]; const domain=await resolveEmployerDomainFromPublicSearch(company); resolved.set(companyKey(company),domain); completed++; if(completed%10===0||completed===companies.length) console.log(`[requeue-recruiter-discovery] resolved employer domains ${completed}/${companies.length}`); } };
   await Promise.all(Array.from({length:Math.min(concurrency,Math.max(companies.length,1))},()=>worker()));
   return resolved;
 }
