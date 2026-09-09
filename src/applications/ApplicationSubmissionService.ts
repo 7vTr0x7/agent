@@ -2,7 +2,6 @@ import { BrowserSessionService } from "./BrowserSession";
 import { ApplicationAdapterRegistry, ApplicationContext, ApplicationSubmissionResult } from "./ApplicationAdapter";
 import { ApplicationFieldMapper } from "./ApplicationFieldMapper";
 import { ApplicationFormFiller } from "./ApplicationFormFiller";
-import { FormFieldDetector } from "./FormFieldDetector";
 import { SubmissionSafetyGate } from "./SubmissionSafetyGate";
 import { ApplicationTargetResolver } from "./ApplicationTargetResolver";
 import { ApplicationHazardDetector } from "./ApplicationHazardDetector";
@@ -29,7 +28,7 @@ export class ApplicationSubmissionService {
   constructor(
     private readonly browserSessions: BrowserSessionService,
     private readonly adapters: ApplicationAdapterRegistry,
-    private readonly applications: Pick<ApplicationRepository, "beginSubmission" | "cancelSubmission" | "markSubmitted">,
+    private readonly applications: Pick<ApplicationRepository, "beginSubmission" | "markSubmitted">,
     private readonly detector = new FormFieldDetector(),
     private readonly mapper = new ApplicationFieldMapper(),
     private readonly filler = new ApplicationFormFiller(),
@@ -118,13 +117,16 @@ export class ApplicationSubmissionService {
         };
       }
 
+      // Once the durable submission reservation is acquired, the outcome is
+      // fail-closed. We deliberately never reset SUBMISSION_IN_PROGRESS here:
+      // a browser/provider failure after reservation can have an unknown
+      // external outcome, and retrying could submit the same application twice.
       const result = await adapter.submit(session.page, resolvedContext);
       if (!result.submitted) {
-        await this.applications.cancelSubmission(request.context.applicationId, result.reason);
         return {
           submitted: false,
           safetyAllowed: true,
-          reason: result.reason,
+          reason: `${result.reason} Submission remains in progress for manual/independent verification; it will not be automatically retried.`,
           adapterName: adapter.name,
           result
         };
