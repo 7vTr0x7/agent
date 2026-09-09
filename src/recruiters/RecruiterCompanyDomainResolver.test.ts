@@ -3,62 +3,77 @@ import {
   resolveEmployerDomainFromJobUrl
 } from "./RecruiterCompanyDomainResolver";
 
-describe("resolveEmployerDomainFromJobUrl", () => {
-  it("resolves and normalizes a direct employer URL or bare domain", () => {
-    expect(resolveEmployerDomainFromJobUrl("https://careers.acme.com/jobs/frontend")).toBe("acme.com");
-    expect(resolveEmployerDomainFromJobUrl("https://jobs.acme.co.in/frontend")).toBe("acme.co.in");
-    expect(resolveEmployerDomainFromJobUrl("acme.com")).toBe("acme.com");
+describe("RecruiterCompanyDomainResolver", () => {
+  it("normalizes a direct employer URL", () => {
+    expect(resolveEmployerDomainFromJobUrl("https://careers.example.com/jobs/frontend"))
+      .toBe("example.com");
   });
 
-  it("does not mistake marketplace or ATS hosts for employers", () => {
-    expect(resolveEmployerDomainFromJobUrl("https://www.naukri.com/job-listings/frontend-acme")).toBeNull();
-    expect(resolveEmployerDomainFromJobUrl("https://boards.greenhouse.io/acme/jobs/123")).toBeNull();
+  it("rejects marketplace and ATS URLs", () => {
+    expect(resolveEmployerDomainFromJobUrl("https://www.naukri.com/job-listings/frontend-engineer"))
+      .toBeNull();
+    expect(resolveEmployerDomainFromJobUrl("https://boards.greenhouse.io/example/jobs/123"))
+      .toBeNull();
   });
 
-  it("fails closed for invalid URLs", () => {
-    expect(resolveEmployerDomainFromJobUrl("not-a-url")).toBeNull();
-    expect(resolveEmployerDomainFromJobUrl("http://localhost:3000/jobs/1")).toBeNull();
+  it("rejects free/public job feed domains as employer identity", () => {
+    for (const host of [
+      "https://weworkremotely.com/remote-jobs/frontend",
+      "https://remoteok.com/remote-jobs/123",
+      "https://himalayas.app/jobs/frontend-engineer",
+      "https://jobicy.com/jobs/frontend-engineer",
+      "https://arbeitnow.com/view/frontend-engineer",
+      "https://remotefirstjobs.com/job/frontend-engineer",
+      "https://remoteyeah.com/jobs/frontend-engineer",
+      "https://realworkfromanywhere.com/remote-frontend-jobs/example",
+      "https://hireweb3.io/jobs/frontend"
+    ]) {
+      expect(resolveEmployerDomainFromJobUrl(host)).toBeNull();
+    }
   });
-});
 
-describe("resolveEmployerDomainFromJobData", () => {
-  it("prefers an employer email domain from the job description over an ATS URL", () => {
-    expect(
-      resolveEmployerDomainFromJobData(
-        null,
-        "https://boards.greenhouse.io/acme/jobs/123",
-        "For recruiting questions contact talent@acme.co.in."
-      )
-    ).toBe("acme.co.in");
+  it("rejects invalid URLs", () => {
+    expect(resolveEmployerDomainFromJobUrl("not a valid url"))
+      .toBeNull();
   });
 
-  it("uses an employer link embedded in the job description", () => {
-    expect(
-      resolveEmployerDomainFromJobData(
-        null,
-        "https://weworkremotely.com/remote-jobs/example",
-        "Company website: https://www.example-company.com/careers"
-      )
-    ).toBe("example-company.com");
+  it("prefers an employer email over an ATS URL", () => {
+    expect(resolveEmployerDomainFromJobData(
+      "boards.greenhouse.io",
+      "https://boards.greenhouse.io/example/jobs/123",
+      "Recruiter: hiring@example.com"
+    )).toBe("example.com");
+  });
+
+  it("prefers an employer link in the description over an aggregator canonical URL", () => {
+    expect(resolveEmployerDomainFromJobData(
+      null,
+      "https://weworkremotely.com/remote-jobs/example",
+      "Apply on https://careers.example.com/jobs/frontend"
+    )).toBe("example.com");
   });
 
   it("accepts a configured bare employer domain", () => {
-    expect(
-      resolveEmployerDomainFromJobData(
-        "acme.co.in",
-        "https://boards.greenhouse.io/acme/jobs/123",
-        ""
-      )
-    ).toBe("acme.co.in");
+    expect(resolveEmployerDomainFromJobData(
+      "example.com",
+      "https://weworkremotely.com/remote-jobs/example",
+      ""
+    )).toBe("example.com");
   });
 
   it("rejects generic personal email domains as employer evidence", () => {
-    expect(
-      resolveEmployerDomainFromJobData(
-        null,
-        "https://weworkremotely.com/remote-jobs/example",
-        "Recruiting contact: recruiter@gmail.com"
-      )
-    ).toBeNull();
+    expect(resolveEmployerDomainFromJobData(
+      null,
+      "https://weworkremotely.com/remote-jobs/example",
+      "Contact recruiter@gmail.com for details"
+    )).toBeNull();
+  });
+
+  it("rejects a job feed company domain even when the canonical URL is the same feed", () => {
+    expect(resolveEmployerDomainFromJobData(
+      "remoteok.com",
+      "https://remoteok.com/remote-jobs/frontend",
+      ""
+    )).toBeNull();
   });
 });
