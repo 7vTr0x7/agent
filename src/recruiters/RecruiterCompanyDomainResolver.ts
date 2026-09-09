@@ -1,13 +1,8 @@
 const BLOCKED_HOSTS = new Set([
-  // Major job boards / professional networks / ATS platforms.
   "naukri.com", "linkedin.com", "indeed.com", "glassdoor.com", "greenhouse.io", "boards.greenhouse.io", "lever.co", "jobs.lever.co",
   "ashbyhq.com", "jobs.ashbyhq.com", "myworkdayjobs.com", "workday.com", "smartrecruiters.com", "jobs.smartrecruiters.com",
   "workable.com", "apply.workable.com", "icims.com", "bamboohr.com", "taleo.net", "jobvite.com", "pinpointhq.com", "successfactors.com",
   "recruitee.com", "teamtailor.com", "personio.com", "personio.de", "jobadder.com", "rippling.com", "breezy.hr",
-
-  // Free/public job feeds currently used by the agent. These must never become
-  // employer identity merely because a feed populated company_domain with its
-  // own host or because an aggregator URL is canonical.
   "weworkremotely.com", "remoteok.com", "remoteok.io", "himalayas.app", "jobicy.com", "arbeitnow.com", "arbeitnow.co.uk",
   "remotefirstjobs.com", "remoteyeah.com", "realworkfromanywhere.com", "hireweb3.io", "adzuna.com", "jooble.org", "jooble.com",
   "remotive.com", "remote.co", "workingnomads.com", "jobspresso.co", "wellfound.com", "otta.com", "dice.com", "ziprecruiter.com",
@@ -17,10 +12,11 @@ const BLOCKED_HOSTS = new Set([
 ]);
 
 const CAREERS_SUBDOMAINS = /^(careers?|jobs?|job|hire|hiring|talent|recruiting|recruitment|people|hr|apply|workwithus|joinus)\./i;
-const COMMON_TWO_PART_PUBLIC_SUFFIXES = new Set(["co.uk", "org.uk", "ac.uk", "com.au", "net.au", "org.au", "co.in", "firm.in", "net.in", "org.in", "gen.in", "ind.in"]);
+const COMMON_TWO_PART_PUBLIC_SUFFIXES = new Set(["co.uk", "org.uk", "ac.uk", "com.au", "net.au", "org.au", "co.au", "org.au", "co.in", "firm.in", "net.in", "org.in", "gen.in", "ind.in"]);
 const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com", "yahoo.co.in", "icloud.com", "proton.me", "protonmail.com"]);
 const EMAIL_PATTERN = /[A-Z0-9._+\-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
+const SEARCH_URL_PATTERN = /https?:\/\/(?:www\.)?[^\s<>"'()]+/gi;
 
 function normalizeHost(value: string): string {
   return value.trim().toLowerCase().replace(/^www\./, "");
@@ -44,6 +40,11 @@ function normalizeEmployerHost(value: string): string | null {
   if (BLOCKED_HOSTS.has(registrable)) return null;
   if (GENERIC_EMAIL_DOMAINS.has(registrable)) return null;
   return registrable;
+}
+
+export function isBlockedEmployerDomain(value: string | null | undefined): boolean {
+  const host = normalizeHost(value ?? "");
+  return !!host && (BLOCKED_HOSTS.has(host) || BLOCKED_HOSTS.has(registrableDomain(host)));
 }
 
 export function resolveEmployerDomainFromJobUrl(value: string | null | undefined): string | null {
@@ -73,14 +74,7 @@ export function resolveEmployerDomainFromJobData(
     if (domain && !GENERIC_EMAIL_DOMAINS.has(domain)) addCandidate(normalizeEmployerHost(domain), 5);
   }
 
-  for (const url of (jobDescription ?? "").match(URL_PATTERN) ?? []) {
-    addCandidate(resolveEmployerDomainFromJobUrl(url), 3);
-  }
-
-  // A canonical URL is valid employer evidence when its host is not a known
-  // job board, ATS, or aggregator. The URL parser already rejects those hosts,
-  // so treating a remaining direct-employer URL as strong evidence materially
-  // improves coverage for feeds that omit company_domain.
+  for (const url of (jobDescription ?? "").match(URL_PATTERN) ?? []) addCandidate(resolveEmployerDomainFromJobUrl(url), 3);
   addCandidate(resolveEmployerDomainFromJobUrl(canonicalUrl), 4);
   addCandidate(resolveEmployerDomainFromJobUrl(companyDomain), 4);
 
@@ -88,4 +82,76 @@ export function resolveEmployerDomainFromJobData(
   const [best, bestScore] = ranked[0] ?? [null, 0];
   if (!best || bestScore < 3) return null;
   return best;
+}
+
+function companyTokens(companyName: string): string[] {
+  return companyName.toLowerCase().replace(/&/g, " and ").split(/[^a-z0-9]+/).filter((token) => token.length >= 3 && !["the", "and", "inc", "ltd", "llc", "corp", "company", "limited", "private", "pvt"].includes(token));
+}
+
+function domainMatchesCompany(domain: string, companyName: string): boolean {
+  const tokens = companyTokens(companyName);
+  if (tokens.length === 0) return false;
+  const host = domain.split(".")[0] ?? domain;
+  return tokens.some((token) => host.includes(token));
+}
+
+async function fetchSearchResult(query: string, engine: "google" | "bing" | "duckduckgo"): Promise<string | null> {
+  const encoded = encodeURIComponent(query);
+  const urls = {
+    google: `https://r.jina.ai/https://www.google.com/search?q=${encoded}&gbv=1`,
+    bing: `https://r.jina.ai/https://www.bing.com/search?q=${encoded}`,
+    duckduckgo: `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${encoded}`
+  };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 9000);
+  try {
+    const response = await fetch(urls[engine], { signal: controller.signal, redirect: "follow", headers: { accept: "text/plain,text/html,application/xhtml+xml,*/*;q=0.8", "user-agent": "job-agent-employer-domain-resolver/1.0" } });
+    if (!response.ok) return null;
+    return await response.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function domainsFromSearchText(text: string, companyName: string): string[] {
+  const found = new Set<string>();
+  for (const rawUrl of text.match(SEARCH_URL_PATTERN) ?? []) {
+    try {
+      const url = new URL(rawUrl);
+      const domain = normalizeEmployerHost(url.hostname);
+      if (!domain || !domainMatchesCompany(domain, companyName)) continue;
+      found.add(domain);
+    } catch {
+      // Ignore malformed search-result URLs.
+    }
+  }
+  return [...found];
+}
+
+/**
+ * Last-resort employer resolution for feeds that provide only a company name.
+ * The resolver is intentionally conservative: a domain must be a plausible
+ * company domain and appear in at least two independent public search-engine
+ * result pages. It never falls back to a guessed domain or a job-board host.
+ */
+export async function resolveEmployerDomainFromPublicSearch(companyName: string): Promise<string | null> {
+  const name = companyName.trim();
+  if (!name || name.length < 2) return null;
+
+  const query = `"${name}" official website`;
+  const results = await Promise.all([
+    fetchSearchResult(query, "google"),
+    fetchSearchResult(query, "bing"),
+    fetchSearchResult(query, "duckduckgo")
+  ]);
+  const counts = new Map<string, number>();
+  for (const result of results) {
+    if (!result) continue;
+    for (const domain of domainsFromSearchText(result, name)) counts.set(domain, (counts.get(domain) ?? 0) + 1);
+  }
+
+  const ranked = [...counts.entries()].filter(([, count]) => count >= 2).sort((a, b) => b[1] - a[1]);
+  return ranked[0]?.[0] ?? null;
 }
