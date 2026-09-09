@@ -6,7 +6,7 @@ interface Check {
   message: string;
 }
 
-const DEFAULT_JOB_SOURCE_COUNT = 12;
+const DEFAULT_JOB_SOURCE_COUNT = 13;
 
 function bool(name: string, fallback: boolean): boolean {
   const value = process.env[name];
@@ -42,7 +42,7 @@ function main(): void {
   const gmailReady = Boolean(process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET && process.env.GMAIL_REFRESH_TOKEN && process.env.GMAIL_USER_EMAIL);
   const tailoringEnabled = bool("RESUME_TAILORING_ENABLED", false);
   const masterResume = process.env.RESUME_MASTER_PATH?.trim();
-  const genericAdapterEnabled = bool("GENERIC_APPLICATION_ADAPTER_ENABLED", false);
+  const genericAdapterEnabled = bool("GENERIC_APPLICATION_ADAPTER_ENABLED", true);
   const recruiterEnabled = bool("RECRUITER_OUTREACH_ENABLED", false);
   const recruiterDryRun = bool("RECRUITER_OUTREACH_DRY_RUN", true);
   const recruiterActivation = process.env.RECRUITER_OUTREACH_ACTIVATION ?? "disabled";
@@ -70,8 +70,8 @@ function main(): void {
   else if (tailoringEnabled) add(checks, "resume-tailoring", "PASS", "Resume tailoring is configured.");
   else add(checks, "resume-tailoring", "WARN", "Resume tailoring is disabled.");
 
-  if (genericAdapterEnabled) add(checks, "generic-application-adapter", "WARN", "Generic application adapter is enabled; verify its behavior before live use.");
-  else add(checks, "generic-application-adapter", "PASS", "Generic application adapter remains disabled; hosted ATS adapters are used.");
+  if (genericAdapterEnabled) add(checks, "generic-application-adapter", "WARN", "Generic application adapter is enabled; it is the fallback for supported ATS pages without a dedicated adapter.");
+  else add(checks, "generic-application-adapter", "WARN", "Generic application adapter is disabled; some unsupported hosted ATS pages may not be applicable automatically.");
 
   if (recruiterActivation === "live" && !recruiterLiveConfirmed) add(checks, "recruiter-activation", "FAIL", "Recruiter activation is set to live without RECRUITER_LIVE_ACTIVATION_CONFIRMED=true.");
   else if (recruiterEnabled && !recruiterDryRun) add(checks, "recruiter-outreach", "WARN", `Recruiter outreach is configured for non-dry-run operation (${recruiterActivation}); run npm run preflight:recruiter-outreach before enabling delivery.`);
