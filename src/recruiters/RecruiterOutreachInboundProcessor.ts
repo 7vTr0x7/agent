@@ -8,20 +8,23 @@ export type RecruiterInboundOutcome =
   | { status: "BOUNCE_SUPPRESSED"; sequenceId: string };
 
 export interface RecruiterInboundRepository {
-  findActiveOutreachSequenceByProviderMessage(gmailMessageId: string, gmailThreadId: string, rfcMessageId: string | null, inReplyTo: string | null): Promise<{ sequenceId: string; recipientEmail: string; companyDomain: string } | null>;
+  findActiveOutreachSequenceByProviderMessage(
+    gmailMessageId: string,
+    gmailThreadId: string,
+    rfcMessageId: string | null,
+    inReplyTo: string | null
+  ): Promise<{ sequenceId: string; recipientEmail: string; companyDomain: string } | null>;
   stopOutreachSequence(sequenceId: string, reason: string): Promise<void>;
   suppressRecruiterEmail(email: string, reason: string, source: string): Promise<void>;
 }
 
-type RecruiterRepository = RecruiterDiscoveryRepository | RecruiterInboundRepository;
-
 export class RecruiterOutreachInboundProcessor {
-  constructor(private readonly repository: RecruiterRepository) {}
+  constructor(private readonly repository: RecruiterInboundRepository) {}
 
   async process(message: GmailMessage): Promise<RecruiterInboundOutcome> {
     if (!message.senderEmail) return { status: "IGNORED", reason: "Inbound message has no sender email." };
 
-    const sequence = await this.findActiveOutreachSequenceByProviderMessage(
+    const sequence = await this.repository.findActiveOutreachSequenceByProviderMessage(
       message.gmailMessageId,
       message.gmailThreadId,
       message.rfcMessageId,
@@ -31,87 +34,19 @@ export class RecruiterOutreachInboundProcessor {
 
     const content = `${message.subject}\n${message.bodyText}`.toLowerCase();
     if (isOptOut(content)) {
-      await this.suppressRecruiterEmail(message.senderEmail, "OPTOUT", "gmail-reply");
+      await this.repository.suppressRecruiterEmail(message.senderEmail, "OPTOUT", "gmail-reply");
       await this.repository.stopOutreachSequence(sequence.sequenceId, "Recruiter opted out of further outreach.");
       return { status: "OPTOUT_SUPPRESSED", sequenceId: sequence.sequenceId };
     }
 
     if (isBounce(content)) {
-      await this.suppressRecruiterEmail(sequence.recipientEmail, "BOUNCE", "gmail-bounce");
+      await this.repository.suppressRecruiterEmail(sequence.recipientEmail, "BOUNCE", "gmail-bounce");
       await this.repository.stopOutreachSequence(sequence.sequenceId, "Delivery failure/bounce received.");
       return { status: "BOUNCE_SUPPRESSED", sequenceId: sequence.sequenceId };
     }
 
     await this.repository.stopOutreachSequence(sequence.sequenceId, "Recruiter replied; follow-ups stopped.");
     return { status: "REPLY_STOPPED", sequenceId: sequence.sequenceId };
-  }
-
-  private async findActiveOutreachSequenceByProviderMessage(
-    gmailMessageId: string,
-    gmailThreadId: string,
-    rfcMessageId: string | null,
-    inReplyTo: string | null
-  ): Promise<{ sequenceId: string; recipientEmail: string; companyDomain: string } | null> {
-    const inboundRepository = this.repository as Partial<RecruiterInboundRepository>;
-    if (typeof inboundRepository.findActiveOutreachSequenceByProviderMessage === "function") {
-      return inboundRepository.findActiveOutreachSequenceByProviderMessage(
-        gmailMessageId,
-        gmailThreadId,
-        rfcMessageId,
-        inReplyTo
-      );
-    }
-
-    const database = (this.repository as any).database;
-    if (!database || typeof database.query !== "function") {
-      throw new Error("Recruiter inbound repository does not expose a database or inbound lookup method.");
-    }
-    const result = await database.query<{
-      sequence_id: string;
-      recipient_email: string;
-      company_domain: string;
-    }>(
-      `SELECT s.id AS sequence_id, c.email AS recipient_email, c.company_domain
-       FROM recruiter_outreach_sequences s
-       JOIN recruiter_contacts c ON c.id = s.recruiter_contact_id
-       JOIN recruiter_outreach_messages m ON m.sequence_id = s.id
-       WHERE s.status = 'ACTIVE'
-         AND (
-           m.provider_thread_id = $1
-           OR m.provider_message_id = $2
-           OR m.provider_message_id = $3
-           OR m.provider_message_id = $4
-         )
-       ORDER BY m.sent_at DESC NULLS LAST, m.created_at DESC
-       LIMIT 1`,
-      [gmailThreadId, gmailMessageId, rfcMessageId, inReplyTo]
-    );
-    const row = result.rows[0];
-    if (!row) return null;
-    return { sequenceId: row.sequence_id, recipientEmail: row.recipient_email, companyDomain: row.company_domain };
-  }
-
-  private async suppressRecruiterEmail(email: string, reason: string, source: string): Promise<void> {
-    const inboundRepository = this.repository as Partial<RecruiterInboundRepository>;
-    if (typeof inboundRepository.suppressRecruiterEmail === "function") {
-      await inboundRepository.suppressRecruiterEmail(email, reason, source);
-      return;
-    }
-
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail) return;
-    const database = (this.repository as any).database;
-    if (!database || typeof database.query !== "function") {
-      throw new Error("Recruiter inbound repository does not expose a database or suppression method.");
-    }
-    await database.query(
-      `INSERT INTO recruiter_suppressions (email, reason, source)
-       SELECT $1, $2, $3
-       WHERE NOT EXISTS (
-         SELECT 1 FROM recruiter_suppressions WHERE LOWER(email) = LOWER($1)
-       )`,
-      [normalizedEmail, reason, source]
-    );
   }
 }
 
