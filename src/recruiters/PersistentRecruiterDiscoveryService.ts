@@ -48,7 +48,10 @@ export class PersistentRecruiterDiscoveryService {
     const run = await this.options.repository.startDiscoveryRun({ companyName: input.companyName, companyDomain: domain, jobOpportunityId: input.jobOpportunityId, candidateProfileId: input.candidateProfileId, provider: this.options.provider.name });
     try {
       const discovered = await this.options.provider.discover(input);
+      const discoveredCount = discovered.contacts.length;
       const candidates = await this.verifyDiscoveredContacts(discovered.contacts);
+      const verificationRejected = candidates.filter((contact) => this.requireVerifiedEmail && this.options.provider.name !== "job-posting" && !contact.verified).length;
+      const confidenceRejected = candidates.filter((contact) => (contact.confidence ?? 0) < this.minConfidence).length;
       const eligible = candidates.filter((contact) => {
         if (this.requireVerifiedEmail && !contact.verified && this.options.provider.name !== "job-posting") return false;
         return (contact.confidence ?? 0) >= this.minConfidence;
@@ -62,7 +65,12 @@ export class PersistentRecruiterDiscoveryService {
         persisted.push({ ...contact, score: candidate.score, reasons: candidate.reasons });
       }
       await this.options.repository.finishDiscoveryRun(run.id, "SUCCEEDED", uniqueCandidates.length);
-      return { status: "DISCOVERED", reason: `Persisted ${persisted.length} eligible recruiter contact(s) from ${uniqueCandidates.length} eligible contact(s).`, runId: run.id, contacts: persisted };
+      return {
+        status: "DISCOVERED",
+        reason: `Discovered ${discoveredCount}; ${verificationRejected} rejected by email verification; ${confidenceRejected} rejected by confidence; ${uniqueCandidates.length} eligible; persisted ${persisted.length}.`,
+        runId: run.id,
+        contacts: persisted
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await this.options.repository.finishDiscoveryRun(run.id, "FAILED", 0, message);
