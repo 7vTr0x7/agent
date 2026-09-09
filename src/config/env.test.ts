@@ -48,8 +48,8 @@ describe("loadConfig runtime loop intervals", () => {
     expect(config.applicationCompanyRateLimitPerDay).toBe(20);
     expect(config.recruiterOutreach.enabled).toBe(false);
     expect(config.recruiterOutreach.activation).toBe("disabled");
-    expect(config.recruiterOutreach.maxMessagesPerDay).toBe(50);
-    expect(config.recruiterOutreach.maxMessagesPerHour).toBe(2);
+    expect(config.recruiterOutreach.maxMessagesPerDay).toBe(200);
+    expect(config.recruiterOutreach.maxMessagesPerHour).toBe(9);
   });
 
   it("accepts an explicit application dry-run setting", async () => {
