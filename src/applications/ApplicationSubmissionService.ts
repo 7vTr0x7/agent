@@ -63,12 +63,17 @@ export class ApplicationSubmissionService {
       }
 
       if (this.flowController) {
-        const flow = await this.flowController.prepare(session.page, request.candidateProfile);
-        if (!flow.safe) {
+        const flow = await this.flowController.prepare(
+          session.page,
+          request.candidateProfile,
+          request.companyName,
+          request.excludedCompanies
+        );
+        if (!flow.allowed) {
           return {
             submitted: false,
             safetyAllowed: false,
-            reason: flow.reason,
+            reason: flow.reasons.join(" ") || "Application flow was not allowed to proceed safely.",
             adapterName: adapter.name,
             result: null
           };
@@ -85,18 +90,13 @@ export class ApplicationSubmissionService {
         };
       }
 
-      const reservation = await this.applications.beginSubmission(
-        request.context.jobOpportunityId,
-        request.candidateProfile.id,
-        request.companyName,
-        request.excludedCompanies
-      );
+      const reserved = await this.applications.beginSubmission(request.context.applicationId);
 
-      if (!reservation.allowed) {
+      if (!reserved) {
         return {
           submitted: false,
           safetyAllowed: false,
-          reason: reservation.reason,
+          reason: "Application submission could not be reserved safely.",
           adapterName: adapter.name,
           result: null
         };
@@ -113,7 +113,11 @@ export class ApplicationSubmissionService {
         };
       }
 
-      await this.applications.markSubmitted(reservation.applicationId);
+      await this.applications.markSubmitted(
+        request.context.applicationId,
+        result.confirmationUrl,
+        result.externalApplicationId
+      );
 
       return {
         submitted: true,
@@ -123,7 +127,7 @@ export class ApplicationSubmissionService {
         result
       };
     } finally {
-      await session.close();
+      await this.browserSessions.close(session);
     }
   }
 }
