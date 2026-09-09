@@ -77,13 +77,15 @@ export function resolveEmployerDomainFromJobData(
     addCandidate(resolveEmployerDomainFromJobUrl(url), 3);
   }
 
+  // A canonical URL is valid employer evidence when its host is not a known
+  // job board, ATS, or aggregator. The URL parser already rejects those hosts,
+  // so treating a remaining direct-employer URL as strong evidence materially
+  // improves coverage for feeds that omit company_domain.
+  addCandidate(resolveEmployerDomainFromJobUrl(canonicalUrl), 4);
   addCandidate(resolveEmployerDomainFromJobUrl(companyDomain), 4);
-  addCandidate(resolveEmployerDomainFromJobUrl(canonicalUrl), 1);
 
   const ranked = [...candidates.entries()].sort((a, b) => b[1] - a[1]);
   const [best, bestScore] = ranked[0] ?? [null, 0];
-  // A bare canonical URL is intentionally insufficient evidence because many
-  // job feeds use an aggregator/ATS URL as the canonical link.
   if (!best || bestScore < 3) return null;
   return best;
 }
