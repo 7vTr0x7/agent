@@ -1,4 +1,3 @@
-import { Database } from "../database/Database";
 import { GmailMessage } from "../email/GmailMailbox";
 import { RecruiterDiscoveryRepository } from "./RecruiterDiscoveryRepository";
 
@@ -15,7 +14,6 @@ export interface RecruiterInboundRepository {
 }
 
 type RecruiterRepository = RecruiterDiscoveryRepository | RecruiterInboundRepository;
-type RecruiterDiscoveryRepositoryWithDatabase = RecruiterDiscoveryRepository & { database: Database };
 
 export class RecruiterOutreachInboundProcessor {
   constructor(private readonly repository: RecruiterRepository) {}
@@ -64,7 +62,10 @@ export class RecruiterOutreachInboundProcessor {
       );
     }
 
-    const database = (this.repository as RecruiterDiscoveryRepositoryWithDatabase).database;
+    const database = (this.repository as any).database;
+    if (!database || typeof database.query !== "function") {
+      throw new Error("Recruiter inbound repository does not expose a database or inbound lookup method.");
+    }
     const result = await database.query<{
       sequence_id: string;
       recipient_email: string;
@@ -99,7 +100,10 @@ export class RecruiterOutreachInboundProcessor {
 
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail) return;
-    const database = (this.repository as RecruiterDiscoveryRepositoryWithDatabase).database;
+    const database = (this.repository as any).database;
+    if (!database || typeof database.query !== "function") {
+      throw new Error("Recruiter inbound repository does not expose a database or suppression method.");
+    }
     await database.query(
       `INSERT INTO recruiter_suppressions (email, reason, source)
        SELECT $1, $2, $3
