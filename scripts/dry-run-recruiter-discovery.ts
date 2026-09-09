@@ -24,7 +24,23 @@ async function main(): Promise<void> {
     applicationId: "dry-run-application"
   });
 
-  const contacts = result.contacts.map((contact) => ({
+  const verifiedContacts = await Promise.all(result.contacts.map(async (contact) => {
+    if (contact.verified) return contact;
+    try {
+      const verification = await provider.verify(contact.email);
+      if (!verification.verified) return contact;
+      return {
+        ...contact,
+        verified: true,
+        verificationStatus: verification.status,
+        confidence: Math.min(100, Math.max(contact.confidence ?? 0, verification.confidence ?? 0))
+      };
+    } catch {
+      return contact;
+    }
+  }));
+
+  const contacts = verifiedContacts.map((contact) => ({
     email: contact.email,
     fullName: contact.fullName,
     title: contact.title,
@@ -39,7 +55,7 @@ async function main(): Promise<void> {
     sourceCount: contact.sources?.length ?? 0
   }));
 
-  const sendEligible = result.contacts.filter((contact) =>
+  const sendEligible = verifiedContacts.filter((contact) =>
     contact.verified && (contact.confidence ?? 0) >= 80
   ).length;
 
@@ -49,9 +65,9 @@ async function main(): Promise<void> {
     companyName,
     companyDomain,
     jobTitle,
-    discovered: result.contacts.length,
+    discovered: verifiedContacts.length,
     sendEligible,
-    note: "Public-web discovery only. No recruiter email is sent by this command. Public contacts remain unverified until an approved verification provider confirms deliverability.",
+    note: "Public-web discovery plus free domain-MX deliverability verification. verified=true means the employer domain accepts mail via MX; it does not claim that the individual mailbox exists. This command never sends recruiter email.",
     contacts
   }, null, 2));
 }
