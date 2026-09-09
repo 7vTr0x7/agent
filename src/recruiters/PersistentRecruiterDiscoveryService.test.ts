@@ -123,6 +123,28 @@ describe("PersistentRecruiterDiscoveryService", () => {
     expect(repository.finishDiscoveryRun).toHaveBeenCalledWith("run-1", "SUCCEEDED", 2);
   });
 
+  it("upgrades an unverified public contact after the provider verifies its mail domain", async () => {
+    const { provider, repository } = setup();
+    provider.name = "public-web";
+    (provider.verify as jest.Mock).mockResolvedValue({
+      email: "recruiter@example.com",
+      verified: true,
+      status: "domain_mx_verified",
+      confidence: 75
+    });
+    jest.spyOn(provider, "discover").mockResolvedValue({
+      provider: "public-web",
+      discoveredAt: new Date(),
+      contacts: [candidate({ provider: "public-web", verified: false, confidence: 92 })]
+    });
+    const service = new PersistentRecruiterDiscoveryService({ provider, repository, requireVerifiedEmail: true });
+    const result = await service.discoverAndPersist(input, 1);
+    expect(provider.verify).toHaveBeenCalledWith("recruiter@example.com");
+    expect(result.contacts).toHaveLength(1);
+    expect(result.contacts[0]?.verified).toBe(true);
+    expect(result.contacts[0]?.verificationStatus).toBe("domain_mx_verified");
+  });
+
   it("accepts explicit recruiting emails from a job posting without third-party verification", async () => {
     const provider: RecruiterDiscoveryProvider = {
       name: "job-posting",
