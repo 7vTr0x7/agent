@@ -15,7 +15,10 @@ export interface RecruiterInboundRepository {
 }
 
 type RecruiterRepository = RecruiterDiscoveryRepository | RecruiterInboundRepository;
-type RecruiterRepositoryWithDatabase = RecruiterDiscoveryRepository & { database: Database };
+
+type RecruiterRepositoryWithDatabase = {
+  database: Database;
+};
 
 export class RecruiterOutreachInboundProcessor {
   constructor(private readonly repository: RecruiterRepository) {}
@@ -54,8 +57,9 @@ export class RecruiterOutreachInboundProcessor {
     rfcMessageId: string | null,
     inReplyTo: string | null
   ): Promise<{ sequenceId: string; recipientEmail: string; companyDomain: string } | null> {
-    if (this.hasInboundMethod("findActiveOutreachSequenceByProviderMessage")) {
-      return this.repository.findActiveOutreachSequenceByProviderMessage(gmailMessageId, gmailThreadId, rfcMessageId, inReplyTo);
+    const repository = this.repository as Partial<RecruiterInboundRepository>;
+    if (typeof repository.findActiveOutreachSequenceByProviderMessage === "function") {
+      return repository.findActiveOutreachSequenceByProviderMessage(gmailMessageId, gmailThreadId, rfcMessageId, inReplyTo);
     }
 
     const database = this.database;
@@ -85,8 +89,9 @@ export class RecruiterOutreachInboundProcessor {
   }
 
   private async suppressRecruiterEmail(email: string, reason: string, source: string): Promise<void> {
-    if (this.hasInboundMethod("suppressRecruiterEmail")) {
-      await this.repository.suppressRecruiterEmail(email, reason, source);
+    const repository = this.repository as Partial<RecruiterInboundRepository>;
+    if (typeof repository.suppressRecruiterEmail === "function") {
+      await repository.suppressRecruiterEmail(email, reason, source);
       return;
     }
 
@@ -102,12 +107,8 @@ export class RecruiterOutreachInboundProcessor {
     );
   }
 
-  private hasInboundMethod(method: keyof RecruiterInboundRepository): this is { repository: RecruiterInboundRepository } {
-    return typeof (this.repository as Partial<RecruiterInboundRepository>)[method] === "function";
-  }
-
   private get database(): Database {
-    return (this.repository as RecruiterRepositoryWithDatabase).database;
+    return (this.repository as unknown as RecruiterRepositoryWithDatabase).database;
   }
 }
 
