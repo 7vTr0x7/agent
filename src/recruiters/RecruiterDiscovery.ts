@@ -18,7 +18,9 @@ export interface RecruiterContactCandidate {
   country?: string;
   location?: string;
   confidence?: number;
+  /** True means the configured verification step passed; public-web uses domain MX verification. */
   verified: boolean;
+  /** Examples: domain_mx_verified, unverified_public_source, verification_provider_required. */
   verificationStatus?: string;
   provider: string;
   linkedinProfileUrl?: string;
@@ -37,6 +39,7 @@ export interface RecruiterDiscoveryResult {
 
 export interface RecruiterVerificationResult {
   email: string;
+  /** Public-web verification means the destination domain advertises an MX receiver; it is not mailbox-level proof. */
   verified: boolean;
   status: string;
   confidence?: number;
