@@ -14,7 +14,10 @@ import {
 const EMAIL_PATTERN = /[A-Z0-9._+\-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const RECRUITING_CONTEXT = /(recruiter|recruiting|talent acquisition|talent partner|technical recruiter|hiring manager|human resources|\bhr\b|careers?|staffing|hiring)/i;
 const NON_RECRUITING_CONTEXT = /(customer support|technical support|sales|billing|privacy|legal|security|press|media|partnerships?|helpdesk|help desk)/i;
+const GENERIC_RECRUITING_LOCAL_PARTS = /^(careers?|jobs?|job|recruiting|recruitment|talent|talentacquisition|hr|people|hiring|staffing|joinus|workwithus|humanresources|resourcing)$/i;
 const LINKEDIN_PROFILE_PATTERN = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
+const SEARCH_CONCURRENCY = 4;
+const SEARCH_TIMEOUT_MS = 7000;
 
 function normalizeDomain(value: string): string {
   return value.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0]?.replace(/^www\./, "") ?? "";
@@ -57,6 +60,16 @@ export function isPlausibleRecruiterEmail(email: string): boolean {
   return true;
 }
 
+function looksLikeRecruitingMailbox(email: string): boolean {
+  const local = normalizeEmail(email).split("@")[0]?.replace(/[._+\-]/g, "") ?? "";
+  return GENERIC_RECRUITING_LOCAL_PARTS.test(local) || /^(recruit|talent|hr|hiring|career|jobs?)/i.test(local);
+}
+
+function isRecruitingEmailContext(email: string, context: string): boolean {
+  if (NON_RECRUITING_CONTEXT.test(context)) return false;
+  return RECRUITING_CONTEXT.test(context) || looksLikeRecruitingMailbox(email);
+}
+
 function extractEmails(text: string, domain: string): string[] {
   const normalized = stripHtml(text ?? "");
   const found = new Set<string>();
@@ -64,8 +77,7 @@ function extractEmails(text: string, domain: string): string[] {
     const email = normalizeEmail(match[0] ?? "");
     if (!email || !isPlausibleRecruiterEmail(email) || !isCompanyEmail(email, domain)) continue;
     const context = emailContext(normalized, match.index ?? 0);
-    if (NON_RECRUITING_CONTEXT.test(context)) continue;
-    if (RECRUITING_CONTEXT.test(context)) found.add(email);
+    if (isRecruitingEmailContext(email, context)) found.add(email);
   }
   return [...found];
 }
@@ -83,7 +95,7 @@ function searchUrls(query: string): string[] {
   ];
 }
 
-async function fetchText(url: string, timeoutMs = 9000): Promise<string | null> {
+async function fetchText(url: string, timeoutMs = SEARCH_TIMEOUT_MS): Promise<string | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -92,7 +104,7 @@ async function fetchText(url: string, timeoutMs = 9000): Promise<string | null> 
       redirect: "follow",
       headers: {
         accept: "text/plain,text/html,application/xhtml+xml,*/*;q=0.8",
-        "user-agent": "job-agent-public-recruiter-discovery/4.3"
+        "user-agent": "job-agent-public-recruiter-discovery/5.0"
       }
     });
     if (!response.ok) return null;
@@ -102,6 +114,20 @@ async function fetchText(url: string, timeoutMs = 9000): Promise<string | null> 
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, async () => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      results[index] = await worker(items[index] as T);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 function buildQueries(input: RecruiterDiscoveryInput): string[] {
@@ -154,12 +180,16 @@ export class PublicRecruiterSearchProvider implements RecruiterDiscoveryProvider
   async discover(input: RecruiterDiscoveryInput): Promise<RecruiterDiscoveryResult> {
     const domain = normalizeDomain(input.companyDomain);
     const contacts = new Map<string, RecruiterContactCandidate>();
-    const pages: string[] = [];
+    const queries = buildQueries(input);
 
-    for (const query of buildQueries(input)) {
+    // Search several queries concurrently, but keep a small bounded pool so a
+    // single discovery run cannot create an unbounded burst against public
+    // search endpoints. Each query fans out to three independent engines.
+    const queryPages = await mapWithConcurrency(queries, SEARCH_CONCURRENCY, async (query) => {
       const responses = await Promise.all(searchUrls(query).map((url) => fetchText(url)));
-      for (const response of responses) if (response) pages.push(response);
-    }
+      return responses.filter((response): response is string => Boolean(response));
+    });
+    const pages = queryPages.flat();
 
     for (const page of pages) {
       const text = stripHtml(page);
@@ -176,7 +206,7 @@ export class PublicRecruiterSearchProvider implements RecruiterDiscoveryProvider
           email,
           title: "Recruiting contact from public search result",
           department: "recruiting",
-          confidence: linkedin ? 97 : 92,
+          confidence: linkedin ? 97 : looksLikeRecruitingMailbox(email) ? 94 : 92,
           verified: false,
           verificationStatus: "unverified_public_source",
           provider: this.name,
