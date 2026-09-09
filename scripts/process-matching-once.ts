@@ -4,14 +4,27 @@ import { Database } from "../src/database/Database";
 import { MigrationRunner } from "../src/database/MigrationRunner";
 import { ConfiguredCandidateProfileResolver } from "../src/candidates/ConfiguredCandidateProfileResolver";
 import { TaskQueue } from "../src/queue/TaskQueue";
-import { TaskWorker } from "../src/queue/TaskWorker";
+import { TaskWorker, TaskWorkerLogger } from "../src/queue/TaskWorker";
 import { createDiscoveryRuntime } from "../src/discovery/createDiscoveryRuntime";
+
+const logger: TaskWorkerLogger = {
+  info: (bindingsOrMessage: Record<string, unknown> | string, message?: string) => {
+    console.log(JSON.stringify({ level: "info", ...(typeof bindingsOrMessage === "string" ? { msg: bindingsOrMessage } : { ...bindingsOrMessage, msg: message }) }));
+  },
+  warn: (bindingsOrMessage: Record<string, unknown> | string, message?: string) => {
+    console.warn(JSON.stringify({ level: "warn", ...(typeof bindingsOrMessage === "string" ? { msg: bindingsOrMessage } : { ...bindingsOrMessage, msg: message }) }));
+  },
+  error: (bindings: Record<string, unknown>, message: string) => {
+    console.error(JSON.stringify({ level: "error", ...bindings, msg: message }));
+  }
+};
 
 async function main(): Promise<void> {
   const config = loadConfig();
   const database = new Database(config.databaseUrl);
 
   try {
+    console.log(JSON.stringify({ phase: "migration", msg: "Starting matching smoke run" }));
     await new MigrationRunner(database).run();
 
     const candidateProfiles = ConfiguredCandidateProfileResolver.fromEnvironment();
@@ -29,7 +42,8 @@ async function main(): Promise<void> {
         workerId: `matching-smoke-${process.pid}`,
         pollIntervalMs: 50,
         staleRecoveryIntervalMs: 30_000,
-        heartbeatIntervalMs: 20_000
+        heartbeatIntervalMs: 2_000,
+        logger
       }
     );
 
@@ -37,6 +51,7 @@ async function main(): Promise<void> {
     const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : 100;
     let processed = 0;
 
+    console.log(JSON.stringify({ phase: "matching", limit, msg: "Processing MATCH_JOB tasks" }));
     while (processed < limit) {
       const didProcess = await worker.runOnce(["MATCH_JOB"]);
       if (!didProcess) break;
