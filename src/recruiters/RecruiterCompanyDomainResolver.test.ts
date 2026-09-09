@@ -53,6 +53,22 @@ describe("RecruiterCompanyDomainResolver", () => {
     )).toBe("example.com");
   });
 
+  it("uses a direct canonical employer URL when company_domain is missing", () => {
+    expect(resolveEmployerDomainFromJobData(
+      null,
+      "https://careers.example.com/jobs/frontend",
+      ""
+    )).toBe("example.com");
+  });
+
+  it("does not use a blocked canonical job-feed URL as employer evidence", () => {
+    expect(resolveEmployerDomainFromJobData(
+      null,
+      "https://remoteok.com/remote-jobs/frontend",
+      ""
+    )).toBeNull();
+  });
+
   it("accepts a configured bare employer domain", () => {
     expect(resolveEmployerDomainFromJobData(
       "example.com",
