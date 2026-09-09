@@ -14,10 +14,11 @@ export interface RecruiterInboundRepository {
   suppressRecruiterEmail(email: string, reason: string, source: string): Promise<void>;
 }
 
-type RecruiterRepositoryDatabaseAccess = { database: Database };
+type RecruiterRepository = RecruiterDiscoveryRepository | RecruiterInboundRepository;
+type RecruiterRepositoryWithDatabase = RecruiterDiscoveryRepository & { database: Database };
 
 export class RecruiterOutreachInboundProcessor {
-  constructor(private readonly repository: RecruiterDiscoveryRepository) {}
+  constructor(private readonly repository: RecruiterRepository) {}
 
   async process(message: GmailMessage): Promise<RecruiterInboundOutcome> {
     if (!message.senderEmail) return { status: "IGNORED", reason: "Inbound message has no sender email." };
@@ -47,17 +48,18 @@ export class RecruiterOutreachInboundProcessor {
     return { status: "REPLY_STOPPED", sequenceId: sequence.sequenceId };
   }
 
-  private get database(): Database {
-    return (this.repository as unknown as RecruiterRepositoryDatabaseAccess).database;
-  }
-
   private async findActiveOutreachSequenceByProviderMessage(
     gmailMessageId: string,
     gmailThreadId: string,
     rfcMessageId: string | null,
     inReplyTo: string | null
   ): Promise<{ sequenceId: string; recipientEmail: string; companyDomain: string } | null> {
-    const result = await this.database.query<{
+    if (this.hasInboundMethod("findActiveOutreachSequenceByProviderMessage")) {
+      return this.repository.findActiveOutreachSequenceByProviderMessage(gmailMessageId, gmailThreadId, rfcMessageId, inReplyTo);
+    }
+
+    const database = this.database;
+    const result = await database.query<{
       sequence_id: string;
       recipient_email: string;
       company_domain: string;
@@ -79,14 +81,15 @@ export class RecruiterOutreachInboundProcessor {
     );
     const row = result.rows[0];
     if (!row) return null;
-    return {
-      sequenceId: row.sequence_id,
-      recipientEmail: row.recipient_email,
-      companyDomain: row.company_domain
-    };
+    return { sequenceId: row.sequence_id, recipientEmail: row.recipient_email, companyDomain: row.company_domain };
   }
 
   private async suppressRecruiterEmail(email: string, reason: string, source: string): Promise<void> {
+    if (this.hasInboundMethod("suppressRecruiterEmail")) {
+      await this.repository.suppressRecruiterEmail(email, reason, source);
+      return;
+    }
+
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail) return;
     await this.database.query(
@@ -97,6 +100,14 @@ export class RecruiterOutreachInboundProcessor {
        )`,
       [normalizedEmail, reason, source]
     );
+  }
+
+  private hasInboundMethod(method: keyof RecruiterInboundRepository): this is { repository: RecruiterInboundRepository } {
+    return typeof (this.repository as Partial<RecruiterInboundRepository>)[method] === "function";
+  }
+
+  private get database(): Database {
+    return (this.repository as RecruiterRepositoryWithDatabase).database;
   }
 }
 
@@ -109,4 +120,4 @@ function isBounce(content: string): boolean {
     || /mailer-daemon|postmaster/i.test(content);
 }
 
-export type RecruiterOutreachInboundProcessorRepository = RecruiterDiscoveryRepository;
+export type RecruiterOutreachInboundProcessorRepository = RecruiterInboundRepository;
