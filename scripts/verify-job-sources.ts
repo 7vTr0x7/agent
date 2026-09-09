@@ -6,7 +6,7 @@ interface CheckResult {
   name: string;
   type: string;
   url: string;
-  status: "PASS" | "FAIL";
+  status: "PASS" | "FAIL" | "SKIP";
   httpStatus?: number;
   message: string;
   elapsedMs: number;
@@ -17,7 +17,15 @@ const TIMEOUT_MS = 15_000;
 async function checkSource(source: ReturnType<typeof parseSourceConfigs>[number]): Promise<CheckResult> {
   const url = source.feedUrl ?? source.url ?? source.apiUrl;
   if (!url) {
-    return { id: source.id, name: source.name, type: source.type, url: "", status: "FAIL", message: "No public URL configured", elapsedMs: 0 };
+    return {
+      id: source.id,
+      name: source.name,
+      type: source.type,
+      url: "",
+      status: "SKIP",
+      message: "Composite source has no direct public URL; validated by the discovery smoke run instead",
+      elapsedMs: 0
+    };
   }
 
   const started = Date.now();
@@ -68,13 +76,17 @@ async function main(): Promise<void> {
   const sources = parseSourceConfigs(config.jobSources);
   const results = await Promise.all(sources.map(checkSource));
   const passed = results.filter((result) => result.status === "PASS").length;
-  const failed = results.length - passed;
+  const failed = results.filter((result) => result.status === "FAIL").length;
+  const skipped = results.filter((result) => result.status === "SKIP").length;
+  const checked = passed + failed;
 
   console.log(JSON.stringify({
     sourceCount: results.length,
     passed,
     failed,
-    successRate: results.length === 0 ? 0 : Number(((passed / results.length) * 100).toFixed(1)),
+    skipped,
+    checkedSources: checked,
+    successRate: checked === 0 ? 0 : Number(((passed / checked) * 100).toFixed(1)),
     results
   }, null, 2));
 
