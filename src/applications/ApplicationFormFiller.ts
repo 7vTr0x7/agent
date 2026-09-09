@@ -1,6 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { Page } from "playwright";
-import { ApplicationFieldMapper, ApplicationFieldMapping } from "./ApplicationFieldMapper";
+import { ApplicationFieldMapping } from "./ApplicationFieldMapper";
 
 export interface ApplicationFieldFillResult {
   mapping: ApplicationFieldMapping;
@@ -129,6 +129,7 @@ export class ApplicationFormFiller {
       if (options === 0) return { mapping, filled: false, reason: "Radio group could not be found." };
 
       const expected = normalizeOptionText(String(mapping.value));
+      const booleanExpected = typeof mapping.value === "boolean" ? mapping.value : null;
       for (let index = 0; index < options; index += 1) {
         const radio = group.nth(index);
         if (!(await radio.isVisible().catch(() => false)) || !(await radio.isEnabled().catch(() => false))) continue;
@@ -139,7 +140,8 @@ export class ApplicationFormFiller {
           ? normalizeOptionText(await page.locator(`label[for=${JSON.stringify(id)}]`).innerText().catch(() => ""))
           : normalizeOptionText(await radio.locator("xpath=ancestor::label[1]").innerText().catch(() => ""));
 
-        if (value === expected || label === expected) {
+        const booleanMatch = booleanExpected !== null && matchesBooleanOption(booleanExpected, value, label);
+        if (value === expected || label === expected || booleanMatch) {
           await radio.check();
           return { mapping, filled: true, reason: "Radio option matched exactly and selected." };
         }
@@ -237,4 +239,10 @@ export class ApplicationFormFiller {
 
 function normalizeOptionText(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function matchesBooleanOption(expected: boolean, value: string, label: string): boolean {
+  const positive = new Set(["yes", "true", "y", "1"]);
+  const negative = new Set(["no", "false", "n", "0"]);
+  return expected ? positive.has(value) || positive.has(label) : negative.has(value) || negative.has(label);
 }
