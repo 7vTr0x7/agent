@@ -113,7 +113,7 @@ describe("RecruiterDiscoveryTaskHandler", () => {
     expect(enqueue).not.toHaveBeenCalled();
   });
 
-  it("contains preparation enqueue failures without throwing", async () => {
+  it("rethrows discovery or preparation enqueue failures so the task queue can retry them", async () => {
     const discovery = {
       discoverAndPersist: jest.fn().mockResolvedValue({
         status: "DISCOVERED",
@@ -127,7 +127,7 @@ describe("RecruiterDiscoveryTaskHandler", () => {
     const logger = { error: jest.fn(), info: jest.fn() };
     const handler = new RecruiterDiscoveryTaskHandler(discovery, 3, dispatcher, logger);
 
-    await expect(handler.handle(task())).resolves.toBeUndefined();
+    await expect(handler.handle(task())).rejects.toThrow("queue unavailable");
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("queue unavailable"));
   });
 });
