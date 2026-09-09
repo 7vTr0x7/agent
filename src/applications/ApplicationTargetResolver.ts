@@ -59,7 +59,7 @@ export class ApplicationTargetResolver {
       };
     }
 
-    const fieldCount = await page.locator("input, textarea, select").count();
+    const fieldCount = await page.locator("input, textarea, select, [role='combobox'], [contenteditable='true']").count();
     const submitCount = await page.getByRole("button", { name: SUBMIT_NAME }).count()
       + await page.getByRole("link", { name: SUBMIT_NAME }).count();
 
@@ -126,7 +126,14 @@ export class ApplicationTargetResolver {
     }
 
     try {
+      await locator.scrollIntoViewIfNeeded().catch(() => undefined);
+      const popupPromise = page.waitForEvent("popup", { timeout: 750 }).catch(() => null);
       await locator.click();
+      const popup = await popupPromise;
+      if (popup) {
+        await popup.waitForLoadState("domcontentloaded").catch(() => undefined);
+        return this.resolveInternal(popup, popup.url(), true);
+      }
       await page.waitForLoadState("domcontentloaded").catch(() => undefined);
     } catch (error) {
       return {
