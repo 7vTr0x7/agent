@@ -69,9 +69,6 @@ function resolveKey(field: ApplicationField): { key: ApplicationFieldKey | null;
   const parts = fieldParts(field);
   if (parts.length === 0) return { key: null, confidence: 0 };
 
-  // Email is a universally safe identity/contact field. Resolve common DOM
-  // variants such as emailAddress before the general alias scorer so a
-  // compound field name cannot become ambiguous with another field.
   const emailParts = parts.filter((part) =>
     part === "email" || part === "email address" || part === "e mail" || part === "e mail address"
   );
@@ -111,7 +108,10 @@ function valueFor(profile: CandidateProfile, key: ApplicationFieldKey): string |
     return profile.fullName ?? ([profile.firstName, profile.lastName].filter(Boolean).join(" ") || null);
   }
   if (key === "resumePath") return profile.resumePath ?? null;
-  return profile[key] ?? profile.standardizedAnswers?.[key] ?? null;
+
+  const standardized = profile.standardizedAnswers?.[key];
+  if (UNSAFE_KEYS.has(key) && standardized !== undefined) return standardized;
+  return profile[key] ?? standardized ?? null;
 }
 
 export class ApplicationFieldMapper {
@@ -130,12 +130,15 @@ export class ApplicationFieldMapper {
       }
 
       const value = valueFor(profile, key);
-      const autoFill = confidence >= 0.9 && value !== null && !UNSAFE_KEYS.has(key);
+      const explicitPolicyAnswer = UNSAFE_KEYS.has(key) && profile.standardizedAnswers?.[key] !== undefined;
+      const autoFill = confidence >= 0.9 && value !== null && (!UNSAFE_KEYS.has(key) || explicitPolicyAnswer);
       const reason = value === null
         ? "No candidate value is configured for this field."
         : autoFill
-          ? "Deterministic field mapping with high confidence."
-          : "Field requires policy-aware review before automatic filling.";
+          ? explicitPolicyAnswer
+            ? "Explicit candidate standardized answer with high-confidence field mapping."
+            : "Deterministic field mapping with high confidence."
+          : "Field requires an explicitly configured standardized answer before automatic filling.";
 
       return { field, key, value, confidence, autoFill, reason };
     });
