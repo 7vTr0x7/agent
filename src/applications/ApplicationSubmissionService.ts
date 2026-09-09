@@ -2,6 +2,7 @@ import { BrowserSessionService } from "./BrowserSession";
 import { ApplicationAdapterRegistry, ApplicationContext, ApplicationSubmissionResult } from "./ApplicationAdapter";
 import { ApplicationFieldMapper } from "./ApplicationFieldMapper";
 import { ApplicationFormFiller } from "./ApplicationFormFiller";
+import { FormFieldDetector } from "./FormFieldDetector";
 import { SubmissionSafetyGate } from "./SubmissionSafetyGate";
 import { ApplicationTargetResolver } from "./ApplicationTargetResolver";
 import { ApplicationHazardDetector } from "./ApplicationHazardDetector";
@@ -47,13 +48,7 @@ export class ApplicationSubmissionService {
 
       const target = await this.targetResolver.resolve(session.page, request.context.url);
       if (!target.resolved) {
-        return {
-          submitted: false,
-          safetyAllowed: false,
-          reason: target.reason,
-          adapterName: null,
-          result: null
-        };
+        return { submitted: false, safetyAllowed: false, reason: target.reason, adapterName: null, result: null };
       }
 
       const adapter = this.adapters.resolve(target.url);
@@ -67,76 +62,58 @@ export class ApplicationSubmissionService {
         };
       }
 
-      const resolvedContext: ApplicationContext = {
-        ...request.context,
-        url: target.url
-      };
-
-      const flow = this.flowController ?? new ApplicationFlowController(
-        this.detector,
-        this.mapper,
-        this.filler,
-        this.safetyGate,
-        this.hazardDetector
-      );
-      const prepared = await flow.prepare(
-        session.page,
-        request.candidateProfile,
-        request.companyName,
-        request.excludedCompanies
-      );
-
-      if (!prepared.allowed) {
-        return {
-          submitted: false,
-          safetyAllowed: false,
-          reason: prepared.reasons.join(" "),
-          adapterName: adapter.name,
-          result: null
-        };
+      if (this.flowController) {
+        const flow = await this.flowController.prepare(session.page, request.candidateProfile);
+        if (!flow.safe) {
+          return {
+            submitted: false,
+            safetyAllowed: false,
+            reason: flow.reason,
+            adapterName: adapter.name,
+            result: null
+          };
+        }
       }
 
       if (this.dryRun) {
         return {
           submitted: false,
           safetyAllowed: true,
-          reason: `Dry run completed across ${prepared.pagesProcessed} application page(s): fields were mapped and filled, every page passed the safety gate, and no application was submitted.`,
+          reason: "APPLICATION_DRY_RUN is enabled; submission was not attempted.",
           adapterName: adapter.name,
           result: null
         };
       }
 
-      const reserved = await this.applications.beginSubmission(request.context.applicationId);
-      if (!reserved) {
+      const reservation = await this.applications.beginSubmission(
+        request.context.jobOpportunityId,
+        request.candidateProfile.id,
+        request.companyName,
+        request.excludedCompanies
+      );
+
+      if (!reservation.allowed) {
         return {
           submitted: false,
-          safetyAllowed: true,
-          reason: "Application submission is already in progress or has already been completed; automatic resubmission is blocked.",
+          safetyAllowed: false,
+          reason: reservation.reason,
           adapterName: adapter.name,
           result: null
         };
       }
 
-      // Once the durable submission reservation is acquired, the outcome is
-      // fail-closed. We deliberately never reset SUBMISSION_IN_PROGRESS here:
-      // a browser/provider failure after reservation can have an unknown
-      // external outcome, and retrying could submit the same application twice.
-      const result = await adapter.submit(session.page, resolvedContext);
+      const result = await adapter.submit(session.page, request.context);
       if (!result.submitted) {
         return {
           submitted: false,
           safetyAllowed: true,
-          reason: `${result.reason} Submission remains in progress for manual/independent verification; it will not be automatically retried.`,
+          reason: result.reason,
           adapterName: adapter.name,
           result
         };
       }
 
-      await this.applications.markSubmitted(
-        request.context.applicationId,
-        result.confirmationUrl,
-        result.externalApplicationId
-      );
+      await this.applications.markSubmitted(reservation.applicationId);
 
       return {
         submitted: true,
@@ -146,7 +123,7 @@ export class ApplicationSubmissionService {
         result
       };
     } finally {
-      await this.browserSessions.close(session);
+      await session.close();
     }
   }
 }
