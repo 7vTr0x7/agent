@@ -12,7 +12,7 @@ function candidate(overrides: Partial<RecruiterContactCandidate> = {}): Recruite
     confidence: 90,
     verified: true,
     verificationStatus: "valid",
-    provider: "hunter",
+    provider: "public-web",
     sources: [{ url: "https://example.com/recruiter", type: "professional_profile", confidence: 90 }],
     ...overrides
   };
@@ -42,9 +42,9 @@ describe("PersistentRecruiterDiscoveryService", () => {
 
   function setup() {
     const provider: RecruiterDiscoveryProvider = {
-      name: "hunter",
+      name: "public-web",
       discover: jest.fn().mockResolvedValue({
-        provider: "hunter",
+        provider: "public-web",
         discoveredAt: new Date(),
         contacts: [
           candidate({ email: "Recruiter@Example.com", confidence: 75, verified: false }),
@@ -125,7 +125,6 @@ describe("PersistentRecruiterDiscoveryService", () => {
 
   it("upgrades an unverified public contact after the provider verifies its mail domain", async () => {
     const { provider, repository } = setup();
-    provider.name = "public-web";
     (provider.verify as jest.Mock).mockResolvedValue({
       email: "recruiter@example.com",
       verified: true,
@@ -175,9 +174,9 @@ describe("PersistentRecruiterDiscoveryService", () => {
 
   it("marks the durable run failed when provider discovery throws", async () => {
     const { provider, repository } = setup();
-    jest.spyOn(provider, "discover").mockRejectedValue(new Error("Hunter unavailable"));
+    jest.spyOn(provider, "discover").mockRejectedValue(new Error("Provider unavailable"));
     const service = new PersistentRecruiterDiscoveryService({ provider, repository });
-    await expect(service.discoverAndPersist(input, 3)).rejects.toThrow("Hunter unavailable");
-    expect(repository.finishDiscoveryRun).toHaveBeenCalledWith("run-1", "FAILED", 0, "Hunter unavailable");
+    await expect(service.discoverAndPersist(input, 3)).rejects.toThrow("Provider unavailable");
+    expect(repository.finishDiscoveryRun).toHaveBeenCalledWith("run-1", "FAILED", 0, "Provider unavailable");
   });
 });
