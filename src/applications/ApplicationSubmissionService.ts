@@ -1,10 +1,14 @@
 import { BrowserSessionService } from "./BrowserSession";
 import { ApplicationAdapterRegistry, ApplicationContext, ApplicationSubmissionResult } from "./ApplicationAdapter";
-import { ApplicationSubmissionRequest } from "./ApplicationSubmissionRequest";
-import { ApplicationFlowController } from "./ApplicationFlowController";
+import { ApplicationFieldMapper } from "./ApplicationFieldMapper";
+import { ApplicationFormFiller } from "./ApplicationFormFiller";
+import { FormFieldDetector } from "./FormFieldDetector";
+import { SubmissionSafetyGate } from "./SubmissionSafetyGate";
+import { ApplicationTargetResolver } from "./ApplicationTargetResolver";
+import { ApplicationHazardDetector } from "./ApplicationHazardDetector";
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { ApplicationRepository } from "./ApplicationRepository";
-import { ApplicationTargetResolver } from "./ApplicationTargetResolver";
+import { ApplicationFlowController } from "./ApplicationFlowController";
 
 export interface ApplicationSubmissionRequest {
   context: ApplicationContext;
@@ -26,12 +30,12 @@ export class ApplicationSubmissionService {
     private readonly browserSessions: BrowserSessionService,
     private readonly adapters: ApplicationAdapterRegistry,
     private readonly applications: Pick<ApplicationRepository, "beginSubmission" | "cancelSubmission" | "markSubmitted">,
-    private readonly detector = undefined,
-    private readonly mapper = undefined,
-    private readonly filler = undefined,
-    private readonly safetyGate = undefined,
+    private readonly detector = new FormFieldDetector(),
+    private readonly mapper = new ApplicationFieldMapper(),
+    private readonly filler = new ApplicationFormFiller(),
+    private readonly safetyGate = new SubmissionSafetyGate(),
     private readonly targetResolver = new ApplicationTargetResolver(),
-    private readonly hazardDetector = undefined,
+    private readonly hazardDetector = new ApplicationHazardDetector(),
     private readonly dryRun = false,
     private readonly flowController?: ApplicationFlowController
   ) {}
@@ -69,7 +73,13 @@ export class ApplicationSubmissionService {
         url: target.url
       };
 
-      const flow = this.flowController ?? new ApplicationFlowController();
+      const flow = this.flowController ?? new ApplicationFlowController(
+        this.detector,
+        this.mapper,
+        this.filler,
+        this.safetyGate,
+        this.hazardDetector
+      );
       const prepared = await flow.prepare(
         session.page,
         request.candidateProfile,
