@@ -76,11 +76,11 @@ jobs:
             -e RESUME_TAILORING_ENABLED=false \
             -e CANDIDATE_PROFILE_ID=runtime-test-candidate \
             -e CANDIDATE_YEARS_EXPERIENCE=3 \
-            -e CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux,Node,Express,MongoDB \
-            -e CANDIDATE_TARGET_TITLES=Frontend Engineer,Full Stack Developer,React Developer \
+            -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux,Node,Express,MongoDB' \
+            -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Full Stack Developer,React Developer' \
             -e CANDIDATE_FIRST_NAME=Runtime \
             -e CANDIDATE_LAST_NAME=Test \
-            -e CANDIDATE_FULL_NAME=Runtime Test \
+            -e CANDIDATE_FULL_NAME='Runtime Test' \
             -e CANDIDATE_LOCATION=India \
             -e CANDIDATE_SPONSORSHIP_REQUIRED=false \
             -e CANDIDATE_NOTICE_PERIOD_DAYS=0 \
@@ -114,7 +114,6 @@ jobs:
           docker logs job-agent-runtime-app 2>&1 | tee /tmp/job-agent-runtime.log
           ! grep -Eiq 'ERROR|FATAL|UnhandledPromiseRejection|ECONNREFUSED|migration error|authentication error' /tmp/job-agent-runtime.log
           grep -q 'job-agent started' /tmp/job-agent-runtime.log
-          grep -q 'APPLICATION_DRY_RUN is enabled' /tmp/job-agent-runtime.log || true
           ! grep -Eiq 'gmailMessageId|refreshToken|access_token|client_secret|api[_-]?key|password=' /tmp/job-agent-runtime.log
 
       - name: Verify runtime container stays healthy
