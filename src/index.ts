@@ -216,7 +216,7 @@ async function main(): Promise<void> {
     if (!proactiveRecruiterDispatcher || !config.proactiveRecruiter.enabled) return;
     await proactiveRecruiterDispatcher.enqueueDiscovery({
       candidateProfileId: candidateProfile.id,
-      candidateName: candidateProfile.fullName ?? [candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") || undefined,
+      candidateName: (candidateProfile.fullName ?? ([candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") || undefined)),
       yearsExperience: candidateProfile.yearsExperience,
       skills: [...candidateProfile.skills],
       targetRoles: [...candidateProfile.targetTitles],
