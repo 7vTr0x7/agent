@@ -19,7 +19,8 @@ export interface StaleSubmissionMonitorResult {
  */
 export class StaleSubmissionMonitor {
   constructor(
-    private readonly applicationRepository: Pick<ApplicationRepository, "listStaleSubmissions" | "reconcileStaleSubmissions">,
+    private readonly applicationRepository: Pick<ApplicationRepository, "listStaleSubmissions"> &
+      Partial<Pick<ApplicationRepository, "reconcileStaleSubmissions">>,
     private readonly logger: StaleSubmissionMonitorLogger,
     private readonly olderThanMinutes: number
   ) {
@@ -32,7 +33,9 @@ export class StaleSubmissionMonitor {
     const submissions = await this.applicationRepository.listStaleSubmissions(this.olderThanMinutes);
 
     if (submissions.length > 0) {
-      const reconciliation = await this.applicationRepository.reconcileStaleSubmissions(this.olderThanMinutes);
+      const reconciliation = this.applicationRepository.reconcileStaleSubmissions
+        ? await this.applicationRepository.reconcileStaleSubmissions(this.olderThanMinutes)
+        : null;
       this.logger.warn(
         {
           staleCount: submissions.length,
