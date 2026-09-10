@@ -3,7 +3,7 @@ import { CandidateProfile } from "../candidates/CandidateProfile";
 import { JobDecision } from "../shared/types/job";
 
 export interface MatchEvidence {
-  type: "SKILL_MATCH" | "SKILL_GAP" | "TITLE_MATCH" | "EXPERIENCE" | "HARD_BLOCKER";
+  type: "SKILL_MATCH" | "SKILL_GAP" | "TITLE_MATCH" | "EXPERIENCE" | "HARD_BLOCKER" | "ROLE_FIT" | "LOCATION";
   detail: string;
 }
 
@@ -43,18 +43,23 @@ const SKILL_ALIASES: Record<string, string[]> = {
   postgres: ["postgresql", "postgres", "postgre sql"]
 };
 
+const FRONTEND_ROLE_SIGNAL = /\b(frontend|front-end|front end|ui developer|ui engineer|web developer|web engineer|react developer|react engineer|next\.js developer|nextjs developer|full[- ]stack|fullstack|software engineer)\b/i;
+const STRONG_FRONTEND_SIGNAL = /\b(react|reactjs|react\.js|next\.js|nextjs|redux|frontend|front-end|front end|ui developer|ui engineer)\b/i;
+const EXCLUDED_ROLE_TITLE = /\b(product marketing|marketing|sales|account executive|business development|finance|accounting|legal|procurement|recruiter|talent acquisition|customer support|technical support|qa engineer|quality assurance|devops|site reliability|\bsre\b|network engineer|data analyst|data scientist|machine learning engineer|ml engineer|ai engineer)\b/i;
+const BACKEND_ONLY_TITLE = /\b(backend|back-end|back end|java developer|python developer|\.net developer|golang developer|database administrator|dba)\b/i;
+
 export class DeterministicJobMatcher {
   private readonly applyThreshold: number;
   private readonly reviewThreshold: number;
 
   constructor(options: DeterministicMatcherOptions = {}) {
-    // User policy: jobs scoring 30/100 or higher are eligible for application.
     this.applyThreshold = options.applyThreshold ?? 30;
     this.reviewThreshold = options.reviewThreshold ?? 20;
   }
 
   evaluate(job: JobOpportunity, profile: CandidateProfile): DeterministicMatchResult {
     const normalizedText = normalize(`${job.title}\n${job.description}`);
+    const normalizedTitle = normalize(job.title);
     const evidence: MatchEvidence[] = [];
 
     const matchedSkills = profile.skills.filter((skill) => containsSkill(normalizedText, skill));
@@ -67,8 +72,15 @@ export class DeterministicJobMatcher {
       evidence.push({ type: "SKILL_GAP", detail: `Candidate skill is not mentioned in the posting: ${skill}` });
     }
 
-    const titleMatch = profile.targetTitles.some((title) => containsPhrase(normalize(job.title), normalize(title)));
+    const titleMatch = profile.targetTitles.some((title) => containsPhrase(normalizedTitle, normalize(title)));
     if (titleMatch) evidence.push({ type: "TITLE_MATCH", detail: "Job title matches a candidate target title." });
+
+    const roleFit = assessRoleFit(normalizedTitle, normalizedText);
+    if (!roleFit.allowed) {
+      evidence.push({ type: "HARD_BLOCKER", detail: roleFit.reason });
+      return { matchScore: 0, decision: "REJECT", matchedSkills, missingSkills, evidence, reason: roleFit.reason };
+    }
+    evidence.push({ type: "ROLE_FIT", detail: roleFit.reason });
 
     const requiredYears = extractRequiredYears(normalizedText);
     if (requiredYears !== null) {
@@ -81,8 +93,12 @@ export class DeterministicJobMatcher {
 
     const skillScore = Math.min(70, matchedSkills.length * 14);
     const titleBonus = titleMatch ? 20 : 0;
+    const roleBonus = roleFit.frontendSignal ? 10 : 0;
     const experienceBonus = requiredYears !== null && requiredYears <= profile.yearsExperience ? 10 : 0;
-    const matchScore = Math.min(100, skillScore + titleBonus + experienceBonus);
+    const locationBonus = preferredLocation(job.location, job.country) ? 5 : 0;
+    if (locationBonus > 0) evidence.push({ type: "LOCATION", detail: "Job location is aligned with Bengaluru/India/remote preferences." });
+
+    const matchScore = Math.min(100, skillScore + titleBonus + roleBonus + experienceBonus + locationBonus);
     let decision: JobDecision = matchScore >= this.applyThreshold ? "APPLY" : matchScore >= this.reviewThreshold ? "REVIEW" : "REJECT";
 
     if (decision === "REJECT" && hasPreferredExperience(normalizedText) && (titleMatch || matchedSkills.length > 0)) decision = "REVIEW";
@@ -93,9 +109,26 @@ export class DeterministicJobMatcher {
       matchedSkills,
       missingSkills,
       evidence,
-      reason: `${matchedSkills.length} candidate skills appear in the job posting; ${titleMatch ? "target title matched" : "target title not matched"}.`
+      reason: `${matchedSkills.length} candidate skills appear in the job posting; ${titleMatch ? "target title matched" : "target title not matched"}; ${roleFit.reason}.`
     };
   }
+}
+
+function assessRoleFit(title: string, text: string): { allowed: boolean; frontendSignal: boolean; reason: string } {
+  if (EXCLUDED_ROLE_TITLE.test(title)) {
+    return { allowed: false, frontendSignal: false, reason: "Role title is outside the candidate's frontend/full-stack target." };
+  }
+
+  const frontendSignal = FRONTEND_ROLE_SIGNAL.test(title) || STRONG_FRONTEND_SIGNAL.test(text);
+  if (BACKEND_ONLY_TITLE.test(title) && !/\breact|next\.js|nextjs|frontend|front-end|front end\b/i.test(text)) {
+    return { allowed: false, frontendSignal: false, reason: "Backend-only role has no meaningful React/Next.js/frontend signal." };
+  }
+
+  if (!frontendSignal) {
+    return { allowed: false, frontendSignal: false, reason: "Posting does not contain a meaningful frontend/React/full-stack signal." };
+  }
+
+  return { allowed: true, frontendSignal: true, reason: "Posting contains a meaningful frontend/React/full-stack signal." };
 }
 
 function normalize(value: string): string {
@@ -119,6 +152,11 @@ function containsSkill(text: string, skill: string): boolean {
     const normalizedAlias = normalize(alias);
     return containsPhrase(text, normalizedAlias) || compactText.includes(compact(normalizedAlias));
   });
+}
+
+function preferredLocation(location: string | null, country: string | null): boolean {
+  const value = normalize(`${location ?? ""} ${country ?? ""}`);
+  return /\bbengaluru\b|\bbangalore\b|\bindia\b|\bremote\b/.test(value);
 }
 
 function hasPreferredExperience(text: string): boolean {
