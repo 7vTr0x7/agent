@@ -13,6 +13,8 @@ export interface DiscoveryRunResult {
 
 const SOURCE_CONCURRENCY = 3;
 const SOURCE_TIMEOUT_MS = 3 * 60 * 1000;
+const SOURCE_RETRIES = 2;
+const RETRY_BASE_DELAY_MS = 1000;
 
 export class DiscoveryRunner {
   constructor(
@@ -36,48 +38,77 @@ export class DiscoveryRunner {
     if (!(await this.health.canRun(descriptor))) return null;
 
     const runId = await this.runs.start(descriptor);
+    let lastError: unknown;
 
-    try {
-      const discovered = await withTimeout(
-        this.discovery.discover(source),
-        SOURCE_TIMEOUT_MS,
-        `Discovery source ${descriptor.id} exceeded ${SOURCE_TIMEOUT_MS / 1000}s timeout`
-      );
-      const matching = await this.matchDispatcher.dispatch(discovered.insertedOpportunityIds);
-      await this.runs.complete(runId, descriptor.id, "SUCCEEDED", {
-        fetched: discovered.fetched,
-        inserted: discovered.inserted,
-        duplicates: discovered.duplicates
-      });
-      return { source: descriptor.id, discovered, matching };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await this.runs.recordError(runId, descriptor.id, {
-        classification: "UNKNOWN",
-        message
-      });
-      await this.runs.complete(
-        runId,
-        descriptor.id,
-        "FAILED",
-        { fetched: 0, inserted: 0, duplicates: 0 },
-        message
-      );
-      return null;
+    for (let attempt = 0; attempt <= SOURCE_RETRIES; attempt++) {
+      const controller = new AbortController();
+      try {
+        const discovered = await withTimeout(
+          this.discovery.discover(source, controller.signal),
+          SOURCE_TIMEOUT_MS,
+          controller,
+          `Discovery source ${descriptor.id} exceeded ${SOURCE_TIMEOUT_MS / 1000}s timeout`
+        );
+        const matching = await this.matchDispatcher.dispatch(discovered.insertedOpportunityIds);
+        await this.runs.complete(runId, descriptor.id, "SUCCEEDED", {
+          fetched: discovered.fetched,
+          inserted: discovered.inserted,
+          duplicates: discovered.duplicates
+        });
+        return { source: descriptor.id, discovered, matching };
+      } catch (error) {
+        lastError = error;
+        if (!isTransientDiscoveryError(error) || attempt >= SOURCE_RETRIES) break;
+        await delayWithAbort(RETRY_BASE_DELAY_MS * 2 ** attempt);
+      } finally {
+        controller.abort();
+      }
     }
+
+    const message = lastError instanceof Error ? lastError.message : String(lastError);
+    await this.runs.recordError(runId, descriptor.id, {
+      classification: isTransientDiscoveryError(lastError) ? "TRANSIENT" : "UNKNOWN",
+      message
+    });
+    await this.runs.complete(
+      runId,
+      descriptor.id,
+      "FAILED",
+      { fetched: 0, inserted: 0, duplicates: 0 },
+      message
+    );
+    return null;
   }
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  controller: AbortController,
+  message: string
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    timer = setTimeout(() => {
+      controller.abort(new Error(message));
+      reject(new Error(message));
+    }, timeoutMs);
   });
   try {
     return await Promise.race([promise, timeout]);
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+function isTransientDiscoveryError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return /timeout|timed out|temporar|econnreset|econnrefused|enotfound|eai_again|network|fetch failed|429|502|503|504/.test(message);
+}
+
+async function delayWithAbort(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 async function mapWithConcurrency<T, R>(
