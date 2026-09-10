@@ -75,6 +75,7 @@ export class ProactiveRecruiterTaskHandler {
 
       if (!candidate.email || candidate.emailStatus === "INVALID" || candidate.emailStatus === "SUPPRESSED") continue;
       if (this.options.requireVerifiedEmail && candidate.emailStatus !== "VERIFIED") continue;
+      if (!candidate.employerDomain) continue;
 
       const subject = `Frontend / React / Next.js opportunities — ${profile.fullName ?? "Candidate"}`;
       const body = buildProactiveMessage(profile, candidate);
@@ -88,7 +89,7 @@ export class ProactiveRecruiterTaskHandler {
       if (!campaign) continue;
       prepared += 1;
       if (this.options.sendEnabled) {
-        await this.sendDispatcher.enqueue(campaign.messageId);
+        await this.sendDispatcher.enqueue({ messageId: campaign.messageId, companyDomain: candidate.employerDomain });
       }
     }
     this.logger.info({ discovered: discovered.length, persisted, prepared, sendEnabled: this.options.sendEnabled }, "Proactive recruiter discovery completed");
@@ -96,7 +97,7 @@ export class ProactiveRecruiterTaskHandler {
 
   async handleOutreach(payload: ProactiveRecruiterOutreachPayload): Promise<void> {
     if (!this.options.sendEnabled) return;
-    await this.sendDispatcher.enqueue(payload.messageId);
+    await this.sendDispatcher.enqueue({ messageId: payload.messageId, companyDomain: payload.companyDomain });
   }
 }
 
