@@ -69,14 +69,18 @@ export function resolveEmployerDomainFromJobData(
     candidates.set(host, (candidates.get(host) ?? 0) + weight);
   };
 
+  // Explicit employer-domain data is the strongest signal. The canonical job
+  // URL is next. Domains merely mentioned inside a description are deliberately
+  // weaker because they can be support, vendor, partner, or unrelated links.
+  addCandidate(resolveEmployerDomainFromJobUrl(companyDomain), 10);
+  addCandidate(resolveEmployerDomainFromJobUrl(canonicalUrl), 8);
+
   for (const email of (jobDescription ?? "").match(EMAIL_PATTERN) ?? []) {
     const domain = normalizeHost(email.split("@")[1] ?? "");
-    if (domain && !GENERIC_EMAIL_DOMAINS.has(domain)) addCandidate(normalizeEmployerHost(domain), 5);
+    if (domain && !GENERIC_EMAIL_DOMAINS.has(domain)) addCandidate(normalizeEmployerHost(domain), 3);
   }
 
-  for (const url of (jobDescription ?? "").match(URL_PATTERN) ?? []) addCandidate(resolveEmployerDomainFromJobUrl(url), 3);
-  addCandidate(resolveEmployerDomainFromJobUrl(canonicalUrl), 4);
-  addCandidate(resolveEmployerDomainFromJobUrl(companyDomain), 4);
+  for (const url of (jobDescription ?? "").match(URL_PATTERN) ?? []) addCandidate(resolveEmployerDomainFromJobUrl(url), 2);
 
   const ranked = [...candidates.entries()].sort((a, b) => b[1] - a[1]);
   const [best, bestScore] = ranked[0] ?? [null, 0];
