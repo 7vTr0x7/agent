@@ -10,7 +10,7 @@ export type JobPageParseFailure =
 export interface JobPageDiagnostics {
   readonly url: string;
   readonly parsed: boolean;
-  readonly parser: "json-ld" | "embedded-state" | "html-metadata" | "html-labels" | "none";
+  readonly parser: "json-ld" | "embedded-state" | "microdata" | "html-metadata" | "html-labels" | "none";
   readonly failure?: JobPageParseFailure;
 }
 
@@ -25,6 +25,9 @@ export function parsePlatformJobPage(html: string, sourceUrl: string, platformNa
 
   const embedded = extractEmbeddedJob(html);
   if (embedded) return buildJob(embedded, sourceUrl, platformName, "embedded-state");
+
+  const microdata = extractMicrodataJob(html);
+  if (microdata) return buildJob(microdata, sourceUrl, platformName, "microdata");
 
   const metadata = extractMetadataJob(html);
   if (metadata) return buildJob(metadata, sourceUrl, platformName, "html-metadata");
@@ -43,8 +46,6 @@ function buildJob(posting: RawPosting, sourceUrl: string, platformName: string, 
   const employer = organizationName(posting);
   if (!title) return failure(sourceUrl, parser, "missing-title");
   if (!description) return failure(sourceUrl, parser, "missing-description");
-  // Employer identity is mandatory. The platform name, page hostname, og:site_name,
-  // or an arbitrary URL mentioned in the description is never used as an employer.
   if (!employer) return failure(sourceUrl, parser, "missing-employer");
 
   const url = normalizeUrl(valueAt(posting, "url"), sourceUrl);
@@ -186,12 +187,63 @@ function findJobLikeObject(value: unknown, seen = new Set<unknown>()): RawPostin
   return null;
 }
 
+/**
+ * Some job pages publish Schema.org JobPosting as HTML Microdata rather than
+ * JSON-LD. This is still explicit employer evidence and is safer than guessing
+ * the employer from the platform hostname or page title.
+ */
+function extractMicrodataJob(html: string): RawPosting | null {
+  if (!/<[^>]+itemtype=["'][^"']*JobPosting/i.test(html) && !/<[^>]+itemprop=["'](?:title|description|hiringOrganization|jobLocation)["']/i.test(html)) return null;
+
+  const title = firstItemProp(html, "title");
+  const description = firstItemProp(html, "description");
+  const employer = firstItemProp(html, "name", /itemprop=["']hiringOrganization["']/i) || firstNestedOrganizationName(html);
+  if (!title || !description || !employer) return null;
+
+  const location = firstItemProp(html, "jobLocation");
+  const employmentType = firstItemProp(html, "employmentType");
+  const datePosted = firstItemProp(html, "datePosted");
+  const dateModified = firstItemProp(html, "dateModified");
+  return {
+    title,
+    description,
+    hiringOrganization: { name: employer },
+    location,
+    employmentType,
+    datePosted,
+    dateModified
+  };
+}
+
+function firstItemProp(html: string, property: string, context?: RegExp): string {
+  const escaped = escapeRegex(property);
+  const tagPattern = new RegExp(`<([a-z0-9]+)\\b[^>]*itemprop=["']${escaped}["'][^>]*>([\\s\\S]*?)<\\/\\1>`, "i");
+  for (const match of html.matchAll(tagPattern)) {
+    const outerStart = match.index ?? 0;
+    const outer = match[0] ?? "";
+    if (context && !context.test(outer) && property === "name") continue;
+    const text = cleanText(match[2] ?? "");
+    if (text) return text;
+    const content = outer.match(/\bcontent=["']([^"']*)["']/i)?.[1];
+    if (content) return cleanText(content);
+    void outerStart;
+  }
+
+  const metaPattern = new RegExp(`<meta\\b[^>]*itemprop=["']${escaped}["'][^>]*>`, "i");
+  const meta = html.match(metaPattern)?.[0] ?? "";
+  return cleanText(meta.match(/\bcontent=["']([^"']*)["']/i)?.[1] ?? "");
+}
+
+function firstNestedOrganizationName(html: string): string {
+  const organization = html.match(/itemprop=["']hiringOrganization["'][^>]*>[\s\S]{0,12000}?itemprop=["']name["'][^>]*>([\s\S]*?)<\//i);
+  return cleanText(organization?.[1] ?? "");
+}
+
 function extractMetadataJob(html: string): RawPosting | null {
   const title = firstMeta(html, ["og:title", "twitter:title"]) || html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "";
   const description = firstMeta(html, ["og:description", "description", "twitter:description"]);
   const employer = firstMeta(html, ["job:company", "og:company", "article:author"]);
   if (!cleanText(title) || !cleanText(description) || !cleanText(employer)) return null;
-  // Meta extraction is accepted only when the page explicitly exposes an employer field.
   if (/^(twitter|facebook|linkedin|google|indeed|naukri|glassdoor)$/i.test(cleanText(employer))) return null;
   return { title, description, hiringOrganization: { name: cleanText(employer) } };
 }
