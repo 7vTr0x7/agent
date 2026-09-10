@@ -29,7 +29,7 @@ describe("platform-specific first-party search fallbacks", () => {
       const url = String(input);
       if (url.includes("r.jina.ai/")) return new Response("no useful search destinations", { status: 200 });
       if (searchUrls.includes(url)) {
-        return new Response(`<html><body><a href="${jobUrl}">React Developer</a><a href="https://example.com/privacy">Privacy</a></body></html>`, { status: 200 });
+        return new Response(`<html><body><a href="${jobUrl}">React Developer</a><a href="https://www.google.com/search?q=react">Search</a></body></html>`, { status: 200 });
       }
       if (url === jobUrl) return new Response(jobPosting(jobUrl, `${platform} Company`), { status: 200 });
       return new Response("not found", { status: 404 });
@@ -49,13 +49,13 @@ describe("platform-specific first-party search fallbacks", () => {
   it.each(cases)("$platform search URLs survive normalization while unsafe/non-job URLs are rejected", ({ jobUrl }) => {
     const page = [
       `[valid](${jobUrl})`,
-      "https://example.com/privacy",
+      "https://www.google.com/search?q=react",
       "https://example.com/login",
       "javascript:alert(1)"
     ].join(" ");
     const result = extractSearchResultUrls(page);
     expect(result.urls).toContain(jobUrl);
-    expect(result.urls).not.toContain("https://example.com/privacy");
+    expect(result.urls).not.toContain("https://www.google.com/search?q=react");
     expect(result.urls).not.toContain("https://example.com/login");
     expect(result.urls).not.toContain("javascript:alert(1)");
   });
