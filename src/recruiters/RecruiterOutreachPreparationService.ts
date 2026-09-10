@@ -61,6 +61,7 @@ export class RecruiterOutreachPreparationService {
         fullName: contact.fullName,
         title: contact.title,
         department: contact.department,
+        seniority: contact.seniority,
         country: contact.country,
         location: contact.location,
         confidence: contact.confidence,
