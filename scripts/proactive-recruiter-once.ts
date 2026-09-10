@@ -33,7 +33,7 @@ async function main(): Promise<void> {
         sendEnabled: false,
         maxCandidatesPerRun: config.proactiveRecruiter.maxCandidatesPerRun,
         requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail,
-        ...(fixtureMode ? { verifyEmail: async () => ({ status: "UNVERIFIED" as const, confidence: 0 }) } : {})
+        ...(fixtureMode ? { verifyEmail: async () => ({ status: "VERIFIED" as const, confidence: 100 }) } : {})
       },
       logger
     );
