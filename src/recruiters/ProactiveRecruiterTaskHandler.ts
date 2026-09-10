@@ -4,6 +4,7 @@ import { RecruiterOutreachSendTaskDispatcher } from "./RecruiterOutreachSendTask
 import { ProactiveRecruiterDiscoveryService } from "./ProactiveRecruiterDiscoveryService";
 import { rankProactiveRecruiters } from "./ProactiveRecruiterRanking";
 import { ProactiveRecruiterRepository } from "./ProactiveRecruiterRepository";
+import { PublicRecruiterSearchProvider } from "./PublicRecruiterSearchProvider";
 import { ProactiveRecruiterDiscoveryPayload, ProactiveRecruiterOutreachPayload, PROACTIVE_RECRUITER_DISCOVERY_TASK, PROACTIVE_RECRUITER_OUTREACH_TASK } from "./ProactiveRecruiterTask";
 
 export interface ProactiveRecruiterTaskHandlerOptions {
@@ -68,14 +69,15 @@ export class ProactiveRecruiterTaskHandler {
     })));
 
     const byId = new Map(discovered.map((candidate) => [candidate.discoveryUrl, candidate]));
+    const verifier = this.options.verifyEmail ?? ((email: string) => new PublicRecruiterSearchProvider().verify(email));
     let persisted = 0;
     let prepared = 0;
     for (const rankedCandidate of ranked.slice(0, Math.max(1, Math.min(payload.maxCandidates, this.options.maxCandidatesPerRun)))) {
       const candidate = byId.get(rankedCandidate.id);
       if (!candidate) continue;
-      if (candidate.email && this.options.verifyEmail) {
+      if (candidate.email) {
         try {
-          const verification = await this.options.verifyEmail(candidate.email);
+          const verification = await verifier(candidate.email);
           candidate.emailStatus = verification.status;
         } catch (error) {
           this.logger.error({ error: error instanceof Error ? error.message : String(error) }, "Proactive recruiter email verification failed");
