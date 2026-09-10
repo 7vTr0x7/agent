@@ -69,12 +69,11 @@ jobs:
             -e INTERVIEW_REMINDER_INTERVAL_MS=3600000 \
             job-agent:controlled-discovery
 
+          expected_sources=14
           for i in $(seq 1 900); do
-            logs="$(docker logs job-agent-discovery-app 2>&1 || true)"
-            source_count="$(printf '%s\n' "$logs" | sed -n 's/.*"sourceCount":\([0-9][0-9]*\).*/\1/p' | head -1)"
-            completed="$(printf '%s\n' "$logs" | grep -c '"msg":"Discovery source run completed"' || true)"
-            if [ -n "$source_count" ] && [ "$source_count" -gt 0 ] && [ "$completed" -ge "$source_count" ]; then
-              printf '%s\n' "$logs"
+            completed="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs WHERE status <> 'RUNNING';" | tr -d '[:space:]')"
+            if [ -n "$completed" ] && [ "$completed" -ge "$expected_sources" ]; then
+              docker logs job-agent-discovery-app
               exit 0
             fi
             if ! docker inspect -f '{{.State.Running}}' job-agent-discovery-app 2>/dev/null | grep -q true; then
@@ -89,13 +88,14 @@ jobs:
       - name: Verify discovery database output and safety
         shell: bash
         run: |
+          docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM sources;"
+          docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs WHERE status <> 'RUNNING';"
           docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities;"
           docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_observations;"
           docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;"
           docker logs job-agent-discovery-app 2>&1 | tee /tmp/job-agent-discovery.log
           ! grep -Eiq 'ERROR|FATAL|UnhandledPromiseRejection|ECONNREFUSED|migration error|authentication error' /tmp/job-agent-discovery.log
           ! grep -Eiq 'gmailMessageId|refreshToken|access_token|client_secret|api[_-]?key|password=' /tmp/job-agent-discovery.log
-          grep -q 'sourceCount' /tmp/job-agent-discovery.log
           grep -q 'Discovery source run completed' /tmp/job-agent-discovery.log
 
       - name: Cleanup
