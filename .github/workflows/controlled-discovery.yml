@@ -7,7 +7,7 @@ on:
 jobs:
   discovery:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,7 +69,7 @@ jobs:
             job-agent:controlled-discovery
 
           expected_sources=14
-          for i in $(seq 1 900); do
+          for i in $(seq 1 3300); do
             completed="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs WHERE status <> 'RUNNING';" 2>/dev/null | tr -d '[:space:]' || true)"
             if [ -n "$completed" ] && [ "$completed" -ge "$expected_sources" ]; then
               docker logs job-agent-discovery-app
@@ -89,16 +89,23 @@ jobs:
         run: |
           sources="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM sources;" | tr -d '[:space:]')"
           completed="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs WHERE status <> 'RUNNING';" | tr -d '[:space:]')"
+          running="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM source_runs WHERE status = 'RUNNING';" | tr -d '[:space:]')"
           jobs="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities;" | tr -d '[:space:]')"
           observations="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_observations;" | tr -d '[:space:]')"
           applications="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;" | tr -d '[:space:]')"
           test "$sources" -eq 14
           test "$completed" -eq 14
-          printf 'sources=%s completed_sources=%s jobs=%s observations=%s applications=%s\n' "$sources" "$completed" "$jobs" "$observations" "$applications"
+          test "$running" -eq 0
+          printf 'sources=%s completed_sources=%s running_source_runs=%s jobs=%s observations=%s applications=%s\n' "$sources" "$completed" "$running" "$jobs" "$observations" "$applications"
           docker logs job-agent-discovery-app 2>&1 | tee /tmp/job-agent-discovery.log
           ! grep -Eiq 'ERROR|FATAL|UnhandledPromiseRejection|ECONNREFUSED|migration error|authentication error' /tmp/job-agent-discovery.log
           ! grep -Eiq 'gmailMessageId|refreshToken|access_token|client_secret|api[_-]?key|password=' /tmp/job-agent-discovery.log
           grep -q 'Discovery source run completed' /tmp/job-agent-discovery.log
+
+          peak="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -Atc "WITH events AS (SELECT started_at AS t, 1 AS delta FROM source_runs UNION ALL SELECT finished_at AS t, -1 AS delta FROM source_runs WHERE finished_at IS NOT NULL), ordered AS (SELECT t, delta, SUM(delta) OVER (ORDER BY t, delta DESC) AS active FROM events) SELECT COALESCE(MAX(active),0) FROM ordered;" | tr -d '[:space:]')"
+          test "$peak" -le 4
+          test "$completed" -gt 4
+          printf 'peak_source_concurrency=%s\n' "$peak"
 
       - name: Cleanup
         if: always()
