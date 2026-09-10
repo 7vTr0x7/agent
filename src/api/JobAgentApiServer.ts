@@ -1,4 +1,4 @@
-import { createServer, IncomingMessage, ServerResponse, Server } from "node:http";
+import { createServer, IncomingMessage, ServerResponse, Server, AddressInfo } from "node:http";
 import { Database } from "../database/Database";
 
 interface SummaryRow {
@@ -27,7 +27,7 @@ export class JobAgentApiServer {
     if (this.server) return;
     const host = this.options.host ?? process.env.API_HOST ?? "127.0.0.1";
     const port = this.options.port ?? Number(process.env.API_PORT ?? 3000);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("API_PORT must be a valid TCP port.");
+    if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("API_PORT must be a valid TCP port.");
 
     const server = createServer((request, response) => {
       void this.handle(request, response).catch((error: unknown) => {
@@ -51,6 +51,13 @@ export class JobAgentApiServer {
     });
 
     this.server = server;
+  }
+
+  getAddress(): { host: string; port: number } | null {
+    const address = this.server?.address();
+    if (!address || typeof address === "string") return null;
+    const info = address as AddressInfo;
+    return { host: info.address, port: info.port };
   }
 
   async stop(): Promise<void> {
