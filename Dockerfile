@@ -1,10 +1,11 @@
 FROM mcr.microsoft.com/playwright:v1.63.0-noble
 
 WORKDIR /app
-ENV NODE_ENV=production
 
 COPY package.json package-lock.json ./
-RUN npm install --omit=optional
+RUN npm install --omit=optional --include=dev
+
+ENV NODE_ENV=production
 
 COPY tsconfig.json jest.config.js ./
 COPY src ./src
