@@ -56,4 +56,18 @@ describe("RssJobSource", () => {
       statusCode: 429
     });
   });
+
+  it("passes the runner abort signal to the RSS request", async () => {
+    const fetchMock = jest.spyOn(globalThis, "fetch").mockImplementation(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.signal).toBeDefined();
+        expect(init?.signal?.aborted).toBe(false);
+        return new Response("<?xml version=\"1.0\"?><rss><channel></channel></rss>", { status: 200 });
+      }
+    );
+
+    const controller = new AbortController();
+    await new RssJobSource({ name: "test:rss", feedUrl: "https://example.com/jobs.rss" }).fetchJobs(controller.signal);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
