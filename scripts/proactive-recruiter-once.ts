@@ -36,7 +36,7 @@ async function main(): Promise<void> {
 
     await handler.handleDiscovery({
       candidateProfileId: profile.id,
-      candidateName: profile.fullName ?? [profile.firstName, profile.lastName].filter(Boolean).join(" ") || undefined,
+      candidateName: (profile.fullName ?? ([profile.firstName, profile.lastName].filter(Boolean).join(" ") || undefined)),
       yearsExperience: profile.yearsExperience,
       skills: [...profile.skills],
       targetRoles: [...profile.targetTitles],
