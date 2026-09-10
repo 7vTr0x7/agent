@@ -35,73 +35,60 @@ describe("DeterministicJobMatcher", () => {
   const matcher = new DeterministicJobMatcher();
 
   it("scores matching skills and target titles", () => {
-    const result = matcher.evaluate(
-      job("React, TypeScript and Next.js are required. Node.js is a plus."),
-      profile
-    );
-
+    const result = matcher.evaluate(job("React, TypeScript and Next.js are required. Node.js is a plus."), profile);
     expect(result.decision).toBe("APPLY");
     expect(result.matchScore).toBeGreaterThanOrEqual(70);
-    expect(result.matchedSkills).toEqual(
-      expect.arrayContaining(["React", "Next.js", "TypeScript", "Node.js"])
-    );
+    expect(result.matchedSkills).toEqual(expect.arrayContaining(["React", "Next.js", "TypeScript", "Node.js"]));
   });
 
   it("recognizes common technology aliases", () => {
-    const result = matcher.evaluate(
-      job("ReactJS, NextJS, TS, Redux Toolkit and NodeJS experience."),
-      profile
-    );
-
-    expect(result.matchedSkills).toEqual(
-      expect.arrayContaining(["React", "Next.js", "TypeScript", "Redux Toolkit", "Node.js"])
-    );
+    const result = matcher.evaluate(job("ReactJS, NextJS, TS, Redux Toolkit and NodeJS experience."), profile);
+    expect(result.matchedSkills).toEqual(expect.arrayContaining(["React", "Next.js", "TypeScript", "Redux Toolkit", "Node.js"]));
     expect(result.decision).toBe("APPLY");
   });
 
   it("rejects a role with an explicit minimum experience blocker", () => {
-    const result = matcher.evaluate(
-      job("Must have at least 5 years of experience with React."),
-      profile
-    );
-
+    const result = matcher.evaluate(job("Must have at least 5 years of experience with React."), profile);
     expect(result.decision).toBe("REJECT");
     expect(result.matchScore).toBe(0);
-    expect(result.evidence).toEqual(
-      expect.arrayContaining([expect.objectContaining({ type: "HARD_BLOCKER" })])
-    );
+    expect(result.evidence).toEqual(expect.arrayContaining([expect.objectContaining({ type: "HARD_BLOCKER" })]));
   });
 
   it("recognizes compact required experience syntax", () => {
-    const result = matcher.evaluate(
-      job("React and TypeScript. Experience: 5+ years."),
-      profile
-    );
-
+    const result = matcher.evaluate(job("React and TypeScript. Experience: 5+ years."), profile);
     expect(result.decision).toBe("REJECT");
     expect(result.matchScore).toBe(0);
   });
 
   it("does not hard-reject preferred experience", () => {
-    const result = matcher.evaluate(
-      job("React and TypeScript. 5 years of experience preferred."),
-      profile
-    );
-
-    expect(result.evidence).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ type: "HARD_BLOCKER" })])
-    );
+    const result = matcher.evaluate(job("React and TypeScript. 5 years of experience preferred."), profile);
+    expect(result.evidence).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "HARD_BLOCKER" })]));
     expect(result.decision).not.toBe("REJECT");
   });
 
   it("can distinguish a low-overlap role", () => {
-    const result = matcher.evaluate(
-      job("Java, Spring Boot, Kafka and Kubernetes experience required.", "Backend Engineer"),
-      profile
-    );
-
+    const result = matcher.evaluate(job("Java, Spring Boot, Kafka and Kubernetes experience required.", "Backend Engineer"), profile);
     expect(result.decision).toBe("REJECT");
     expect(result.matchScore).toBeLessThan(40);
+  });
+
+  it("rejects marketing even when the posting mentions frontend technologies", () => {
+    const result = matcher.evaluate(job("Own product marketing campaigns. Familiarity with React and TypeScript is helpful.", "Product Marketing Manager"), profile);
+    expect(result.decision).toBe("REJECT");
+    expect(result.matchScore).toBe(0);
+    expect(result.evidence).toEqual(expect.arrayContaining([expect.objectContaining({ type: "HARD_BLOCKER" })]));
+  });
+
+  it("rejects AI/ML engineering when frontend work is not part of the role", () => {
+    const result = matcher.evaluate(job("Build machine learning models, training pipelines and inference systems with Python and PyTorch. React dashboards are owned by another team.", "AI Engineer"), profile);
+    expect(result.decision).toBe("REJECT");
+    expect(result.matchScore).toBe(0);
+  });
+
+  it("accepts a genuine full-stack React role", () => {
+    const result = matcher.evaluate(job("Build customer-facing React and Next.js interfaces and Node.js APIs in a full-stack team.", "Full Stack Engineer"), profile);
+    expect(result.decision).toBe("APPLY");
+    expect(result.matchedSkills).toEqual(expect.arrayContaining(["React", "Next.js", "Node.js"]));
   });
 
   it("does not penalize unrelated resume skills enough to reject a strong frontend role", () => {
@@ -119,9 +106,7 @@ describe("DeterministicJobMatcher", () => {
       broadProfile
     );
 
-    expect(result.matchedSkills).toEqual(
-      expect.arrayContaining(["React", "Next.js", "TypeScript", "JavaScript"])
-    );
+    expect(result.matchedSkills).toEqual(expect.arrayContaining(["React", "Next.js", "TypeScript", "JavaScript"]));
     expect(result.matchScore).toBeGreaterThanOrEqual(70);
     expect(result.decision).toBe("APPLY");
   });
