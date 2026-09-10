@@ -2,6 +2,7 @@ import { Job } from "../domain/Job";
 import { JobSource } from "./JobSource";
 import { JOB_PLATFORM_REGISTRY } from "./JobPlatformRegistry";
 import { JobPageDiagnostics, parsePlatformJobPage } from "./PlatformJobPageParser";
+import { parsePlatformJobPageCollection } from "./PlatformJobPageCollectionParser";
 import { PlaywrightJobPageRenderer } from "./RenderedJobPageRenderer";
 import { extractSearchResultUrls, SearchResultExtractionDiagnostics } from "./SearchResultUrlExtractor";
 
@@ -38,6 +39,7 @@ export interface PlatformDiscoveryDiagnostics {
   readonly renderJobsParsed?: number;
   readonly detailUrlsDiscovered?: number;
   readonly detailPagesFetched?: number;
+  readonly detailJobsParsed?: number;
   readonly validJobs?: number;
   readonly invalidJobs?: number;
   readonly duplicates?: number;
@@ -102,17 +104,19 @@ export async function discoverPlatform(platformName: string, signal?: AbortSigna
 
   let pageSuccesses = 0, pageFailures = 0, parseSuccesses = 0, parseFailures = 0;
   let staticJobsParsed = 0, renderAttempts = 0, renderSuccesses = 0, renderJobsParsed = 0;
-  let detailUrlsDiscovered = 0, detailPagesFetched = 0, invalidJobs = 0, duplicates = 0, timeouts = 0, errors = 0, blocked = 0;
+  let detailUrlsDiscovered = 0, detailPagesFetched = 0, detailJobsParsed = 0, invalidJobs = 0, duplicates = 0, timeouts = 0, errors = 0, blocked = 0;
   const parseFailureReasons: Record<string, number> = {};
   const unique = new Map<string, Job>();
   const attemptedRenderUrls = new Set<string>();
   const detailUrls = new Set<string>();
 
-  const collectJob = (job: Job | null): void => {
-    if (!job) { invalidJobs += 1; return; }
-    const key = job.url.trim().toLowerCase();
-    if (unique.has(key)) { duplicates += 1; return; }
-    unique.set(key, job);
+  const collectJobs = (jobs: readonly Job[]): void => {
+    for (const job of jobs) {
+      if (!job) { invalidJobs += 1; continue; }
+      const key = job.url.trim().toLowerCase();
+      if (unique.has(key)) { duplicates += 1; continue; }
+      unique.set(key, job);
+    }
   };
 
   await mapWithConcurrency(links, PAGE_CONCURRENCY, async (url) => {
@@ -120,10 +124,18 @@ export async function discoverPlatform(platformName: string, signal?: AbortSigna
     const html = await fetchText(url, PAGE_TIMEOUT_MS, signal);
     if (!html) { pageFailures += 1; errors += 1; return; }
     pageSuccesses += 1;
-    const parsed = parsePlatformJobPage(html, url, platformName);
-    recordParseDiagnostic(parsed.diagnostics, parseFailureReasons);
-    if (parsed.job) { parseSuccesses += 1; staticJobsParsed += 1; collectJob(parsed.job); return; }
+
+    // Search/list pages can contain many JobPosting records. The collection parser also
+    // preserves the single-record parser as its final fallback for legitimate one-job pages.
+    const parsed = parsePlatformJobPageCollection(html, url, platformName);
+    if (parsed.jobs.length > 0) {
+      parseSuccesses += 1;
+      staticJobsParsed += parsed.jobs.length;
+      collectJobs(parsed.jobs);
+      return;
+    }
     parseFailures += 1;
+    recordParseDiagnosticFromCollection(html, url, platformName, parseFailureReasons);
     if (isRestrictedOrChallengePage(html)) { blocked += 1; return; }
 
     renderAttempts += 1;
@@ -136,10 +148,16 @@ export async function discoverPlatform(platformName: string, signal?: AbortSigna
     detailUrlsDiscovered += rendered.result.detailUrls.length;
     for (const detailUrl of rendered.result.detailUrls) detailUrls.add(detailUrl);
 
-    const renderedParsed = parsePlatformJobPage(rendered.result.html, url, platformName);
-    recordParseDiagnostic(renderedParsed.diagnostics, parseFailureReasons);
-    if (renderedParsed.job) { renderJobsParsed += 1; collectJob(renderedParsed.job); }
-    else if (isRestrictedOrChallengePage(rendered.result.html)) blocked += 1;
+    const renderedParsed = parsePlatformJobPageCollection(rendered.result.html, url, platformName);
+    if (renderedParsed.jobs.length > 0) {
+      parseSuccesses += 1;
+      renderJobsParsed += renderedParsed.jobs.length;
+      collectJobs(renderedParsed.jobs);
+    } else {
+      parseFailures += 1;
+      recordParseDiagnosticFromCollection(rendered.result.html, url, platformName, parseFailureReasons);
+      if (isRestrictedOrChallengePage(rendered.result.html)) blocked += 1;
+    }
   });
 
   const canonicalDetailUrls = [...detailUrls].filter((url) => !attemptedRenderUrls.has(url));
@@ -148,9 +166,15 @@ export async function discoverPlatform(platformName: string, signal?: AbortSigna
     const html = await fetchText(url, PAGE_TIMEOUT_MS, signal);
     if (!html) { errors += 1; return; }
     detailPagesFetched += 1;
+
+    // Detail URLs represent individual job pages in this flow, so keep the existing
+    // single-record parser semantics while collection pages use the collection parser.
     const parsed = parsePlatformJobPage(html, url, platformName);
     recordParseDiagnostic(parsed.diagnostics, parseFailureReasons);
-    if (parsed.job) { parseSuccesses += 1; collectJob(parsed.job); return; }
+    if (parsed.job) { parseSuccesses += 1; detailJobsParsed += 1; collectJobs([parsed.job]); return; }
+    parseFailures += 1;
+    if (isRestrictedOrChallengePage(html)) { blocked += 1; return; }
+
     renderAttempts += 1;
     attemptedRenderUrls.add(url);
     const rendered = await sharedRenderer.render(url, signal);
@@ -160,14 +184,14 @@ export async function discoverPlatform(platformName: string, signal?: AbortSigna
     renderSuccesses += 1;
     const renderedParsed = parsePlatformJobPage(rendered.result.html, url, platformName);
     recordParseDiagnostic(renderedParsed.diagnostics, parseFailureReasons);
-    if (renderedParsed.job) { renderJobsParsed += 1; collectJob(renderedParsed.job); }
+    if (renderedParsed.job) { renderJobsParsed += 1; detailJobsParsed += 1; collectJobs([renderedParsed.job]); }
   });
 
   const finalJobs = [...unique.values()];
   const finalOutcome: PlatformDiscoveryOutcome = blocked === links.length && finalJobs.length === 0 ? "BLOCKED_OR_RESTRICTED" : finalJobs.length > 0 ? "SUCCESS_WITH_JOBS" : timeouts > 0 && pageSuccesses === 0 ? "TIMEOUT" : errors > 0 && pageSuccesses === 0 ? "NETWORK_ERROR" : "SUCCESS_ZERO_JOBS";
   const extractionMode: PlatformExtractionMode = staticJobsParsed > 0 ? "STATIC_ONLY_SUCCESS" : renderJobsParsed > 0 ? "STATIC_ZERO_RENDER_SUCCESS" : "STATIC_ZERO_RENDER_ZERO";
 
-  onDiagnostic({ ...diagnosticsBase, pageSuccesses, pageFailures, parseSuccesses, parseFailures, parseFailureReasons, jobs: finalJobs.length, staticJobsParsed, renderAttempts, renderSuccesses, renderJobsParsed, detailUrlsDiscovered, detailPagesFetched, validJobs: finalJobs.length, invalidJobs, duplicates, timeouts, errors, finalOutcome, extractionMode });
+  onDiagnostic({ ...diagnosticsBase, pageSuccesses, pageFailures, parseSuccesses, parseFailures, parseFailureReasons, jobs: finalJobs.length, staticJobsParsed, renderAttempts, renderSuccesses, renderJobsParsed, detailUrlsDiscovered, detailPagesFetched, detailJobsParsed, validJobs: finalJobs.length, invalidJobs, duplicates, timeouts, errors, finalOutcome, extractionMode });
   return finalJobs;
 }
 
@@ -185,6 +209,10 @@ function buildSearchQueries(platformName: string, domain: string | null): string
 
 function quoteSearchTerm(value: string): string { return value.includes(" ") || /[.]/.test(value) ? `"${value}"` : value; }
 function recordParseDiagnostic(diagnostic: JobPageDiagnostics, reasons: Record<string, number>): void { if (!diagnostic.parsed) { const reason = diagnostic.failure ?? "unknown"; reasons[reason] = (reasons[reason] ?? 0) + 1; } }
+function recordParseDiagnosticFromCollection(html: string, url: string, platformName: string, reasons: Record<string, number>): void {
+  const diagnostic = parsePlatformJobPage(html, url, platformName).diagnostics;
+  recordParseDiagnostic(diagnostic, reasons);
+}
 function logDiagnostics(diagnostics: PlatformDiscoveryDiagnostics): void { console.info(JSON.stringify({ event: "platform_discovery_diagnostic", ...diagnostics })); }
 
 type SearchPage = { content: string; baseUrl: string };
