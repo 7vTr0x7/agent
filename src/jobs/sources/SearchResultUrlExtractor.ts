@@ -113,7 +113,9 @@ function unwrapDestination(value: string, baseUrl?: string): { value: string; re
     return proxyDestination ? { value: proxyDestination, redirect: true } : { value: "", redirect: true, reason: "wrapper_without_destination" };
   }
   const genericDestination = firstParam(url, WRAPPER_PARAM_NAMES);
-  if (genericDestination && isLikelyTrackingWrapper(url)) return { value: boundedDecode(genericDestination), redirect: true };
+  if (isLikelyTrackingWrapper(url)) {
+    return genericDestination ? { value: boundedDecode(genericDestination), redirect: true } : { value: "", redirect: true, reason: "wrapper_without_destination" };
+  }
   return { value: decoded, redirect: false };
 }
 
@@ -153,7 +155,7 @@ function decodeBingDestination(value: string): string {
   try { const base64 = decoded.replace(/-/g, "+").replace(/_/g, "/"); const maybeUrl = Buffer.from(base64, "base64").toString("utf8"); return /^https?:\/\//i.test(maybeUrl) ? maybeUrl : ""; } catch { return ""; }
 }
 function decodeJinaDestination(url: URL): string { const path = url.pathname.replace(/^\/+/, ""); return /^https?:\/\//i.test(path) ? boundedDecode(path) : ""; }
-function isLikelyTrackingWrapper(url: URL): boolean { const path = url.pathname.toLowerCase(); return path.includes("redirect") || path.includes("out") || path.includes("click") || path.includes("track") || path === "/url" || path === "/l/"; }
+function isLikelyTrackingWrapper(url: URL): boolean { return /(^|\/)(redirect|out|click|track)(\/|$)/i.test(url.pathname); }
 function boundedDecode(value: string): string {
   let current = decodeHtmlEntities(value).trim();
   for (let pass = 0; pass < MAX_DECODE_PASSES; pass += 1) {
