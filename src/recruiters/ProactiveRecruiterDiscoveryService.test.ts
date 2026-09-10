@@ -21,6 +21,14 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(results[0]?.evidenceFreshness).toBe("unknown");
   });
 
+  it("corroborates employer domain only when employer text and public email domain agree", async () => {
+    const html = `Jane Doe Technical Recruiter at Acme Corp hiring React engineers <https://linkedin.com/in/jane-doe> jane@acme.com`;
+    const service = new ProactiveRecruiterDiscoveryService({ fetchText: async () => html });
+    const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
+    expect(results[0]?.employer).toBe("Acme Corp");
+    expect(results[0]?.employerDomain).toBe("acme.com");
+  });
+
   it("classifies current, recent, and historical hiring evidence without treating history as current", async () => {
     const now = new Date("2026-09-11T00:00:00Z");
     const pages = [
