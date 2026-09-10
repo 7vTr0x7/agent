@@ -17,6 +17,7 @@ export interface ProactiveRecruiterDiscoveryPayload {
 
 export interface ProactiveRecruiterOutreachPayload {
   messageId: string;
+  companyDomain: string;
   candidateProfileId: string;
 }
 
