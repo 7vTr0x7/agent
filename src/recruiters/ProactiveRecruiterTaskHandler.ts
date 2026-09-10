@@ -11,6 +11,7 @@ export interface ProactiveRecruiterTaskHandlerOptions {
   sendEnabled: boolean;
   maxCandidatesPerRun: number;
   requireVerifiedEmail: boolean;
+  verifyEmail?: (email: string) => Promise<{ status: "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID"; confidence: number }>;
 }
 
 export class ProactiveRecruiterTaskHandler {
@@ -72,6 +73,15 @@ export class ProactiveRecruiterTaskHandler {
     for (const rankedCandidate of ranked.slice(0, Math.max(1, Math.min(payload.maxCandidates, this.options.maxCandidatesPerRun)))) {
       const candidate = byId.get(rankedCandidate.id);
       if (!candidate) continue;
+      if (candidate.email && this.options.verifyEmail) {
+        try {
+          const verification = await this.options.verifyEmail(candidate.email);
+          candidate.emailStatus = verification.status;
+        } catch (error) {
+          this.logger.error({ error: error instanceof Error ? error.message : String(error) }, "Proactive recruiter email verification failed");
+          candidate.emailStatus = "UNVERIFIED";
+        }
+      }
       const recruiterContactId = await this.repository.persistCandidate(payload.candidateProfileId, candidate);
       if (!recruiterContactId) continue;
       persisted += 1;
