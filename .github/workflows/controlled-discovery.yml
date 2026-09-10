@@ -1,0 +1,121 @@
+name: Controlled Discovery Runtime
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build --tag job-agent:controlled-discovery .
+
+      - name: Start isolated PostgreSQL
+        run: |
+          docker network create job-agent-discovery
+          docker run -d --name job-agent-discovery-postgres --network job-agent-discovery \
+            -e POSTGRES_DB=job_agent \
+            -e POSTGRES_USER=job_agent \
+            -e POSTGRES_PASSWORD=runtime_test_password \
+            postgres:17-alpine
+          for i in $(seq 1 60); do
+            if docker exec job-agent-discovery-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec job-agent-discovery-postgres pg_isready -U job_agent -d job_agent
+
+      - name: Run full discovery federation in safe mode
+        shell: bash
+        run: |
+          docker run -d --name job-agent-discovery-app --network job-agent-discovery \
+            -e NODE_ENV=test \
+            -e LOG_LEVEL=info \
+            -e API_HOST=0.0.0.0 \
+            -e API_PORT=3000 \
+            -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-discovery-postgres:5432/job_agent \
+            -e AUTOMATION_ENABLED=false \
+            -e APPLICATION_DRY_RUN=true \
+            -e OUTBOUND_ENABLED=false \
+            -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false \
+            -e JOB_DISCOVERY_ENABLED=true \
+            -e CANDIDATE_PROFILE_ID=runtime-discovery-candidate \
+            -e CANDIDATE_YEARS_EXPERIENCE=3 \
+            -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux,Node,Express,MongoDB' \
+            -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Full Stack Developer,React Developer' \
+            -e CANDIDATE_FIRST_NAME=Runtime \
+            -e CANDIDATE_LAST_NAME=Discovery \
+            -e CANDIDATE_FULL_NAME='Runtime Discovery' \
+            -e CANDIDATE_LOCATION=India \
+            -e CANDIDATE_SPONSORSHIP_REQUIRED=false \
+            -e CANDIDATE_NOTICE_PERIOD_DAYS=0 \
+            -e RECRUITER_OUTREACH_ENABLED=false \
+            -e RECRUITER_OUTREACH_DRY_RUN=true \
+            -e RECRUITER_OUTREACH_ACTIVATION=disabled \
+            -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false \
+            -e GMAIL_ENABLED=false \
+            -e EMAIL_ENABLED=false \
+            -e RESUME_TAILORING_ENABLED=false \
+            -e GENERIC_APPLICATION_ADAPTER_ENABLED=true \
+            -e JOB_DISCOVERY_INTERVAL_MS=3600000 \
+            -e APPLICATION_QUEUE_INTERVAL_MS=3600000 \
+            -e STALE_SUBMISSION_CHECK_INTERVAL_MS=3600000 \
+            -e FOLLOW_UP_INTERVAL_MS=3600000 \
+            -e INTERVIEW_REMINDER_INTERVAL_MS=3600000 \
+            job-agent:controlled-discovery
+
+          expected_sources=14
+          for i in $(seq 1 4800); do
+            completed="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs WHERE status <> 'RUNNING';" 2>/dev/null | tr -d '[:space:]' || true)"
+            if [ -n "$completed" ] && [ "$completed" -ge "$expected_sources" ]; then
+              docker logs job-agent-discovery-app
+              exit 0
+            fi
+            if ! docker inspect -f '{{.State.Running}}' job-agent-discovery-app 2>/dev/null | grep -q true; then
+              docker logs job-agent-discovery-app
+              exit 1
+            fi
+            sleep 1
+          done
+          docker logs job-agent-discovery-app
+          exit 1
+
+      - name: Verify discovery database output and safety
+        shell: bash
+        run: |
+          sources="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM sources;" | tr -d '[:space:]')"
+          attempted="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs;" | tr -d '[:space:]')"
+          terminal="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs WHERE status <> 'RUNNING';" | tr -d '[:space:]')"
+          running="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM source_runs WHERE status = 'RUNNING';" | tr -d '[:space:]')"
+          duplicate_runs="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM (SELECT source_id FROM source_runs GROUP BY source_id HAVING COUNT(*) > 1) duplicates;" | tr -d '[:space:]')"
+          failed="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM source_runs WHERE status = 'FAILED';" | tr -d '[:space:]')"
+          timed_out="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM source_runs WHERE status = 'FAILED' AND error_summary ILIKE '%timeout%';" | tr -d '[:space:]')"
+          jobs="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities;" | tr -d '[:space:]')"
+          observations="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_observations;" | tr -d '[:space:]')"
+          applications="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;" | tr -d '[:space:]')"
+          test "$sources" -eq 14
+          test "$attempted" -eq 14
+          test "$terminal" -eq 14
+          test "$running" -eq 0
+          test "$duplicate_runs" -eq 0
+          test "$terminal" -gt 4
+          printf 'eligible_sources=%s attempted_sources=%s terminal_sources=%s running_source_runs=%s duplicate_source_ids=%s failed_source_runs=%s timed_out_source_runs=%s jobs=%s observations=%s applications=%s\n' "$sources" "$attempted" "$terminal" "$running" "$duplicate_runs" "$failed" "$timed_out" "$jobs" "$observations" "$applications"
+
+          peak="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -Atc "WITH events AS (SELECT started_at AS t, 1 AS delta FROM source_runs UNION ALL SELECT finished_at AS t, -1 AS delta FROM source_runs WHERE finished_at IS NOT NULL), ordered AS (SELECT t, delta, SUM(delta) OVER (ORDER BY t, delta DESC) AS active FROM events) SELECT COALESCE(MAX(active),0) FROM ordered;" | tr -d '[:space:]')"
+          test "$peak" -le 4
+          printf 'peak_source_concurrency=%s\n' "$peak"
+
+          docker logs job-agent-discovery-app 2>&1 | tee /tmp/job-agent-discovery.log
+          ! grep -Eiq 'FATAL|UnhandledPromiseRejection|Unhandled exception|migration error|authentication error' /tmp/job-agent-discovery.log
+          ! grep -Eiq 'gmailMessageId|refreshToken|access_token|client_secret|api[_-]?key|password=' /tmp/job-agent-discovery.log
+          grep -q 'Discovery source run completed' /tmp/job-agent-discovery.log
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f job-agent-discovery-app job-agent-discovery-postgres >/dev/null 2>&1 || true
+          docker network rm job-agent-discovery >/dev/null 2>&1 || true

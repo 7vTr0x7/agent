@@ -37,3 +37,91 @@ jobs:
 
       - name: Build Docker image
         run: docker build --tag job-agent:ci .
+
+      - name: Start isolated PostgreSQL for safe runtime
+        run: |
+          docker network create job-agent-runtime
+          docker run -d --name job-agent-runtime-postgres --network job-agent-runtime \
+            -e POSTGRES_DB=job_agent \
+            -e POSTGRES_USER=job_agent \
+            -e POSTGRES_PASSWORD=runtime_test_password \
+            postgres:17-alpine
+          for i in $(seq 1 30); do
+            if docker exec job-agent-runtime-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then exit 0; fi
+            sleep 1
+          done
+          docker logs job-agent-runtime-postgres
+          exit 1
+
+      - name: Start Job Agent in SAFE_RUNTIME
+        run: |
+          docker run -d --name job-agent-runtime-app --network job-agent-runtime \
+            -p 127.0.0.1:3000:3000 \
+            -e NODE_ENV=test \
+            -e LOG_LEVEL=info \
+            -e API_HOST=0.0.0.0 \
+            -e API_PORT=3000 \
+            -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-runtime-postgres:5432/job_agent \
+            -e AUTOMATION_ENABLED=true \
+            -e APPLICATION_DRY_RUN=true \
+            -e OUTBOUND_ENABLED=false \
+            -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false \
+            -e JOB_DISCOVERY_ENABLED=false \
+            -e RECRUITER_OUTREACH_ENABLED=false \
+            -e RECRUITER_OUTREACH_DRY_RUN=true \
+            -e RECRUITER_OUTREACH_ACTIVATION=disabled \
+            -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false \
+            -e GMAIL_ENABLED=false \
+            -e EMAIL_ENABLED=false \
+            -e RESUME_TAILORING_ENABLED=false \
+            -e CANDIDATE_PROFILE_ID=runtime-test-candidate \
+            -e CANDIDATE_YEARS_EXPERIENCE=3 \
+            -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux,Node,Express,MongoDB' \
+            -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Full Stack Developer,React Developer' \
+            -e CANDIDATE_FIRST_NAME=Runtime \
+            -e CANDIDATE_LAST_NAME=Test \
+            -e CANDIDATE_FULL_NAME='Runtime Test' \
+            -e CANDIDATE_LOCATION=India \
+            -e CANDIDATE_SPONSORSHIP_REQUIRED=false \
+            -e CANDIDATE_NOTICE_PERIOD_DAYS=0 \
+            -e GENERIC_APPLICATION_ADAPTER_ENABLED=true \
+            -e JOB_DISCOVERY_INTERVAL_MS=60000 \
+            -e APPLICATION_QUEUE_INTERVAL_MS=1000 \
+            -e STALE_SUBMISSION_CHECK_INTERVAL_MS=1000 \
+            -e FOLLOW_UP_INTERVAL_MS=1000 \
+            -e INTERVIEW_REMINDER_INTERVAL_MS=1000 \
+            -e RECRUITER_FOLLOWUP_ENABLED=true \
+            -e RECRUITER_FOLLOWUP_DAY_OFFSETS=4,10,18 \
+            job-agent:ci
+
+      - name: Verify safe runtime health and database schema
+        shell: bash
+        run: |
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/healthz | tee /tmp/job-agent-health.json; then break; fi
+            sleep 1
+          done
+          test -s /tmp/job-agent-health.json
+          grep -q '"status":"ok"' /tmp/job-agent-health.json
+          docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM schema_migrations;"
+          docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM tasks;"
+          docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;"
+
+      - name: Verify safe runtime logs and kill switches
+        shell: bash
+        run: |
+          sleep 3
+          docker logs job-agent-runtime-app 2>&1 | tee /tmp/job-agent-runtime.log
+          ! grep -Eiq 'ERROR|FATAL|UnhandledPromiseRejection|ECONNREFUSED|migration error|authentication error' /tmp/job-agent-runtime.log
+          grep -q 'job-agent started' /tmp/job-agent-runtime.log
+          ! grep -Eiq 'gmailMessageId|refreshToken|access_token|client_secret|api[_-]?key|password=' /tmp/job-agent-runtime.log
+
+      - name: Verify runtime container stays healthy
+        run: |
+          test "$(docker inspect -f '{{.State.Running}}' job-agent-runtime-app)" = "true"
+
+      - name: Cleanup safe runtime
+        if: always()
+        run: |
+          docker rm -f job-agent-runtime-app job-agent-runtime-postgres >/dev/null 2>&1 || true
+          docker network rm job-agent-runtime >/dev/null 2>&1 || true
