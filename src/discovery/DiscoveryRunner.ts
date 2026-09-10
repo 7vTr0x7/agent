@@ -13,6 +13,7 @@ export interface DiscoveryRunResult {
 
 const SOURCE_CONCURRENCY = 3;
 const SOURCE_TIMEOUT_MS = 3 * 60 * 1000;
+const PLATFORM_FEDERATION_TIMEOUT_MS = 60 * 60 * 1000;
 const SOURCE_RETRIES = 2;
 const RETRY_BASE_DELAY_MS = 1000;
 
@@ -38,16 +39,21 @@ export class DiscoveryRunner {
     if (!(await this.health.canRun(descriptor))) return null;
 
     const runId = await this.runs.start(descriptor);
+    const isPlatformFederation = descriptor.id === "platform-search:federation";
+    const timeoutMs = isPlatformFederation ? PLATFORM_FEDERATION_TIMEOUT_MS : SOURCE_TIMEOUT_MS;
+    // Platform federation already isolates failures per platform. Retrying the
+    // entire 200+ platform cycle would multiply runtime and duplicate traffic.
+    const maxRetries = isPlatformFederation ? 0 : SOURCE_RETRIES;
     let lastError: unknown;
 
-    for (let attempt = 0; attempt <= SOURCE_RETRIES; attempt++) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const controller = new AbortController();
       try {
         const discovered = await withTimeout(
           this.discovery.discover(source, controller.signal),
-          SOURCE_TIMEOUT_MS,
+          timeoutMs,
           controller,
-          `Discovery source ${descriptor.id} exceeded ${SOURCE_TIMEOUT_MS / 1000}s timeout`
+          `Discovery source ${descriptor.id} exceeded ${timeoutMs / 1000}s timeout`
         );
         const matching = await this.matchDispatcher.dispatch(discovered.insertedOpportunityIds);
         await this.runs.complete(runId, descriptor.id, "SUCCEEDED", {
@@ -58,7 +64,7 @@ export class DiscoveryRunner {
         return { source: descriptor.id, discovered, matching };
       } catch (error) {
         lastError = error;
-        if (!isTransientDiscoveryError(error) || attempt >= SOURCE_RETRIES) break;
+        if (!isTransientDiscoveryError(error) || attempt >= maxRetries) break;
         await delayWithAbort(RETRY_BASE_DELAY_MS * 2 ** attempt);
       } finally {
         controller.abort();
