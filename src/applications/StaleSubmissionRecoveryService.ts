@@ -18,6 +18,10 @@ export interface StaleSubmissionRecoveryResult {
   submission: SubmittedApplicationResult | null;
 }
 
+function hasIndependentEvidence(evidence: VerifiedSubmissionEvidence): boolean {
+  return Boolean(evidence.confirmationUrl.trim() || evidence.externalApplicationId.trim());
+}
+
 export class StaleSubmissionRecoveryService {
   constructor(
     private readonly applications: Pick<ApplicationRepository, "recoverVerifiedSubmission">,
@@ -33,10 +37,10 @@ export class StaleSubmissionRecoveryService {
       throw new Error("submission.applicationId must not be empty.");
     }
 
-    if (!evidence.confirmationUrl.trim() || !evidence.externalApplicationId.trim()) {
+    if (!hasIndependentEvidence(evidence)) {
       return {
         recovered: false,
-        reason: "Independent confirmation URL and external application ID are both required.",
+        reason: "Independent confirmation URL or external application ID is required.",
         submission: null
       };
     }

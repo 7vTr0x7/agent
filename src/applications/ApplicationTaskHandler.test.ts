@@ -155,7 +155,10 @@ describe("ApplicationTaskHandler", () => {
         },
         companyName: "Example Corp",
         excludedCompanies: ["Octopus Technologies", "Sketch Brahma Technologies"],
-        candidateProfile
+        candidateProfile,
+        taskId: "task-1",
+        workerId: "worker-1",
+        assertTaskOwnership: undefined
       }
     ]);
   });

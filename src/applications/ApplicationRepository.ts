@@ -213,6 +213,7 @@ export class ApplicationRepository {
       if (!row) throw new Error(`Application '${applicationId}' was not found.`);
       if (row.status === "SENT") return { applicationId, confirmationUrl, externalApplicationId };
       if (row.status !== "SUBMISSION_IN_PROGRESS") throw new Error(`Application cannot transition from status '${row.status}' to SENT.`);
+      if (!confirmationUrl?.trim() && !externalApplicationId?.trim()) throw new Error("Application submission requires confirmation evidence.");
       await client.query(`UPDATE applications SET status = 'SENT', applied_at = NOW(), updated_at = NOW() WHERE id = $1`, [applicationId]);
       await client.query(`INSERT INTO application_events (application_id, from_status, to_status, event_type, metadata) VALUES ($1, 'SUBMISSION_IN_PROGRESS', 'SENT', 'APPLICATION_SUBMITTED', $2::jsonb)`, [applicationId, JSON.stringify({ confirmationUrl, externalApplicationId })]);
       return { applicationId, confirmationUrl, externalApplicationId };
@@ -221,7 +222,7 @@ export class ApplicationRepository {
 
   async recoverVerifiedSubmission(applicationId: string, olderThanMinutes: number, evidence: VerifiedSubmissionEvidence): Promise<SubmittedApplicationResult | null> {
     if (!Number.isFinite(olderThanMinutes) || olderThanMinutes <= 0) throw new Error("olderThanMinutes must be a positive finite number.");
-    if (!evidence.confirmationUrl.trim() || !evidence.externalApplicationId.trim()) throw new Error("Verified submission evidence requires a confirmation URL and external application ID.");
+    if (!evidence.confirmationUrl.trim() && !evidence.externalApplicationId.trim()) throw new Error("Verified submission evidence requires a confirmation URL or external application ID.");
     if (evidence.verificationSource !== "INDEPENDENT_CONFIRMATION") throw new Error("Verified submission evidence must come from independent confirmation.");
     return this.database.transaction(async (client) => {
       const current = await client.query<{ status: string; updated_at: Date }>(`SELECT status, updated_at FROM applications WHERE id = $1 FOR UPDATE`, [applicationId]);
@@ -245,11 +246,11 @@ export class ApplicationRepository {
   async resolveUnknownAsDefinitiveFailure(applicationId: string, reason: string, verificationSource: "INDEPENDENT_REJECTION"): Promise<boolean> {
     if (!reason.trim()) throw new Error("A definitive rejection reason is required.");
     return this.database.transaction(async (client) => {
-      const current = await client.query<{ status: string }>(`SELECT status FROM applications WHERE id = $1 FOR UPDATE`, [applicationId]);
+      const current = await client.query<{ status: string }>(`SELECT status FROM applications WHERE id = $1 FOR UPDATE`);
       if (current.rows[0]?.status !== "SUBMISSION_UNKNOWN") return false;
-      const latest = await client.query<{ id: string }>(`SELECT id FROM application_attempts WHERE application_id = $1 ORDER BY attempted_at DESC, id DESC LIMIT 1`, [applicationId]);
+      const latest = await client.query<{ id: string }>(`SELECT id FROM application_attempts WHERE application_id = $1 ORDER BY attempted_at DESC, id DESC LIMIT 1`);
       const attemptId = latest.rows[0]?.id ?? null;
-      if (attemptId) await client.query(`UPDATE application_attempts SET outcome = 'DEFINITIVE_FAILURE', submitted = FALSE, phase = 'FINALIZED', reason = $2, ambiguity_reason = NULL, metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb, updated_at = NOW() WHERE id = $1`, [attemptId, reason, JSON.stringify({ verificationSource })]);
+      if (attemptId) await client.query(`UPDATE application_attempts SET outcome = 'DEFINITIVE_FAILURE', submitted = FALSE, phase = 'FINALIZED', reason = $2, ambiguity_reason = NULL, updated_at = NOW() WHERE id = $1`, [attemptId, reason]);
       await client.query(`UPDATE applications SET status = 'SUBMISSION_FAILED', updated_at = NOW() WHERE id = $1`, [applicationId]);
       await client.query(`INSERT INTO application_events (application_id, from_status, to_status, event_type, metadata) VALUES ($1, 'SUBMISSION_UNKNOWN', 'SUBMISSION_FAILED', 'APPLICATION_SUBMISSION_RECONCILED_FAILURE', $2::jsonb)`, [applicationId, JSON.stringify({ attemptId, reason, verificationSource })]);
       return true;
@@ -259,9 +260,9 @@ export class ApplicationRepository {
 
 interface StaleSubmissionEvidenceRow {
   id: string; candidate_profile_id: string; company_name: string; target_url: string; updated_at: Date;
-  attempt_id: string | null; attempt_outcome: ApplicationSubmissionOutcome | null; attempt_phase: string | null; idempotency_key: string | null;
-  task_id: string | null; task_status: string | null; task_lease_expires_at: Date | null; confirmation_url: string | null;
-  external_application_id: string | null; final_url: string | null; response_status: number | null; request_sent_at: Date | null;
-  response_received_at: Date | null; confirmation_attempted_at: Date | null; confirmation_received_at: Date | null;
+  attempt_id: string | null; attempt_outcome: ApplicationSubmissionOutcome | null; attempt_phase: string | null;
+  idempotency_key: string | null; task_id: string | null; task_status: string | null; task_lease_expires_at: Date | null;
+  confirmation_url: string | null; external_application_id: string | null; final_url: string | null; response_status: number | null;
+  request_sent_at: Date | null; response_received_at: Date | null; confirmation_attempted_at: Date | null; confirmation_received_at: Date | null;
   ambiguity_reason: string | null; metadata: Record<string, unknown> | null;
 }

@@ -58,7 +58,34 @@ describe("StaleSubmissionRecoveryService", () => {
     expect(recoverVerifiedSubmission).not.toHaveBeenCalled();
   });
 
-  it("requires both independent confirmation fields", async () => {
+  it("accepts an independently verified external application ID without requiring a confirmation URL", async () => {
+    const externalOnlyEvidence: VerifiedSubmissionEvidence = {
+      confirmationUrl: "",
+      externalApplicationId: "APP-456",
+      verificationSource: "INDEPENDENT_CONFIRMATION"
+    };
+    const recoveredExternalOnly: SubmittedApplicationResult = {
+      applicationId: submission.applicationId,
+      confirmationUrl: "",
+      externalApplicationId: externalOnlyEvidence.externalApplicationId
+    };
+    const recoverVerifiedSubmission = jest.fn().mockResolvedValue(recoveredExternalOnly);
+    const verify = jest.fn().mockReturnValue(true);
+    const service = new StaleSubmissionRecoveryService(
+      { recoverVerifiedSubmission },
+      { verify }
+    );
+
+    await expect(service.recover(submission, 30, externalOnlyEvidence)).resolves.toEqual({
+      recovered: true,
+      reason: "Application was marked SENT from independently verified confirmation evidence; no resubmission was performed.",
+      submission: recoveredExternalOnly
+    });
+    expect(verify).toHaveBeenCalledWith(submission, externalOnlyEvidence);
+    expect(recoverVerifiedSubmission).toHaveBeenCalledWith(submission.applicationId, 30, externalOnlyEvidence);
+  });
+
+  it("rejects evidence when neither independent confirmation signal exists", async () => {
     const recoverVerifiedSubmission = jest.fn();
     const verify = jest.fn();
     const service = new StaleSubmissionRecoveryService(
@@ -68,12 +95,13 @@ describe("StaleSubmissionRecoveryService", () => {
 
     await expect(
       service.recover(submission, 30, {
-        ...evidence,
-        externalApplicationId: ""
+        confirmationUrl: "",
+        externalApplicationId: "",
+        verificationSource: "INDEPENDENT_CONFIRMATION"
       })
     ).resolves.toEqual({
       recovered: false,
-      reason: "Independent confirmation URL and external application ID are both required.",
+      reason: "Independent confirmation URL or external application ID is required.",
       submission: null
     });
     expect(verify).not.toHaveBeenCalled();

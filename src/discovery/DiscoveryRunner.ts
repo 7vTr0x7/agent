@@ -11,7 +11,7 @@ export interface DiscoveryRunResult {
   matching: DispatchMatchResult;
 }
 
-const SOURCE_CONCURRENCY = 3;
+export const SOURCE_CONCURRENCY = 4;
 const SOURCE_TIMEOUT_MS = 3 * 60 * 1000;
 const PLATFORM_FEDERATION_TIMEOUT_MS = 60 * 60 * 1000;
 const SOURCE_RETRIES = 2;
@@ -65,7 +65,7 @@ export class DiscoveryRunner {
       } catch (error) {
         lastError = error;
         if (!isTransientDiscoveryError(error) || attempt >= maxRetries) break;
-        await delayWithAbort(RETRY_BASE_DELAY_MS * 2 ** attempt);
+        await delayWithAbort(RETRY_BASE_DELAY_MS * 2 ** attempt, controller.signal);
       } finally {
         controller.abort();
       }
@@ -113,16 +113,30 @@ function isTransientDiscoveryError(error: unknown): boolean {
   return /timeout|timed out|temporar|econnreset|econnrefused|enotfound|eai_again|network|fetch failed|429|502|503|504/.test(message);
 }
 
-async function delayWithAbort(ms: number): Promise<void> {
-  await new Promise<void>((resolve) => setTimeout(resolve, ms));
+async function delayWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return;
+  await new Promise<void>((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = () => {
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    };
+    timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
-async function mapWithConcurrency<T, R>(
+export async function mapWithConcurrency<T, R>(
   items: readonly T[],
   concurrency: number,
   mapper: (item: T) => Promise<R>
 ): Promise<R[]> {
   if (!items.length) return [];
+  if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("concurrency must be a positive integer");
   const output: R[] = new Array(items.length);
   let index = 0;
 
@@ -135,7 +149,7 @@ async function mapWithConcurrency<T, R>(
   }
 
   await Promise.all(
-    Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, () => worker())
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
   );
   return output;
 }
