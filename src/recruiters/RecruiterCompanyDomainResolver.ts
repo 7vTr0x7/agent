@@ -16,7 +16,7 @@ const COMMON_TWO_PART_PUBLIC_SUFFIXES = new Set(["co.uk", "org.uk", "ac.uk", "co
 const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com", "yahoo.co.in", "icloud.com", "proton.me", "protonmail.com"]);
 const EMAIL_PATTERN = /[A-Z0-9._+\-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
-const SEARCH_URL_PATTERN = /https?:\/\/(?:www\.)?[^\s<>"'()]+/gi;
+const SEARCH_URL_PATTERN = /https?:\/\/[^\s<>"'()]+/gi;
 
 function normalizeHost(value: string): string {
   return value.trim().toLowerCase().replace(/^www\./, "");
@@ -61,35 +61,17 @@ export function resolveEmployerDomainFromJobUrl(value: string | null | undefined
 export function resolveEmployerDomainFromJobData(
   companyDomain: string | null | undefined,
   canonicalUrl: string | null | undefined,
-  jobDescription: string | null | undefined
+  _jobDescription: string | null | undefined
 ): string | null {
-  const candidates = new Map<string, number>();
-  const addCandidate = (host: string | null, weight: number) => {
-    if (!host) return;
-    candidates.set(host, (candidates.get(host) ?? 0) + weight);
-  };
-
-  // Explicit employer-domain data is the strongest signal. The canonical job
-  // URL is next. Domains merely mentioned inside a description are deliberately
-  // weaker because they can be support, vendor, partner, or unrelated links.
-  addCandidate(resolveEmployerDomainFromJobUrl(companyDomain), 10);
-  addCandidate(resolveEmployerDomainFromJobUrl(canonicalUrl), 8);
-
-  for (const email of (jobDescription ?? "").match(EMAIL_PATTERN) ?? []) {
-    const domain = normalizeHost(email.split("@")[1] ?? "");
-    if (domain && !GENERIC_EMAIL_DOMAINS.has(domain)) addCandidate(normalizeEmployerHost(domain), 3);
-  }
-
-  // A direct employer/careers link in the description is strong enough to
-  // identify the employer on its own, while remaining below explicit employer
-  // and canonical signals. This fixes aggregator feeds whose canonical URL is
-  // a blocked job-board host but whose description contains the real employer.
-  for (const url of (jobDescription ?? "").match(URL_PATTERN) ?? []) addCandidate(resolveEmployerDomainFromJobUrl(url), 3);
-
-  const ranked = [...candidates.entries()].sort((a, b) => b[1] - a[1]);
-  const [best, bestScore] = ranked[0] ?? [null, 0];
-  if (!best || bestScore < 3) return null;
-  return best;
+  // Only explicit employer-domain data and the canonical job URL are trusted
+  // as deterministic evidence. Domains mentioned in descriptions are not
+  // authoritative: job postings routinely contain ATS, vendor, partner,
+  // analytics, portfolio, and unrelated contact domains. When these primary
+  // signals are unavailable, callers must use public employer-search
+  // resolution rather than guessing from description links or emails.
+  const explicitDomain = resolveEmployerDomainFromJobUrl(companyDomain);
+  if (explicitDomain) return explicitDomain;
+  return resolveEmployerDomainFromJobUrl(canonicalUrl);
 }
 
 function companyTokens(companyName: string): string[] {
