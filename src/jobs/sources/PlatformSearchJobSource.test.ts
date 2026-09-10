@@ -14,20 +14,19 @@ describe("PlatformSearchJobSource", () => {
     const calls: string[] = [];
     global.fetch = jest.fn(async (input: string | URL | Request) => {
       calls.push(String(input));
-      return new Response("", { status: 200, headers: { "content-type": "text/html" } });
+      // A non-empty successful search response prevents fallback fan-out while
+      // still proving that both queries for every registry entry were scheduled.
+      return new Response("no public job results", { status: 200, headers: { "content-type": "text/plain" } });
     }) as typeof global.fetch;
 
     const jobs = await new PlatformSearchJobSource().fetchJobs();
 
     expect(jobs).toEqual([]);
-    // Two independent public-search queries are attempted for every registry
-    // entry. With empty responses, each query tries the three search front-ends
-    // and then the direct Bing RSS fallback.
-    expect(calls).toHaveLength(JOB_PLATFORM_REGISTRY.length * 2 * 4);
+    expect(calls).toHaveLength(JOB_PLATFORM_REGISTRY.length * 2);
   });
 
   it("stops before issuing network work when the source signal is already aborted", async () => {
-    const fetchMock = jest.fn(async () => new Response("", { status: 200 }));
+    const fetchMock = jest.fn(async () => new Response("no public job results", { status: 200 }));
     global.fetch = fetchMock as typeof global.fetch;
     const controller = new AbortController();
     controller.abort();
