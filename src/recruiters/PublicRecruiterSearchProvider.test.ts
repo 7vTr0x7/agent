@@ -14,7 +14,6 @@ describe("PublicRecruiterSearchProvider", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("dns")) return new Response(JSON.stringify({ Answer: [] }), { status: 200 });
       return new Response("Acme Corp careers result: recruiting@acme.com", { status: 200 });
     }) as typeof fetch;
 
@@ -29,12 +28,14 @@ describe("PublicRecruiterSearchProvider", () => {
       });
       expect(result.contacts.map((contact) => contact.email)).toContain("recruiting@acme.com");
       expect(result.contacts[0]?.confidence).toBeGreaterThanOrEqual(94);
+      expect(result.contacts[0]?.verified).toBe(false);
+      expect(result.contacts[0]?.discoveryEvidence?.length).toBeGreaterThan(0);
     } finally {
       globalThis.fetch = originalFetch;
     }
   });
 
-  it("marks a recruiter email as domain_mx_verified when the employer domain has MX records", async () => {
+  it("marks an MX-backed recruiter email as LIKELY, not mailbox VERIFIED", async () => {
     const resolveMx = jest.spyOn(dns, "resolveMx").mockResolvedValue([
       { exchange: "mail.accenture.com", priority: 10 }
     ]);
@@ -42,8 +43,8 @@ describe("PublicRecruiterSearchProvider", () => {
       const provider = new PublicRecruiterSearchProvider();
       await expect(provider.verify("keri.williams@accenture.com")).resolves.toEqual({
         email: "keri.williams@accenture.com",
-        verified: true,
-        status: "domain_mx_verified",
+        verified: false,
+        status: "LIKELY",
         confidence: 75
       });
       expect(resolveMx).toHaveBeenCalledWith("accenture.com");
@@ -52,14 +53,14 @@ describe("PublicRecruiterSearchProvider", () => {
     }
   });
 
-  it("does not mark an address verified when the employer domain has no MX records", async () => {
+  it("marks an address INVALID when the employer domain has no MX records", async () => {
     const resolveMx = jest.spyOn(dns, "resolveMx").mockResolvedValue([]);
     try {
       const provider = new PublicRecruiterSearchProvider();
       await expect(provider.verify("recruiter@example.com")).resolves.toEqual({
         email: "recruiter@example.com",
         verified: false,
-        status: "no_mx_record",
+        status: "INVALID",
         confidence: 0
       });
     } finally {
@@ -67,7 +68,7 @@ describe("PublicRecruiterSearchProvider", () => {
     }
   });
 
-  it("falls back to DNS-over-HTTPS when the local resolver fails", async () => {
+  it("falls back to DNS-over-HTTPS without upgrading MX evidence to mailbox verification", async () => {
     const resolveMx = jest.spyOn(dns, "resolveMx").mockRejectedValue(new Error("EAI_AGAIN"));
     const originalFetch = globalThis.fetch;
     globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
@@ -85,8 +86,8 @@ describe("PublicRecruiterSearchProvider", () => {
       const provider = new PublicRecruiterSearchProvider();
       await expect(provider.verify("recruiter@example.com")).resolves.toEqual({
         email: "recruiter@example.com",
-        verified: true,
-        status: "domain_mx_verified_doh",
+        verified: false,
+        status: "LIKELY",
         confidence: 75
       });
     } finally {
@@ -95,15 +96,16 @@ describe("PublicRecruiterSearchProvider", () => {
     }
   });
 
-  it("does not claim mailbox-level verification", async () => {
+  it("does not claim mailbox-level verification from MX evidence alone", async () => {
     const resolveMx = jest.spyOn(dns, "resolveMx").mockResolvedValue([
       { exchange: "mail.example.com", priority: 10 }
     ]);
     try {
       const provider = new PublicRecruiterSearchProvider();
       const result = await provider.verify("recruiter@example.com");
-      expect(result.status).toBe("domain_mx_verified");
-      expect(result.verified).toBe(true);
+      expect(result.status).toBe("LIKELY");
+      expect(result.verified).toBe(false);
+      expect(result.status).not.toBe("VERIFIED");
       expect(result.status).not.toBe("mailbox_verified");
     } finally {
       resolveMx.mockRestore();
