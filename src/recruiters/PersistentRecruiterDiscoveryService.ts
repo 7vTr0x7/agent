@@ -14,6 +14,7 @@ import { rankRecruiterContacts, RankedRecruiterContact } from "./RecruiterRankin
 export interface PersistentRecruiterDiscoveryOptions {
   provider: RecruiterDiscoveryProvider;
   repository: RecruiterDiscoveryRepository;
+  identityRepository?: RecruiterIdentityRepository;
   cooldownHours?: number;
   minConfidence?: number;
   requireVerifiedEmail?: boolean;
@@ -41,11 +42,6 @@ function hasEmail(contact: RecruiterDiscoveryContact): contact is RecruiterConta
 function normalize(value: string): string { return value.trim().toLowerCase(); }
 function normalizeDomain(value: string): string { return normalize(value).replace(/^https?:\/\//, "").split("/")[0]?.replace(/^www\./, "") ?? ""; }
 function isCompanyEmail(email: string, domain: string): boolean { return normalize(email).endsWith(`@${domain}`); }
-function identityMatches(identity: RecruiterIdentityCandidate, emailCandidate: RecruiterContactCandidate): boolean {
-  if (identity.linkedinProfileUrl && emailCandidate.linkedinProfileUrl) return identity.linkedinProfileUrl.toLowerCase() === emailCandidate.linkedinProfileUrl.toLowerCase();
-  if (identity.fullName && emailCandidate.fullName) return normalize(identity.fullName) === normalize(emailCandidate.fullName);
-  return false;
-}
 
 function toStoredContact(identity: StoredRecruiterIdentity): StoredRecruiterContact | null {
   if (!identity.email) return null;
@@ -79,9 +75,13 @@ export class PersistentRecruiterDiscoveryService {
     this.requireVerifiedEmail = options.requireVerifiedEmail ?? true;
     if (!Number.isFinite(this.cooldownHours) || this.cooldownHours < 0) throw new Error("Recruiter discovery cooldown must be a non-negative finite number.");
     if (!Number.isFinite(this.minConfidence) || this.minConfidence < 0 || this.minConfidence > 100) throw new Error("Recruiter discovery minimum confidence must be between 0 and 100.");
-    const database = (options.repository as unknown as { database?: Database }).database;
-    if (!database) throw new Error("Recruiter discovery repository database handle is unavailable.");
-    this.identityRepository = new RecruiterIdentityRepository(database);
+    if (options.identityRepository) {
+      this.identityRepository = options.identityRepository;
+    } else {
+      const database = (options.repository as unknown as { database?: Database }).database;
+      if (!database) throw new Error("Recruiter discovery repository database handle is unavailable.");
+      this.identityRepository = new RecruiterIdentityRepository(database);
+    }
   }
 
   async discoverAndPersist(input: RecruiterDiscoveryInput, maxContacts: number): Promise<PersistentRecruiterDiscoveryResult> {
@@ -109,11 +109,7 @@ export class PersistentRecruiterDiscoveryService {
       metrics.persistence.rejected += identities.length - eligibleIdentities.length;
       const persisted = new Map<string, StoredRecruiterIdentity>();
       for (const candidate of eligibleIdentities) {
-        const stored = await this.identityRepository.upsertIdentity(input.companyName, domain, {
-          ...candidate,
-          companyDomain: domain,
-          provider: this.options.provider.name
-        });
+        const stored = await this.identityRepository.upsertIdentity(input.companyName, domain, { ...candidate, companyDomain: domain, provider: this.options.provider.name });
         await this.identityRepository.addSources(stored.id, candidate);
         persisted.set(stored.id, stored);
         metrics.persistence.insertedOrUpdated += 1;
@@ -166,7 +162,7 @@ export class PersistentRecruiterDiscoveryService {
       const outreachContacts: RecruiterContactCandidate[] = [...persisted.values()]
         .map(toStoredContact)
         .filter((contact): contact is StoredRecruiterContact => Boolean(contact))
-        .filter((contact) => contact.email && (contact.confidence ?? 0) >= this.minConfidence)
+        .filter((contact) => (contact.confidence ?? 0) >= this.minConfidence)
         .map((contact) => ({
           email: contact.email,
           fullName: contact.fullName,
@@ -205,8 +201,7 @@ export class PersistentRecruiterDiscoveryService {
     const secondStage = this.options.provider.discoverEmails
       ? await this.options.provider.discoverEmails(input)
       : { provider: this.options.provider.name, contacts: direct, discoveredAt: new Date() };
-    const candidates = secondStage.contacts.filter(hasEmail) as RecruiterContactCandidate[];
-    return deduplicateEmailCandidates([...direct, ...candidates]);
+    return deduplicateEmailCandidates([...direct, ...secondStage.contacts.filter(hasEmail) as RecruiterContactCandidate[]]);
   }
 }
 
@@ -239,15 +234,7 @@ function deduplicateEmailCandidates(contacts: RecruiterContactCandidate[]): Recr
     const email = contact.email.trim().toLowerCase();
     const existing = map.get(email);
     if (!existing) map.set(email, { ...contact, email });
-    else map.set(email, {
-      ...existing,
-      fullName: existing.fullName ?? contact.fullName,
-      title: existing.title ?? contact.title,
-      linkedinProfileUrl: existing.linkedinProfileUrl ?? contact.linkedinProfileUrl,
-      confidence: Math.max(existing.confidence ?? 0, contact.confidence ?? 0),
-      verified: existing.verified || contact.verified,
-      sources: [...existing.sources, ...contact.sources]
-    });
+    else map.set(email, { ...existing, fullName: existing.fullName ?? contact.fullName, title: existing.title ?? contact.title, linkedinProfileUrl: existing.linkedinProfileUrl ?? contact.linkedinProfileUrl, confidence: Math.max(existing.confidence ?? 0, contact.confidence ?? 0), verified: existing.verified || contact.verified, sources: [...existing.sources, ...contact.sources] });
   }
   return [...map.values()];
 }
@@ -266,16 +253,10 @@ function matchEmailCandidates(identities: StoredRecruiterIdentity[], candidates:
   return result;
 }
 
-function isCompanyEmail(email: string, domain: string): boolean { return normalize(email).endsWith(`@${domain}`); }
 function isPermanentlyExcludedCompany(companyName: string): boolean {
   const normalized = companyName.trim().toLowerCase();
   return PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.toLowerCase() === normalized);
 }
 function emptyMetrics(): RecruiterDiscoveryMetrics {
-  return {
-    recruiterDiscovery: { discovered: 0, profileOnly: 0, withEmail: 0 },
-    emailDiscovery: { attempted: 0, found: 0, notFound: 0, invalid: 0 },
-    persistence: { insertedOrUpdated: 0, deduplicated: 0, rejected: 0 },
-    outreach: { eligible: 0, prepared: 0, sendQueued: 0, sent: 0, failed: 0 }
-  };
+  return { recruiterDiscovery: { discovered: 0, profileOnly: 0, withEmail: 0 }, emailDiscovery: { attempted: 0, found: 0, notFound: 0, invalid: 0 }, persistence: { insertedOrUpdated: 0, deduplicated: 0, rejected: 0 }, outreach: { eligible: 0, prepared: 0, sendQueued: 0, sent: 0, failed: 0 } };
 }
