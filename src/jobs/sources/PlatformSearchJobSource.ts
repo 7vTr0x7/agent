@@ -7,6 +7,8 @@ const SEARCH_CONCURRENCY = 4;
 const SEARCH_TIMEOUT_MS = 8000;
 const PAGE_TIMEOUT_MS = 8000;
 const MAX_SEARCH_URLS_PER_QUERY = 20;
+const FETCH_RETRIES = 2;
+const RETRY_BASE_DELAY_MS = 250;
 
 /**
  * Public-search federation for registry platforms without a stable free API/feed.
@@ -19,13 +21,14 @@ const MAX_SEARCH_URLS_PER_QUERY = 20;
 export class PlatformSearchJobSource implements JobSource {
   readonly name = "platform-search-federation";
 
-  async fetchJobs(): Promise<Job[]> {
+  async fetchJobs(signal?: AbortSignal): Promise<Job[]> {
     const platforms = JOB_PLATFORM_REGISTRY;
     if (!platforms.length) return [];
 
     const results = await mapWithConcurrency(platforms, SEARCH_CONCURRENCY, async (platform) => {
+      if (signal?.aborted) return [];
       try {
-        return await discoverPlatform(platform.name);
+        return await discoverPlatform(platform.name, signal);
       } catch {
         return [];
       }
@@ -35,7 +38,7 @@ export class PlatformSearchJobSource implements JobSource {
   }
 }
 
-async function discoverPlatform(platformName: string): Promise<Job[]> {
+async function discoverPlatform(platformName: string, signal?: AbortSignal): Promise<Job[]> {
   const domain = platformSearchDomain(platformName);
   const queries = [
     `"${platformName}" (React OR "Frontend Engineer" OR "Front End Developer" OR Next.js OR TypeScript) (Bengaluru OR Bangalore OR India OR remote)`,
@@ -44,21 +47,20 @@ async function discoverPlatform(platformName: string): Promise<Job[]> {
       : `"${platformName}" jobs (React OR "Frontend Engineer" OR Next.js OR TypeScript) (Bengaluru OR Bangalore OR India OR remote)`
   ];
 
-  // Use several public search front-ends. Jina provides a stable text/HTML
-  // representation of search pages and avoids depending on a particular RSS
-  // response format. Direct Bing RSS remains a final fallback when Jina is
-  // unavailable. We never bypass login, CAPTCHA, robots or access controls.
   const searchResults = await mapWithConcurrency(queries, 2, async (query) => {
-    const responses = await fetchSearchPages(query);
+    if (signal?.aborted) return [];
+    const responses = await fetchSearchPages(query, signal);
     return responses.flatMap(extractSearchResultUrls);
   });
 
+  if (signal?.aborted) return [];
   const links = [...new Set(searchResults.flat())].slice(0, MAX_SEARCH_URLS_PER_QUERY * queries.length);
   if (!links.length) return [];
 
   const jobs = await mapWithConcurrency(links, SEARCH_CONCURRENCY, async (url) => {
+    if (signal?.aborted) return null;
     try {
-      const html = await fetchText(url, PAGE_TIMEOUT_MS);
+      const html = await fetchText(url, PAGE_TIMEOUT_MS, signal);
       return html ? parseJobPosting(html, url, platformName) : null;
     } catch {
       return null;
@@ -74,7 +76,7 @@ async function discoverPlatform(platformName: string): Promise<Job[]> {
   return [...unique.values()];
 }
 
-async function fetchSearchPages(query: string): Promise<string[]> {
+async function fetchSearchPages(query: string, signal?: AbortSignal): Promise<string[]> {
   const encoded = encodeURIComponent(query);
   const endpoints = [
     `https://r.jina.ai/https://www.google.com/search?q=${encoded}&gbv=1`,
@@ -84,18 +86,18 @@ async function fetchSearchPages(query: string): Promise<string[]> {
 
   const pages: string[] = [];
   for (const endpoint of endpoints) {
-    const page = await fetchText(endpoint, SEARCH_TIMEOUT_MS);
+    if (signal?.aborted) return pages;
+    const page = await fetchText(endpoint, SEARCH_TIMEOUT_MS, signal);
     if (page) pages.push(page);
-    // One healthy search representation is normally enough. This prevents a
-    // single discovery cycle from multiplying requests against public engines.
     if (pages.length >= 1) break;
   }
 
-  if (pages.length) return pages;
+  if (pages.length || signal?.aborted) return pages;
 
   const bingRss = await fetchText(
     `https://www.bing.com/search?format=rss&q=${encoded}`,
-    SEARCH_TIMEOUT_MS
+    SEARCH_TIMEOUT_MS,
+    signal
   );
   return bingRss ? [bingRss] : [];
 }
@@ -103,13 +105,11 @@ async function fetchSearchPages(query: string): Promise<string[]> {
 function extractSearchResultUrls(page: string): string[] {
   const urls = new Set<string>();
 
-  // Jina search output commonly uses Markdown links.
   for (const match of page.matchAll(/\]\((https?:\/\/[^)\s]+)\)/gi)) {
     const url = cleanSearchUrl(match[1] ?? "");
     if (url) urls.add(url);
   }
 
-  // Also accept ordinary HTML/XML links for fallback search responses.
   for (const match of page.matchAll(/<link[^>]*>(https?:\/\/[^<]+)<\/link>/gi)) {
     const url = cleanSearchUrl(decodeXml(match[1] ?? ""));
     if (url) urls.add(url);
@@ -126,7 +126,6 @@ function cleanSearchUrl(value: string): string {
   const decoded = decodeXml(value).replace(/&amp;/gi, "&").trim();
   try {
     const url = new URL(decoded);
-    // Do not crawl javascript/data/blob URLs or obvious search/redirect links.
     if (!/^https?:$/i.test(url.protocol)) return "";
     if (isSearchEngineUrl(url.toString())) return "";
     url.hash = "";
@@ -320,25 +319,54 @@ function decodeXml(value: string): string {
     .replace(/&#39;/g, "'");
 }
 
-async function fetchText(url: string, timeoutMs: number): Promise<string | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      redirect: "follow",
-      headers: {
-        accept: "text/plain,text/html,application/xhtml+xml,application/rss+xml,application/ld+json,*/*;q=0.5",
-        "user-agent": "job-agent-public-platform-discovery/2.0"
-      }
-    });
-    if (!response.ok) return null;
-    return await response.text();
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
+async function fetchText(url: string, timeoutMs: number, parentSignal?: AbortSignal): Promise<string | null> {
+  for (let attempt = 0; attempt <= FETCH_RETRIES; attempt++) {
+    if (parentSignal?.aborted) return null;
+
+    const controller = new AbortController();
+    const onParentAbort = (): void => controller.abort(parentSignal?.reason);
+    parentSignal?.addEventListener("abort", onParentAbort, { once: true });
+    const timer = setTimeout(() => controller.abort(new Error(`Request timed out after ${timeoutMs}ms`)), timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        redirect: "follow",
+        headers: {
+          accept: "text/plain,text/html,application/xhtml+xml,application/rss+xml,application/ld+json,*/*;q=0.5",
+          "user-agent": "job-agent-public-platform-discovery/2.0"
+        }
+      });
+      if (response.ok) return await response.text();
+      if (![408, 425, 429, 500, 502, 503, 504].includes(response.status)) return null;
+    } catch {
+      if (parentSignal?.aborted) return null;
+    } finally {
+      clearTimeout(timer);
+      parentSignal?.removeEventListener("abort", onParentAbort);
+    }
+
+    if (attempt < FETCH_RETRIES) {
+      await delayWithSignal(RETRY_BASE_DELAY_MS * 2 ** attempt, parentSignal);
+    }
   }
+  return null;
+}
+
+async function delayWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 async function mapWithConcurrency<T, R>(items: readonly T[], concurrency: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
