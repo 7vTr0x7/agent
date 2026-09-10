@@ -19,38 +19,17 @@ export interface Task<TPayload = Record<string, unknown>> {
   maxAttempts: number;
   dedupeKey: string | null;
 }
+export interface EnqueueTaskInput<TPayload> { taskType: string; payload: TPayload; priority?: number; availableAt?: Date; maxAttempts?: number; dedupeKey?: string; }
+export interface ClaimedTask<TPayload = Record<string, unknown>> extends Task<TPayload> { workerId: string; }
+export interface RecoverStaleTasksResult { recovered: number; }
 
-export interface EnqueueTaskInput<TPayload> {
-  taskType: string;
-  payload: TPayload;
-  priority?: number;
-  availableAt?: Date;
-  maxAttempts?: number;
-  dedupeKey?: string;
-}
-
-export interface ClaimedTask<TPayload = Record<string, unknown>> extends Task<TPayload> {
-  workerId: string;
-}
-
-export interface RecoverStaleTasksResult {
-  recovered: number;
-}
-
-// Tasks may perform network/browser/API work. A one-minute lease is too short for
-// legitimate long-running tasks such as Gmail synchronization or application flows.
-// The worker heartbeat keeps the lease alive while the handler is active.
-export const DEFAULT_TASK_LEASE_DURATION_MS = 5 * 60_000;
+// Long discovery/recruiter/browser tasks can legitimately run for several minutes.
+// Heartbeats renew this lease while work is active; recovery only touches expired leases.
+export const DEFAULT_TASK_LEASE_DURATION_MS = 15 * 60_000;
 
 export class TaskQueue {
-  constructor(
-    private readonly database: Database,
-    private readonly leaseDurationMs = DEFAULT_TASK_LEASE_DURATION_MS
-  ) {}
-
-  getDatabase(): Database {
-    return this.database;
-  }
+  constructor(private readonly database: Database, private readonly leaseDurationMs = DEFAULT_TASK_LEASE_DURATION_MS) {}
+  getDatabase(): Database { return this.database; }
 
   async enqueue<TPayload>(input: EnqueueTaskInput<TPayload>): Promise<string> {
     const id = randomUUID();
@@ -81,14 +60,8 @@ export class TaskQueue {
       if (!row) return null;
       const attempt = row.attempts + 1;
       const leaseExpiresAt = new Date(Date.now() + this.leaseDurationMs);
-      await client.query(
-        `UPDATE tasks SET status='RUNNING', locked_at=NOW(), lease_expires_at=$2, locked_by=$3, attempts=$4, updated_at=NOW() WHERE id=$1`,
-        [row.id, leaseExpiresAt, workerId, attempt]
-      );
-      await client.query(
-        `INSERT INTO task_attempts (task_id, attempt, worker_id, status) VALUES ($1,$2,$3,'RUNNING')`,
-        [row.id, attempt, workerId]
-      );
+      await client.query(`UPDATE tasks SET status='RUNNING', locked_at=NOW(), lease_expires_at=$2, locked_by=$3, attempts=$4, updated_at=NOW() WHERE id=$1`, [row.id, leaseExpiresAt, workerId, attempt]);
+      await client.query(`INSERT INTO task_attempts (task_id, attempt, worker_id, status) VALUES ($1,$2,$3,'RUNNING')`, [row.id, attempt, workerId]);
       return { ...mapTask(row), status: "RUNNING", lockedAt: new Date(), leaseExpiresAt, lockedBy: workerId, attempts: attempt, workerId };
     });
   }
@@ -105,27 +78,14 @@ export class TaskQueue {
   async recoverStaleTasks(): Promise<RecoverStaleTasksResult> {
     return this.database.transaction(async (client) => {
       const result = await client.query<{ id: string; status: TaskStatus }>(
-        `UPDATE tasks
-         SET status = CASE WHEN attempts >= max_attempts THEN 'DEAD_LETTER' ELSE 'PENDING' END,
+        `UPDATE tasks SET status = CASE WHEN attempts >= max_attempts THEN 'DEAD_LETTER' ELSE 'PENDING' END,
              available_at = NOW(), locked_at = NULL, lease_expires_at = NULL, locked_by = NULL,
              last_error = 'Worker lease expired; task recovered.', updated_at = NOW()
          WHERE status = 'RUNNING' AND lease_expires_at IS NOT NULL AND lease_expires_at <= NOW()
          RETURNING id, status`
       );
-      for (const task of result.rows) {
-        await client.query(
-          `UPDATE task_attempts SET status='FAILED', finished_at=NOW(), error='Worker lease expired; task recovered.' WHERE task_id=$1 AND status='RUNNING'`,
-          [task.id]
-        );
-      }
-      for (const task of result.rows.filter((row) => row.status === "DEAD_LETTER")) {
-        await client.query(
-          `INSERT INTO dead_letter_tasks (task_id, task_type, payload, attempts, reason)
-           SELECT id, task_type, payload, attempts, 'Worker lease expired after maximum attempts.' FROM tasks WHERE id=$1
-           ON CONFLICT (task_id) DO NOTHING`,
-          [task.id]
-        );
-      }
+      for (const task of result.rows) await client.query(`UPDATE task_attempts SET status='FAILED', finished_at=NOW(), error='Worker lease expired; task recovered.' WHERE task_id=$1 AND status='RUNNING'`, [task.id]);
+      for (const task of result.rows.filter((row) => row.status === "DEAD_LETTER")) await client.query(`INSERT INTO dead_letter_tasks (task_id, task_type, payload, attempts, reason) SELECT id, task_type, payload, attempts, 'Worker lease expired after maximum attempts.' FROM tasks WHERE id=$1 ON CONFLICT (task_id) DO NOTHING`, [task.id]);
       return { recovered: result.rowCount ?? 0 };
     });
   }
@@ -145,38 +105,17 @@ export class TaskQueue {
       if (!task) throw new Error("Task is not owned by this worker");
       const deadLetter = task.attempts >= task.max_attempts;
       const status: TaskStatus = deadLetter ? "DEAD_LETTER" : "PENDING";
-      const nextAvailableAt = deadLetter
-        ? new Date()
-        : (retryAt ?? new Date(Date.now() + calculateRetryDelayMs(task.attempts)));
+      const nextAvailableAt = deadLetter ? new Date() : (retryAt ?? new Date(Date.now() + calculateRetryDelayMs(task.attempts)));
       await client.query(`UPDATE tasks SET status=$2, available_at=$3, locked_at=NULL, lease_expires_at=NULL, locked_by=NULL, last_error=$4, updated_at=NOW() WHERE id=$1`, [taskId, status, nextAvailableAt, error]);
       await client.query(`UPDATE task_attempts SET status='FAILED', finished_at=NOW(), error=$4 WHERE task_id=$1 AND attempt=$2 AND worker_id=$3`, [taskId, task.attempts, workerId, error]);
-      if (deadLetter) {
-        await client.query(`INSERT INTO dead_letter_tasks (task_id, task_type, payload, attempts, reason) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (task_id) DO NOTHING`, [taskId, task.task_type, JSON.stringify(task.payload), task.attempts, error]);
-      }
+      if (deadLetter) await client.query(`INSERT INTO dead_letter_tasks (task_id, task_type, payload, attempts, reason) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (task_id) DO NOTHING`, [taskId, task.task_type, JSON.stringify(task.payload), task.attempts, error]);
       return status;
     });
   }
 }
 
-interface TaskRow<TPayload> {
-  id: string;
-  task_type: string;
-  payload: TPayload;
-  status: TaskStatus;
-  priority: number;
-  available_at: Date;
-  locked_at: Date | null;
-  lease_expires_at: Date | null;
-  locked_by: string | null;
-  attempts: number;
-  max_attempts: number;
-  dedupe_key: string | null;
-}
-
-function mapTask<TPayload>(row: TaskRow<TPayload>): Task<TPayload> {
-  return { id: row.id, taskType: row.task_type, payload: row.payload, status: row.status, priority: row.priority, availableAt: row.available_at, lockedAt: row.locked_at, leaseExpiresAt: row.lease_expires_at, lockedBy: row.locked_by, attempts: row.attempts, maxAttempts: row.max_attempts, dedupeKey: row.dedupe_key };
-}
-
+interface TaskRow<TPayload> { id: string; task_type: string; payload: TPayload; status: TaskStatus; priority: number; available_at: Date; locked_at: Date | null; lease_expires_at: Date | null; locked_by: string | null; attempts: number; max_attempts: number; dedupe_key: string | null; }
+function mapTask<TPayload>(row: TaskRow<TPayload>): Task<TPayload> { return { id: row.id, taskType: row.task_type, payload: row.payload, status: row.status, priority: row.priority, availableAt: row.available_at, lockedAt: row.locked_at, leaseExpiresAt: row.lease_expires_at, lockedBy: row.locked_by, attempts: row.attempts, maxAttempts: row.max_attempts, dedupeKey: row.dedupe_key }; }
 async function lockOwnedTask(client: PoolClient, taskId: string, workerId: string): Promise<TaskRow<Record<string, unknown>> | null> {
   const result = await client.query<TaskRow<Record<string, unknown>>>(`SELECT * FROM tasks WHERE id=$1 AND status='RUNNING' AND locked_by=$2 AND lease_expires_at > NOW() FOR UPDATE`, [taskId, workerId]);
   return result.rows[0] ?? null;
