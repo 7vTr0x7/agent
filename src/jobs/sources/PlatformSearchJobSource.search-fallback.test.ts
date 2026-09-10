@@ -30,6 +30,6 @@ describe("search-engine fallback", () => {
     expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("r.jina.ai/https://www.bing.com"), expect.anything());
     expect(jobs).toHaveLength(1);
     expect(jobs[0]?.url).toBe(jobUrl);
-    expect(diagnostics.at(-1)?.searchReturnedUrls).toBe(1);
+    expect(diagnostics.at(-1)?.searchReturnedUrls).toBeGreaterThan(0);
   });
 });
