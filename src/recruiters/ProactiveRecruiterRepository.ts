@@ -12,27 +12,32 @@ export class ProactiveRecruiterRepository {
   async persistCandidate(candidateProfileId: string, candidate: ProactiveRecruiterDiscoveryCandidate): Promise<string | null> {
     if (!candidate.email || !candidate.employerDomain || candidate.employer === "Unknown employer") return null;
     const domain = normalizeDomain(candidate.employerDomain);
+    const mxStatus = candidate.emailStatus === "LIKELY" || candidate.emailStatus === "VERIFIED" ? "EXISTS" : candidate.emailStatus === "INVALID" ? "MISSING" : "UNKNOWN";
+    const mailboxEvidence = candidate.emailStatus === "VERIFIED";
     const result = await this.database.query<{ id: string }>(
       `INSERT INTO recruiter_contacts (
         company_name, company_domain, email, full_name, title, confidence, verified,
         verification_status, provider, discovery_source, email_status, domain_status, mx_status,
-        verification_evidence, last_seen_at, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,FALSE,$7,'proactive-public-web',$8,$9,$10,$11,$12,NOW(),NOW())
+        mailbox_evidence, verification_evidence, last_seen_at, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'proactive-public-web',$9,$10,$11,$12,$13,$14,NOW(),NOW())
       ON CONFLICT (company_domain,email) DO UPDATE SET
         company_name=EXCLUDED.company_name,
         full_name=COALESCE(EXCLUDED.full_name,recruiter_contacts.full_name),
         title=COALESCE(EXCLUDED.title,recruiter_contacts.title),
         confidence=GREATEST(COALESCE(recruiter_contacts.confidence,0),COALESCE(EXCLUDED.confidence,0)),
+        verified=recruiter_contacts.verified OR EXCLUDED.verified,
+        verification_status=EXCLUDED.verification_status,
         discovery_source=EXCLUDED.discovery_source,
         email_status=EXCLUDED.email_status,
         domain_status=EXCLUDED.domain_status,
         mx_status=EXCLUDED.mx_status,
+        mailbox_evidence=recruiter_contacts.mailbox_evidence OR EXCLUDED.mailbox_evidence,
         verification_evidence=EXCLUDED.verification_evidence,
         last_seen_at=NOW(),updated_at=NOW()
       RETURNING id`,
       [candidate.employer, domain, candidate.email.toLowerCase(), candidate.recruiterName, candidate.recruiterRole,
-        Math.round(candidate.overallConfidence), "public-web-unverified", candidate.discoverySource, candidate.emailStatus,
-        "VALID", "UNKNOWN", JSON.stringify(candidate.discoveryEvidence)]
+        Math.round(candidate.overallConfidence), mailboxEvidence, mailboxEvidence ? "mailbox_verified" : "public-web-unverified", candidate.discoverySource,
+        candidate.emailStatus, "VALID", mxStatus, mailboxEvidence, JSON.stringify(candidate.discoveryEvidence)]
     );
     const id = result.rows[0]?.id;
     if (!id) return null;
