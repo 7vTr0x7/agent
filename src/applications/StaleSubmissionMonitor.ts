@@ -12,6 +12,12 @@ export interface StaleSubmissionMonitorResult {
   requeued: number;
 }
 
+function staleReconciliationEnabled(): boolean {
+  const value = process.env.STALE_SUBMISSION_RECONCILIATION_ENABLED;
+  if (value === undefined) return true;
+  return value === "true";
+}
+
 /** Reconciles durable submission attempts without automatically resubmitting ambiguous applications. */
 export class StaleSubmissionMonitor {
   constructor(
@@ -23,6 +29,11 @@ export class StaleSubmissionMonitor {
   }
 
   async runOnce(_olderThanMinutesOverride?: number): Promise<StaleSubmissionMonitorResult> {
+    if (!staleReconciliationEnabled()) {
+      this.logger.info({ staleCount: 0, reconciliationEnabled: false }, "Stale application reconciliation is disabled");
+      return { staleCount: 0, submissions: [], requeued: 0 };
+    }
+
     const submissions = await this.applicationRepository.listStaleSubmissions(this.olderThanMinutes);
     if (submissions.length > 0) {
       const reconciliation = this.applicationRepository.reconcileStaleSubmissions ? await this.applicationRepository.reconcileStaleSubmissions(this.olderThanMinutes) : null;
