@@ -3,6 +3,9 @@ ALTER TABLE recruiter_outreach_sequences
   ADD COLUMN IF NOT EXISTS target_roles JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 ALTER TABLE recruiter_outreach_sequences
+  ALTER COLUMN job_opportunity_id DROP NOT NULL;
+
+ALTER TABLE recruiter_outreach_sequences
   DROP CONSTRAINT IF EXISTS recruiter_outreach_sequences_campaign_type_check;
 
 ALTER TABLE recruiter_outreach_sequences
