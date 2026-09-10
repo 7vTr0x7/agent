@@ -1,4 +1,4 @@
-import { DiscoveryRunner } from "./DiscoveryRunner";
+import { DiscoveryRunner, SOURCE_CONCURRENCY } from "./DiscoveryRunner";
 import { RegisteredSource } from "./sources/SourceRegistry";
 
 describe("DiscoveryRunner", () => {
@@ -113,5 +113,47 @@ describe("DiscoveryRunner", () => {
       { fetched: 0, inserted: 0, duplicates: 0 },
       "source unavailable"
     );
+  });
+
+  it("processes every registered source while never exceeding the platform concurrency limit", async () => {
+    expect(SOURCE_CONCURRENCY).toBe(4);
+    const totalSources = 11;
+    const sources: RegisteredSource[] = Array.from({ length: totalSources }, (_, index) => ({
+      descriptor: { ...descriptor, id: `source-${index}`, name: `Source ${index}` },
+      source: { name: `source-${index}`, fetchJobs: jest.fn() }
+    }));
+    let active = 0;
+    let peak = 0;
+    const discovery = {
+      discover: jest.fn(async (source: RegisteredSource["source"]) => {
+        active += 1;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active -= 1;
+        return { source: source.name, fetched: 1, inserted: 1, duplicates: 0, insertedOpportunityIds: [source.name] };
+      })
+    };
+    const health = { canRun: jest.fn().mockResolvedValue(true) };
+    let runNumber = 0;
+    const runs = {
+      start: jest.fn(async () => `run-${++runNumber}`),
+      complete: jest.fn().mockResolvedValue(undefined),
+      recordError: jest.fn().mockResolvedValue(undefined)
+    };
+    const matchDispatcher = { dispatch: jest.fn().mockResolvedValue({ enqueued: 1, rejected: 0, missing: 0 }) };
+
+    const runner = new DiscoveryRunner(
+      discovery as never,
+      health as never,
+      runs as never,
+      matchDispatcher as never,
+      sources
+    );
+
+    const results = await runner.runOnce();
+    expect(results).toHaveLength(totalSources);
+    expect(discovery.discover).toHaveBeenCalledTimes(totalSources);
+    expect(runs.start).toHaveBeenCalledTimes(totalSources);
+    expect(peak).toBeLessThanOrEqual(SOURCE_CONCURRENCY);
   });
 });
