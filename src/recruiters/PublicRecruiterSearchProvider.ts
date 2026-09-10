@@ -7,17 +7,15 @@ import {
   RecruiterVerificationResult
 } from "./RecruiterDiscovery";
 
-// Deliberately exclude '%' from the local part. Percent is technically valid in
-// RFC email syntax, but search-engine URLs commonly contain percent-encoded
-// query text such as %22company%22%20%22@company.com, which must never become a
-// recruiter contact.
 const EMAIL_PATTERN = /[A-Z0-9._+\-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
-const RECRUITING_CONTEXT = /(recruiter|recruiting|talent acquisition|talent partner|technical recruiter|hiring manager|human resources|\bhr\b|careers?|staffing|hiring)/i;
-const NON_RECRUITING_CONTEXT = /(customer support|technical support|sales|billing|privacy|legal|security|press|media|partnerships?|helpdesk|help desk)/i;
-const GENERIC_RECRUITING_LOCAL_PARTS = /^(careers?|jobs?|job|recruiting|recruitment|talent|talentacquisition|hr|people|hiring|staffing|joinus|workwithus|humanresources|resourcing)$/i;
+const RECRUITING_CONTEXT = /(recruiter|recruiting|talent acquisition|talent partner|talent acquisition partner|technical recruiter|engineering recruiter|hiring manager|human resources|\bhr\b|careers?|staffing|hiring|campus recruiter|campus hiring|people operations|people ops|recruitment)/i;
+const NON_RECRUITING_CONTEXT = /(customer support|technical support|sales|billing|privacy|legal|security|press|media|partnerships?|helpdesk|help desk|procurement|accounting|finance)/i;
+const GENERIC_RECRUITING_LOCAL_PARTS = /^(careers?|jobs?|job|recruiting|recruitment|talent|talentacquisition|hr|people|hiring|staffing|joinus|workwithus|humanresources|resourcing|campushiring|campusrecruiting)$/i;
 const LINKEDIN_PROFILE_PATTERN = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
 const SEARCH_CONCURRENCY = 4;
 const SEARCH_TIMEOUT_MS = 7000;
+const EMPLOYER_PAGE_TIMEOUT_MS = 6000;
+const EMPLOYER_PAGE_PATHS = ["/careers", "/jobs", "/careers/jobs", "/about/careers", "/join-us", "/work-with-us"];
 
 function normalizeDomain(value: string): string {
   return value.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0]?.replace(/^www\./, "") ?? "";
@@ -51,7 +49,6 @@ function isCompanyEmail(email: string, domain: string): boolean {
 export function isPlausibleRecruiterEmail(email: string): boolean {
   const normalized = normalizeEmail(email);
   const localPart = normalized.split("@")[0] ?? "";
-
   if (/%[0-9a-f]{2}/i.test(normalized)) return false;
   if (/^[^@]+%[^@]*@/i.test(normalized)) return false;
   if (!/^[a-z0-9][a-z0-9._+\-]*@[a-z0-9.-]+\.[a-z]{2,}$/i.test(normalized)) return false;
@@ -70,16 +67,16 @@ function isRecruitingEmailContext(email: string, context: string): boolean {
   return RECRUITING_CONTEXT.test(context) || looksLikeRecruitingMailbox(email);
 }
 
-function extractEmails(text: string, domain: string): string[] {
+function extractEmails(text: string, domain: string): Array<{ email: string; context: string }> {
   const normalized = stripHtml(text ?? "");
-  const found = new Set<string>();
+  const found = new Map<string, { email: string; context: string }>();
   for (const match of normalized.matchAll(EMAIL_PATTERN)) {
     const email = normalizeEmail(match[0] ?? "");
     if (!email || !isPlausibleRecruiterEmail(email) || !isCompanyEmail(email, domain)) continue;
     const context = emailContext(normalized, match.index ?? 0);
-    if (isRecruitingEmailContext(email, context)) found.add(email);
+    if (isRecruitingEmailContext(email, context)) found.set(email, { email, context });
   }
-  return [...found];
+  return [...found.values()];
 }
 
 function extractLinkedInProfiles(text: string): string[] {
@@ -104,7 +101,7 @@ async function fetchText(url: string, timeoutMs = SEARCH_TIMEOUT_MS): Promise<st
       redirect: "follow",
       headers: {
         accept: "text/plain,text/html,application/xhtml+xml,*/*;q=0.8",
-        "user-agent": "job-agent-public-recruiter-discovery/5.0"
+        "user-agent": "job-agent-public-recruiter-discovery/6.0"
       }
     });
     if (!response.ok) return null;
@@ -142,8 +139,19 @@ function buildQueries(input: RecruiterDiscoveryInput): string[] {
     `"${company}" "@${domain}" "talent acquisition"`,
     `"${company}" "@${domain}" "technical recruiter"`,
     `"${company}" "@${domain}" "hiring manager"`,
-    `"${company}" recruiter "${title}" India`
+    `"${company}" recruiter "${title}" India`,
+    `site:${domain} (careers OR recruiting OR hiring OR "talent acquisition") "@${domain}"`,
+    `site:${domain} (recruiter OR "talent partner" OR "people ops") "@${domain}"`
   ];
+}
+
+async function fetchEmployerRecruitingPages(domain: string): Promise<Array<{ url: string; text: string }>> {
+  const urls = EMPLOYER_PAGE_PATHS.map((path) => `https://${domain}${path}`);
+  const pages = await mapWithConcurrency(urls, SEARCH_CONCURRENCY, async (url) => {
+    const text = await fetchText(url, EMPLOYER_PAGE_TIMEOUT_MS);
+    return text ? { url, text } : null;
+  });
+  return pages.filter((page): page is { url: string; text: string } => Boolean(page));
 }
 
 async function verifyMxViaDnsOverHttps(domain: string): Promise<boolean | null> {
@@ -151,15 +159,11 @@ async function verifyMxViaDnsOverHttps(domain: string): Promise<boolean | null> 
     `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain)}&type=MX`,
     `https://dns.google/resolve?name=${encodeURIComponent(domain)}&type=MX`
   ];
-
   for (const endpoint of endpoints) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     try {
-      const response = await fetch(endpoint, {
-        signal: controller.signal,
-        headers: { accept: "application/dns-json" }
-      });
+      const response = await fetch(endpoint, { signal: controller.signal, headers: { accept: "application/dns-json" } });
       if (!response.ok) continue;
       const payload = await response.json() as { Answer?: Array<{ type?: number }> };
       const answers = Array.isArray(payload.Answer) ? payload.Answer : [];
@@ -170,7 +174,6 @@ async function verifyMxViaDnsOverHttps(domain: string): Promise<boolean | null> 
       clearTimeout(timeout);
     }
   }
-
   return null;
 }
 
@@ -182,36 +185,42 @@ export class PublicRecruiterSearchProvider implements RecruiterDiscoveryProvider
     const contacts = new Map<string, RecruiterContactCandidate>();
     const queries = buildQueries(input);
 
-    // Search several queries concurrently, but keep a small bounded pool so a
-    // single discovery run cannot create an unbounded burst against public
-    // search endpoints. Each query fans out to three independent engines.
     const queryPages = await mapWithConcurrency(queries, SEARCH_CONCURRENCY, async (query) => {
       const responses = await Promise.all(searchUrls(query).map((url) => fetchText(url)));
-      return responses.filter((response): response is string => Boolean(response));
+      return responses.filter((response): response is string => Boolean(response)).map((text) => ({ url: null as string | null, text }));
     });
-    const pages = queryPages.flat();
+
+    const searchPages = queryPages.flat();
+    const employerPages = await fetchEmployerRecruitingPages(domain);
+    const pages = [...searchPages, ...employerPages];
 
     for (const page of pages) {
-      const text = stripHtml(page);
-      for (const email of extractEmails(text, domain)) {
-        const existing = contacts.get(email);
-        const linkedin = extractLinkedInProfiles(text).find((url) => text.toLowerCase().includes(url.toLowerCase()));
+      const text = stripHtml(page.text);
+      const linkedIn = extractLinkedInProfiles(page.text);
+      for (const match of extractEmails(page.text, domain)) {
+        const existing = contacts.get(match.email);
+        const source = {
+          type: page.url ? "employer_recruiting_page" : "public_search_result",
+          confidence: page.url ? 95 : 92,
+          ...(page.url ? { url: page.url } : {})
+        };
+        const linkedin = linkedIn.find((url) => text.toLowerCase().includes(url.toLowerCase()));
         if (existing) {
           existing.confidence = Math.min(100, (existing.confidence ?? 0) + 2);
-          existing.sources.push({ type: "public_search_result", confidence: 92 });
+          existing.sources.push(source);
           if (!existing.linkedinProfileUrl && linkedin) existing.linkedinProfileUrl = linkedin;
           continue;
         }
-        contacts.set(email, {
-          email,
-          title: "Recruiting contact from public search result",
+        contacts.set(match.email, {
+          email: match.email,
+          title: "Recruiting contact from public source",
           department: "recruiting",
-          confidence: linkedin ? 97 : looksLikeRecruitingMailbox(email) ? 94 : 92,
+          confidence: linkedin ? 97 : looksLikeRecruitingMailbox(match.email) ? 94 : page.url ? 95 : 92,
           verified: false,
           verificationStatus: "unverified_public_source",
           provider: this.name,
           linkedinProfileUrl: linkedin,
-          sources: [{ type: "public_search_result", confidence: 92 }]
+          sources: [source]
         });
       }
     }
@@ -223,51 +232,20 @@ export class PublicRecruiterSearchProvider implements RecruiterDiscoveryProvider
     };
   }
 
-  /**
-   * Free deliverability check. This verifies that the employer domain publishes
-   * an MX record capable of receiving mail. It intentionally does not claim
-   * that the individual mailbox exists: only an SMTP-level probe or a trusted
-   * verification provider can establish that, and SMTP probes are unreliable
-   * and can be intrusive.
-   *
-   * The runtime first uses the local resolver and then falls back to two public
-   * DNS-over-HTTPS resolvers. This prevents container/VPC DNS failures from
-   * incorrectly turning every otherwise valid recruiter into an ineligible
-   * contact.
-   */
   async verify(email: string): Promise<RecruiterVerificationResult> {
     const normalized = normalizeEmail(email);
-    if (!isPlausibleRecruiterEmail(normalized)) {
-      return { email: normalized, verified: false, status: "invalid_email_format", confidence: 0 };
-    }
-
+    if (!isPlausibleRecruiterEmail(normalized)) return { email: normalized, verified: false, status: "invalid_email_format", confidence: 0 };
     const domain = normalized.split("@")[1] ?? "";
     if (!domain) return { email: normalized, verified: false, status: "missing_email_domain", confidence: 0 };
 
     try {
       const records = await dns.resolveMx(domain);
-      if (records.length > 0) {
-        return {
-          email: normalized,
-          verified: true,
-          status: "domain_mx_verified",
-          confidence: 75
-        };
-      }
+      if (records.length > 0) return { email: normalized, verified: true, status: "domain_mx_verified", confidence: 75 };
       return { email: normalized, verified: false, status: "no_mx_record", confidence: 0 };
     } catch {
       const dohResult = await verifyMxViaDnsOverHttps(domain);
-      if (dohResult === true) {
-        return {
-          email: normalized,
-          verified: true,
-          status: "domain_mx_verified_doh",
-          confidence: 75
-        };
-      }
-      if (dohResult === false) {
-        return { email: normalized, verified: false, status: "no_mx_record", confidence: 0 };
-      }
+      if (dohResult === true) return { email: normalized, verified: true, status: "domain_mx_verified_doh", confidence: 75 };
+      if (dohResult === false) return { email: normalized, verified: false, status: "no_mx_record", confidence: 0 };
       return { email: normalized, verified: false, status: "mx_lookup_failed", confidence: 0 };
     }
   }
