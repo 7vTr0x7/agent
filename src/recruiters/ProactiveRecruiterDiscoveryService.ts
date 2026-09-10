@@ -44,7 +44,15 @@ const DEFAULT_FETCH = async (url: string): Promise<string | null> => {
   }
 };
 
-const stripHtml = (value: string): string => value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/\s+/g, " ").trim();
+const stripHtml = (value: string): string => value
+  .replace(/<((?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[a-z0-9-_%]+)>/gi, "$1")
+  .replace(/<script[\s\S]*?<\/script>/gi, " ")
+  .replace(/<style[\s\S]*?<\/style>/gi, " ")
+  .replace(/<[^>]+>/g, " ")
+  .replace(/&nbsp;/gi, " ")
+  .replace(/&amp;/gi, "&")
+  .replace(/\s+/g, " ")
+  .trim();
 const linkedinProfile = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
 const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 
@@ -103,7 +111,7 @@ export class ProactiveRecruiterDiscoveryService {
           evidenceDate: this.now().toISOString(),
           evidenceFreshness: "current",
           email,
-          emailStatus: email ? "UNVERIFIED" : "UNVERIFIED"
+          emailStatus: "UNVERIFIED"
         };
         const existing = candidates.get(key);
         candidates.set(key, existing ? { ...existing, roleMatchScore: Math.max(existing.roleMatchScore, candidate.roleMatchScore), hiringEvidenceScore: Math.max(existing.hiringEvidenceScore, candidate.hiringEvidenceScore), overallConfidence: Math.max(existing.overallConfidence, candidate.overallConfidence), discoveryEvidence: [...new Set([...existing.discoveryEvidence, evidence])].slice(0, 5), email: existing.email ?? candidate.email } : candidate);
