@@ -67,12 +67,14 @@ export class ProactiveRecruiterRepository {
     subject: string;
     body: string;
   }): Promise<ProactiveCampaignRecord | null> {
-    const suppressed = await this.database.query<{ email_suppressed: boolean; domain_suppressed: boolean }>(
-      `SELECT EXISTS (SELECT 1 FROM recruiter_suppressions s JOIN recruiter_contacts c ON c.id=$1 WHERE LOWER(s.email)=LOWER(c.email)) AS email_suppressed,
-              EXISTS (SELECT 1 FROM recruiter_suppressions s JOIN recruiter_contacts c ON c.id=$1 WHERE LOWER(s.company_domain)=LOWER(c.company_domain)) AS domain_suppressed`,
+    const suppressed = await this.database.query<{ email_suppressed: boolean; domain_suppressed: boolean; contact_suppressed: boolean }>(
+      `SELECT c.suppressed AS contact_suppressed,
+              EXISTS (SELECT 1 FROM recruiter_suppressions s WHERE LOWER(s.email)=LOWER(c.email)) AS email_suppressed,
+              EXISTS (SELECT 1 FROM recruiter_suppressions s WHERE LOWER(s.company_domain)=LOWER(c.company_domain)) AS domain_suppressed
+       FROM recruiter_contacts c WHERE c.id=$1`,
       [input.recruiterContactId]
     );
-    if (suppressed.rows[0]?.email_suppressed || suppressed.rows[0]?.domain_suppressed) return null;
+    if (suppressed.rows[0]?.contact_suppressed || suppressed.rows[0]?.email_suppressed || suppressed.rows[0]?.domain_suppressed) return null;
 
     const existingContact = await this.database.query<{ email: string }>(
       `SELECT email FROM recruiter_contacts WHERE id=$1`, [input.recruiterContactId]
