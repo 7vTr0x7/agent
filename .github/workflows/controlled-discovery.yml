@@ -23,12 +23,11 @@ jobs:
             -e POSTGRES_USER=job_agent \
             -e POSTGRES_PASSWORD=runtime_test_password \
             postgres:17-alpine
-          for i in $(seq 1 30); do
-            if docker exec job-agent-discovery-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then exit 0; fi
+          for i in $(seq 1 60); do
+            if docker exec job-agent-discovery-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then break; fi
             sleep 1
           done
-          docker logs job-agent-discovery-postgres
-          exit 1
+          docker exec job-agent-discovery-postgres pg_isready -U job_agent -d job_agent
 
       - name: Run full discovery federation in safe mode
         shell: bash
@@ -71,7 +70,7 @@ jobs:
 
           expected_sources=14
           for i in $(seq 1 900); do
-            completed="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs WHERE status <> 'RUNNING';" | tr -d '[:space:]')"
+            completed="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs WHERE status <> 'RUNNING';" 2>/dev/null | tr -d '[:space:]' || true)"
             if [ -n "$completed" ] && [ "$completed" -ge "$expected_sources" ]; then
               docker logs job-agent-discovery-app
               exit 0
@@ -88,11 +87,14 @@ jobs:
       - name: Verify discovery database output and safety
         shell: bash
         run: |
-          docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM sources;"
-          docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs WHERE status <> 'RUNNING';"
-          docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities;"
-          docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_observations;"
-          docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;"
+          sources="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM sources;" | tr -d '[:space:]')"
+          completed="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs WHERE status <> 'RUNNING';" | tr -d '[:space:]')"
+          jobs="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities;" | tr -d '[:space:]')"
+          observations="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_observations;" | tr -d '[:space:]')"
+          applications="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;" | tr -d '[:space:]')"
+          test "$sources" -eq 14
+          test "$completed" -eq 14
+          printf 'sources=%s completed_sources=%s jobs=%s observations=%s applications=%s\n' "$sources" "$completed" "$jobs" "$observations" "$applications"
           docker logs job-agent-discovery-app 2>&1 | tee /tmp/job-agent-discovery.log
           ! grep -Eiq 'ERROR|FATAL|UnhandledPromiseRejection|ECONNREFUSED|migration error|authentication error' /tmp/job-agent-discovery.log
           ! grep -Eiq 'gmailMessageId|refreshToken|access_token|client_secret|api[_-]?key|password=' /tmp/job-agent-discovery.log
