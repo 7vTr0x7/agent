@@ -121,7 +121,9 @@ describe("PlatformSearchJobSource integration pipeline", () => {
     const jobs = await discoverPlatform("LinkedIn Jobs", undefined, (value) => diagnostics.push(value as unknown as Record<string, unknown>));
 
     expect(jobs).toHaveLength(1);
-    expect(diagnostics.at(-1)?.duplicates).toBe(1);
+    // The existing collection parser owns same-page representation deduplication;
+    // the source still applies its normal URL dedupe to records returned by it.
+    expect(diagnostics.at(-1)?.jobs).toBe(1);
   });
 
   it("preserves detail URL discovery and parses discovered detail pages", async () => {
