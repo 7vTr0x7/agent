@@ -8,21 +8,18 @@ export interface StaleSubmissionMonitorLogger {
 export interface StaleSubmissionMonitorResult {
   staleCount: number;
   submissions: readonly StaleSubmission[];
-  /** @deprecated Stale submissions are intentionally never requeued automatically. */
+  /** @deprecated Stale submissions are never blindly requeued. */
   requeued: number;
 }
 
 /**
- * Observes submissions that have remained reserved for too long.
- *
- * This monitor is intentionally read-only: it never retries, cancels, or
- * marks an application as submitted. A stale reservation means the browser
- * outcome is unknown, so recovery must remain an explicit, independently
- * verified operation.
+ * Reconciles durable submission attempts without ever retrying an ambiguous
+ * external submission. A stale attempt can become READY only when its durable
+ * lifecycle proves that no external submission request was made.
  */
 export class StaleSubmissionMonitor {
   constructor(
-    private readonly applicationRepository: Pick<ApplicationRepository, "listStaleSubmissions">,
+    private readonly applicationRepository: Pick<ApplicationRepository, "listStaleSubmissions" | "reconcileStaleSubmissions">,
     private readonly logger: StaleSubmissionMonitorLogger,
     private readonly olderThanMinutes: number
   ) {
@@ -35,12 +32,14 @@ export class StaleSubmissionMonitor {
     const submissions = await this.applicationRepository.listStaleSubmissions(this.olderThanMinutes);
 
     if (submissions.length > 0) {
+      const reconciliation = await this.applicationRepository.reconcileStaleSubmissions(this.olderThanMinutes);
       this.logger.warn(
         {
           staleCount: submissions.length,
-          applicationIds: submissions.map((submission) => submission.applicationId)
+          applicationIds: submissions.map((submission) => submission.applicationId),
+          reconciliation
         },
-        "Stale application submissions detected; manual verification required"
+        "Stale application submissions reconciled from persisted evidence; ambiguous outcomes are not retried"
       );
 
       for (const submission of submissions) {
@@ -51,7 +50,7 @@ export class StaleSubmissionMonitor {
             companyName: submission.companyName,
             startedAt: submission.startedAt.toISOString()
           },
-          "Application submission remains in progress"
+          "Application submission requires durable reconciliation"
         );
       }
     } else {
