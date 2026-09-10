@@ -23,11 +23,11 @@ export interface StoredRecruiterIdentity {
   linkedinProfileUrl?: string;
   emailDiscoveryStatus: "PENDING" | "FOUND" | "NOT_FOUND" | "INVALID";
   emailStatus?: RecruiterEmailStatus;
-  domainStatus: RecruiterDomainStatus;
-  mxStatus: RecruiterMxStatus;
-  mailboxEvidence: boolean;
-  verificationEvidence: unknown[];
-  suppressed: boolean;
+  domainStatus?: RecruiterDomainStatus;
+  mxStatus?: RecruiterMxStatus;
+  mailboxEvidence?: boolean;
+  verificationEvidence?: unknown[];
+  suppressed?: boolean;
   suppressionReason?: string;
   lastContactedAt?: Date;
   emailDiscoveryAttemptedAt?: Date;
