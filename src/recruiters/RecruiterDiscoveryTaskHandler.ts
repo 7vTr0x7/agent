@@ -49,6 +49,9 @@ export class RecruiterDiscoveryTaskHandler {
           applicationId: task.payload.applicationId,
           candidateProfileId: task.payload.candidateProfileId,
           candidateName: task.payload.candidateName ?? "Candidate",
+          candidateSkills: task.payload.candidateSkills,
+          candidateYearsExperience: task.payload.candidateYearsExperience,
+          candidateLocation: task.payload.candidateLocation,
           contacts: result.contacts,
           applicationOutcome: task.payload.applicationOutcome
         });
@@ -57,8 +60,6 @@ export class RecruiterDiscoveryTaskHandler {
       this.logger?.error(
         `[recruiter-discovery] ${task.payload.companyName}: ${error instanceof Error ? error.message : String(error)}`
       );
-      // Do not acknowledge a transient discovery failure as successful. The
-      // task queue will retry it with its normal backoff and max-attempt guard.
       throw error;
     }
   }
