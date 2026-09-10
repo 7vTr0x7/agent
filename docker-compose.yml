@@ -50,6 +50,8 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      API_HOST: 0.0.0.0
+      API_PORT: 3000
       DATABASE_URL: postgres://${POSTGRES_USER:-job_agent}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-job_agent}
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
@@ -102,6 +104,8 @@ services:
       EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
       RESUME_TAILORING_ENABLED: ${RESUME_TAILORING_ENABLED:-false}
       RESUME_MASTER_PATH: ${RESUME_MASTER_PATH:-}
+    ports:
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./resumes:/app/data/resumes:ro
       - browser_data:/app/data/browser
