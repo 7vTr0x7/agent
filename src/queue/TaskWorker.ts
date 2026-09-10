@@ -20,7 +20,7 @@ export class TaskWorker {
     this.workerId = options.workerId ?? `worker-${randomUUID()}`;
     this.pollIntervalMs = options.pollIntervalMs ?? 1000;
     this.staleRecoveryIntervalMs = options.staleRecoveryIntervalMs ?? 30_000;
-    this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 10_000;
+    this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 5_000;
     this.logger = options.logger ?? noopLogger;
   }
 
@@ -46,28 +46,47 @@ export class TaskWorker {
     }
 
     let heartbeatInFlight = false;
-    const renewLease = async (): Promise<void> => {
-      if (heartbeatInFlight) return;
+    let ownershipLost = false;
+    const renewLease = async (): Promise<boolean> => {
+      if (heartbeatInFlight || ownershipLost) return !ownershipLost;
       heartbeatInFlight = true;
       try {
         const owned = await this.queue.heartbeat(task.id, this.workerId);
-        if (!owned) this.logger.warn({ workerId: this.workerId, taskId: task.id, taskType: task.taskType }, "Task heartbeat lost ownership");
+        if (!owned) {
+          ownershipLost = true;
+          this.logger.warn({ workerId: this.workerId, taskId: task.id, taskType: task.taskType }, "Task heartbeat lost ownership");
+        }
+        return owned;
       } catch (error: unknown) {
         this.logger.warn({ workerId: this.workerId, taskId: task.id, taskType: task.taskType, error: error instanceof Error ? error.message : String(error) }, "Task heartbeat failed");
+        return true;
       } finally {
         heartbeatInFlight = false;
       }
     };
 
+    // Renew immediately after claiming so a task starts with a fresh lease even if
+    // the first handler operation is slow and the normal interval has not fired yet.
+    const initiallyOwned = await renewLease();
+    if (!initiallyOwned) return true;
+
     const heartbeatTimer = setInterval(() => { void renewLease(); }, this.heartbeatIntervalMs);
 
     try {
       await handler.handle(task);
+      if (ownershipLost) {
+        this.logger.warn({ workerId: this.workerId, taskId: task.id, taskType: task.taskType }, "Task finished after lease ownership was lost; completion was not persisted");
+        return true;
+      }
       await this.queue.succeed(task.id, this.workerId);
       this.logger.info({ workerId: this.workerId, taskId: task.id, taskType: task.taskType }, "Task completed");
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       this.logger.error({ workerId: this.workerId, taskId: task.id, taskType: task.taskType, reason }, "Task handler failed");
+      if (ownershipLost) {
+        this.logger.warn({ workerId: this.workerId, taskId: task.id, taskType: task.taskType }, "Task failure was not persisted because the lease is no longer owned");
+        return true;
+      }
       try { await this.queue.fail(task.id, this.workerId, reason); }
       catch { this.logger.warn({ workerId: this.workerId, taskId: task.id, taskType: task.taskType }, "Task failure could not be persisted because the lease is no longer owned"); }
     } finally {
