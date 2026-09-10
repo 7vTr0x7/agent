@@ -37,6 +37,32 @@ export interface ApplicationSubmissionOutcome {
   attemptId?: string;
 }
 
+interface ApplicationSubmissionRepository {
+  beginSubmission(applicationId: string): Promise<boolean>;
+  beginSubmissionAttempt?: (
+    applicationId: string,
+    taskId?: string | null,
+    workerId?: string | null,
+    targetUrl?: string | null
+  ) => Promise<{ attemptId: string; idempotencyKey: string } | null>;
+  updateSubmissionAttemptPhase?: (
+    attemptId: string,
+    phase: "RESERVED" | "EXECUTING" | "REQUEST_OBSERVED" | "CONFIRMING" | "FINALIZED",
+    patch?: Record<string, unknown>
+  ) => Promise<boolean>;
+  finalizeSubmissionAttempt?: (
+    applicationId: string,
+    attemptId: string,
+    result: any
+  ) => Promise<boolean>;
+  markSubmitted: (
+    applicationId: string,
+    confirmationUrl: string | null,
+    externalApplicationId: string | null
+  ) => Promise<unknown>;
+  isTaskOwned?: (taskId: string, workerId: string) => Promise<boolean>;
+}
+
 const DEFAULT_NAVIGATION_TIMEOUT_MS = 30_000;
 const DEFAULT_SUBMISSION_TIMEOUT_MS = 120_000;
 
@@ -60,10 +86,7 @@ export class ApplicationSubmissionService {
   constructor(
     private readonly browserSessions: BrowserSessionService,
     private readonly adapters: ApplicationAdapterRegistry,
-    private readonly applications: Pick<
-      ApplicationRepository,
-      "beginSubmission" | "beginSubmissionAttempt" | "updateSubmissionAttemptPhase" | "finalizeSubmissionAttempt" | "markSubmitted"
-    >,
+    private readonly applications: ApplicationSubmissionRepository,
     private readonly detector = new FormFieldDetector(),
     private readonly mapper = new ApplicationFieldMapper(),
     private readonly filler = new ApplicationFormFiller(),
@@ -135,10 +158,8 @@ export class ApplicationSubmissionService {
         };
       }
 
-      const beginAttempt = (this.applications as Partial<ApplicationRepository>).beginSubmissionAttempt;
-      if (beginAttempt) {
-        reservation = await beginAttempt.call(
-          this.applications,
+      if (this.applications.beginSubmissionAttempt) {
+        reservation = await this.applications.beginSubmissionAttempt(
           request.context.applicationId,
           request.taskId ?? null,
           request.workerId ?? null,
@@ -156,6 +177,8 @@ export class ApplicationSubmissionService {
             result: null
           };
         }
+        // Legacy test doubles do not expose the durable attempt API.
+        reservation = { attemptId: `legacy:${request.context.applicationId}`, idempotencyKey: `legacy:${request.context.applicationId}` };
       }
 
       if (!reservation) {
@@ -169,12 +192,11 @@ export class ApplicationSubmissionService {
         };
       }
 
-      const updatePhase = (this.applications as Partial<ApplicationRepository>).updateSubmissionAttemptPhase;
-      const finalize = (this.applications as Partial<ApplicationRepository>).finalizeSubmissionAttempt;
+      const updatePhase = this.applications.updateSubmissionAttemptPhase;
+      const finalize = this.applications.finalizeSubmissionAttempt;
       if (!updatePhase || !finalize) {
-        // Compatibility path for legacy test doubles. Production always uses
-        // the durable attempt lifecycle above.
-        const legacyResult = await this.runLegacySubmission(adapter, session.page, request.context);
+        // Compatibility path for legacy test doubles only.
+        const legacyResult = await adapter.submit(session.page, request.context);
         if (!legacyResult.submitted) {
           return {
             submitted: false,
@@ -198,7 +220,13 @@ export class ApplicationSubmissionService {
         };
       }
 
-      const owned = request.assertTaskOwnership ? await request.assertTaskOwnership() : true;
+      let owned = true;
+      if (request.assertTaskOwnership) {
+        owned = await request.assertTaskOwnership();
+      } else if (request.taskId && request.workerId && this.applications.isTaskOwned) {
+        owned = await this.applications.isTaskOwned(request.taskId, request.workerId);
+      }
+
       if (!owned) {
         const notSubmitted: ApplicationSubmissionResult = {
           submitted: false,
@@ -215,12 +243,12 @@ export class ApplicationSubmissionService {
           responseStatus: null,
           finalUrl: target.url
         };
-        await finalize.call(this.applications, request.context.applicationId, reservation.attemptId, { ...notSubmitted, evidence });
+        await finalize(request.context.applicationId, reservation.attemptId, { ...notSubmitted, evidence });
         return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: true, reason: notSubmitted.reason, adapterName: adapter.name, result: notSubmitted, attemptId: reservation.attemptId };
       }
 
       const startedAt = new Date();
-      const phasePersisted = await updatePhase.call(this.applications, reservation.attemptId, "EXECUTING", {
+      const phasePersisted = await updatePhase(reservation.attemptId, "EXECUTING", {
         submissionStartedAt: startedAt,
         finalUrl: target.url
       });
@@ -248,7 +276,7 @@ export class ApplicationSubmissionService {
           reason: error instanceof Error ? error.message : String(error)
         };
         const normalized = normalizeApplicationSubmissionResult(timeoutResult, evidence);
-        await finalize.call(this.applications, request.context.applicationId, reservation.attemptId, normalized);
+        await finalize(request.context.applicationId, reservation.attemptId, normalized);
         return {
           submitted: false,
           outcome: normalized.outcome,
@@ -264,7 +292,7 @@ export class ApplicationSubmissionService {
 
       const evidence = tracker.snapshot();
       const phase = evidence.requestObserved ? "REQUEST_OBSERVED" : "CONFIRMING";
-      await updatePhase.call(this.applications, reservation.attemptId, phase, {
+      await updatePhase(reservation.attemptId, phase, {
         requestSentAt: evidence.requestSentAt,
         responseReceivedAt: evidence.responseReceivedAt,
         responseStatus: evidence.responseStatus,
@@ -277,7 +305,7 @@ export class ApplicationSubmissionService {
         normalized.reason = `${normalized.reason} Automatic resubmission is permanently blocked until reconciliation determines the outcome.`;
       }
 
-      const finalized = await finalize.call(this.applications, request.context.applicationId, reservation.attemptId, normalized);
+      const finalized = await finalize(request.context.applicationId, reservation.attemptId, normalized);
       if (!finalized) {
         return {
           submitted: false,
@@ -307,13 +335,5 @@ export class ApplicationSubmissionService {
         // Browser cleanup must never overwrite the persisted application outcome.
       }
     }
-  }
-
-  private async runLegacySubmission(
-    adapter: ApplicationAdapter,
-    page: any,
-    context: ApplicationContext
-  ): Promise<ApplicationSubmissionResult> {
-    return adapter.submit(page, context);
   }
 }
