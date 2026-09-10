@@ -75,17 +75,16 @@ export class ProactiveRecruiterRepository {
     const email = existingContact.rows[0]?.email;
     if (!email) return null;
 
-    const recent = await this.database.query<{ exists: boolean }>(
+    const priorContact = await this.database.query<{ exists: boolean }>(
       `SELECT EXISTS (
         SELECT 1 FROM recruiter_outreach_messages m
         JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id
         WHERE s.candidate_profile_id=$1 AND LOWER(m.recipient_email)=LOWER($2)
           AND m.status IN ('PREPARED','SENDING','SENT')
-          AND m.created_at >= NOW()-INTERVAL '30 days'
       ) AS exists`,
       [input.candidateProfileId, email]
     );
-    if (recent.rows[0]?.exists) return null;
+    if (priorContact.rows[0]?.exists) return null;
 
     const sequence = await this.database.query<{ id: string }>(
       `INSERT INTO recruiter_outreach_sequences (
