@@ -9,6 +9,8 @@ const PAGE_TIMEOUT_MS = 8000;
 const FETCH_RETRIES = 2;
 const RETRY_BASE_DELAY_MS = 250;
 
+export type PlatformDiscovery = (platformName: string, signal?: AbortSignal) => Promise<Job[]>;
+
 /**
  * Public-search federation for registry platforms without a stable free API/feed.
  *
@@ -20,6 +22,8 @@ const RETRY_BASE_DELAY_MS = 250;
 export class PlatformSearchJobSource implements JobSource {
   readonly name = "platform-search-federation";
 
+  constructor(private readonly platformDiscovery: PlatformDiscovery = discoverPlatform) {}
+
   async fetchJobs(signal?: AbortSignal): Promise<Job[]> {
     const platforms = JOB_PLATFORM_REGISTRY;
     if (!platforms.length) return [];
@@ -27,7 +31,7 @@ export class PlatformSearchJobSource implements JobSource {
     const results = await mapWithConcurrency(platforms, SEARCH_CONCURRENCY, async (platform) => {
       if (signal?.aborted) return [];
       try {
-        return await discoverPlatform(platform.name, signal);
+        return await this.platformDiscovery(platform.name, signal);
       } catch {
         return [];
       }
