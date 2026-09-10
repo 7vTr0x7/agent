@@ -15,21 +15,25 @@ async function main(): Promise<void> {
 
   const logger = pino({ level: config.logLevel });
   const database = new Database(config.databaseUrl);
+  const fixtureMode = process.env.PROACTIVE_RECRUITER_FIXTURE === "true";
   try {
     await new MigrationRunner(database).run();
     const profile = await ConfiguredCandidateProfileResolver.fromEnvironment().getById(process.env.CANDIDATE_PROFILE_ID ?? "");
     if (!profile) throw new Error("Configured candidate profile could not be resolved.");
 
     const taskQueue = new TaskQueue(database);
+    const fixturePage = `Jane Doe - Technical Recruiter at Acme Corp actively hiring React frontend engineers <https://linkedin.com/in/jane-doe> jane@acme.com`;
+    const discovery = new ProactiveRecruiterDiscoveryService(fixtureMode ? { fetchText: async () => fixturePage } : {});
     const handler = new ProactiveRecruiterTaskHandler(
-      new ProactiveRecruiterDiscoveryService(),
+      discovery,
       new ProactiveRecruiterRepository(database),
       new RecruiterOutreachSendTaskDispatcher(taskQueue),
       {
         enabled: true,
         sendEnabled: false,
         maxCandidatesPerRun: config.proactiveRecruiter.maxCandidatesPerRun,
-        requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail
+        requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail,
+        ...(fixtureMode ? { verifyEmail: async () => ({ status: "UNVERIFIED" as const, confidence: 0 }) } : {})
       },
       logger
     );
