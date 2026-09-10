@@ -6,7 +6,6 @@ import { JOB_PLATFORM_REGISTRY } from "./JobPlatformRegistry";
 const SEARCH_CONCURRENCY = 4;
 const SEARCH_TIMEOUT_MS = 8000;
 const PAGE_TIMEOUT_MS = 8000;
-const MAX_SEARCH_URLS_PER_QUERY = 20;
 const FETCH_RETRIES = 2;
 const RETRY_BASE_DELAY_MS = 250;
 
@@ -54,7 +53,9 @@ async function discoverPlatform(platformName: string, signal?: AbortSignal): Pro
   });
 
   if (signal?.aborted) return [];
-  const links = [...new Set(searchResults.flat())].slice(0, MAX_SEARCH_URLS_PER_QUERY * queries.length);
+  // Never truncate public search results per platform. The public search
+  // provider decides how many results it exposes; every returned URL is kept.
+  const links = [...new Set(searchResults.flat())];
   if (!links.length) return [];
 
   const jobs = await mapWithConcurrency(links, SEARCH_CONCURRENCY, async (url) => {
