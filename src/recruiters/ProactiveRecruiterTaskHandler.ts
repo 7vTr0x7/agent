@@ -36,6 +36,9 @@ export class ProactiveRecruiterTaskHandler {
 
   async handleDiscovery(payload: ProactiveRecruiterDiscoveryPayload): Promise<void> {
     if (!this.options.enabled) return;
+    const preferredLocations = payload.preferredLocations?.length
+      ? payload.preferredLocations
+      : ["Bengaluru", "Bangalore", "India", "Remote"];
     const profile: CandidateProfile = {
       id: payload.candidateProfileId,
       yearsExperience: payload.yearsExperience,
@@ -43,13 +46,13 @@ export class ProactiveRecruiterTaskHandler {
       targetTitles: payload.targetRoles,
       location: payload.location,
       fullName: payload.candidateName,
-      ...((payload.preferredLocations?.length ?? 0) > 0 ? { standardizedAnswers: { preferredLocations: payload.preferredLocations?.join(", ") ?? "" } } : {})
+      standardizedAnswers: { preferredLocations: preferredLocations.join(", ") }
     };
     const discovered = await this.discovery.discover({
       targetRoles: profile.targetTitles,
       skills: profile.skills,
       yearsExperience: profile.yearsExperience,
-      preferredLocations: payload.preferredLocations,
+      preferredLocations,
       remoteEligible: payload.remoteEligible
     });
     const ranked = rankProactiveRecruiters(discovered.map((candidate, index) => ({
@@ -57,9 +60,9 @@ export class ProactiveRecruiterTaskHandler {
       roleMatchScore: candidate.roleMatchScore,
       hiringEvidenceScore: candidate.hiringEvidenceScore,
       evidenceFreshnessScore: freshnessScore(candidate.evidenceFreshness),
-      employerRelevanceScore: employerRelevance(candidate.employer, payload.preferredLocations ?? [], payload.remoteEligible ?? false),
+      employerRelevanceScore: employerRelevance(candidate.employer, preferredLocations, payload.remoteEligible ?? false),
       emailConfidenceScore: emailScore(candidate.emailStatus),
-      locationRelevanceScore: locationScore(candidate.discoveryEvidence.join(" "), payload.preferredLocations ?? [], payload.remoteEligible ?? false),
+      locationRelevanceScore: locationScore(candidate.discoveryEvidence.join(" "), preferredLocations, payload.remoteEligible ?? false),
       suppressed: false
     })));
 
