@@ -33,6 +33,16 @@ export class TaskQueue {
   constructor(private readonly database: Database, private readonly leaseDurationMs = DEFAULT_TASK_LEASE_DURATION_MS) {}
   getDatabase(): Database { return this.database; }
 
+  async isOwned(taskId: string, workerId: string): Promise<boolean> {
+    const result = await this.database.query(
+      `SELECT 1 FROM tasks
+       WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND lease_expires_at > NOW()
+       LIMIT 1`,
+      [taskId, workerId]
+    );
+    return result.rows.length === 1;
+  }
+
   async enqueue<TPayload>(input: EnqueueTaskInput<TPayload>): Promise<string> {
     const id = randomUUID();
     const result = await this.database.query<{ id: string }>(
