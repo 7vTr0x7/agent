@@ -102,7 +102,7 @@ jobs:
             sleep 1
           done
           test -s /tmp/job-agent-health.json
-          grep -q '\"status\":\"ok\"' /tmp/job-agent-health.json
+          grep -q '"status":"ok"' /tmp/job-agent-health.json
           docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM schema_migrations;"
           docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM tasks;"
           docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;"
@@ -117,9 +117,9 @@ jobs:
             -e OUTBOUND_ENABLED=false \
             -e PROACTIVE_RECRUITER_FIXTURE=true \
             job-agent-runtime-app npx tsx scripts/proactive-recruiter-once.ts
-          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc \"SELECT COUNT(*) FROM recruiter_proactive_evidence;\")" -ge 1
-          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc \"SELECT COUNT(*) FROM recruiter_outreach_sequences WHERE campaign_type='PROACTIVE_RECRUITER' AND job_opportunity_id IS NULL;\")" -ge 1
-          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc \"SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';\")" -eq 0
+          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_proactive_evidence;")" -ge 1
+          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_sequences WHERE campaign_type='PROACTIVE_RECRUITER' AND job_opportunity_id IS NULL;")" -ge 1
+          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';")" -eq 0
 
       - name: Verify safe runtime logs and kill switches
         shell: bash
