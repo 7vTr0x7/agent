@@ -28,8 +28,6 @@ export class JobDiscoveryService {
     const canonicalId = createCanonicalJobId(job.url);
     const contentFingerprint = createJobContentFingerprint(job);
     return this.database.transaction(async (client) => {
-      // Serialize identical-content observations so concurrent federation
-      // sources cannot both pass the fingerprint lookup and create duplicates.
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [contentFingerprint]);
 
       const existingByContent = await client.query<OpportunityRow>(
@@ -48,17 +46,17 @@ export class JobDiscoveryService {
 
       const existing = existingByContent.rows[0];
       if (existing) {
-        const observationResult = await client.query(
+        await client.query(
           `
             INSERT INTO job_observations (
               job_opportunity_id, platform, source_type, source_job_id, source_url,
               discovered_at, observed_at, raw_payload, content_hash
             ) VALUES ($1,$2,$3,$4,$5,NOW(),NOW(),$6::jsonb,$7)
-            ON CONFLICT DO NOTHING RETURNING id
+            ON CONFLICT DO NOTHING
           `,
           [existing.id, job.source, "adapter", job.sourceJobId, job.url, JSON.stringify(job), job.contentHash]
         );
-        return { inserted: observationResult.rowCount === 1, opportunityId: existing.id };
+        return { inserted: false, opportunityId: existing.id };
       }
 
       const opportunityResult = await client.query<OpportunityRow>(
