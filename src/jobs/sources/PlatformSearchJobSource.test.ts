@@ -21,9 +21,9 @@ describe("PlatformSearchJobSource", () => {
 
     expect(jobs).toEqual([]);
     // Two independent public-search queries are attempted for every registry
-    // entry. A successful empty response stops the search-engine fallback chain,
-    // so this is a deterministic proof that every entry was scheduled.
-    expect(calls).toHaveLength(JOB_PLATFORM_REGISTRY.length * 2);
+    // entry. With empty responses, each query tries the three search front-ends
+    // and then the direct Bing RSS fallback.
+    expect(calls).toHaveLength(JOB_PLATFORM_REGISTRY.length * 2 * 4);
   });
 
   it("stops before issuing network work when the source signal is already aborted", async () => {
