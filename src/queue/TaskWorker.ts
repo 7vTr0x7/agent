@@ -20,8 +20,6 @@ export class TaskWorker {
     this.workerId = options.workerId ?? `worker-${randomUUID()}`;
     this.pollIntervalMs = options.pollIntervalMs ?? 1000;
     this.staleRecoveryIntervalMs = options.staleRecoveryIntervalMs ?? 30_000;
-    // Renew frequently enough to survive transient DB/network delays while
-    // retaining a generous 15-minute lease as the failure boundary.
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 10_000;
     this.logger = options.logger ?? noopLogger;
   }
@@ -61,9 +59,6 @@ export class TaskWorker {
       }
     };
 
-    // Renew immediately after claim so a task that starts under transient load
-    // does not depend on the first timer tick to establish a fresh lease.
-    await renewLease();
     const heartbeatTimer = setInterval(() => { void renewLease(); }, this.heartbeatIntervalMs);
 
     try {
