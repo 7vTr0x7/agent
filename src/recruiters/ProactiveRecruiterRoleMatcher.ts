@@ -39,6 +39,7 @@ export class ProactiveRecruiterRoleMatcher {
     const generated = [
       ...this.configuredRoleTerms,
       ...configured,
+      ...skills,
       ...skills.filter((s) => ["react", "next js", "typescript", "javascript"].includes(s)).map((s) => `${s} developer`),
     ];
     return [...new Set(generated.map(normalize).filter(Boolean))];
