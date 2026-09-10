@@ -1,16 +1,14 @@
 import { createHash } from "node:crypto";
 
-export function canonicalizeJobUrl(value: string): string {
-  const url = new URL(value);
-  url.hash = "";
-  for (const key of [...url.searchParams.keys()]) {
-    if (/^(utm_|ref$|source$|campaign$|tracking|trk$)/i.test(key)) url.searchParams.delete(key);
-  }
-  return url.toString();
+export function canonicalizeJobUrl(url: string): string {
+  const parsed = new URL(url.trim());
+  parsed.hash = "";
+  parsed.search = "";
+  return parsed.toString();
 }
 
-export function createCanonicalJobId(value: string): string {
-  return createHash("sha256").update(canonicalizeJobUrl(value)).digest("hex");
+export function createCanonicalJobId(url: string): string {
+  return createHash("sha256").update(canonicalizeJobUrl(url)).digest("hex");
 }
 
 /** Stable content identity used to collapse the same posting observed through
