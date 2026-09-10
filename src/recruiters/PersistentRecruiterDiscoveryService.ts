@@ -1,7 +1,15 @@
 import { PERMANENTLY_EXCLUDED_COMPANIES } from "../applications/ApplicationPolicy";
-import { RecruiterDiscoveryInput, RecruiterDiscoveryProvider, RecruiterContactCandidate } from "./RecruiterDiscovery";
-import { rankRecruiterContacts, RankedRecruiterContact } from "./RecruiterRanking";
+import { Database } from "../database/Database";
+import {
+  RecruiterContactCandidate,
+  RecruiterDiscoveryContact,
+  RecruiterDiscoveryInput,
+  RecruiterDiscoveryProvider,
+  RecruiterIdentityCandidate
+} from "./RecruiterDiscovery";
 import { RecruiterDiscoveryRepository, StoredRecruiterContact } from "./RecruiterDiscoveryRepository";
+import { RecruiterIdentityRepository, StoredRecruiterIdentity } from "./RecruiterIdentityRepository";
+import { rankRecruiterContacts, RankedRecruiterContact } from "./RecruiterRanking";
 
 export interface PersistentRecruiterDiscoveryOptions {
   provider: RecruiterDiscoveryProvider;
@@ -11,17 +19,59 @@ export interface PersistentRecruiterDiscoveryOptions {
   requireVerifiedEmail?: boolean;
 }
 
+export interface RecruiterDiscoveryMetrics {
+  recruiterDiscovery: { discovered: number; profileOnly: number; withEmail: number };
+  emailDiscovery: { attempted: number; found: number; notFound: number; invalid: number };
+  persistence: { insertedOrUpdated: number; deduplicated: number; rejected: number };
+  outreach: { eligible: number; prepared: number; sendQueued: number; sent: number; failed: number };
+}
+
 export interface PersistentRecruiterDiscoveryResult {
   status: "DISCOVERED" | "SKIPPED";
   reason: string;
   runId: string | null;
   contacts: Array<StoredRecruiterContact & Pick<RankedRecruiterContact, "score" | "reasons">>;
+  metrics: RecruiterDiscoveryMetrics;
+}
+
+function hasEmail(contact: RecruiterDiscoveryContact): contact is RecruiterContactCandidate {
+  return typeof contact.email === "string" && contact.email.trim().length > 0;
+}
+
+function normalize(value: string): string { return value.trim().toLowerCase(); }
+function normalizeDomain(value: string): string { return normalize(value).replace(/^https?:\/\//, "").split("/")[0]?.replace(/^www\./, "") ?? ""; }
+function isCompanyEmail(email: string, domain: string): boolean { return normalize(email).endsWith(`@${domain}`); }
+function identityMatches(identity: RecruiterIdentityCandidate, emailCandidate: RecruiterContactCandidate): boolean {
+  if (identity.linkedinProfileUrl && emailCandidate.linkedinProfileUrl) return identity.linkedinProfileUrl.toLowerCase() === emailCandidate.linkedinProfileUrl.toLowerCase();
+  if (identity.fullName && emailCandidate.fullName) return normalize(identity.fullName) === normalize(emailCandidate.fullName);
+  return false;
+}
+
+function toStoredContact(identity: StoredRecruiterIdentity): StoredRecruiterContact | null {
+  if (!identity.email) return null;
+  return {
+    id: identity.id,
+    companyName: identity.companyName,
+    companyDomain: identity.companyDomain,
+    email: identity.email,
+    fullName: identity.fullName,
+    title: identity.title,
+    department: identity.department,
+    seniority: identity.seniority,
+    country: identity.country,
+    location: identity.location,
+    confidence: identity.confidence,
+    verified: identity.verified,
+    verificationStatus: identity.verificationStatus,
+    provider: identity.provider
+  };
 }
 
 export class PersistentRecruiterDiscoveryService {
   private readonly cooldownHours: number;
   private readonly minConfidence: number;
   private readonly requireVerifiedEmail: boolean;
+  private readonly identityRepository: RecruiterIdentityRepository;
 
   constructor(private readonly options: PersistentRecruiterDiscoveryOptions) {
     this.cooldownHours = options.cooldownHours ?? 0;
@@ -29,48 +79,120 @@ export class PersistentRecruiterDiscoveryService {
     this.requireVerifiedEmail = options.requireVerifiedEmail ?? true;
     if (!Number.isFinite(this.cooldownHours) || this.cooldownHours < 0) throw new Error("Recruiter discovery cooldown must be a non-negative finite number.");
     if (!Number.isFinite(this.minConfidence) || this.minConfidence < 0 || this.minConfidence > 100) throw new Error("Recruiter discovery minimum confidence must be between 0 and 100.");
+    const database = (options.repository as unknown as { database?: Database }).database;
+    if (!database) throw new Error("Recruiter discovery repository database handle is unavailable.");
+    this.identityRepository = new RecruiterIdentityRepository(database);
   }
 
   async discoverAndPersist(input: RecruiterDiscoveryInput, maxContacts: number): Promise<PersistentRecruiterDiscoveryResult> {
     if (!input.candidateProfileId.trim()) throw new Error("candidateProfileId is required for recruiter discovery.");
     if (!Number.isInteger(maxContacts) || maxContacts < 1) throw new Error("maxContacts must be a positive integer.");
-    const domain = input.companyDomain.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0] ?? "";
+    const domain = normalizeDomain(input.companyDomain);
     if (!domain) throw new Error("A company domain is required for recruiter discovery.");
-
     if (isPermanentlyExcludedCompany(input.companyName)) {
-      return { status: "SKIPPED", reason: "Company is permanently excluded from recruiter discovery and outreach.", runId: null, contacts: [] };
+      return { status: "SKIPPED", reason: "Company is permanently excluded from recruiter discovery and outreach.", runId: null, contacts: [], metrics: emptyMetrics() };
     }
-
     if (this.cooldownHours > 0 && await this.options.repository.hasRecentDiscovery(domain, this.options.provider.name, this.cooldownHours)) {
-      return { status: "SKIPPED", reason: `A successful ${this.options.provider.name} discovery exists within the ${this.cooldownHours}-hour cooldown.`, runId: null, contacts: [] };
+      return { status: "SKIPPED", reason: `A successful ${this.options.provider.name} discovery exists within the ${this.cooldownHours}-hour cooldown.`, runId: null, contacts: [], metrics: emptyMetrics() };
     }
 
     const run = await this.options.repository.startDiscoveryRun({ companyName: input.companyName, companyDomain: domain, jobOpportunityId: input.jobOpportunityId, candidateProfileId: input.candidateProfileId, provider: this.options.provider.name });
+    const metrics = emptyMetrics();
     try {
       const discovered = await this.options.provider.discover(input);
-      const discoveredCount = discovered.contacts.length;
-      const candidates = await this.verifyDiscoveredContacts(discovered.contacts);
-      const verificationRejected = candidates.filter((contact) => this.requireVerifiedEmail && this.options.provider.name !== "job-posting" && !contact.verified).length;
-      const confidenceRejected = candidates.filter((contact) => (contact.confidence ?? 0) < this.minConfidence).length;
-      const eligible = candidates.filter((contact) => {
-        if (this.requireVerifiedEmail && !contact.verified && this.options.provider.name !== "job-posting") return false;
-        return (contact.confidence ?? 0) >= this.minConfidence;
-      });
-      const uniqueCandidates = deduplicateRecruiterCandidates(eligible);
-      const ranked = rankRecruiterContacts(uniqueCandidates, input.jobTitle, maxContacts);
-      const persisted: Array<StoredRecruiterContact & Pick<RankedRecruiterContact, "score" | "reasons">> = [];
-      for (const candidate of ranked) {
-        const contact = await this.options.repository.upsertContact(input.companyName, domain, candidate);
-        await this.options.repository.addSources(contact.id, candidate);
-        persisted.push({ ...contact, score: candidate.score, reasons: candidate.reasons });
+      const identities = deduplicateIdentities(discovered.contacts);
+      metrics.recruiterDiscovery.discovered = identities.length;
+      metrics.recruiterDiscovery.profileOnly = identities.filter((contact) => !hasEmail(contact)).length;
+      metrics.recruiterDiscovery.withEmail = identities.filter(hasEmail).length;
+
+      const eligibleIdentities = identities.filter((contact) => (contact.confidence ?? 0) >= this.minConfidence);
+      metrics.persistence.rejected += identities.length - eligibleIdentities.length;
+      const persisted = new Map<string, StoredRecruiterIdentity>();
+      for (const candidate of eligibleIdentities) {
+        const stored = await this.identityRepository.upsertIdentity(input.companyName, domain, {
+          ...candidate,
+          companyDomain: domain,
+          provider: this.options.provider.name
+        });
+        await this.identityRepository.addSources(stored.id, candidate);
+        persisted.set(stored.id, stored);
+        metrics.persistence.insertedOrUpdated += 1;
       }
-      await this.options.repository.finishDiscoveryRun(run.id, "SUCCEEDED", uniqueCandidates.length);
-      return {
-        status: "DISCOVERED",
-        reason: `Discovered ${discoveredCount}; ${verificationRejected} rejected by email verification; ${confidenceRejected} rejected by confidence; ${uniqueCandidates.length} eligible; persisted ${persisted.length}.`,
-        runId: run.id,
-        contacts: persisted
-      };
+
+      const emailCandidates = await this.discoverEmails(input, discovered.contacts);
+      metrics.emailDiscovery.attempted = [...persisted.values()].filter((contact) => !contact.email).length;
+      const emailByIdentity = matchEmailCandidates([...persisted.values()], emailCandidates, domain);
+
+      for (const identity of persisted.values()) {
+        if (identity.email) continue;
+        const candidate = emailByIdentity.get(identity.id);
+        if (!candidate) {
+          await this.identityRepository.markEmailDiscovery(identity.id, "NOT_FOUND");
+          metrics.emailDiscovery.notFound += 1;
+          continue;
+        }
+        if (!isCompanyEmail(candidate.email, domain)) {
+          await this.identityRepository.markEmailDiscovery(identity.id, "INVALID");
+          metrics.emailDiscovery.invalid += 1;
+          continue;
+        }
+        const isJobPostingEvidence = candidate.sources?.some((source) => source.type === "job_posting") ?? false;
+        let verified = candidate.verified;
+        let verificationStatus = candidate.verificationStatus;
+        let verificationConfidence = candidate.confidence;
+        if (this.requireVerifiedEmail && !verified && !isJobPostingEvidence) {
+          try {
+            const verification = await this.options.provider.verify(candidate.email);
+            verified = verification.verified;
+            verificationStatus = verification.status;
+            verificationConfidence = Math.max(verificationConfidence ?? 0, verification.confidence ?? 0);
+          } catch {
+            verified = false;
+          }
+        }
+        if (this.requireVerifiedEmail && !verified && !isJobPostingEvidence) {
+          await this.identityRepository.markEmailDiscovery(identity.id, "INVALID");
+          metrics.emailDiscovery.invalid += 1;
+          continue;
+        }
+        const enriched = await this.identityRepository.enrichEmail(identity.id, candidate.email, verified, verificationStatus, verificationConfidence);
+        if (enriched) {
+          await this.identityRepository.addSources(enriched.id, candidate);
+          persisted.set(identity.id, enriched);
+          metrics.emailDiscovery.found += 1;
+        }
+      }
+
+      const outreachContacts: RecruiterContactCandidate[] = [...persisted.values()]
+        .map(toStoredContact)
+        .filter((contact): contact is StoredRecruiterContact => Boolean(contact))
+        .filter((contact) => contact.email && (contact.confidence ?? 0) >= this.minConfidence)
+        .map((contact) => ({
+          email: contact.email,
+          fullName: contact.fullName,
+          title: contact.title,
+          department: contact.department,
+          seniority: contact.seniority,
+          country: contact.country,
+          location: contact.location,
+          confidence: contact.confidence,
+          verified: contact.verified,
+          verificationStatus: contact.verificationStatus,
+          provider: contact.provider,
+          sources: []
+        }));
+      metrics.outreach.eligible = outreachContacts.length;
+      const ranked = rankRecruiterContacts(outreachContacts, input.jobTitle, maxContacts);
+      const resultContacts: Array<StoredRecruiterContact & Pick<RankedRecruiterContact, "score" | "reasons">> = [];
+      for (const rankedContact of ranked) {
+        const stored = [...persisted.values()].find((identity) => identity.email?.toLowerCase() === rankedContact.email.toLowerCase());
+        const contact = stored ? toStoredContact(stored) : null;
+        if (!contact) continue;
+        resultContacts.push({ ...contact, score: rankedContact.score, reasons: rankedContact.reasons });
+      }
+      await this.options.repository.finishDiscoveryRun(run.id, "SUCCEEDED", persisted.size);
+      const reason = `Discovered ${metrics.recruiterDiscovery.discovered}; profileOnly ${metrics.recruiterDiscovery.profileOnly}; withEmail ${metrics.recruiterDiscovery.withEmail}; emailFound ${metrics.emailDiscovery.found}; emailNotFound ${metrics.emailDiscovery.notFound}; invalid ${metrics.emailDiscovery.invalid}; outreachEligible ${metrics.outreach.eligible}; persisted ${metrics.persistence.insertedOrUpdated}.`;
+      return { status: "DISCOVERED", reason, runId: run.id, contacts: resultContacts, metrics };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await this.options.repository.finishDiscoveryRun(run.id, "FAILED", 0, message);
@@ -78,48 +200,82 @@ export class PersistentRecruiterDiscoveryService {
     }
   }
 
-  private async verifyDiscoveredContacts(contacts: RecruiterContactCandidate[]): Promise<RecruiterContactCandidate[]> {
-    if (!this.requireVerifiedEmail) return contacts;
-    if (this.options.provider.name === "job-posting") return contacts;
-
-    return Promise.all(contacts.map(async (contact) => {
-      if (contact.verified) return contact;
-      try {
-        const verification = await this.options.provider.verify(contact.email);
-        if (!verification || !verification.verified) return contact;
-        return {
-          ...contact,
-          verified: true,
-          verificationStatus: verification.status,
-          confidence: Math.min(100, Math.max(contact.confidence ?? 0, verification.confidence ?? 0))
-        };
-      } catch {
-        return contact;
-      }
-    }));
+  private async discoverEmails(input: RecruiterDiscoveryInput, discovered: RecruiterDiscoveryContact[]): Promise<RecruiterContactCandidate[]> {
+    const direct = discovered.filter(hasEmail) as RecruiterContactCandidate[];
+    const secondStage = this.options.provider.discoverEmails
+      ? await this.options.provider.discoverEmails(input)
+      : { provider: this.options.provider.name, contacts: direct, discoveredAt: new Date() };
+    const candidates = secondStage.contacts.filter(hasEmail) as RecruiterContactCandidate[];
+    return deduplicateEmailCandidates([...direct, ...candidates]);
   }
 }
 
+function deduplicateIdentities(contacts: RecruiterDiscoveryContact[]): RecruiterDiscoveryContact[] {
+  const map = new Map<string, RecruiterDiscoveryContact>();
+  for (const contact of contacts) {
+    const key = contact.linkedinProfileUrl?.trim().toLowerCase()
+      || (contact.email ? `email:${contact.email.trim().toLowerCase()}` : `name:${normalize(contact.fullName ?? "")}|title:${normalize(contact.title ?? "")}`);
+    const existing = map.get(key);
+    if (!existing) { map.set(key, contact); continue; }
+    map.set(key, {
+      ...existing,
+      email: existing.email || contact.email,
+      fullName: existing.fullName ?? contact.fullName,
+      title: existing.title ?? contact.title,
+      department: existing.department ?? contact.department,
+      seniority: existing.seniority ?? contact.seniority,
+      confidence: Math.max(existing.confidence ?? 0, contact.confidence ?? 0),
+      verified: existing.verified || contact.verified,
+      linkedinProfileUrl: existing.linkedinProfileUrl ?? contact.linkedinProfileUrl,
+      sources: [...existing.sources, ...contact.sources]
+    });
+  }
+  return [...map.values()];
+}
+
+function deduplicateEmailCandidates(contacts: RecruiterContactCandidate[]): RecruiterContactCandidate[] {
+  const map = new Map<string, RecruiterContactCandidate>();
+  for (const contact of contacts) {
+    const email = contact.email.trim().toLowerCase();
+    const existing = map.get(email);
+    if (!existing) map.set(email, { ...contact, email });
+    else map.set(email, {
+      ...existing,
+      fullName: existing.fullName ?? contact.fullName,
+      title: existing.title ?? contact.title,
+      linkedinProfileUrl: existing.linkedinProfileUrl ?? contact.linkedinProfileUrl,
+      confidence: Math.max(existing.confidence ?? 0, contact.confidence ?? 0),
+      verified: existing.verified || contact.verified,
+      sources: [...existing.sources, ...contact.sources]
+    });
+  }
+  return [...map.values()];
+}
+
+function matchEmailCandidates(identities: StoredRecruiterIdentity[], candidates: RecruiterContactCandidate[], domain: string): Map<string, RecruiterContactCandidate> {
+  const result = new Map<string, RecruiterContactCandidate>();
+  for (const candidate of candidates) {
+    if (!isCompanyEmail(candidate.email, domain)) continue;
+    const match = identities.find((identity) => {
+      if (identity.linkedinProfileUrl && candidate.linkedinProfileUrl) return identity.linkedinProfileUrl.toLowerCase() === candidate.linkedinProfileUrl.toLowerCase();
+      if (identity.fullName && candidate.fullName) return normalize(identity.fullName) === normalize(candidate.fullName);
+      return false;
+    });
+    if (match) result.set(match.id, candidate);
+  }
+  return result;
+}
+
+function isCompanyEmail(email: string, domain: string): boolean { return normalize(email).endsWith(`@${domain}`); }
 function isPermanentlyExcludedCompany(companyName: string): boolean {
   const normalized = companyName.trim().toLowerCase();
   return PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.toLowerCase() === normalized);
 }
-
-export function deduplicateRecruiterCandidates(contacts: RecruiterContactCandidate[]): RecruiterContactCandidate[] {
-  const byEmail = new Map<string, RecruiterContactCandidate>();
-  for (const contact of contacts) {
-    const email = contact.email.trim().toLowerCase();
-    if (!email) continue;
-    const normalized = { ...contact, email };
-    const existing = byEmail.get(email);
-    if (!existing) {
-      byEmail.set(email, normalized);
-      continue;
-    }
-    const existingConfidence = existing.confidence ?? -1;
-    const candidateConfidence = normalized.confidence ?? -1;
-    const shouldReplace = normalized.verified !== existing.verified ? normalized.verified : candidateConfidence > existingConfidence;
-    if (shouldReplace) byEmail.set(email, normalized);
-  }
-  return [...byEmail.values()];
+function emptyMetrics(): RecruiterDiscoveryMetrics {
+  return {
+    recruiterDiscovery: { discovered: 0, profileOnly: 0, withEmail: 0 },
+    emailDiscovery: { attempted: 0, found: 0, notFound: 0, invalid: 0 },
+    persistence: { insertedOrUpdated: 0, deduplicated: 0, rejected: 0 },
+    outreach: { eligible: 0, prepared: 0, sendQueued: 0, sent: 0, failed: 0 }
+  };
 }
