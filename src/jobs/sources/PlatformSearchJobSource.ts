@@ -3,6 +3,7 @@ import { JobSource } from "./JobSource";
 import { JOB_PLATFORM_REGISTRY } from "./JobPlatformRegistry";
 import { JobPageDiagnostics, parsePlatformJobPage } from "./PlatformJobPageParser";
 import { PlaywrightJobPageRenderer } from "./RenderedJobPageRenderer";
+import { extractSearchResultUrls, SearchResultExtractionDiagnostics } from "./SearchResultUrlExtractor";
 
 const PLATFORM_CONCURRENCY = 4;
 const SEARCH_CONCURRENCY = 2;
@@ -44,6 +45,7 @@ export interface PlatformDiscoveryDiagnostics {
   readonly errors?: number;
   readonly finalOutcome?: PlatformDiscoveryOutcome;
   readonly extractionMode?: PlatformExtractionMode;
+  readonly searchExtraction?: SearchResultExtractionDiagnostics;
 }
 
 export type PlatformDiscovery = (platformName: string, signal?: AbortSignal, onDiagnostic?: (diagnostics: PlatformDiscoveryDiagnostics) => void) => Promise<Job[]>;
@@ -75,14 +77,19 @@ export class PlatformSearchJobSource implements JobSource {
 
 const sharedRenderer = new PlaywrightJobPageRenderer();
 
-async function discoverPlatform(platformName: string, signal?: AbortSignal, onDiagnostic: (diagnostics: PlatformDiscoveryDiagnostics) => void = logDiagnostics): Promise<Job[]> {
+export async function discoverPlatform(platformName: string, signal?: AbortSignal, onDiagnostic: (diagnostics: PlatformDiscoveryDiagnostics) => void = logDiagnostics): Promise<Job[]> {
   const domain = platformSearchDomain(platformName);
   const queries = buildSearchQueries(platformName, domain);
   const pages = await mapWithConcurrency(queries, SEARCH_CONCURRENCY, async (query) => signal?.aborted ? [] : fetchSearchPages(query, signal));
   const searchPages = pages.flat();
-  const rawUrls = searchPages.flatMap(extractSearchResultUrls);
-  const links = [...new Set(rawUrls.map(cleanSearchUrl).filter(Boolean))];
-  const diagnosticsBase = { platform: platformName, searchPages: searchPages.length, searchUrlsGenerated: queries.length, searchReturnedUrls: rawUrls.length, uniqueUrls: links.length };
+  const extractionTotals = createSearchExtractionTotals();
+  const rawUrls = searchPages.flatMap((searchPage) => {
+    const extraction = extractSearchResultUrls(searchPage.content, searchPage.baseUrl);
+    addSearchExtractionTotals(extractionTotals, extraction.diagnostics);
+    return extraction.urls;
+  });
+  const links = [...new Set(rawUrls.map((url) => url.trim()).filter(Boolean))];
+  const diagnosticsBase = { platform: platformName, searchPages: searchPages.length, searchUrlsGenerated: queries.length, searchReturnedUrls: rawUrls.length, uniqueUrls: links.length, searchExtraction: extractionTotals };
 
   if (signal?.aborted) {
     onDiagnostic({ ...diagnosticsBase, pageSuccesses: 0, pageFailures: 0, parseSuccesses: 0, parseFailures: 0, parseFailureReasons: { aborted: 1 }, jobs: 0, errors: 1, finalOutcome: "TIMEOUT" });
@@ -180,34 +187,43 @@ function quoteSearchTerm(value: string): string { return value.includes(" ") || 
 function recordParseDiagnostic(diagnostic: JobPageDiagnostics, reasons: Record<string, number>): void { if (!diagnostic.parsed) { const reason = diagnostic.failure ?? "unknown"; reasons[reason] = (reasons[reason] ?? 0) + 1; } }
 function logDiagnostics(diagnostics: PlatformDiscoveryDiagnostics): void { console.info(JSON.stringify({ event: "platform_discovery_diagnostic", ...diagnostics })); }
 
-async function fetchSearchPages(query: string, signal?: AbortSignal): Promise<string[]> {
+type SearchPage = { content: string; baseUrl: string };
+
+async function fetchSearchPages(query: string, signal?: AbortSignal): Promise<SearchPage[]> {
   const encoded = encodeURIComponent(query);
-  const endpoints = [
-    `https://r.jina.ai/https://www.google.com/search?q=${encoded}&gbv=1`,
-    `https://r.jina.ai/https://www.bing.com/search?q=${encoded}`,
-    `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${encoded}`
+  const endpoints: Array<{ url: string; baseUrl: string }> = [
+    { url: `https://r.jina.ai/https://www.google.com/search?q=${encoded}&gbv=1`, baseUrl: `https://www.google.com/search?q=${encoded}&gbv=1` },
+    { url: `https://r.jina.ai/https://www.bing.com/search?q=${encoded}`, baseUrl: `https://www.bing.com/search?q=${encoded}` },
+    { url: `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${encoded}`, baseUrl: `https://html.duckduckgo.com/html/?q=${encoded}` }
   ];
-  const pages: string[] = [];
+  const pages: SearchPage[] = [];
   for (const endpoint of endpoints) {
     if (signal?.aborted) return pages;
-    const page = await fetchText(endpoint, SEARCH_TIMEOUT_MS, signal);
-    if (page) pages.push(page);
+    const page = await fetchText(endpoint.url, SEARCH_TIMEOUT_MS, signal);
+    if (page) pages.push({ content: page, baseUrl: endpoint.baseUrl });
     if (pages.length >= 1) break;
   }
   if (pages.length || signal?.aborted) return pages;
-  const bingRss = await fetchText(`https://www.bing.com/search?format=rss&q=${encoded}`, SEARCH_TIMEOUT_MS, signal);
-  return bingRss ? [bingRss] : [];
+  const bingRssUrl = `https://www.bing.com/search?format=rss&q=${encoded}`;
+  const bingRss = await fetchText(bingRssUrl, SEARCH_TIMEOUT_MS, signal);
+  return bingRss ? [{ content: bingRss, baseUrl: bingRssUrl }] : [];
 }
 
-function extractSearchResultUrls(page: string): string[] {
-  const urls = new Set<string>();
-  for (const match of page.matchAll(/\]\((https?:\/\/[^)\s]+)\)/gi)) { const url = cleanSearchUrl(match[1] ?? ""); if (url) urls.add(url); }
-  for (const match of page.matchAll(/<link[^>]*>(https?:\/\/[^<]+)<\/link>/gi)) { const url = cleanSearchUrl(decodeXml(match[1] ?? "")); if (url) urls.add(url); }
-  for (const match of page.matchAll(/href=["'](https?:\/\/[^"']+)["']/gi)) { const url = cleanSearchUrl(decodeXml(match[1] ?? "")); if (url) urls.add(url); }
-  return [...urls].filter((url) => !isSearchEngineUrl(url));
+function createSearchExtractionTotals(): SearchResultExtractionDiagnostics {
+  return { markdownCandidates: 0, hrefCandidates: 0, rssCandidates: 0, bareUrlCandidates: 0, redirectCandidates: 0, validCandidates: 0, normalizedUrls: 0, duplicates: 0, rejectedCandidates: 0, rejectionReasons: {} };
 }
-function cleanSearchUrl(value: string): string { const decoded = decodeXml(value).replace(/&amp;/gi, "&").trim(); try { const url = new URL(decoded); if (!/^https?:$/i.test(url.protocol) || isSearchEngineUrl(url.toString())) return ""; url.hash = ""; return url.toString(); } catch { return ""; } }
-function isSearchEngineUrl(value: string): boolean { try { const hostname = new URL(value).hostname.toLowerCase().replace(/^www\./, ""); return hostname === "google.com" || hostname.endsWith(".google.com") || hostname === "bing.com" || hostname.endsWith(".bing.com") || hostname === "duckduckgo.com" || hostname.endsWith(".duckduckgo.com") || hostname === "microsoft.com" || hostname.endsWith(".microsoft.com") || hostname === "jina.ai" || hostname.endsWith(".jina.ai"); } catch { return true; } }
+function addSearchExtractionTotals(total: SearchResultExtractionDiagnostics, current: SearchResultExtractionDiagnostics): void {
+  total.markdownCandidates += current.markdownCandidates;
+  total.hrefCandidates += current.hrefCandidates;
+  total.rssCandidates += current.rssCandidates;
+  total.bareUrlCandidates += current.bareUrlCandidates;
+  total.redirectCandidates += current.redirectCandidates;
+  total.validCandidates += current.validCandidates;
+  total.normalizedUrls += current.normalizedUrls;
+  total.duplicates += current.duplicates;
+  total.rejectedCandidates += current.rejectedCandidates;
+  for (const [reason, count] of Object.entries(current.rejectionReasons)) total.rejectionReasons[reason] = (total.rejectionReasons[reason] ?? 0) + count;
+}
 
 function platformSearchDomain(platformName: string): string | null {
   const knownDomains: Record<string, string> = {
