@@ -29,11 +29,11 @@ describe("TaskWorker", () => {
     const runPromise = worker.runOnce();
     await Promise.resolve(); await Promise.resolve();
     expect(queue.heartbeat).not.toHaveBeenCalled();
-    jest.advanceTimersByTime(3_000);
+    await jest.advanceTimersByTimeAsync(3_000);
     expect(queue.heartbeat).toHaveBeenCalledTimes(3);
     expect(queue.heartbeat).toHaveBeenNthCalledWith(1, "task-1", "worker-1");
     resolveHandler!(); await runPromise;
-    jest.advanceTimersByTime(2_000);
+    await jest.advanceTimersByTimeAsync(2_000);
     expect(queue.heartbeat).toHaveBeenCalledTimes(3);
     expect(queue.succeed).toHaveBeenCalledWith("task-1", "worker-1");
     expect(queue.claim).toHaveBeenCalledWith("worker-1", ["test"]);
