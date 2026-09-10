@@ -14,12 +14,12 @@ describe("RecruiterOutreachSendReconciliationService",()=>{
   await expect(service.runOnce()).resolves.toEqual({inspected:1,reconciled:1,requeued:0,unresolved:0});
   expect(repository.markOutreachMessageSent).toHaveBeenCalledWith(messageId,{provider:"gmail",providerMessageId:"gmail-123",providerThreadId:"thread-123"});
  });
- it("requeues an unmatched stale message for a safe retry",async()=>{
+ it("keeps an unmatched stale message ambiguous instead of blindly retrying",async()=>{
   const database={query:jest.fn().mockResolvedValue({rows:[{id:"message-456",recipientEmail:"recruiter@example.com",subject:"Frontend Engineer",sendClaimedAt:new Date(),companyDomain:"example.com"}]})} as unknown as Database;
   const repository={markOutreachMessageSent:jest.fn()} as unknown as RecruiterDiscoveryRepository;
   const mailbox={listMessages:jest.fn().mockResolvedValue(["gmail-456"]),getMessage:jest.fn().mockResolvedValue({gmailMessageId:"gmail-456",gmailThreadId:"thread-456",rfcMessageId:"<some-other-message@job-agent.local>",inReplyTo:null,senderEmail:"me@example.com",senderName:null,recipientEmail:"recruiter@example.com",subject:"Frontend Engineer",receivedAt:new Date(),snippet:null,bodyText:"Hello",classification:"OTHER"})} as unknown as GmailMailbox;
   const service=new RecruiterOutreachSendReconciliationService(database,repository,mailbox);
-  await expect(service.runOnce()).resolves.toEqual({inspected:1,reconciled:0,requeued:1,unresolved:0});
+  await expect(service.runOnce()).resolves.toEqual({inspected:1,reconciled:0,requeued:0,unresolved:1});
   expect(repository.markOutreachMessageSent).not.toHaveBeenCalled();
  });
 });
