@@ -18,6 +18,20 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(results[0]?.email).toBe("jane@example.com");
     expect(results[0]?.emailStatus).toBe("UNVERIFIED");
     expect(results[0]?.discoverySource).toBe("public-web");
+    expect(results[0]?.evidenceFreshness).toBe("unknown");
+  });
+
+  it("classifies current, recent, and historical hiring evidence without treating history as current", async () => {
+    const now = new Date("2026-09-11T00:00:00Z");
+    const pages = [
+      "Current Recruiter actively hiring React engineers <https://linkedin.com/in/current-recruiter>",
+      "Recent Recruiter 2026 recruiting frontend engineers <https://linkedin.com/in/recent-recruiter>",
+      "Historical Recruiter 2023 previously recruited frontend engineers <https://linkedin.com/in/historical-recruiter>"
+    ];
+    let index = 0;
+    const service = new ProactiveRecruiterDiscoveryService({ fetchText: async () => pages[index++ % pages.length] ?? null, now: () => now });
+    const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
+    expect(results.map((result) => result.evidenceFreshness).sort()).toEqual(["current", "historical", "recent"].sort());
   });
 
   it("does not discover generic recruiters without target-role evidence", async () => {
