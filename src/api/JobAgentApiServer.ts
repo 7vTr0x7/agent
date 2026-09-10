@@ -1,4 +1,5 @@
-import { createServer, IncomingMessage, ServerResponse, Server, AddressInfo } from "node:http";
+import { createServer, IncomingMessage, ServerResponse, Server } from "node:http";
+import { AddressInfo } from "node:net";
 import { Database } from "../database/Database";
 
 interface SummaryRow {
