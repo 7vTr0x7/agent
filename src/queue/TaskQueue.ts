@@ -25,7 +25,9 @@ export interface RecoverStaleTasksResult { recovered: number; }
 
 // Long discovery/recruiter/browser tasks can legitimately run for several minutes.
 // Heartbeats renew this lease while work is active; recovery only touches expired leases.
-export const DEFAULT_TASK_LEASE_DURATION_MS = 15 * 60_000;
+// A 30-minute lease gives the worker enough room to survive a transient event-loop or
+// database stall without making the normal heartbeat path responsible for very tight timing.
+export const DEFAULT_TASK_LEASE_DURATION_MS = 30 * 60_000;
 
 export class TaskQueue {
   constructor(private readonly database: Database, private readonly leaseDurationMs = DEFAULT_TASK_LEASE_DURATION_MS) {}
