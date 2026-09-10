@@ -151,7 +151,7 @@ function freshnessRank(value: ProactiveRecruiterDiscoveryCandidate["evidenceFres
 
 function extractEmployer(evidence: string, email?: string): { name: string; domain?: string } {
   const emailDomain = email?.split("@")[1]?.toLowerCase();
-  const atMatch = evidence.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,60}?)(?=\s+(?:\||-|•|,|$))/i);
+  const atMatch = evidence.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,60}?)(?=\s+(?:hiring|recruiting|for|at|on|\||-|•|,|$))/i);
   const name = atMatch?.[1]?.trim().replace(/[|•,.-]+$/, "").trim();
   if (!name || !emailDomain || GENERIC_EMAIL_DOMAINS.has(emailDomain)) return { name: name || "Unknown employer" };
   const normalizedName = name.toLowerCase().replace(/[^a-z0-9]/g, "");
