@@ -12,7 +12,7 @@ describe("PlatformSearchJobSource", () => {
       active += 1;
       peak = Math.max(peak, active);
       processed.push(platformName);
-      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 1));
       active -= 1;
       return [];
     });
@@ -21,7 +21,8 @@ describe("PlatformSearchJobSource", () => {
 
     expect(jobs).toEqual([]);
     expect(discovery).toHaveBeenCalledTimes(JOB_PLATFORM_REGISTRY.length);
-    expect(new Set(processed).size).toBe(JOB_PLATFORM_REGISTRY.length);
+    expect(processed).toHaveLength(JOB_PLATFORM_REGISTRY.length);
+    expect(new Set(processed).size).toBe(new Set(JOB_PLATFORM_REGISTRY.map((platform) => platform.name)).size);
     expect(peak).toBeLessThanOrEqual(4);
   });
 
