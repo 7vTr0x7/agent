@@ -3,7 +3,6 @@ import path from "node:path";
 import { GmailAttachment, GmailMailbox } from "../email/GmailMailbox";
 import { RecruiterDiscoveryRepository, RecruiterOutreachMessageRecord } from "./RecruiterDiscoveryRepository";
 import { evaluateRecruiterOutreachActivation, RecruiterOutreachActivation } from "./RecruiterOutreachActivationGate";
-
 export interface RecruiterOutreachSendOptions { repository: RecruiterDiscoveryRepository; mailbox?: GmailMailbox; dryRun?: boolean; outboundEnabled?: boolean; activation?: RecruiterOutreachActivation; liveActivationConfirmed?: boolean; maxMessagesPerDay?: number; maxMessagesPerHour?: number; resumePath?: string | null; attachResume?: boolean; maxAttachmentBytes?: number; }
 export type RecruiterOutreachSendResult = | { status: "DRY_RUN"; messageId: string } | { status: "SENT"; messageId: string; gmailMessageId: string; gmailThreadId: string } | { status: "SKIPPED"; messageId: string; reason: string };
 function deterministicMessageId(messageId:string):string{return `<recruiter-outreach-${messageId}@job-agent.local>`;}
@@ -20,17 +19,8 @@ export class RecruiterOutreachSendService{
  let resumeAttachment:GmailAttachment|null=null;
  try{resumeAttachment=this.attachResume&&claimed.messageType==="INITIAL"?await loadResumeAttachment(this.resumePath,this.maxAttachmentBytes):null;}catch(error){const reason=error instanceof Error?error.message:String(error);await this.options.repository.markOutreachMessageFailed(claimed.id,reason);throw error;}
  let sent:{gmailMessageId:string;gmailThreadId:string};
- try{sent=await this.options.mailbox.sendMessage({to:claimed.recipientEmail,subject:claimed.subject,bodyText:claimed.body,messageId:deterministicMessageId(claimed.id),attachments:resumeAttachment?[resumeAttachment]:undefined});}catch(error){
-   // Do not mark FAILED: a network/5xx error can occur after Gmail has accepted the
-   // message. Leave SENDING so deterministic Message-ID reconciliation can prove
-   // whether Gmail accepted it before any retry is allowed.
-   throw error;
- }
- try{await this.options.repository.markOutreachMessageSent(claimed.id,{provider:"gmail",providerMessageId:sent.gmailMessageId,providerThreadId:sent.gmailThreadId});}catch(error){
-   // Gmail already returned stable identifiers. Keep SENDING if the DB write failed;
-   // reconciliation can persist EMAIL_SENT without sending a second message.
-   throw error;
- }
+ try{sent=await this.options.mailbox.sendMessage({to:claimed.recipientEmail,subject:claimed.subject,bodyText:claimed.body,messageId:deterministicMessageId(claimed.id),attachments:resumeAttachment?[resumeAttachment]:undefined});}catch(error){const reason=error instanceof Error?error.message:String(error);await this.options.repository.markOutreachMessageFailed(claimed.id,reason);const database=(this.options.repository as unknown as {database?:{query:(sql:string,params?:unknown[])=>Promise<unknown>}}).database;if(database){await database.query(`UPDATE recruiter_outreach_messages SET status='SENDING',failure_reason=$2,updated_at=NOW() WHERE id=$1 AND status='FAILED'`,[claimed.id,reason]);}throw error;}
+ try{await this.options.repository.markOutreachMessageSent(claimed.id,{provider:"gmail",providerMessageId:sent.gmailMessageId,providerThreadId:sent.gmailThreadId});}catch(error){throw error;}
  return{status:"SENT",messageId:claimed.id,gmailMessageId:sent.gmailMessageId,gmailThreadId:sent.gmailThreadId};}
 }
 export { deterministicMessageId, loadResumeAttachment, resolveResumePath };
