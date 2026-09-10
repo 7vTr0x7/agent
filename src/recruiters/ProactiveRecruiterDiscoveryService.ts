@@ -98,6 +98,7 @@ export class ProactiveRecruiterDiscoveryService {
         const employer = extractEmployer(evidence, email);
         const namePart = url.split("/in/")[1]?.replace(/[-_]+/g, " ").trim() || "Unknown recruiter";
         const key = url.toLowerCase();
+        const evidenceFreshness = classifyEvidenceFreshness(evidence, this.now());
         const candidate: ProactiveRecruiterDiscoveryCandidate = {
           recruiterName: namePart,
           recruiterRole: roleMatch.recruiterTerms[0] ?? "Recruiting professional",
@@ -112,7 +113,7 @@ export class ProactiveRecruiterDiscoveryService {
           discoveryEvidence: [evidence],
           evidenceType: evidence.toLowerCase().includes("hiring") || evidence.toLowerCase().includes("recruiting") ? "job_hiring_evidence" : "public_profile",
           evidenceDate: this.now().toISOString(),
-          evidenceFreshness: "current",
+          evidenceFreshness,
           email,
           emailStatus: "UNVERIFIED"
         };
@@ -125,12 +126,27 @@ export class ProactiveRecruiterDiscoveryService {
           discoveryEvidence: [...new Set([...existing.discoveryEvidence, evidence])].slice(0, 5),
           email: existing.email ?? candidate.email,
           employer: existing.employer === "Unknown employer" ? candidate.employer : existing.employer,
-          ...(existing.employerDomain || !candidate.employerDomain ? {} : { employerDomain: candidate.employerDomain })
+          ...(existing.employerDomain || !candidate.employerDomain ? {} : { employerDomain: candidate.employerDomain }),
+          evidenceFreshness: freshnessRank(candidate.evidenceFreshness) > freshnessRank(existing.evidenceFreshness) ? candidate.evidenceFreshness : existing.evidenceFreshness
         } : candidate);
       }
     }
     return [...candidates.values()];
   }
+}
+
+function classifyEvidenceFreshness(evidence: string, now: Date): "current" | "recent" | "historical" | "unknown" {
+  const lower = evidence.toLowerCase();
+  if (/currently|current(?:ly)?|this week|this month|hiring now|open roles|actively hiring|we are hiring/.test(lower)) return "current";
+  if (/last week|last month|recently|recent|2026|2025/.test(lower)) return "recent";
+  const years = [...lower.matchAll(/\b(20\d{2})\b/g)].map((match) => Number(match[1])).filter(Number.isFinite);
+  if (years.some((year) => now.getFullYear() - year >= 2)) return "historical";
+  if (/historical|previously|formerly|past hiring|used to recruit/.test(lower)) return "historical";
+  return "unknown";
+}
+
+function freshnessRank(value: ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"]): number {
+  return value === "current" ? 4 : value === "recent" ? 3 : value === "historical" ? 2 : 1;
 }
 
 function extractEmployer(evidence: string, email?: string): { name: string; domain?: string } {
