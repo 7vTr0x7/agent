@@ -53,6 +53,7 @@ interface ApplicationSubmissionRepository {
   finalizeSubmissionAttempt?: (
     applicationId: string,
     attemptId: string,
+    adapterName: string,
     result: any
   ) => Promise<boolean>;
   markSubmitted: (
@@ -107,233 +108,82 @@ export class ApplicationSubmissionService {
     try {
       session.page.setDefaultNavigationTimeout(this.navigationTimeoutMs);
       session.page.setDefaultTimeout(this.navigationTimeoutMs);
-      await withTimeout(
-        session.page.goto(request.context.url, { waitUntil: "domcontentloaded" }),
-        this.navigationTimeoutMs,
-        "Application page navigation timed out before submission; no submission attempt was started."
-      );
+      await withTimeout(session.page.goto(request.context.url, { waitUntil: "domcontentloaded" }), this.navigationTimeoutMs, "Application page navigation timed out before submission; no submission attempt was started.");
 
       const target = await this.targetResolver.resolve(session.page, request.context.url);
-      if (!target.resolved) {
-        return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: false, reason: target.reason, adapterName: null, result: null };
-      }
+      if (!target.resolved) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: false, reason: target.reason, adapterName: null, result: null };
 
       const adapter = this.adapters.resolve(target.url);
-      if (!adapter) {
-        return {
-          submitted: false,
-          outcome: "NOT_SUBMITTED",
-          safetyAllowed: false,
-          reason: "No application adapter can safely handle the resolved application URL.",
-          adapterName: null,
-          result: null
-        };
-      }
+      if (!adapter) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: false, reason: "No application adapter can safely handle the resolved application URL.", adapterName: null, result: null };
 
-      const flow = await this.flowController.prepare(
-        session.page,
-        request.candidateProfile,
-        request.companyName,
-        request.excludedCompanies
-      );
-      if (!flow.allowed) {
-        return {
-          submitted: false,
-          outcome: "NOT_SUBMITTED",
-          safetyAllowed: false,
-          reason: flow.reasons.join(" ") || "Application flow was not allowed to proceed safely.",
-          adapterName: adapter.name,
-          result: null
-        };
-      }
+      const flow = await this.flowController.prepare(session.page, request.candidateProfile, request.companyName, request.excludedCompanies);
+      if (!flow.allowed) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: false, reason: flow.reasons.join(" ") || "Application flow was not allowed to proceed safely.", adapterName: adapter.name, result: null };
 
-      if (this.dryRun) {
-        return {
-          submitted: false,
-          outcome: "NOT_SUBMITTED",
-          safetyAllowed: true,
-          reason: "APPLICATION_DRY_RUN is enabled; submission was not attempted.",
-          adapterName: adapter.name,
-          result: null
-        };
-      }
+      if (this.dryRun) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: true, reason: "APPLICATION_DRY_RUN is enabled; submission was not attempted.", adapterName: adapter.name, result: null };
 
       if (this.applications.beginSubmissionAttempt) {
-        reservation = await this.applications.beginSubmissionAttempt(
-          request.context.applicationId,
-          request.taskId ?? null,
-          request.workerId ?? null,
-          target.url
-        );
+        reservation = await this.applications.beginSubmissionAttempt(request.context.applicationId, request.taskId ?? null, request.workerId ?? null, target.url);
       } else {
         const reserved = await this.applications.beginSubmission(request.context.applicationId);
-        if (!reserved) {
-          return {
-            submitted: false,
-            outcome: "NOT_SUBMITTED",
-            safetyAllowed: true,
-            reason: "Application has already been completed or is otherwise not eligible for submission.",
-            adapterName: adapter.name,
-            result: null
-          };
-        }
-        // Legacy test doubles do not expose the durable attempt API.
+        if (!reserved) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: true, reason: "Application has already been completed or is otherwise not eligible for submission.", adapterName: adapter.name, result: null };
         reservation = { attemptId: `legacy:${request.context.applicationId}`, idempotencyKey: `legacy:${request.context.applicationId}` };
       }
 
-      if (!reservation) {
-        return {
-          submitted: false,
-          outcome: "NOT_SUBMITTED",
-          safetyAllowed: true,
-          reason: "Application has already been completed, is ambiguous, or is otherwise not eligible for submission.",
-          adapterName: adapter.name,
-          result: null
-        };
-      }
+      if (!reservation) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: true, reason: "Application has already been completed, is ambiguous, or is otherwise not eligible for submission.", adapterName: adapter.name, result: null };
 
       const updatePhase = this.applications.updateSubmissionAttemptPhase;
       const finalize = this.applications.finalizeSubmissionAttempt;
       if (!updatePhase || !finalize) {
-        // Compatibility path for legacy test doubles only.
         const legacyResult = await adapter.submit(session.page, request.context);
-        if (!legacyResult.submitted) {
-          return {
-            submitted: false,
-            outcome: legacyResult.outcome ?? "AMBIGUOUS",
-            safetyAllowed: true,
-            reason: `Submission remains in progress because the application provider could not confirm completion. ${legacyResult.reason}`,
-            adapterName: adapter.name,
-            result: legacyResult,
-            attemptId: reservation.attemptId
-          };
-        }
+        if (!legacyResult.submitted) return { submitted: false, outcome: legacyResult.outcome ?? "AMBIGUOUS", safetyAllowed: true, reason: `Submission remains in progress because the application provider could not confirm completion. ${legacyResult.reason}`, adapterName: adapter.name, result: legacyResult, attemptId: reservation.attemptId };
         await this.applications.markSubmitted(request.context.applicationId, legacyResult.confirmationUrl, legacyResult.externalApplicationId);
-        return {
-          submitted: true,
-          outcome: "CONFIRMED_SUCCESS",
-          safetyAllowed: true,
-          reason: legacyResult.reason,
-          adapterName: adapter.name,
-          result: legacyResult,
-          attemptId: reservation.attemptId
-        };
+        return { submitted: true, outcome: "CONFIRMED_SUCCESS", safetyAllowed: true, reason: legacyResult.reason, adapterName: adapter.name, result: legacyResult, attemptId: reservation.attemptId };
       }
 
       let owned = true;
-      if (request.assertTaskOwnership) {
-        owned = await request.assertTaskOwnership();
-      } else if (request.taskId && request.workerId && this.applications.isTaskOwned) {
-        owned = await this.applications.isTaskOwned(request.taskId, request.workerId);
-      }
+      if (request.assertTaskOwnership) owned = await request.assertTaskOwnership();
+      else if (request.taskId && request.workerId && this.applications.isTaskOwned) owned = await this.applications.isTaskOwned(request.taskId, request.workerId);
 
       if (!owned) {
-        const notSubmitted: ApplicationSubmissionResult = {
-          submitted: false,
-          outcome: "NOT_SUBMITTED",
-          externalApplicationId: null,
-          confirmationUrl: null,
-          reason: "Task lease ownership was lost before external submission; the application was not submitted by this worker."
-        };
-        const evidence = {
-          requestObserved: false,
-          requestSentAt: null,
-          responseObserved: false,
-          responseReceivedAt: null,
-          responseStatus: null,
-          finalUrl: target.url
-        };
-        await finalize(request.context.applicationId, reservation.attemptId, { ...notSubmitted, evidence });
+        const notSubmitted: ApplicationSubmissionResult = { submitted: false, outcome: "NOT_SUBMITTED", externalApplicationId: null, confirmationUrl: null, reason: "Task lease ownership was lost before external submission; the application was not submitted by this worker." };
+        const evidence = { requestObserved: false, requestSentAt: null, responseObserved: false, responseReceivedAt: null, responseStatus: null, finalUrl: target.url };
+        await finalize(request.context.applicationId, reservation.attemptId, adapter.name, { ...notSubmitted, evidence });
         return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: true, reason: notSubmitted.reason, adapterName: adapter.name, result: notSubmitted, attemptId: reservation.attemptId };
       }
 
       const startedAt = new Date();
-      const phasePersisted = await updatePhase(reservation.attemptId, "EXECUTING", {
-        submissionStartedAt: startedAt,
-        finalUrl: target.url
-      });
-      if (!phasePersisted) {
-        throw new Error("Application submission attempt could not be marked as executing; external submission was not attempted.");
-      }
+      if (!await updatePhase(reservation.attemptId, "EXECUTING", { submissionStartedAt: startedAt, finalUrl: target.url })) throw new Error("Application submission attempt could not be marked as executing; external submission was not attempted.");
 
       tracker = new SubmissionRequestTracker(session.page);
       tracker.start();
 
       let adapterResult: ApplicationSubmissionResult;
       try {
-        adapterResult = await withTimeout(
-          adapter.submit(session.page, request.context),
-          this.submissionTimeoutMs,
-          "Application submission operation timed out. The external submission outcome is ambiguous until reconciled."
-        );
+        adapterResult = await withTimeout(adapter.submit(session.page, request.context), this.submissionTimeoutMs, "Application submission operation timed out. The external submission outcome is ambiguous until reconciled.");
       } catch (error) {
         const evidence = tracker.snapshot();
-        const timeoutResult: ApplicationSubmissionResult = {
-          submitted: false,
-          outcome: evidence.requestObserved ? "AMBIGUOUS" : "NOT_SUBMITTED",
-          externalApplicationId: null,
-          confirmationUrl: null,
-          reason: error instanceof Error ? error.message : String(error)
-        };
+        const timeoutResult: ApplicationSubmissionResult = { submitted: false, outcome: evidence.requestObserved ? "AMBIGUOUS" : "NOT_SUBMITTED", externalApplicationId: null, confirmationUrl: null, reason: error instanceof Error ? error.message : String(error) };
         const normalized = normalizeApplicationSubmissionResult(timeoutResult, evidence);
-        await finalize(request.context.applicationId, reservation.attemptId, normalized);
-        return {
-          submitted: false,
-          outcome: normalized.outcome,
-          safetyAllowed: true,
-          reason: normalized.reason,
-          adapterName: adapter.name,
-          result: normalized,
-          attemptId: reservation.attemptId
-        };
+        await finalize(request.context.applicationId, reservation.attemptId, adapter.name, normalized);
+        return { submitted: false, outcome: normalized.outcome, safetyAllowed: true, reason: normalized.reason, adapterName: adapter.name, result: normalized, attemptId: reservation.attemptId };
       } finally {
         tracker.stop();
       }
 
       const evidence = tracker.snapshot();
       const phase = evidence.requestObserved ? "REQUEST_OBSERVED" : "CONFIRMING";
-      await updatePhase(reservation.attemptId, phase, {
-        requestSentAt: evidence.requestSentAt,
-        responseReceivedAt: evidence.responseReceivedAt,
-        responseStatus: evidence.responseStatus,
-        finalUrl: evidence.finalUrl,
-        confirmationAttemptedAt: new Date()
-      });
+      await updatePhase(reservation.attemptId, phase, { requestSentAt: evidence.requestSentAt, responseReceivedAt: evidence.responseReceivedAt, responseStatus: evidence.responseStatus, finalUrl: evidence.finalUrl, confirmationAttemptedAt: new Date() });
 
       const normalized = normalizeApplicationSubmissionResult(adapterResult, evidence);
-      if (normalized.outcome === "AMBIGUOUS") {
-        normalized.reason = `${normalized.reason} Automatic resubmission is permanently blocked until reconciliation determines the outcome.`;
-      }
+      if (normalized.outcome === "AMBIGUOUS") normalized.reason = `${normalized.reason} Automatic resubmission is permanently blocked until reconciliation determines the outcome.`;
 
-      const finalized = await finalize(request.context.applicationId, reservation.attemptId, normalized);
-      if (!finalized) {
-        return {
-          submitted: false,
-          outcome: "AMBIGUOUS",
-          safetyAllowed: true,
-          reason: "Submission outcome was produced after application state changed; no database overwrite or resubmission was performed.",
-          adapterName: adapter.name,
-          result: normalized,
-          attemptId: reservation.attemptId
-        };
-      }
+      const finalized = await finalize(request.context.applicationId, reservation.attemptId, adapter.name, normalized);
+      if (!finalized) return { submitted: false, outcome: "AMBIGUOUS", safetyAllowed: true, reason: "Submission outcome was produced after application state changed; no database overwrite or resubmission was performed.", adapterName: adapter.name, result: normalized, attemptId: reservation.attemptId };
 
-      return {
-        submitted: normalized.outcome === "CONFIRMED_SUCCESS",
-        outcome: normalized.outcome,
-        safetyAllowed: true,
-        reason: normalized.reason,
-        adapterName: adapter.name,
-        result: normalized,
-        attemptId: reservation.attemptId
-      };
+      return { submitted: normalized.outcome === "CONFIRMED_SUCCESS", outcome: normalized.outcome, safetyAllowed: true, reason: normalized.reason, adapterName: adapter.name, result: normalized, attemptId: reservation.attemptId };
     } finally {
       if (tracker) tracker.stop();
-      try {
-        await this.browserSessions.close(session);
-      } catch {
-        // Browser cleanup must never overwrite the persisted application outcome.
-      }
+      try { await this.browserSessions.close(session); } catch { /* cleanup cannot overwrite the persisted outcome */ }
     }
   }
 }
