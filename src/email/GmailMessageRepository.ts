@@ -56,6 +56,28 @@ export class GmailMessageRepository {
     return stored;
   }
 
+  async claimRecruiterInbound(gmailMessageId: string): Promise<boolean> {
+    const result = await this.database.query(
+      `UPDATE gmail_messages
+       SET recruiter_inbound_processing_at=NOW(),updated_at=NOW()
+       WHERE gmail_message_id=$1
+         AND recruiter_inbound_processed_at IS NULL
+         AND (recruiter_inbound_processing_at IS NULL OR recruiter_inbound_processing_at < NOW()-INTERVAL '10 minutes')
+       RETURNING id`,
+      [gmailMessageId]
+    );
+    return result.rows.length === 1;
+  }
+
+  async markRecruiterInboundProcessed(gmailMessageId: string, outcome: string): Promise<void> {
+    await this.database.query(
+      `UPDATE gmail_messages
+       SET recruiter_inbound_processed_at=NOW(),recruiter_inbound_processing_at=NULL,recruiter_inbound_outcome=$2,updated_at=NOW()
+       WHERE gmail_message_id=$1`,
+      [gmailMessageId, outcome]
+    );
+  }
+
   async associateAndUpdateApplication(
     message: GmailMessage,
     classification: GmailClassification
