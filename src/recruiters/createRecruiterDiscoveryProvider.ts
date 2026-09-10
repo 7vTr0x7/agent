@@ -1,10 +1,13 @@
 import { JobPostingRecruiterDiscoveryProvider } from "./JobPostingRecruiterDiscoveryProvider";
 import { PublicRecruiterSearchProvider } from "./PublicRecruiterSearchProvider";
+import { PublicRecruiterIdentitySearchProvider } from "./PublicRecruiterIdentitySearchProvider";
 import {
   RecruiterContactCandidate,
+  RecruiterDiscoveryContact,
   RecruiterDiscoveryInput,
   RecruiterDiscoveryProvider,
   RecruiterDiscoveryResult,
+  RecruiterIdentityCandidate,
   RecruiterVerificationResult
 } from "./RecruiterDiscovery";
 
@@ -19,68 +22,104 @@ export interface RecruiterDiscoveryProviderConfig {
   snovClientSecret?: string;
 }
 
+function hasEmail(contact: RecruiterDiscoveryContact): contact is RecruiterContactCandidate {
+  return typeof contact.email === "string" && contact.email.trim().length > 0;
+}
+
+function identityKey(contact: RecruiterDiscoveryContact): string {
+  if (contact.linkedinProfileUrl) return `profile:${contact.linkedinProfileUrl.trim().toLowerCase()}`;
+  if (contact.email) return `email:${contact.email.trim().toLowerCase()}`;
+  return `name:${(contact.fullName ?? "").trim().toLowerCase()}|title:${(contact.title ?? "").trim().toLowerCase()}`;
+}
+
+function mergeContacts(contacts: RecruiterDiscoveryContact[]): RecruiterDiscoveryContact[] {
+  const byIdentity = new Map<string, RecruiterDiscoveryContact>();
+  for (const contact of contacts) {
+    const key = identityKey(contact);
+    const existing = byIdentity.get(key);
+    if (!existing) {
+      byIdentity.set(key, { ...contact, sources: [...(contact.sources ?? [])] });
+      continue;
+    }
+    const existingEmail = existing.email;
+    const candidateEmail = contact.email;
+    const merged: RecruiterIdentityCandidate = {
+      ...existing,
+      email: existingEmail || candidateEmail,
+      fullName: existing.fullName ?? contact.fullName,
+      title: existing.title ?? contact.title,
+      department: existing.department ?? contact.department,
+      seniority: existing.seniority ?? contact.seniority,
+      country: existing.country ?? contact.country,
+      location: existing.location ?? contact.location,
+      confidence: Math.max(existing.confidence ?? 0, contact.confidence ?? 0),
+      verified: existing.verified || contact.verified,
+      verificationStatus: existing.verified ? existing.verificationStatus : contact.verificationStatus ?? existing.verificationStatus,
+      provider: "public-web",
+      linkedinProfileUrl: existing.linkedinProfileUrl ?? contact.linkedinProfileUrl,
+      companyDomain: existing.companyDomain ?? contact.companyDomain,
+      recruitingContext: existing.recruitingContext ?? contact.recruitingContext,
+      discoveryEvidence: [...new Set([...(existing.discoveryEvidence ?? []), ...(contact.discoveryEvidence ?? [])])].slice(0, 10),
+      discoveredAt: existing.discoveredAt ?? contact.discoveredAt,
+      sources: [...existing.sources, ...(contact.sources ?? [])]
+    };
+    byIdentity.set(key, hasEmail(merged) ? merged : merged);
+  }
+  return [...byIdentity.values()];
+}
+
 /**
  * Free-first layered recruiter discovery.
  *
- * First-party job-posting/company-page discovery is always consulted so
- * explicit recruiting contacts are not lost. Public search evidence is then
- * merged as a secondary signal. The merged provider keeps the public-web
- * identity and uses MX verification for outbound-eligible contacts.
+ * Identity discovery is deliberately independent from email discovery. A
+ * recruiter profile remains a first-class result even when no public email is
+ * available. Existing public email providers remain the email-enrichment layer.
  */
 class LayeredPublicRecruiterDiscoveryProvider implements RecruiterDiscoveryProvider {
   readonly name = "public-web";
 
   constructor(
     private readonly firstParty = new JobPostingRecruiterDiscoveryProvider(),
-    private readonly publicSearch = new PublicRecruiterSearchProvider()
+    private readonly publicSearch = new PublicRecruiterSearchProvider(),
+    private readonly identitySearch = new PublicRecruiterIdentitySearchProvider()
   ) {}
 
   async discover(input: RecruiterDiscoveryInput): Promise<RecruiterDiscoveryResult> {
-    const [firstPartyResult, publicSearchResult] = await Promise.all([
+    const [identityResult, firstPartyResult, publicSearchResult] = await Promise.all([
+      this.identitySearch.discover(input),
       this.firstParty.discover(input),
       this.publicSearch.discover(input)
     ]);
 
-    const byEmail = new Map<string, RecruiterContactCandidate>();
-    for (const contact of [...firstPartyResult.contacts, ...publicSearchResult.contacts]) {
-      const email = contact.email.trim().toLowerCase();
-      if (!email) continue;
-      const normalized: RecruiterContactCandidate = {
-        ...contact,
-        email,
-        provider: this.name,
-        sources: contact.sources ?? []
-      };
-      const existing = byEmail.get(email);
-      if (!existing) {
-        byEmail.set(email, normalized);
-        continue;
-      }
-
-      byEmail.set(email, {
-        ...existing,
-        fullName: existing.fullName ?? normalized.fullName,
-        title: existing.title ?? normalized.title,
-        department: existing.department ?? normalized.department,
-        seniority: existing.seniority ?? normalized.seniority,
-        location: existing.location ?? normalized.location,
-        country: existing.country ?? normalized.country,
-        confidence: Math.max(existing.confidence ?? 0, normalized.confidence ?? 0),
-        verified: existing.verified || normalized.verified,
-        verificationStatus: existing.verified
-          ? existing.verificationStatus
-          : normalized.verified
-            ? normalized.verificationStatus
-            : existing.verificationStatus ?? normalized.verificationStatus,
-        linkedinProfileUrl: existing.linkedinProfileUrl ?? normalized.linkedinProfileUrl,
-        sources: [...existing.sources, ...normalized.sources]
-      });
-    }
-
+    const identityContacts: RecruiterIdentityCandidate[] = identityResult.map((contact) => ({
+      ...contact,
+      provider: this.name,
+      companyDomain: input.companyDomain,
+      sources: contact.sources ?? []
+    }));
     return {
       provider: this.name,
-      contacts: [...byEmail.values()],
-      discoveredAt: new Date(Math.max(firstPartyResult.discoveredAt.getTime(), publicSearchResult.discoveredAt.getTime()))
+      contacts: mergeContacts([
+        ...identityContacts,
+        ...firstPartyResult.contacts,
+        ...publicSearchResult.contacts
+      ]),
+      discoveredAt: new Date()
+    };
+  }
+
+  async discoverEmails(input: RecruiterDiscoveryInput): Promise<RecruiterDiscoveryResult> {
+    const [firstPartyResult, publicSearchResult] = await Promise.all([
+      this.firstParty.discover(input),
+      this.publicSearch.discover(input)
+    ]);
+    return {
+      provider: this.name,
+      contacts: mergeContacts([
+        ...firstPartyResult.contacts.filter(hasEmail),
+        ...publicSearchResult.contacts.filter(hasEmail)
+      ]),
+      discoveredAt: new Date()
     };
   }
 
