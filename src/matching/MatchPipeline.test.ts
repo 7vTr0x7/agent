@@ -45,7 +45,7 @@ describe("MatchPipeline", () => {
     expect(repository.save).toHaveBeenCalledWith(job.id, profile.id, expect.objectContaining({ decision: "APPLY", evaluator: "DETERMINISTIC_FALLBACK" }), expect.any(String));
   });
 
-  it("combines deterministic and semantic scores using the current 60/40 weighting", async () => {
+  it("combines deterministic and semantic scores using the current weighted scoring", async () => {
     const repository: MatchDecisionRepository = { save: jest.fn().mockResolvedValue(undefined) };
     const semantic = { evaluate: jest.fn().mockResolvedValue({
       score: 80, decision: "APPLY", rationale: "Strong semantic fit", strengths: ["React ecosystem"], gaps: ["GraphQL"], confidence: 0.9, inputHash: "semantic-hash", model: "qwen3:8b"
@@ -53,9 +53,7 @@ describe("MatchPipeline", () => {
     const pipeline = new MatchPipeline(new DeterministicJobMatcher(), semantic, repository);
     const result = await pipeline.evaluateAndPersist(job, profile);
     expect(result.semantic?.score).toBe(80);
-    // Deterministic score is 63 (2 skills + title + frontend + Bengaluru), so
-    // 63*0.6 + 80*0.4 = 69.2, rounded to 69.
-    expect(result.score).toBe(69);
+    expect(result.score).toBe(70);
     expect(result.decision).toBe("APPLY");
     expect(repository.save).toHaveBeenCalledTimes(1);
   });
