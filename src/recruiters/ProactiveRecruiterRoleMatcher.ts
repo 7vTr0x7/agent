@@ -83,9 +83,12 @@ function experienceRelevance(profile: CandidateProfileLike, evidence: string): n
 }
 
 function locationRelevance(profile: CandidateProfileLike, evidence: string): number {
+  const normalized = normalize(evidence);
   const locations = (profile.preferredLocations ?? []).map(normalize).filter(Boolean);
-  if (locations.some((location) => evidence.includes(location))) return 100;
-  if (profile.remoteEligible && /remote|india/.test(evidence)) return 90;
+  if (normalized.includes("bengaluru") || normalized.includes("bangalore")) return 100;
+  if (locations.some((location) => location !== "remote" && normalized.includes(location))) return 75;
+  if (profile.remoteEligible && normalized.includes("remote")) return 60;
+  if (normalized.includes("india")) return 70;
   return 50;
 }
 
