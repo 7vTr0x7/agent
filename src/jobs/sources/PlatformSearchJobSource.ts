@@ -5,6 +5,7 @@ import { JobPageDiagnostics, parsePlatformJobPage } from "./PlatformJobPageParse
 import { parsePlatformJobPageCollection } from "./PlatformJobPageCollectionParser";
 import { PlaywrightJobPageRenderer } from "./RenderedJobPageRenderer";
 import { extractSearchResultUrls, SearchResultExtractionDiagnostics } from "./SearchResultUrlExtractor";
+import { getPlatformSearchUrls } from "./PlatformSearchProfiles";
 
 const PLATFORM_CONCURRENCY = 4;
 const SEARCH_CONCURRENCY = 2;
@@ -36,6 +37,7 @@ export interface PlatformDiscoveryDiagnostics {
   readonly staticJobsParsed?: number;
   readonly renderAttempts?: number;
   readonly renderSuccesses?: number;
+  readonly renderVisibleJobs?: number;
   readonly renderJobsParsed?: number;
   readonly detailUrlsDiscovered?: number;
   readonly detailPagesFetched?: number;
@@ -82,8 +84,9 @@ const sharedRenderer = new PlaywrightJobPageRenderer();
 export async function discoverPlatform(platformName: string, signal?: AbortSignal, onDiagnostic: (diagnostics: PlatformDiscoveryDiagnostics) => void = logDiagnostics): Promise<Job[]> {
   const domain = platformSearchDomain(platformName);
   const queries = buildSearchQueries(platformName, domain);
-  const pages = await mapWithConcurrency(queries, SEARCH_CONCURRENCY, async (query) => signal?.aborted ? [] : fetchSearchPages(query, signal));
-  const searchPages = pages.flat();
+  const genericPages = await mapWithConcurrency(queries, SEARCH_CONCURRENCY, async (query) => signal?.aborted ? [] : fetchSearchPages(query, signal));
+  const directPages = await fetchPlatformSearchPages(platformName, signal);
+  const searchPages = [...genericPages.flat(), ...directPages];
   const extractionTotals = createSearchExtractionTotals();
   const rawUrls = searchPages.flatMap((searchPage) => {
     const extraction = extractSearchResultUrls(searchPage.content, searchPage.baseUrl);
@@ -91,7 +94,8 @@ export async function discoverPlatform(platformName: string, signal?: AbortSigna
     return extraction.urls;
   });
   const links = [...new Set(rawUrls.map((url) => url.trim()).filter(Boolean))];
-  const diagnosticsBase = { platform: platformName, searchPages: searchPages.length, searchUrlsGenerated: queries.length, searchReturnedUrls: rawUrls.length, uniqueUrls: links.length, searchExtraction: extractionTotals };
+  const platformSearchUrls = getPlatformSearchUrls(platformName);
+  const diagnosticsBase = { platform: platformName, searchPages: searchPages.length, searchUrlsGenerated: queries.length + platformSearchUrls.length, searchReturnedUrls: rawUrls.length, uniqueUrls: links.length, searchExtraction: extractionTotals };
 
   if (signal?.aborted) {
     onDiagnostic({ ...diagnosticsBase, pageSuccesses: 0, pageFailures: 0, parseSuccesses: 0, parseFailures: 0, parseFailureReasons: { aborted: 1 }, jobs: 0, errors: 1, finalOutcome: "TIMEOUT" });
@@ -103,7 +107,7 @@ export async function discoverPlatform(platformName: string, signal?: AbortSigna
   }
 
   let pageSuccesses = 0, pageFailures = 0, parseSuccesses = 0, parseFailures = 0;
-  let staticJobsParsed = 0, renderAttempts = 0, renderSuccesses = 0, renderJobsParsed = 0;
+  let staticJobsParsed = 0, renderAttempts = 0, renderSuccesses = 0, renderVisibleJobs = 0, renderJobsParsed = 0;
   let detailUrlsDiscovered = 0, detailPagesFetched = 0, detailJobsParsed = 0, invalidJobs = 0, duplicates = 0, timeouts = 0, errors = 0, blocked = 0;
   const parseFailureReasons: Record<string, number> = {};
   const unique = new Map<string, Job>();
@@ -145,6 +149,7 @@ export async function discoverPlatform(platformName: string, signal?: AbortSigna
     if (rendered.diagnostics.outcome === "render_error") errors += 1;
     if (!rendered.result) return;
     renderSuccesses += 1;
+    renderVisibleJobs += rendered.diagnostics.visibleJobs;
     detailUrlsDiscovered += rendered.result.detailUrls.length;
     for (const detailUrl of rendered.result.detailUrls) detailUrls.add(detailUrl);
 
@@ -182,6 +187,7 @@ export async function discoverPlatform(platformName: string, signal?: AbortSigna
     if (rendered.diagnostics.outcome === "render_error") errors += 1;
     if (!rendered.result) return;
     renderSuccesses += 1;
+    renderVisibleJobs += rendered.diagnostics.visibleJobs;
     const renderedParsed = parsePlatformJobPage(rendered.result.html, url, platformName);
     recordParseDiagnostic(renderedParsed.diagnostics, parseFailureReasons);
     if (renderedParsed.job) { renderJobsParsed += 1; detailJobsParsed += 1; collectJobs([renderedParsed.job]); }
@@ -191,7 +197,7 @@ export async function discoverPlatform(platformName: string, signal?: AbortSigna
   const finalOutcome: PlatformDiscoveryOutcome = blocked === links.length && finalJobs.length === 0 ? "BLOCKED_OR_RESTRICTED" : finalJobs.length > 0 ? "SUCCESS_WITH_JOBS" : timeouts > 0 && pageSuccesses === 0 ? "TIMEOUT" : errors > 0 && pageSuccesses === 0 ? "NETWORK_ERROR" : "SUCCESS_ZERO_JOBS";
   const extractionMode: PlatformExtractionMode = staticJobsParsed > 0 ? "STATIC_ONLY_SUCCESS" : renderJobsParsed > 0 ? "STATIC_ZERO_RENDER_SUCCESS" : "STATIC_ZERO_RENDER_ZERO";
 
-  onDiagnostic({ ...diagnosticsBase, pageSuccesses, pageFailures, parseSuccesses, parseFailures, parseFailureReasons, jobs: finalJobs.length, staticJobsParsed, renderAttempts, renderSuccesses, renderJobsParsed, detailUrlsDiscovered, detailPagesFetched, detailJobsParsed, validJobs: finalJobs.length, invalidJobs, duplicates, timeouts, errors, finalOutcome, extractionMode });
+  onDiagnostic({ ...diagnosticsBase, pageSuccesses, pageFailures, parseSuccesses, parseFailures, parseFailureReasons, jobs: finalJobs.length, staticJobsParsed, renderAttempts, renderSuccesses, renderVisibleJobs, renderJobsParsed, detailUrlsDiscovered, detailPagesFetched, detailJobsParsed, validJobs: finalJobs.length, invalidJobs, duplicates, timeouts, errors, finalOutcome, extractionMode });
   return finalJobs;
 }
 
@@ -225,17 +231,30 @@ async function fetchSearchPages(query: string, signal?: AbortSignal): Promise<Se
     { url: `https://r.jina.ai/https://www.bing.com/search?q=${encoded}`, baseUrl: `https://www.bing.com/search?q=${encoded}` },
     { url: `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${encoded}`, baseUrl: `https://html.duckduckgo.com/html/?q=${encoded}` }
   ];
-  const pages: SearchPage[] = [];
+  let firstSuccessfulPage: SearchPage | null = null;
   for (const endpoint of endpoints) {
-    if (signal?.aborted) return pages;
+    if (signal?.aborted) return firstSuccessfulPage ? [firstSuccessfulPage] : [];
     const page = await fetchText(endpoint.url, SEARCH_TIMEOUT_MS, signal);
-    if (page) pages.push({ content: page, baseUrl: endpoint.baseUrl });
-    if (pages.length >= 1) break;
+    if (!page) continue;
+    const searchPage = { content: page, baseUrl: endpoint.baseUrl };
+    if (!firstSuccessfulPage) firstSuccessfulPage = searchPage;
+    const extracted = extractSearchResultUrls(page, endpoint.baseUrl);
+    if (extracted.urls.length) return [searchPage];
   }
-  if (pages.length || signal?.aborted) return pages;
+  if (firstSuccessfulPage || signal?.aborted) return firstSuccessfulPage ? [firstSuccessfulPage] : [];
   const bingRssUrl = `https://www.bing.com/search?format=rss&q=${encoded}`;
   const bingRss = await fetchText(bingRssUrl, SEARCH_TIMEOUT_MS, signal);
   return bingRss ? [{ content: bingRss, baseUrl: bingRssUrl }] : [];
+}
+
+async function fetchPlatformSearchPages(platformName: string, signal?: AbortSignal): Promise<SearchPage[]> {
+  const urls = getPlatformSearchUrls(platformName);
+  if (!urls.length || signal?.aborted) return [];
+  return (await mapWithConcurrency(urls, SEARCH_CONCURRENCY, async (url) => {
+    if (signal?.aborted) return [];
+    const content = await fetchText(url, PAGE_TIMEOUT_MS, signal);
+    return content ? [{ content, baseUrl: url }] : [];
+  })).flat();
 }
 
 function createSearchExtractionTotals(): SearchExtractionTotals {
