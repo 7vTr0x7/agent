@@ -56,6 +56,7 @@ export class ProactiveRecruiterRoleMatcher {
     const seniorityScore = seniorityRelevance(profile, haystack);
     const experienceScore = experienceRelevance(profile, haystack);
     const locationScore = locationRelevance(profile, haystack);
+    if (roleTerms.length === 0) return { roleTerms, recruiterTerms, seniorityScore, experienceScore, locationScore, score: 0 };
     const roleScore = Math.min(100, roleTerms.length * 25);
     const recruiterScore = Math.min(100, recruiterTerms.length * 20);
     const score = Math.round(roleScore * 0.6 + recruiterScore * 0.15 + seniorityScore * 0.1 + experienceScore * 0.05 + locationScore * 0.1);
