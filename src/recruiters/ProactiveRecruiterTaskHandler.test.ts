@@ -33,7 +33,7 @@ describe("ProactiveRecruiterTaskHandler", () => {
       discovery as never,
       repository as never,
       sendDispatcher as never,
-      { enabled: true, sendEnabled: true, maxCandidatesPerRun: 10, requireVerifiedEmail: true },
+      { enabled: true, sendEnabled: true, maxCandidatesPerRun: 10, requireVerifiedEmail: true, verifyEmail: async () => ({ status: "UNVERIFIED", confidence: 0 }) },
       logger
     );
 
@@ -81,7 +81,7 @@ describe("ProactiveRecruiterTaskHandler", () => {
     };
     const sendDispatcher = { enqueue: jest.fn().mockResolvedValue("task-1") };
     const handler = new ProactiveRecruiterTaskHandler(discovery as never, repository as never, sendDispatcher as never,
-      { enabled: true, sendEnabled: true, maxCandidatesPerRun: 10, requireVerifiedEmail: true }, { info: jest.fn(), error: jest.fn() });
+      { enabled: true, sendEnabled: true, maxCandidatesPerRun: 10, requireVerifiedEmail: true, verifyEmail: async () => ({ status: "VERIFIED", confidence: 100 }) }, { info: jest.fn(), error: jest.fn() });
 
     await handler.handleDiscovery({ candidateProfileId: "candidate-1", yearsExperience: 3, skills: ["React", "Next.js"], targetRoles: ["Frontend Engineer"], maxCandidates: 10 });
 
