@@ -43,7 +43,7 @@ describe("platform-specific first-party search fallbacks", () => {
     expect(jobs[0]?.url).toBe(jobUrl);
     expect(jobs[0]?.companyName).toBe(`${platform} Company`);
     expect(diagnostics.at(-1)?.uniqueUrls).toBe(1);
-    expect(diagnostics.at(-1)?.detailJobsParsed).toBe(1);
+    expect(diagnostics.at(-1)?.staticJobsParsed).toBe(1);
   });
 
   it.each(cases)("$platform search URLs survive normalization while unsafe/non-job URLs are rejected", ({ jobUrl }) => {
