@@ -9,10 +9,14 @@ interface OpportunityRow { id: string; }
 export class JobDiscoveryService {
   constructor(private readonly database: Database) {}
 
-  async discover(source: JobSource): Promise<DiscoveryResult> {
-    const jobs = await source.fetchJobs();
+  async discover(source: JobSource, signal?: AbortSignal): Promise<DiscoveryResult> {
+    if (signal?.aborted) throw new Error("Discovery aborted before source execution");
+    const jobs = await source.fetchJobs(signal);
+    if (signal?.aborted) throw new Error("Discovery aborted after source execution");
+
     let inserted = 0; let duplicates = 0; const insertedOpportunityIds: string[] = [];
     for (const job of jobs) {
+      if (signal?.aborted) throw new Error("Discovery aborted during persistence");
       const result = await this.persistJob(job);
       if (result.inserted) { inserted++; insertedOpportunityIds.push(result.opportunityId); } else duplicates++;
     }
