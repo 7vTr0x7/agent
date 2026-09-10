@@ -188,6 +188,7 @@ function recordParseDiagnostic(diagnostic: JobPageDiagnostics, reasons: Record<s
 function logDiagnostics(diagnostics: PlatformDiscoveryDiagnostics): void { console.info(JSON.stringify({ event: "platform_discovery_diagnostic", ...diagnostics })); }
 
 type SearchPage = { content: string; baseUrl: string };
+type SearchExtractionTotals = { -readonly [K in keyof SearchResultExtractionDiagnostics]: SearchResultExtractionDiagnostics[K] };
 
 async function fetchSearchPages(query: string, signal?: AbortSignal): Promise<SearchPage[]> {
   const encoded = encodeURIComponent(query);
@@ -209,10 +210,10 @@ async function fetchSearchPages(query: string, signal?: AbortSignal): Promise<Se
   return bingRss ? [{ content: bingRss, baseUrl: bingRssUrl }] : [];
 }
 
-function createSearchExtractionTotals(): SearchResultExtractionDiagnostics {
+function createSearchExtractionTotals(): SearchExtractionTotals {
   return { markdownCandidates: 0, hrefCandidates: 0, rssCandidates: 0, bareUrlCandidates: 0, redirectCandidates: 0, validCandidates: 0, normalizedUrls: 0, duplicates: 0, rejectedCandidates: 0, rejectionReasons: {} };
 }
-function addSearchExtractionTotals(total: SearchResultExtractionDiagnostics, current: SearchResultExtractionDiagnostics): void {
+function addSearchExtractionTotals(total: SearchExtractionTotals, current: SearchResultExtractionDiagnostics): void {
   total.markdownCandidates += current.markdownCandidates;
   total.hrefCandidates += current.hrefCandidates;
   total.rssCandidates += current.rssCandidates;
