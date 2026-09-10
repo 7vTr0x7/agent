@@ -80,7 +80,11 @@ export function resolveEmployerDomainFromJobData(
     if (domain && !GENERIC_EMAIL_DOMAINS.has(domain)) addCandidate(normalizeEmployerHost(domain), 3);
   }
 
-  for (const url of (jobDescription ?? "").match(URL_PATTERN) ?? []) addCandidate(resolveEmployerDomainFromJobUrl(url), 2);
+  // A direct employer/careers link in the description is strong enough to
+  // identify the employer on its own, while remaining below explicit employer
+  // and canonical signals. This fixes aggregator feeds whose canonical URL is
+  // a blocked job-board host but whose description contains the real employer.
+  for (const url of (jobDescription ?? "").match(URL_PATTERN) ?? []) addCandidate(resolveEmployerDomainFromJobUrl(url), 3);
 
   const ranked = [...candidates.entries()].sort((a, b) => b[1] - a[1]);
   const [best, bestScore] = ranked[0] ?? [null, 0];
