@@ -1,4 +1,4 @@
-import { Job } from "./Job";
+import { Job } from "../domain/Job";
 import { JobSource } from "./JobSource";
 
 export interface JoobleJobSourceOptions { apiKey:string; apiBaseUrl:string; keywords:string; location:string; page?:number; pages?:number; resultOnPage?:number; }
@@ -17,10 +17,7 @@ export class JoobleJobSource implements JobSource {
    const response=await fetch(`${this.options.apiBaseUrl.replace(/\/$/,"")}/${encodeURIComponent(this.options.apiKey)}`,{method:"POST",signal,headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({keywords:this.options.keywords,location:this.options.location,page,ResultOnPage:this.options.resultOnPage??100})});
    if(!response.ok)throw new Error(`Jooble request failed: HTTP ${response.status}`);
    const body=(await response.json()) as JoobleResponse;
-   const pageJobs=(body.jobs??[]).flatMap((item)=>{
-    const title=text(item.title);const url=text(item.link);if(!title||!url)return[];
-    return [{source:"jooble",sourceJobId:text(item.id)??url,url,title,companyName:text(item.company)??"Unknown company",companyDomain:null,location:text(item.location)??this.options.location,country:null,workplaceType:null,employmentType:text(item.type),description:text(item.snippet)??"",postedAt:date(item.updated),updatedAt:date(item.updated),contentHash:`${url}|${title}|${text(item.snippet)??""}`} satisfies Job];
-   });
+   const pageJobs=(body.jobs??[]).flatMap((item)=>{const title=text(item.title);const url=text(item.link);if(!title||!url)return[];return[{source:"jooble",sourceJobId:text(item.id)??url,url,title,companyName:text(item.company)??"Unknown company",companyDomain:null,location:text(item.location)??this.options.location,country:null,workplaceType:null,employmentType:text(item.type),description:text(item.snippet)??"",postedAt:date(item.updated),updatedAt:date(item.updated),contentHash:`${url}|${title}|${text(item.snippet)??""}`} satisfies Job];});
    jobs.push(...pageJobs);
    if(pageJobs.length===0)break;
   }
