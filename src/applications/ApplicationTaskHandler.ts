@@ -24,6 +24,7 @@ export class ApplicationTaskHandler {
     private readonly tailoredResumeArtifacts?: TailoredResumeArtifactService,
     private readonly tailoredResumeRepository?: TailoredResumeRepository,
     private readonly attemptRepository?: Pick<ApplicationAttemptRepository, "record">,
+    private readonly submissionOwnershipVerifier?: (task: ClaimedTask<ApplyJobTaskPayload>) => Promise<boolean>,
     // Kept as an ignored compatibility slot for callers from the previous
     // workflow. Recruiter discovery is now owned by MATCH_JOB fan-out.
     _legacyRecruiterDiscoveryDispatcher?: unknown
@@ -64,15 +65,20 @@ export class ApplicationTaskHandler {
 
     let outcome: ApplicationSubmissionOutcome;
     try {
+      const ownershipCheck = this.submissionOwnershipVerifier
+        ? () => this.submissionOwnershipVerifier!(task)
+        : undefined;
+
       outcome = await this.submissions.submit({
         context: { jobOpportunityId: prepared.application.jobOpportunityId, candidateProfileId: prepared.application.candidateProfileId, applicationId: prepared.application.applicationId, url: prepared.application.url },
         companyName: prepared.application.companyName,
         excludedCompanies: this.excludedCompanies,
-        candidateProfile: applicationProfile
+        candidateProfile: applicationProfile,
+        taskId: task.id,
+        workerId: task.workerId,
+        assertTaskOwnership: ownershipCheck
       });
     } catch (error) {
-      const reason = `Application submission failed: ${error instanceof Error ? error.message : String(error)}`;
-      outcome = { submitted: false, safetyAllowed: false, reason, adapterName: "submission-error", result: null };
       console.error(JSON.stringify({
         level: 50,
         taskId: task.id,
@@ -81,27 +87,37 @@ export class ApplicationTaskHandler {
         jobOpportunityId: prepared.application.jobOpportunityId,
         companyName: prepared.application.companyName,
         jobTitle: prepared.application.jobTitle,
-        reason,
-        msg: "Application submission threw"
+        reason: error instanceof Error ? error.message : String(error),
+        msg: "Application submission runtime error; task will follow normal retry semantics"
       }));
+      throw error;
     }
 
     console.log(JSON.stringify({
       level: 30,
       taskId: task.id,
       taskType: task.taskType,
+      workerId: task.workerId,
       applicationId: prepared.application.applicationId,
       jobOpportunityId: prepared.application.jobOpportunityId,
       companyName: prepared.application.companyName,
       jobTitle: prepared.application.jobTitle,
       adapterName: outcome.adapterName,
+      attemptId: outcome.attemptId,
+      outcome: outcome.outcome,
       submitted: outcome.submitted,
       safetyAllowed: outcome.safetyAllowed,
+      requestObserved: outcome.result?.evidence?.requestObserved,
+      responseObserved: outcome.result?.evidence?.responseObserved,
+      responseStatus: outcome.result?.evidence?.responseStatus,
+      finalUrl: outcome.result?.evidence?.finalUrl,
+      confirmationUrl: outcome.result?.confirmationUrl,
+      externalApplicationId: outcome.result?.externalApplicationId,
       reason: outcome.reason,
       msg: "Application submission outcome"
     }));
 
-    if (this.attemptRepository) {
+    if (this.attemptRepository && !outcome.attemptId) {
       await this.attemptRepository.record({
         applicationId: prepared.application.applicationId, adapterName: outcome.adapterName ?? "unknown", safetyAllowed: outcome.safetyAllowed,
         submitted: outcome.submitted, reason: outcome.reason, confirmationUrl: outcome.result?.confirmationUrl ?? null,
@@ -114,9 +130,9 @@ export class ApplicationTaskHandler {
     const context: ApplicationEmailContext = {
       recipient: candidateProfile.email, candidateName, jobTitle: prepared.application.jobTitle,
       companyName: prepared.application.companyName, applicationId: prepared.application.applicationId,
-      confirmationUrl: outcome.result?.confirmationUrl, reason: outcome.submitted ? undefined : outcome.reason
+      confirmationUrl: outcome.result?.confirmationUrl, reason: outcome.outcome === "CONFIRMED_SUCCESS" ? undefined : outcome.reason
     };
-    if (outcome.submitted) await this.emailDispatcher.enqueueApplicationSubmitted(context);
+    if (outcome.outcome === "CONFIRMED_SUCCESS") await this.emailDispatcher.enqueueApplicationSubmitted(context);
     else await this.emailDispatcher.enqueueApplicationBlocked(context);
   }
 }
