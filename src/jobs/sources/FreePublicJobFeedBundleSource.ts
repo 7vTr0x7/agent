@@ -54,11 +54,35 @@ export const FREE_PUBLIC_JOB_FEEDS: readonly FreePublicJobFeed[] = [
   { id: "42jobs:android", url: "https://www.42jobs.io/android/jobs.rss", defaultCompanyName: "42jobs" }
 ];
 
+const FEED_CONCURRENCY = 4;
+
 export class FreePublicJobFeedBundleSource implements JobSource {
   readonly name = "free-public-job-feeds";
   constructor(private readonly feeds: readonly FreePublicJobFeed[] = FREE_PUBLIC_JOB_FEEDS) {}
-  async fetchJobs(): Promise<Job[]> {
-    const results = await Promise.allSettled(this.feeds.map((feed) => new RssJobSource({ name: feed.id, feedUrl: feed.url, defaultCompanyName: feed.defaultCompanyName }).fetchJobs()));
-    return results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+  async fetchJobs(signal?: AbortSignal): Promise<Job[]> {
+    const results = await mapWithConcurrency(this.feeds, FEED_CONCURRENCY, async (feed) => {
+      if (signal?.aborted) return [];
+      try {
+        return await new RssJobSource({ name: feed.id, feedUrl: feed.url, defaultCompanyName: feed.defaultCompanyName }).fetchJobs(signal);
+      } catch {
+        return [];
+      }
+    });
+    return results.flat();
   }
+}
+
+async function mapWithConcurrency<T, R>(items: readonly T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  if (!items.length) return [];
+  const output: R[] = new Array(items.length);
+  let index = 0;
+  async function runWorker(): Promise<void> {
+    while (true) {
+      const current = index++;
+      if (current >= items.length) return;
+      output[current] = await worker(items[current] as T);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => runWorker()));
+  return output;
 }

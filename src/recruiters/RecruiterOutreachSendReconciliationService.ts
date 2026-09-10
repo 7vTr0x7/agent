@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { Database } from "../database/Database";
 import { GmailMailbox } from "../email/GmailMailbox";
 import { RecruiterDiscoveryRepository } from "./RecruiterDiscoveryRepository";
@@ -18,8 +17,15 @@ export class RecruiterOutreachSendReconciliationService {
   for(const stale of result.rows){const ids=await this.mailbox.listMessages(`rfc822msgid:${deterministicMessageId(stale.id)}`,10);for(const gmailMessageId of ids){const message=await this.mailbox.getMessage(gmailMessageId);if(message.rfcMessageId===deterministicMessageId(stale.id)){sentMessages.set(stale.id,{gmailMessageId:message.gmailMessageId,gmailThreadId:message.gmailThreadId});break;}}}
   const sentIds=await this.mailbox.listMessages("in:sent newer_than:7d",this.sentMailboxScanLimit);
   for(const gmailMessageId of sentIds){const message=await this.mailbox.getMessage(gmailMessageId);if(!message.rfcMessageId)continue;for(const stale of result.rows){if(message.rfcMessageId===deterministicMessageId(stale.id))sentMessages.set(stale.id,{gmailMessageId:message.gmailMessageId,gmailThreadId:message.gmailThreadId});}}
-  let reconciled=0;let requeued=0;let unresolved=0;
-  for(const stale of result.rows){const sent=sentMessages.get(stale.id);if(sent){await this.repository.markOutreachMessageSent(stale.id,{provider:"gmail",providerMessageId:sent.gmailMessageId,providerThreadId:sent.gmailThreadId});reconciled+=1;continue;}const requeuedResult=await this.database.query<{id:string}>(`UPDATE recruiter_outreach_messages SET status='PREPARED',send_claimed_at=NULL,failure_reason='Ambiguous Gmail send not found by deterministic Message-ID reconciliation; safely requeued.',updated_at=NOW() WHERE id=$1 AND status='SENDING' RETURNING id`,[stale.id]);if(requeuedResult.rows[0]){await this.database.query(`INSERT INTO tasks (id,task_type,payload,priority,available_at,max_attempts,dedupe_key,lease_expires_at) VALUES ($1,'SEND_RECRUITER_EMAIL',$2::jsonb,30,NOW(),3,$3,NULL) ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL AND status IN ('PENDING','RUNNING') DO UPDATE SET updated_at=NOW()`,[randomUUID(),JSON.stringify({messageId:stale.id,companyDomain:stale.companyDomain}),`recruiter-email-send:${stale.id}`]);requeued+=1;}else unresolved+=1;}
-  return{inspected:result.rows.length,reconciled,requeued,unresolved};
+  let reconciled=0;let unresolved=0;
+  for(const stale of result.rows){
+    const sent=sentMessages.get(stale.id);
+    if(sent){await this.repository.markOutreachMessageSent(stale.id,{provider:"gmail",providerMessageId:sent.gmailMessageId,providerThreadId:sent.gmailThreadId});reconciled+=1;continue;}
+    // Absence from the mailbox is not proof that Gmail did not accept the send.
+    // Search/index propagation can lag, so an unmatched SENDING record remains
+    // ambiguous and is deliberately never requeued automatically.
+    unresolved+=1;
+  }
+  return{inspected:result.rows.length,reconciled,requeued:0,unresolved};
  }
 }

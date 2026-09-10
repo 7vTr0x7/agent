@@ -9,13 +9,28 @@ function job(overrides: Partial<Job> = {}): Job {
   };
 }
 
+function databaseForNewOpportunity(queries: string[], values: unknown[][] = []) {
+  return {
+    transaction: async (callback: (client: unknown) => Promise<unknown>) => callback({
+      query: async (sql: string, params?: unknown[]) => {
+        queries.push(sql);
+        if (sql.includes("INSERT INTO job_opportunities")) {
+          values.push(params ?? []);
+          return { rows: [{ id: "opportunity-1" }] };
+        }
+        if (sql.includes("INSERT INTO job_observations")) return { rowCount: 1, rows: [{ id: "observation-1" }] };
+        return { rowCount: 0, rows: [] };
+      }
+    })
+  };
+}
+
 describe("JobDiscoveryService", () => {
   test("persists an opportunity and observation instead of only a legacy job", async () => {
     const queries: string[] = [];
-    const database = { transaction: async (callback: (client: unknown) => Promise<unknown>) => callback({ query: async (sql: string) => { queries.push(sql); if (sql.includes("INSERT INTO job_opportunities")) return { rows: [{ id: "opportunity-1" }] }; return { rowCount: 1, rows: [{ id: "observation-1" }] }; } }) };
+    const database = databaseForNewOpportunity(queries);
     const source = { name: "test", fetchJobs: async () => [job()] };
-    const service = new JobDiscoveryService(database as never);
-    const result = await service.discover(source);
+    const result = await new JobDiscoveryService(database as never).discover(source);
     expect(result).toEqual({ source: "test", fetched: 1, inserted: 1, duplicates: 0, insertedOpportunityIds: ["opportunity-1"] });
     expect(queries.some((sql) => sql.includes("INSERT INTO job_opportunities"))).toBe(true);
     expect(queries.some((sql) => sql.includes("company_domain"))).toBe(true);
@@ -26,7 +41,8 @@ describe("JobDiscoveryService", () => {
 
   test("persists a source-provided employer domain without deriving it from the job URL", async () => {
     const values: unknown[][] = [];
-    const database = { transaction: async (callback: (client: unknown) => Promise<unknown>) => callback({ query: async (sql: string, params?: unknown[]) => { if (sql.includes("INSERT INTO job_opportunities")) { values.push(params ?? []); return { rows: [{ id: "opportunity-1" }] }; } return { rowCount: 1, rows: [{ id: "observation-1" }] }; } }) };
+    const queries: string[] = [];
+    const database = databaseForNewOpportunity(queries, values);
     const source = { name: "test", fetchJobs: async () => [job({ url: "https://boards.greenhouse.io/acme/jobs/1", companyDomain: "acme.com" })] };
     await new JobDiscoveryService(database as never).discover(source);
     expect(values[0]).toContain("acme.com");
@@ -35,11 +51,21 @@ describe("JobDiscoveryService", () => {
 
   test("treats a duplicate observation as a duplicate without creating another opportunity", async () => {
     const queries: string[] = [];
-    const database = { transaction: async (callback: (client: unknown) => Promise<unknown>) => callback({ query: async (sql: string) => { queries.push(sql); if (sql.includes("INSERT INTO job_opportunities")) return { rows: [{ id: "opportunity-1" }] }; return { rowCount: 0, rows: [] }; } }) };
-    const source = { name: "test", fetchJobs: async () => [job()] };
+    const database = {
+      transaction: async (callback: (client: unknown) => Promise<unknown>) => callback({
+        query: async (sql: string) => {
+          queries.push(sql);
+          if (sql.includes("SELECT id\n          FROM job_opportunities")) return { rows: [{ id: "opportunity-1" }] };
+          return { rowCount: 1, rows: [{ id: "observation-1" }] };
+        }
+      })
+    };
+    const source = { name: "second-source", fetchJobs: async () => [job({ source: "second-source", sourceJobId: "other-job", url: "https://other-platform.example/jobs/99", contentHash: "other-hash" })] };
     const result = await new JobDiscoveryService(database as never).discover(source);
     expect(result).toMatchObject({ inserted: 0, duplicates: 1 });
     expect(result.insertedOpportunityIds).toEqual([]);
-    expect(queries).toHaveLength(2);
+    expect(queries.some((sql) => sql.includes("pg_advisory_xact_lock"))).toBe(true);
+    expect(queries.some((sql) => sql.includes("INSERT INTO job_observations"))).toBe(true);
+    expect(queries.some((sql) => sql.includes("INSERT INTO job_opportunities"))).toBe(false);
   });
 });

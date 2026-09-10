@@ -25,4 +25,26 @@ describe("FreePublicJobFeedBundleSource", () => {
     expect(jobs[0]?.title).toBe("Frontend Engineer");
     expect(jobs[0]?.companyName).toBe("Example Co");
   });
+
+  it("processes every feed while never exceeding the feed concurrency bound", async () => {
+    let active = 0;
+    let peak = 0;
+    const started: string[] = [];
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      started.push(url);
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return new Response(`<?xml version="1.0"?><rss><channel><item><guid>${url}</guid><title>Engineer</title><link>${url}/job</link><description>React</description><dc:creator>Example</dc:creator></item></channel></rss>`, { status: 200 });
+    }) as typeof fetch;
+
+    const feeds = Array.from({ length: 11 }, (_, index) => ({ id: `feed:${index}`, url: `https://feed-${index}.example/jobs`, defaultCompanyName: "Example" }));
+    const jobs = await new FreePublicJobFeedBundleSource(feeds).fetchJobs();
+
+    expect(started).toHaveLength(11);
+    expect(jobs).toHaveLength(11);
+    expect(peak).toBeLessThanOrEqual(4);
+  });
 });

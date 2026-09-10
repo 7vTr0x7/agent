@@ -53,6 +53,20 @@ describe("BrowserConfirmationEvidenceVerifier", () => {
     expect(browserSessions.close).toHaveBeenCalledWith(session);
   });
 
+  it("verifies a confirmation URL independently when no external application ID is available", async () => {
+    const { session } = createBrowserSession("Thank you for applying. Your application was submitted.");
+    const browserSessions = {
+      create: jest.fn().mockResolvedValue(session),
+      close: jest.fn().mockResolvedValue(undefined)
+    };
+    const verifier = new BrowserConfirmationEvidenceVerifier(browserSessions as never);
+
+    await expect(verifier.verify(submission, {
+      ...evidence,
+      externalApplicationId: ""
+    })).resolves.toBe(true);
+  });
+
   it("rejects a confirmation page hosted on a different hostname without opening a browser", async () => {
     const browserSessions = {
       create: jest.fn(),
@@ -68,7 +82,7 @@ describe("BrowserConfirmationEvidenceVerifier", () => {
     expect(browserSessions.create).not.toHaveBeenCalled();
   });
 
-  it("rejects a confirmation page missing the external application ID", async () => {
+  it("rejects a confirmation page missing the supplied external application ID", async () => {
     const { session } = createBrowserSession("Thank you for applying.");
     const browserSessions = {
       create: jest.fn().mockResolvedValue(session),

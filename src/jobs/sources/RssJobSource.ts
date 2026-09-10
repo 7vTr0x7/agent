@@ -9,8 +9,8 @@ interface RssItem { id: string; title: string; link: string; description: string
 export class RssJobSource implements JobSource {
   readonly name: string;
   constructor(private readonly options: RssJobSourceOptions) { this.name = options.name; }
-  async fetchJobs(): Promise<Job[]> {
-    const response = await fetch(this.options.feedUrl, { headers: { accept: "application/rss+xml, application/atom+xml, application/xml, text/xml", "user-agent": "Mozilla/5.0 (compatible; JobAgent/0.1; +https://github.com/7vTr0x7/agent)" } });
+  async fetchJobs(signal?: AbortSignal): Promise<Job[]> {
+    const response = await fetch(this.options.feedUrl, { signal, headers: { accept: "application/rss+xml, application/atom+xml, application/xml, text/xml", "user-agent": "Mozilla/5.0 (compatible; JobAgent/0.1; +https://github.com/7vTr0x7/agent)" } });
     if (!response.ok) throw new AppError(`RSS request failed: ${response.status}`, { code: "JOB_SOURCE_REQUEST_FAILED", statusCode: response.status });
     const items = parseRssItems(await response.text());
     return items.map(item => this.normalize(item));

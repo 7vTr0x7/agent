@@ -37,20 +37,20 @@ describe("RecruiterCompanyDomainResolver", () => {
       .toBeNull();
   });
 
-  it("prefers an employer email over an ATS URL", () => {
+  it("does not trust a recruiter email in the job description as employer identity", () => {
     expect(resolveEmployerDomainFromJobData(
       "boards.greenhouse.io",
       "https://boards.greenhouse.io/example/jobs/123",
       "Recruiter: hiring@example.com"
-    )).toBe("example.com");
+    )).toBeNull();
   });
 
-  it("prefers an employer link in the description over an aggregator canonical URL", () => {
+  it("does not trust an arbitrary employer-looking link in the job description", () => {
     expect(resolveEmployerDomainFromJobData(
       null,
       "https://weworkremotely.com/remote-jobs/example",
       "Apply on https://careers.example.com/jobs/frontend"
-    )).toBe("example.com");
+    )).toBeNull();
   });
 
   it("uses a direct canonical employer URL when company_domain is missing", () => {

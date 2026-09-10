@@ -16,10 +16,11 @@ export interface BrowserConfirmationEvidenceVerifierOptions {
 }
 
 /**
- * Verification-only browser check. It never submits a form and requires the
- * independently supplied confirmation URL to be HTTPS, hosted on the same
- * hostname as the original application target, and to expose both the
- * external application ID and a recognizable confirmation signal.
+ * Verification-only browser check. It never submits a form and requires an
+ * independently supplied HTTPS confirmation URL on the same hostname as the
+ * original application target. A confirmation page is sufficient evidence on
+ * its own; when an external application ID is also supplied, the ID must also
+ * be present on that confirmation page.
  */
 export class BrowserConfirmationEvidenceVerifier implements SubmissionEvidenceVerifier {
   constructor(
@@ -35,7 +36,7 @@ export class BrowserConfirmationEvidenceVerifier implements SubmissionEvidenceVe
     const externalApplicationId = evidence.externalApplicationId.trim();
     const targetUrl = submission.targetUrl.trim();
 
-    if (!confirmationUrl || !externalApplicationId || !targetUrl) {
+    if (!confirmationUrl || !targetUrl) {
       return false;
     }
 
@@ -67,7 +68,7 @@ export class BrowserConfirmationEvidenceVerifier implements SubmissionEvidenceVe
       const text = await session.page.locator("body").innerText();
       const normalizedText = text.replace(/\s+/g, " ").trim();
 
-      const containsApplicationId = normalizedText.includes(externalApplicationId);
+      const containsApplicationId = !externalApplicationId || normalizedText.includes(externalApplicationId);
       const confirmationSignals = CONFIRMATION_PATTERNS.filter((pattern) =>
         pattern.test(normalizedText)
       ).length;

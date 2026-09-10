@@ -1,5 +1,5 @@
 import { Database } from "../../database/Database";
-import { canonicalizeJobUrl, createCanonicalJobId } from "../domain/JobCanonicalization";
+import { canonicalizeJobUrl, createCanonicalJobId, createJobContentFingerprint } from "../domain/JobCanonicalization";
 import { Job } from "../domain/Job";
 import { JobSource } from "../sources/JobSource";
 
@@ -26,7 +26,39 @@ export class JobDiscoveryService {
   private async persistJob(job: Job): Promise<{ inserted: boolean; opportunityId: string }> {
     const canonicalUrl = canonicalizeJobUrl(job.url);
     const canonicalId = createCanonicalJobId(job.url);
+    const contentFingerprint = createJobContentFingerprint(job);
     return this.database.transaction(async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [contentFingerprint]);
+
+      const existingByContent = await client.query<OpportunityRow>(
+        `
+          SELECT id
+          FROM job_opportunities
+          WHERE lower(trim(title)) = lower(trim($1))
+            AND lower(trim(company_name)) = lower(trim($2))
+            AND lower(trim(COALESCE(location, ''))) = lower(trim(COALESCE($3, '')))
+            AND md5(COALESCE(description, '')) = md5($4)
+          ORDER BY last_seen_at DESC
+          LIMIT 1
+        `,
+        [job.title, job.companyName, job.location, job.description]
+      );
+
+      const existing = existingByContent.rows[0];
+      if (existing) {
+        await client.query(
+          `
+            INSERT INTO job_observations (
+              job_opportunity_id, platform, source_type, source_job_id, source_url,
+              discovered_at, observed_at, raw_payload, content_hash
+            ) VALUES ($1,$2,$3,$4,$5,NOW(),NOW(),$6::jsonb,$7)
+            ON CONFLICT DO NOTHING
+          `,
+          [existing.id, job.source, "adapter", job.sourceJobId, job.url, JSON.stringify(job), job.contentHash]
+        );
+        return { inserted: false, opportunityId: existing.id };
+      }
+
       const opportunityResult = await client.query<OpportunityRow>(
         `
           INSERT INTO job_opportunities (
