@@ -87,36 +87,64 @@ export class PlaywrightJobPageRenderer implements RenderedPageRenderer {
   }
 }
 
-interface VisibleExtraction { jobs: Array<{ title: string; company: string; description: string; url: string }>; jsonLd: string; }
+export interface VisibleJobCandidate { readonly title: string; readonly company: string; readonly description: string; readonly url: string; }
+interface VisibleExtraction { jobs: VisibleJobCandidate[]; jsonLd: string; }
+
+/** Keeps every distinct rendered job link while collapsing repeated DOM representations. */
+export function normalizeVisibleJobCandidates(candidates: readonly VisibleJobCandidate[]): VisibleJobCandidate[] {
+  const unique = new Map<string, VisibleJobCandidate>();
+  for (const job of candidates) {
+    const key = job.url.trim().toLowerCase();
+    if (!key || unique.has(key)) continue;
+    unique.set(key, job);
+  }
+  return [...unique.values()];
+}
 
 async function extractVisibleJobs(page: Page): Promise<VisibleExtraction> {
-  const jobs = await page.locator("article, [role='article'], [data-testid*='job'], [data-testid*='Job'], [class*='job-card'], [class*='JobCard'], [class*='job_result'], [class*='job-result']").evaluateAll((cards) => {
-    const out: Array<{ title: string; company: string; description: string; url: string }> = [];
-    for (const card of cards) {
-      const element = card as HTMLElement;
-      const text = (element.innerText ?? "").replace(/\s+/g, " ").trim();
-      if (!text || text.length < 40) continue;
-      const titleElement = element.querySelector("h1,h2,h3,h4,[data-testid*='title'],[class*='title'],a[href*='job'],a[href*='jobs']") as HTMLElement | null;
+  const candidates = await page.locator("a[href]").evaluateAll((anchors) => {
+    const out: Array<VisibleJobCandidate> = [];
+    const jobPattern = /(job|jobs|career|careers|position|opening|vacanc|requisition|role)/i;
+    const loginPattern = /^(login|sign[- ]?in|register|signup|cookie|privacy|terms|help|support|contact)$/i;
+
+    const companyFrom = (element: HTMLElement): string => {
       const companyElement = element.querySelector("[itemprop='hiringOrganization'] [itemprop='name'],[itemprop='name'][class*='company'],[data-company],[data-testid*='company'],[data-testid*='employer'],[class*='company'],[class*='employer'],[aria-label*='Company'],[aria-label*='Employer']") as HTMLElement | null;
-      const linkElement = element.querySelector("a[href]") as HTMLAnchorElement | null;
-      const title = (titleElement?.innerText ?? titleElement?.getAttribute("aria-label") ?? "").replace(/\s+/g, " ").trim();
-      const company = (companyElement?.getAttribute("data-company") ?? companyElement?.innerText ?? companyElement?.getAttribute("aria-label") ?? "").replace(/\s+/g, " ").trim();
-      const explicitCompany = company || (text.match(/(?:company|employer|hiring organization)\s*[:\-]\s*([^|•]+?)(?:\s+(?:location|description|salary)\s*[:\-]|$)/i)?.[1] ?? "").trim();
-      const description = (element.querySelector("[itemprop='description'],[data-testid*='description'],[class*='description'],p")?.textContent ?? text).replace(/\s+/g, " ").trim();
-      const url = linkElement?.href ?? "";
-      if (title && explicitCompany && description.length >= 40 && url) out.push({ title, company: explicitCompany, description, url });
+      return (companyElement?.getAttribute("data-company") ?? companyElement?.innerText ?? companyElement?.getAttribute("aria-label") ?? "").replace(/\s+/g, " ").trim();
+    };
+
+    const descriptionFrom = (element: HTMLElement, text: string): string =>
+      (element.querySelector("[itemprop='description'],[data-testid*='description'],[class*='description'],p")?.textContent ?? text).replace(/\s+/g, " ").trim();
+
+    for (const anchor of anchors) {
+      const link = anchor as HTMLAnchorElement;
+      const href = link.href?.trim() ?? "";
+      const anchorText = (link.textContent ?? "").replace(/\s+/g, " ").trim();
+      if (!href || !jobPattern.test(`${href} ${anchorText}`) || loginPattern.test(anchorText)) continue;
+
+      let element: HTMLElement | null = link.parentElement;
+      let best: HTMLElement | null = null;
+      for (let depth = 0; element && depth < 7; depth += 1, element = element.parentElement) {
+        const text = (element.innerText ?? "").replace(/\s+/g, " ").trim();
+        if (text.length < 40) continue;
+        const company = companyFrom(element);
+        if (company) { best = element; break; }
+      }
+      if (!best) continue;
+
+      const text = (best.innerText ?? "").replace(/\s+/g, " ").trim();
+      const heading = best.querySelector("h1,h2,h3,h4,[data-testid*='title'],[class*='title']") as HTMLElement | null;
+      const title = (heading?.innerText ?? anchorText).replace(/\s+/g, " ").trim();
+      const company = companyFrom(best);
+      const description = descriptionFrom(best, text);
+      if (!title || !company || description.length < 40) continue;
+      out.push({ title, company, description, url: href });
     }
     return out;
   });
 
-  const unique = new Map<string, { title: string; company: string; description: string; url: string }>();
-  for (const job of jobs) {
-    const key = job.url.trim().toLowerCase();
-    if (!unique.has(key)) unique.set(key, job);
-  }
-  const values = [...unique.values()];
-  const jsonLd = values.map((job) => `<script type="application/ld+json">${escapeJsonScript(JSON.stringify({ "@context": "https://schema.org", "@type": "JobPosting", title: job.title, description: job.description, url: job.url, hiringOrganization: { "@type": "Organization", name: job.company } }))}</script>`).join("");
-  return { jobs: values, jsonLd };
+  const jobs = normalizeVisibleJobCandidates(candidates);
+  const jsonLd = jobs.map((job) => `<script type="application/ld+json">${escapeJsonScript(JSON.stringify({ "@context": "https://schema.org", "@type": "JobPosting", title: job.title, description: job.description, url: job.url, hiringOrganization: { "@type": "Organization", name: job.company } }))}</script>`).join("");
+  return { jobs, jsonLd };
 }
 
 function escapeJsonScript(value: string): string { return value.replace(/<\//g, "<\\/"); }
@@ -140,7 +168,7 @@ async function collectPublicJobLinks(page: Page, baseUrl: string): Promise<strin
 
 function looksLikeJobLink(href: string, text: string): boolean {
   const value = `${href} ${text}`.toLowerCase();
-  if (!/(job|jobs|career|careers|position|opening|vacanc|requisition|role)/i.test(value)) return false;
-  if (/^(login|sign[- ]?in|register|signup|cookie|privacy|terms|help|support|contact)/i.test(text.trim())) return false;
+  if (!/(job|jobs|career|careers|position|opening|vacanc|requisition|role|apply|view job|job details)/i.test(value)) return false;
+  if (/^(login|sign[- ]?in|register|signup|cookie|privacy|terms|help|support|contact)$/i.test(text.trim())) return false;
   return true;
 }
