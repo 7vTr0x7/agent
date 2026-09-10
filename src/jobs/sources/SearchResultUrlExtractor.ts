@@ -18,7 +18,7 @@ export interface SearchResultExtractionResult {
 
 const MAX_DECODE_PASSES = 3;
 const TRACKING_PARAMS = /^(utm_[a-z0-9_]+|gclid|dclid|fbclid|msclkid|mc_cid|mc_eid)$/i;
-const URL_RE = /https?:\/\/[^\s<>'"`\]\[(){}]+/gi;
+const URL_RE = /(?<![A-Za-z0-9_:/])https?:\/\/[^\s<>'"`\]\[(){}]+/gi;
 const LOGIN_SEGMENT_RE = /(^|\/)(login|signin|sign-in|signup|sign-up|register|registration|account)(\/|$)/i;
 const WRAPPER_PARAM_NAMES = ["url", "target", "dest", "destination", "redirect", "redirect_url", "redirect_uri", "uddg"] as const;
 const SEARCH_ENGINE_HOSTS = [
@@ -43,7 +43,9 @@ export function extractSearchResultUrls(page: string, baseUrl?: string): SearchR
   for (const match of page.matchAll(/href\s*=\s*["']([^"']+)["']/gi)) candidates.push({ value: match[1] ?? "", kind: "href" });
 
   const textWithoutMarkup = page.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ");
-  for (const match of textWithoutMarkup.matchAll(URL_RE)) candidates.push({ value: match[0] ?? "", kind: "bare" });
+  addBareUrlCandidates(textWithoutMarkup, candidates);
+  const decodedText = boundedDecode(textWithoutMarkup);
+  if (decodedText !== textWithoutMarkup) addBareUrlCandidates(decodedText, candidates);
 
   const seenRaw = new Set<string>();
   for (const candidate of candidates) {
@@ -67,6 +69,9 @@ export function extractSearchResultUrls(page: string, baseUrl?: string): SearchR
   return { urls: [...canonical], diagnostics: metrics };
 }
 
+function addBareUrlCandidates(text: string, candidates: Array<{ value: string; kind: "markdown" | "href" | "rss" | "bare" }>): void {
+  for (const match of text.matchAll(URL_RE)) candidates.push({ value: match[0] ?? "", kind: "bare" });
+}
 function createDiagnostics(): SearchResultExtractionDiagnostics {
   return { markdownCandidates: 0, hrefCandidates: 0, rssCandidates: 0, bareUrlCandidates: 0, redirectCandidates: 0, validCandidates: 0, normalizedUrls: 0, duplicates: 0, rejectedCandidates: 0, rejectionReasons: {} };
 }
