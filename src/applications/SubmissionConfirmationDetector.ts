@@ -25,8 +25,6 @@ const STANDALONE_CONFIRMATION_PATTERNS = [
   /^application\s+confirmation[.!]?$/i
 ] as const;
 
-const CONFIRMATION_URL_PATTERN = /(?:thank(?:s|-|_)?(?:you)?|success(?:ful|fully)?|confirmation|application[-_/]?(?:submitted|received|complete))/i;
-
 function normalizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -36,8 +34,9 @@ export class SubmissionConfirmationDetector {
     const url = page.url();
     const bodyText = normalizeText(await page.locator("body").innerText().catch(() => ""));
 
-    // Prefer confirmation text in semantically prominent/status elements. This
-    // avoids treating arbitrary job-description text as proof of submission.
+    // Confirmation must come from actual page evidence. A success-looking URL
+    // by itself is not enough because redirects and ordinary job URLs can be
+    // misleading. Prefer prominent/status elements first.
     const signalElements = page.locator(
       "h1, h2, [role='alert'], [role='status'], [aria-live='assertive'], [aria-live='polite']"
     );
@@ -48,10 +47,7 @@ export class SubmissionConfirmationDetector {
     }
 
     const prominentText = signalTexts.join(" ");
-    const matchingProminentPattern = CONFIRMATION_PATTERNS.find((pattern) =>
-      pattern.test(prominentText)
-    );
-
+    const matchingProminentPattern = CONFIRMATION_PATTERNS.find((pattern) => pattern.test(prominentText));
     if (matchingProminentPattern) {
       return {
         confirmed: true,
@@ -60,14 +56,10 @@ export class SubmissionConfirmationDetector {
       };
     }
 
-    // Some ATS pages replace the entire form with a short confirmation message
+    // Some ATS pages replace the form with a short confirmation message
     // without using a heading or status role. Only an entire compact body that
     // is itself a known confirmation phrase is accepted here.
-    const standaloneConfirmation = STANDALONE_CONFIRMATION_PATTERNS.some((pattern) =>
-      pattern.test(bodyText)
-    );
-
-    if (standaloneConfirmation) {
+    if (STANDALONE_CONFIRMATION_PATTERNS.some((pattern) => pattern.test(bodyText))) {
       return {
         confirmed: true,
         confirmationUrl: url,
@@ -86,23 +78,6 @@ export class SubmissionConfirmationDetector {
       };
     }
 
-    try {
-      const parsedUrl = new URL(url);
-      if (CONFIRMATION_URL_PATTERN.test(parsedUrl.pathname)) {
-        return {
-          confirmed: true,
-          confirmationUrl: url,
-          signal: "Confirmation URL path matched a known success pattern."
-        };
-      }
-    } catch {
-      // Ignore malformed URLs; the browser normally exposes an absolute URL.
-    }
-
-    return {
-      confirmed: false,
-      confirmationUrl: null,
-      signal: null
-    };
+    return { confirmed: false, confirmationUrl: null, signal: null };
   }
 }
