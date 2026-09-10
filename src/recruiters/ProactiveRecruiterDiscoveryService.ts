@@ -97,11 +97,12 @@ export class ProactiveRecruiterDiscoveryService {
         if (!roleMatch.score) continue;
         const email = evidence.match(emailPattern)?.[0]?.toLowerCase();
         const employer = extractEmployer(evidence, email);
-        const namePart = url.split("/in/")[1]?.replace(/[-_]+/g, " ").trim() || "Unknown recruiter";
+        const recruiterName = extractRecruiterName(evidence);
+        if (recruiterName === "Unknown recruiter") continue;
         const key = url.toLowerCase();
         const evidenceFreshness = classifyEvidenceFreshness(evidence, now);
         const candidate: ProactiveRecruiterDiscoveryCandidate = {
-          recruiterName: namePart,
+          recruiterName,
           recruiterRole: roleMatch.recruiterTerms[0] ?? "Recruiting professional",
           employer: employer.name,
           ...(employer.domain ? { employerDomain: employer.domain } : {}),
@@ -135,6 +136,11 @@ export class ProactiveRecruiterDiscoveryService {
     }
     return [...candidates.values()];
   }
+}
+
+function extractRecruiterName(evidence: string): string {
+  const match = evidence.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z'-]+){1,3})\s*(?:-|\||•|:)\s*(?:technical|it|technology|software|engineering|talent|recruiting|recruiter|sourcer|hiring)/i);
+  return match?.[1]?.trim() ?? "Unknown recruiter";
 }
 
 function classifyEvidenceFreshness(evidence: string, now: Date): "current" | "recent" | "historical" | "unknown" {
