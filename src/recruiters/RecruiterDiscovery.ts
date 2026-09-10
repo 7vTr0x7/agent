@@ -9,8 +9,8 @@ export interface RecruiterDiscoveryInput {
   applicationId?: string;
 }
 
-export interface RecruiterContactCandidate {
-  email: string;
+export interface RecruiterIdentityCandidate {
+  email?: string;
   fullName?: string;
   title?: string;
   department?: string;
@@ -18,12 +18,14 @@ export interface RecruiterContactCandidate {
   country?: string;
   location?: string;
   confidence?: number;
-  /** True means the configured verification step passed; public-web uses domain MX verification. */
   verified: boolean;
-  /** Examples: domain_mx_verified, unverified_public_source, verification_provider_required. */
   verificationStatus?: string;
   provider: string;
   linkedinProfileUrl?: string;
+  companyDomain?: string;
+  recruitingContext?: string;
+  discoveryEvidence?: string[];
+  discoveredAt?: Date;
   sources: Array<{
     url?: string;
     type?: string;
@@ -31,9 +33,16 @@ export interface RecruiterContactCandidate {
   }>;
 }
 
+/** A legacy email-bearing recruiter contact. New identity-only candidates use RecruiterIdentityCandidate. */
+export interface RecruiterContactCandidate extends RecruiterIdentityCandidate {
+  email: string;
+}
+
+export type RecruiterDiscoveryContact = RecruiterContactCandidate | RecruiterIdentityCandidate;
+
 export interface RecruiterDiscoveryResult {
   provider: string;
-  contacts: RecruiterContactCandidate[];
+  contacts: RecruiterDiscoveryContact[];
   discoveredAt: Date;
 }
 
@@ -48,5 +57,7 @@ export interface RecruiterVerificationResult {
 export interface RecruiterDiscoveryProvider {
   readonly name: string;
   discover(input: RecruiterDiscoveryInput): Promise<RecruiterDiscoveryResult>;
+  /** Optional second-stage email discovery. It must never invent an address. */
+  discoverEmails?(input: RecruiterDiscoveryInput): Promise<RecruiterDiscoveryResult>;
   verify(email: string): Promise<RecruiterVerificationResult>;
 }
