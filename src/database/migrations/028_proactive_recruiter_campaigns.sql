@@ -22,7 +22,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_proactive_recruiter_sequence
 CREATE TABLE IF NOT EXISTS recruiter_proactive_evidence (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   recruiter_contact_id UUID NOT NULL REFERENCES recruiter_contacts(id) ON DELETE CASCADE,
-  candidate_profile_id UUID REFERENCES candidate_profiles(id) ON DELETE CASCADE,
+  candidate_profile_id TEXT NOT NULL,
   target_roles JSONB NOT NULL DEFAULT '[]'::jsonb,
   role_match_score INTEGER NOT NULL CHECK (role_match_score BETWEEN 0 AND 100),
   hiring_evidence_score INTEGER NOT NULL CHECK (hiring_evidence_score BETWEEN 0 AND 100),
