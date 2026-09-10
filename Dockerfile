@@ -14,4 +14,4 @@ RUN npm run build
 
 RUN mkdir -p /app/data/resumes /app/data/browser
 
-CMD ["node", "dist/index.js"]
+CMD ["node", "-e", "require('./dist/api/bootstrap'); require('./dist/index')"]
