@@ -15,14 +15,17 @@ export class TaskWorker {
   private readonly logger: TaskWorkerLogger;
   private stopped = false;
   private lastRecoveryAt = 0;
+
   constructor(private readonly queue: TaskQueue, private readonly handlers: TaskHandlerRegistry, options: TaskWorkerOptions = {}) {
     this.workerId = options.workerId ?? `worker-${randomUUID()}`;
     this.pollIntervalMs = options.pollIntervalMs ?? 1000;
     this.staleRecoveryIntervalMs = options.staleRecoveryIntervalMs ?? 30_000;
-    // Keep the heartbeat comfortably below the 15-minute default lease.
-    this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 30_000;
+    // Renew frequently enough to survive transient DB/network delays while
+    // retaining a generous 15-minute lease as the failure boundary.
+    this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 10_000;
     this.logger = options.logger ?? noopLogger;
   }
+
   async runOnce(taskTypes?: string[]): Promise<boolean> {
     const now = Date.now();
     if (now - this.lastRecoveryAt >= this.staleRecoveryIntervalMs) {
@@ -30,10 +33,12 @@ export class TaskWorker {
       this.lastRecoveryAt = now;
       if (recovery.recovered > 0) this.logger.info({ workerId: this.workerId, recovered: recovery.recovered }, "Recovered stale tasks");
     }
+
     const allowedTaskTypes = taskTypes?.length ? taskTypes : [...this.handlers.keys()];
     const task = await this.queue.claim(this.workerId, allowedTaskTypes);
     if (!task) return false;
     this.logger.info({ workerId: this.workerId, taskId: task.id, taskType: task.taskType, attempt: task.attempts }, "Task claimed");
+
     const handler = this.handlers.get(task.taskType);
     if (!handler) {
       const reason = `No handler registered for task type '${task.taskType}'.`;
@@ -41,13 +46,26 @@ export class TaskWorker {
       await this.queue.fail(task.id, this.workerId, reason);
       return true;
     }
-    const heartbeatTimer = setInterval(() => {
-      void this.queue.heartbeat(task.id, this.workerId).then((owned) => {
+
+    let heartbeatInFlight = false;
+    const renewLease = async (): Promise<void> => {
+      if (heartbeatInFlight) return;
+      heartbeatInFlight = true;
+      try {
+        const owned = await this.queue.heartbeat(task.id, this.workerId);
         if (!owned) this.logger.warn({ workerId: this.workerId, taskId: task.id, taskType: task.taskType }, "Task heartbeat lost ownership");
-      }).catch((error: unknown) => {
+      } catch (error: unknown) {
         this.logger.warn({ workerId: this.workerId, taskId: task.id, taskType: task.taskType, error: error instanceof Error ? error.message : String(error) }, "Task heartbeat failed");
-      });
-    }, this.heartbeatIntervalMs);
+      } finally {
+        heartbeatInFlight = false;
+      }
+    };
+
+    // Renew immediately after claim so a task that starts under transient load
+    // does not depend on the first timer tick to establish a fresh lease.
+    await renewLease();
+    const heartbeatTimer = setInterval(() => { void renewLease(); }, this.heartbeatIntervalMs);
+
     try {
       await handler.handle(task);
       await this.queue.succeed(task.id, this.workerId);
@@ -57,9 +75,12 @@ export class TaskWorker {
       this.logger.error({ workerId: this.workerId, taskId: task.id, taskType: task.taskType, reason }, "Task handler failed");
       try { await this.queue.fail(task.id, this.workerId, reason); }
       catch { this.logger.warn({ workerId: this.workerId, taskId: task.id, taskType: task.taskType }, "Task failure could not be persisted because the lease is no longer owned"); }
-    } finally { clearInterval(heartbeatTimer); }
+    } finally {
+      clearInterval(heartbeatTimer);
+    }
     return true;
   }
+
   async run(): Promise<void> {
     this.stopped = false;
     this.logger.info({ workerId: this.workerId }, "Task worker started");
@@ -74,5 +95,6 @@ export class TaskWorker {
     }
     this.logger.info({ workerId: this.workerId }, "Task worker stopped");
   }
+
   stop(): void { this.stopped = true; }
 }
