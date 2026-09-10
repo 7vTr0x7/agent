@@ -69,10 +69,8 @@ export function createDiscoveryRuntime(
     const adapterSource = createJobSource(sourceConfig);
     const source = {
       name: sourceConfig.id,
-      fetchJobs: async () => {
-        const jobs = await adapterSource.fetchJobs();
-        return jobs.map((job) => ({ ...job, source: sourceConfig.id }));
-      }
+      fetchJobs: (signal?: AbortSignal) => adapterSource.fetchJobs(signal)
+        .then((jobs) => jobs.map((job) => ({ ...job, source: sourceConfig.id })))
     };
     registry.register({
       source,
