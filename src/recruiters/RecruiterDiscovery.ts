@@ -52,6 +52,14 @@ export interface RecruiterVerificationResult {
   verified: boolean;
   status: string;
   confidence?: number;
+  /** Structured evidence describing how the verification decision was established. */
+  verificationEvidence?: Array<{
+    provider: string;
+    status: string;
+    confidence?: number;
+    mailboxLevel?: boolean;
+    source?: string;
+  }>;
 }
 
 export interface RecruiterDiscoveryProvider {
