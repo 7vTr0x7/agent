@@ -75,6 +75,24 @@ jobs:
             -e PHASE5_PREPARATION_LIMIT=10 \
             job-agent:phase5 npm run phase5:controlled-runtime
 
+      - name: Print concrete Phase 5 acceptance evidence
+        shell: bash
+        run: |
+          job_id="$(docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -tAc "SELECT id FROM job_opportunities WHERE canonical_url='https://orchasp.com/careers/' LIMIT 1;" | tr -d '[:space:]')"
+          test -n "$job_id"
+          echo '=== JOB ==='
+          docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -c "SELECT id,title,company_name,company_domain,canonical_url,location,country,posted_at FROM job_opportunities WHERE id='$job_id';"
+          echo '=== MATCH ==='
+          docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -c "SELECT row_to_json(m) FROM match_decisions m WHERE job_opportunity_id='$job_id' ORDER BY created_at DESC LIMIT 1;"
+          echo '=== RECRUITER DISCOVERY RUN ==='
+          docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -c "SELECT row_to_json(r) FROM recruiter_discovery_runs r WHERE job_opportunity_id='$job_id' ORDER BY created_at DESC LIMIT 1;"
+          echo '=== RECRUITER + JOB EVIDENCE + EMAIL STATE ==='
+          docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -c "SELECT c.id,c.full_name,c.title,c.company_name,c.company_domain,c.email,c.email_status,c.verified,c.verification_status,c.relevance_status,c.relevance_score,e.confidence,e.evidence AS job_evidence,c.relevance_evidence FROM recruiter_contacts c JOIN recruiter_contact_job_evidence e ON e.recruiter_contact_id=c.id WHERE e.job_opportunity_id='$job_id' ORDER BY c.id;"
+          echo '=== RECRUITER SOURCE EVIDENCE ==='
+          docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -c "SELECT c.id,c.email,s.provider,s.source_type,s.source_url,s.confidence,s.observed_at FROM recruiter_contacts c JOIN recruiter_contact_job_evidence e ON e.recruiter_contact_id=c.id JOIN recruiter_contact_sources s ON s.recruiter_contact_id=c.id WHERE e.job_opportunity_id='$job_id' ORDER BY c.id,s.observed_at DESC;"
+          echo '=== OUTREACH DRAFT ==='
+          docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -c "SELECT s.id,s.recruiter_contact_id,s.job_opportunity_id,s.candidate_profile_id,s.status AS sequence_status,m.message_type,m.sequence_step,m.recipient_email,m.subject,m.status AS message_status,m.body FROM recruiter_outreach_sequences s JOIN recruiter_outreach_messages m ON m.sequence_id=s.id WHERE s.job_opportunity_id='$job_id' ORDER BY s.created_at,m.sequence_step;"
+
       - name: Verify schema and safety invariants
         shell: bash
         run: |
