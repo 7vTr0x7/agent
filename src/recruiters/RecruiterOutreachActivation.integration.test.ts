@@ -1,4 +1,4 @@
-import { evaluateRecruiterOutreachActivation } from "./RecruiterOutreachActivationGate";
+import { evaluateRecruiterOutreachActivation, CONTROLLED_SEND_CONFIRMATION } from "./RecruiterOutreachActivationGate";
 
 describe("Recruiter outreach activation boundary", () => {
   it("keeps default-style disabled activation closed", () => {
@@ -7,46 +7,91 @@ describe("Recruiter outreach activation boundary", () => {
       dryRun: false,
       liveActivationConfirmed: false,
       maxMessagesPerDay: 500,
-      maxMessagesPerHour: 21
+      maxMessagesPerHour: 21,
     })).toEqual({
       allowed: false,
-      reason: "Recruiter outreach activation is disabled."
+      reason: "Recruiter outreach activation is disabled.",
     });
   });
 
-  it("permits only the exact one-message canary envelope", () => {
+  it("blocks canary alone without the explicit Phase 6 confirmation", () => {
     expect(evaluateRecruiterOutreachActivation({
       activation: "canary",
       dryRun: false,
       liveActivationConfirmed: false,
       maxMessagesPerDay: 1,
-      maxMessagesPerHour: 1
+      maxMessagesPerHour: 1,
+    })).toEqual({
+      allowed: false,
+      reason: `Real recruiter delivery requires explicit controlled confirmation ${CONTROLLED_SEND_CONFIRMATION}.`,
+    });
+  });
+
+  it("allows the exact one-message canary envelope only with explicit confirmation", () => {
+    expect(evaluateRecruiterOutreachActivation({
+      activation: "canary",
+      dryRun: false,
+      liveActivationConfirmed: false,
+      controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION,
+      maxMessagesPerDay: 1,
+      maxMessagesPerHour: 1,
     }).allowed).toBe(true);
 
     expect(evaluateRecruiterOutreachActivation({
       activation: "canary",
       dryRun: false,
       liveActivationConfirmed: false,
+      controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION,
       maxMessagesPerDay: 2,
-      maxMessagesPerHour: 1
-    }).allowed).toBe(false);
+      maxMessagesPerHour: 1,
+    })).toEqual({
+      allowed: false,
+      reason: "Canary activation requires exactly 1 recruiter message per day and per hour.",
+    });
   });
 
-  it("requires explicit live confirmation", () => {
+  it("requires explicit confirmation and live confirmation for live activation", () => {
     expect(evaluateRecruiterOutreachActivation({
       activation: "live",
       dryRun: false,
       liveActivationConfirmed: false,
+      controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION,
       maxMessagesPerDay: 500,
-      maxMessagesPerHour: 21
-    }).allowed).toBe(false);
+      maxMessagesPerHour: 21,
+    })).toEqual({
+      allowed: false,
+      reason: "Live recruiter outreach requires RECRUITER_LIVE_ACTIVATION_CONFIRMED=true.",
+    });
 
     expect(evaluateRecruiterOutreachActivation({
       activation: "live",
       dryRun: false,
       liveActivationConfirmed: true,
       maxMessagesPerDay: 500,
-      maxMessagesPerHour: 21
+      maxMessagesPerHour: 21,
+    })).toEqual({
+      allowed: false,
+      reason: `Real recruiter delivery requires explicit controlled confirmation ${CONTROLLED_SEND_CONFIRMATION}.`,
+    });
+
+    expect(evaluateRecruiterOutreachActivation({
+      activation: "live",
+      dryRun: false,
+      liveActivationConfirmed: true,
+      controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION,
+      maxMessagesPerDay: 500,
+      maxMessagesPerHour: 21,
+    }).allowed).toBe(true);
+  });
+
+  it("never permits dry-run to become a real send", () => {
+    expect(evaluateRecruiterOutreachActivation({
+      activation: "canary",
+      dryRun: true,
+      liveActivationConfirmed: true,
+      controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION,
+      maxMessagesPerDay: 1,
+      maxMessagesPerHour: 1,
     }).allowed).toBe(true);
   });
 });
