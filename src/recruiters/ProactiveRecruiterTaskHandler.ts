@@ -1,5 +1,7 @@
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { ClaimedTask } from "../queue/TaskQueue";
+import { hasExplicitMailboxEvidence, isEligibleForRealRecruiterSend } from "./RecruiterMailboxVerification";
+import { RecruiterVerificationEvidence } from "./RecruiterDiscovery";
 import { RecruiterOutreachSendTaskDispatcher } from "./RecruiterOutreachSendTask";
 import { ProactiveRecruiterDiscoveryService } from "./ProactiveRecruiterDiscoveryService";
 import { rankProactiveRecruiters } from "./ProactiveRecruiterRanking";
@@ -12,7 +14,7 @@ export interface ProactiveRecruiterTaskHandlerOptions {
   sendEnabled: boolean;
   maxCandidatesPerRun: number;
   requireVerifiedEmail: boolean;
-  verifyEmail?: (email: string) => Promise<{ status: "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID"; confidence: number }>;
+  verifyEmail?: (email: string) => Promise<{ status: "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID" | string; confidence: number; verificationEvidence?: RecruiterVerificationEvidence[] }>;
 }
 
 export class ProactiveRecruiterTaskHandler {
@@ -78,18 +80,36 @@ export class ProactiveRecruiterTaskHandler {
       if (candidate.email) {
         try {
           const verification = await verifier(candidate.email);
-          candidate.emailStatus = normalizeEmailStatus(verification.status);
+          candidate.emailStatus = normalizeEmailStatus(verification.status, verification.verificationEvidence);
+          candidate.verificationEvidence = verification.verificationEvidence ?? [];
         } catch (error) {
           this.logger.error({ error: error instanceof Error ? error.message : String(error) }, "Proactive recruiter email verification failed");
           candidate.emailStatus = "UNVERIFIED";
+          candidate.verificationEvidence = [];
         }
       }
       const recruiterContactId = await this.repository.persistCandidate(payload.candidateProfileId, candidate);
       if (!recruiterContactId) continue;
       persisted += 1;
 
+      const mailboxEvidence = hasExplicitMailboxEvidence(candidate.verificationEvidence ?? []);
+      const canonicalEligible = isEligibleForRealRecruiterSend({
+        verified: mailboxEvidence,
+        mailboxEvidence,
+        verificationEvidence: candidate.verificationEvidence ?? [],
+        emailStatus: mailboxEvidence ? "VERIFIED" : candidate.emailStatus,
+        verificationStatus: mailboxEvidence ? "mailbox_verified" : candidate.emailStatus === "LIKELY" ? "domain_mx_verified" : "public-web-unverified",
+        relevanceStatus: candidate.evidenceFreshness === "current"
+          ? "CURRENT"
+          : candidate.evidenceFreshness === "recent"
+            ? "RECENT"
+            : candidate.evidenceFreshness === "historical"
+              ? "HISTORICAL"
+              : "UNKNOWN",
+        suppressed: false
+      });
+      if (!canonicalEligible) continue;
       if (!candidate.email || candidate.emailStatus === "INVALID") continue;
-      if (this.options.requireVerifiedEmail && candidate.emailStatus !== "VERIFIED") continue;
       if (!candidate.employerDomain) continue;
 
       const subject = `Frontend / React / Next.js opportunities — ${profile.fullName ?? "Candidate"}`;
@@ -156,13 +176,25 @@ function assertOutreachPayload(payload: Record<string, unknown>): ProactiveRecru
   };
 }
 
-function normalizeEmailStatus(value: string): "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID" {
-  switch (value) {
-    case "VERIFIED":
-    case "LIKELY":
-    case "UNVERIFIED":
-    case "INVALID":
-      return value;
+function normalizeEmailStatus(value: string, evidence: RecruiterVerificationEvidence[] = []): "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID" {
+  const normalized = value.trim().toLowerCase();
+  const hasMailboxEvidence = evidence.some((item) => item.mailboxLevel === true && item.provider.trim().length > 0 && item.status.trim().length > 0);
+  if ((normalized === "mailbox_verified" || normalized === "valid") && hasMailboxEvidence) return "VERIFIED";
+  switch (normalized) {
+    case "verified":
+      return "VERIFIED";
+    case "likely":
+    case "domain_mx_verified":
+    case "domain_mx_verified_doh":
+      return "LIKELY";
+    case "invalid":
+    case "invalid_email_format":
+    case "no_mx_record":
+    case "missing_email_domain":
+    case "not_valid":
+      return "INVALID";
+    case "unverified":
+      return "UNVERIFIED";
     default:
       return "UNVERIFIED";
   }

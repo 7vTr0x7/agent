@@ -37,17 +37,22 @@ export class RecruiterOutreachSendService {
     if (!this.gmailEnabled) return { status: "SKIPPED", messageId: message.id, reason: "Gmail sending is disabled." };
     if (!this.options.mailbox) return { status: "SKIPPED", messageId: message.id, reason: "Gmail mailbox is not configured for live recruiter outreach." };
     if (!this.options.database) return { status: "SKIPPED", messageId: message.id, reason: "Controlled Gmail sending requires database-backed atomic claim and reconciliation." };
+
+    // Prepare all potentially slow local work before claiming the message. This keeps
+    // the claimed-to-provider window limited to one final DB eligibility read and the
+    // provider call, while a recruiter can still be downgraded safely before the claim.
+    let resumeAttachment: GmailAttachment | null = null;
+    try { resumeAttachment = this.attachResume && message.messageType === "INITIAL" ? await loadResumeAttachment(this.resumePath, this.maxAttachmentBytes) : null; }
+    catch (error) { throw error; }
+
     const clientMessageId = deterministicMessageId(message.id);
     const claimed = await this.claimWithDatabase(message.id, clientMessageId);
     if (!claimed) return { status: "SKIPPED", messageId: message.id, reason: "Message was already claimed, sent, suppressed, or is no longer eligible." };
     const stillEligible = await this.recheckEligibility(claimed.recruiterContactId);
-    if (!stillEligible) { await this.markClaimFailed(claimed.id, "Recruiter stopped satisfying the canonical real-send eligibility predicate before Gmail submission."); return { status: "SKIPPED", messageId: message.id, reason: "Recruiter is no longer eligible for real sending." }; }
-    let resumeAttachment: GmailAttachment | null = null;
-    try { resumeAttachment = this.attachResume && claimed.messageType === "INITIAL" ? await loadResumeAttachment(this.resumePath, this.maxAttachmentBytes) : null; } catch (error) { const reason = error instanceof Error ? error.message : String(error); await this.markClaimFailed(claimed.id, reason); throw error; }
+    if (!stillEligible) { await this.markClaimFailed(claimed.id, "Recruiter stopped satisfying the canonical real-send eligibility predicate immediately before Gmail submission."); return { status: "SKIPPED", messageId: message.id, reason: "Recruiter is no longer eligible for real sending." }; }
     try {
       const sent = await this.options.mailbox.sendMessage({ to: claimed.recipientEmail, subject: claimed.subject, bodyText: claimed.body, messageId: claimed.clientMessageId, attachments: resumeAttachment ? [resumeAttachment] : undefined });
       await this.options.repository.markOutreachMessageSent(claimed.id, { provider: "gmail", providerMessageId: sent.gmailMessageId, providerThreadId: sent.gmailThreadId });
-      await this.options.database.query(`UPDATE recruiter_outreach_messages SET send_state='SENT',failure_reason=NULL,send_started_at=NULL,updated_at=NOW() WHERE id=$1`, [claimed.id]);
       return { status: "SENT", messageId: claimed.id, gmailMessageId: sent.gmailMessageId, gmailThreadId: sent.gmailThreadId };
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);

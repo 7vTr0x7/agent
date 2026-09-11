@@ -67,7 +67,7 @@ describe("ProactiveRecruiterTaskHandler", () => {
     expect(sendDispatcher.enqueue).not.toHaveBeenCalled();
   });
 
-  it("uses a current verified public contact for proactive outreach without a job", async () => {
+  it("uses a current contact only when mailbox-level verification evidence is present", async () => {
     const discovery = { discover: jest.fn().mockResolvedValue([{
       recruiterName: "Jane Doe", recruiterRole: "Technical Recruiter", employer: "Acme", employerDomain: "acme.example",
       targetRoles: ["frontend engineer"], roleMatchScore: 90, hiringEvidenceScore: 90, overallConfidence: 95,
@@ -81,7 +81,17 @@ describe("ProactiveRecruiterTaskHandler", () => {
     };
     const sendDispatcher = { enqueue: jest.fn().mockResolvedValue("task-1") };
     const handler = new ProactiveRecruiterTaskHandler(discovery as never, repository as never, sendDispatcher as never,
-      { enabled: true, sendEnabled: true, maxCandidatesPerRun: 10, requireVerifiedEmail: true, verifyEmail: async () => ({ status: "VERIFIED", confidence: 100 }) }, { info: jest.fn(), error: jest.fn() });
+      {
+        enabled: true,
+        sendEnabled: true,
+        maxCandidatesPerRun: 10,
+        requireVerifiedEmail: true,
+        verifyEmail: async () => ({
+          status: "mailbox_verified",
+          confidence: 100,
+          verificationEvidence: [{ provider: "snov", status: "valid", mailboxLevel: true, source: "snov" }]
+        })
+      }, { info: jest.fn(), error: jest.fn() });
 
     await handler.handleDiscovery({ candidateProfileId: "candidate-1", yearsExperience: 3, skills: ["React", "Next.js"], targetRoles: ["Frontend Engineer"], maxCandidates: 10 });
 

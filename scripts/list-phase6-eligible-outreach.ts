@@ -1,14 +1,12 @@
 import "dotenv/config";
 import { loadConfig } from "../src/config/env";
 import { Database } from "../src/database/Database";
-import { MigrationRunner } from "../src/database/MigrationRunner";
 import { recruiterRealSendEligibilitySql } from "../src/recruiters/RecruiterMailboxVerification";
 
 async function main(): Promise<void> {
   const config = loadConfig();
   const database = new Database(config.databaseUrl);
   try {
-    await new MigrationRunner(database).run();
     const eligibility = recruiterRealSendEligibilitySql("c");
     const result = await database.query(`SELECT m.id AS message_id,m.recipient_email,m.subject,m.status,m.send_state,
              s.id AS sequence_id,s.status AS sequence_status,s.job_opportunity_id,s.candidate_profile_id,

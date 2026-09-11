@@ -1,4 +1,5 @@
 import { ProactiveRecruiterRoleMatcher, CandidateProfileLike } from "./ProactiveRecruiterRoleMatcher";
+import { RecruiterVerificationEvidence } from "./RecruiterDiscovery";
 
 export interface ProactiveRecruiterDiscoveryCandidate {
   recruiterName: string;
@@ -17,6 +18,7 @@ export interface ProactiveRecruiterDiscoveryCandidate {
   evidenceFreshness: "current" | "recent" | "historical" | "unknown";
   email?: string;
   emailStatus: "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID";
+  verificationEvidence?: RecruiterVerificationEvidence[];
 }
 
 export interface ProactiveRecruiterDiscoveryOptions {

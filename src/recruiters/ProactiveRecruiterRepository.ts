@@ -1,119 +1,78 @@
 import { Database } from "../database/Database";
 import { ProactiveRecruiterDiscoveryCandidate } from "./ProactiveRecruiterDiscoveryService";
+import { hasExplicitMailboxEvidence, isMailboxVerifiedForRealSend, recruiterRealSendEligibilitySql } from "./RecruiterMailboxVerification";
 
-export interface ProactiveCampaignRecord {
-  sequenceId: string;
-  messageId: string;
-}
-
+export interface ProactiveCampaignRecord { sequenceId: string; messageId: string; }
 export class ProactiveRecruiterRepository {
   constructor(private readonly database: Database) {}
-
   async persistCandidate(candidateProfileId: string, candidate: ProactiveRecruiterDiscoveryCandidate): Promise<string | null> {
     if (!candidate.email || !candidate.employerDomain || candidate.employer === "Unknown employer") return null;
     const domain = normalizeDomain(candidate.employerDomain);
-    const mxStatus = candidate.emailStatus === "LIKELY" || candidate.emailStatus === "VERIFIED" ? "EXISTS" : candidate.emailStatus === "INVALID" ? "MISSING" : "UNKNOWN";
-    const mailboxEvidence = candidate.emailStatus === "VERIFIED";
+    const email = candidate.email.trim().toLowerCase();
+    const relevanceStatus = candidate.evidenceFreshness === "current" ? "CURRENT" : candidate.evidenceFreshness === "recent" ? "RECENT" : candidate.evidenceFreshness === "historical" ? "HISTORICAL" : "UNKNOWN";
+    const verificationEvidence = candidate.verificationEvidence ?? [];
+    const explicitMailboxEvidence = hasExplicitMailboxEvidence(verificationEvidence);
+    const mailboxEvidence = explicitMailboxEvidence && isMailboxVerifiedForRealSend({ verified: candidate.emailStatus === "VERIFIED", mailboxEvidence: true, verificationEvidence, emailStatus: candidate.emailStatus, verificationStatus: "mailbox_verified", relevanceStatus, suppressed: false }) && email.split("@")[1]?.toLowerCase() === domain;
+    const persistedEmailStatus = mailboxEvidence ? "VERIFIED" : candidate.emailStatus === "LIKELY" ? "LIKELY" : candidate.emailStatus === "INVALID" ? "INVALID" : "UNVERIFIED";
+    const mxStatus = persistedEmailStatus === "LIKELY" || persistedEmailStatus === "VERIFIED" ? "EXISTS" : persistedEmailStatus === "INVALID" ? "MISSING" : "UNKNOWN";
+    const verificationStatus = mailboxEvidence ? "mailbox_verified" : persistedEmailStatus === "LIKELY" ? "domain_mx_verified" : persistedEmailStatus === "INVALID" ? "INVALID" : "public-web-unverified";
+    const verified = mailboxEvidence;
     const result = await this.database.query<{ id: string }>(
-      `INSERT INTO recruiter_contacts (
-        company_name, company_domain, email, full_name, title, confidence, verified,
-        verification_status, provider, discovery_source, email_status, domain_status, mx_status,
-        mailbox_evidence, verification_evidence, last_seen_at, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'proactive-public-web',$9,$10,$11,$12,$13,$14,NOW(),NOW())
-      ON CONFLICT (company_domain,email) DO UPDATE SET
-        company_name=EXCLUDED.company_name,
-        full_name=COALESCE(EXCLUDED.full_name,recruiter_contacts.full_name),
-        title=COALESCE(EXCLUDED.title,recruiter_contacts.title),
-        confidence=GREATEST(COALESCE(recruiter_contacts.confidence,0),COALESCE(EXCLUDED.confidence,0)),
-        verified=recruiter_contacts.verified OR EXCLUDED.verified,
-        verification_status=EXCLUDED.verification_status,
-        discovery_source=EXCLUDED.discovery_source,
-        email_status=EXCLUDED.email_status,
-        domain_status=EXCLUDED.domain_status,
-        mx_status=EXCLUDED.mx_status,
-        mailbox_evidence=recruiter_contacts.mailbox_evidence OR EXCLUDED.mailbox_evidence,
-        verification_evidence=EXCLUDED.verification_evidence,
-        last_seen_at=NOW(),updated_at=NOW()
-      RETURNING id`,
-      [candidate.employer, domain, candidate.email.toLowerCase(), candidate.recruiterName, candidate.recruiterRole,
-        Math.round(candidate.overallConfidence), mailboxEvidence, mailboxEvidence ? "mailbox_verified" : "public-web-unverified", candidate.discoverySource,
-        candidate.emailStatus, "VALID", mxStatus, mailboxEvidence, JSON.stringify(candidate.discoveryEvidence)]
+      `INSERT INTO recruiter_contacts (company_name, company_domain, email, full_name, title, confidence, verified, verification_status, provider, discovery_source, email_status, domain_status, mx_status, mailbox_evidence, verification_evidence, relevance_status, last_seen_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'proactive-public-web',$9,$10,$11,$12,$13,$14,$15,NOW(),NOW())
+       ON CONFLICT (company_domain,email) DO UPDATE SET
+         company_name=EXCLUDED.company_name,
+         full_name=COALESCE(EXCLUDED.full_name,recruiter_contacts.full_name),
+         title=COALESCE(EXCLUDED.title,recruiter_contacts.title),
+         confidence=GREATEST(COALESCE(recruiter_contacts.confidence,0),COALESCE(EXCLUDED.confidence,0)),
+         verified=CASE WHEN recruiter_contacts.verified=TRUE AND recruiter_contacts.mailbox_evidence=TRUE AND UPPER(COALESCE(recruiter_contacts.email_status,''))='VERIFIED' AND LOWER(COALESCE(recruiter_contacts.verification_status,''))='mailbox_verified' AND jsonb_typeof(COALESCE(recruiter_contacts.verification_evidence,'[]'::jsonb))='array' AND EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(recruiter_contacts.verification_evidence,'[]'::jsonb)) AS evidence(item) WHERE COALESCE(evidence.item->>'mailboxLevel','false')='true' AND NULLIF(BTRIM(evidence.item->>'provider'),'') IS NOT NULL AND NULLIF(BTRIM(evidence.item->>'status'),'') IS NOT NULL) THEN TRUE ELSE EXCLUDED.verified END,
+         verification_status=CASE WHEN recruiter_contacts.verified=TRUE AND recruiter_contacts.mailbox_evidence=TRUE AND UPPER(COALESCE(recruiter_contacts.email_status,''))='VERIFIED' AND LOWER(COALESCE(recruiter_contacts.verification_status,''))='mailbox_verified' AND jsonb_typeof(COALESCE(recruiter_contacts.verification_evidence,'[]'::jsonb))='array' AND EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(recruiter_contacts.verification_evidence,'[]'::jsonb)) AS evidence(item) WHERE COALESCE(evidence.item->>'mailboxLevel','false')='true' AND NULLIF(BTRIM(evidence.item->>'provider'),'') IS NOT NULL AND NULLIF(BTRIM(evidence.item->>'status'),'') IS NOT NULL) THEN 'mailbox_verified' ELSE EXCLUDED.verification_status END,
+         discovery_source=EXCLUDED.discovery_source,
+         email_status=CASE WHEN recruiter_contacts.verified=TRUE AND recruiter_contacts.mailbox_evidence=TRUE AND UPPER(COALESCE(recruiter_contacts.email_status,''))='VERIFIED' AND LOWER(COALESCE(recruiter_contacts.verification_status,''))='mailbox_verified' AND jsonb_typeof(COALESCE(recruiter_contacts.verification_evidence,'[]'::jsonb))='array' AND EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(recruiter_contacts.verification_evidence,'[]'::jsonb)) AS evidence(item) WHERE COALESCE(evidence.item->>'mailboxLevel','false')='true' AND NULLIF(BTRIM(evidence.item->>'provider'),'') IS NOT NULL AND NULLIF(BTRIM(evidence.item->>'status'),'') IS NOT NULL) THEN 'VERIFIED' ELSE EXCLUDED.email_status END,
+         domain_status=EXCLUDED.domain_status,
+         mx_status=EXCLUDED.mx_status,
+         mailbox_evidence=CASE WHEN recruiter_contacts.verified=TRUE AND recruiter_contacts.mailbox_evidence=TRUE AND UPPER(COALESCE(recruiter_contacts.email_status,''))='VERIFIED' AND LOWER(COALESCE(recruiter_contacts.verification_status,''))='mailbox_verified' AND jsonb_typeof(COALESCE(recruiter_contacts.verification_evidence,'[]'::jsonb))='array' AND EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(recruiter_contacts.verification_evidence,'[]'::jsonb)) AS evidence(item) WHERE COALESCE(evidence.item->>'mailboxLevel','false')='true' AND NULLIF(BTRIM(evidence.item->>'provider'),'') IS NOT NULL AND NULLIF(BTRIM(evidence.item->>'status'),'') IS NOT NULL) THEN TRUE ELSE EXCLUDED.mailbox_evidence END,
+         verification_evidence=CASE WHEN recruiter_contacts.verified=TRUE AND recruiter_contacts.mailbox_evidence=TRUE AND UPPER(COALESCE(recruiter_contacts.email_status,''))='VERIFIED' AND LOWER(COALESCE(recruiter_contacts.verification_status,''))='mailbox_verified' AND jsonb_typeof(COALESCE(recruiter_contacts.verification_evidence,'[]'::jsonb))='array' AND EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(recruiter_contacts.verification_evidence,'[]'::jsonb)) AS evidence(item) WHERE COALESCE(evidence.item->>'mailboxLevel','false')='true' AND NULLIF(BTRIM(evidence.item->>'provider'),'') IS NOT NULL AND NULLIF(BTRIM(evidence.item->>'status'),'') IS NOT NULL) THEN recruiter_contacts.verification_evidence WHEN EXCLUDED.verification_evidence='[]'::jsonb THEN recruiter_contacts.verification_evidence ELSE EXCLUDED.verification_evidence END,
+         relevance_status=EXCLUDED.relevance_status,
+         last_seen_at=NOW(),updated_at=NOW()
+       RETURNING id`,
+      [candidate.employer, domain, email, candidate.recruiterName, candidate.recruiterRole, Math.round(candidate.overallConfidence), verified, verificationStatus, candidate.discoverySource, persistedEmailStatus, "VALID", mxStatus, mailboxEvidence, JSON.stringify(verificationEvidence), relevanceStatus]
     );
     const id = result.rows[0]?.id;
     if (!id) return null;
-
     await this.database.query(
-      `INSERT INTO recruiter_proactive_evidence (
-        recruiter_contact_id,candidate_profile_id,target_roles,role_match_score,hiring_evidence_score,
-        overall_confidence,evidence_type,evidence_freshness,evidence_date,discovery_source,discovery_url,discovery_evidence
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-      ON CONFLICT (recruiter_contact_id,candidate_profile_id,discovery_url) DO UPDATE SET
-        target_roles=EXCLUDED.target_roles,role_match_score=GREATEST(recruiter_proactive_evidence.role_match_score,EXCLUDED.role_match_score),
-        hiring_evidence_score=GREATEST(recruiter_proactive_evidence.hiring_evidence_score,EXCLUDED.hiring_evidence_score),
-        overall_confidence=GREATEST(recruiter_proactive_evidence.overall_confidence,EXCLUDED.overall_confidence),
-        evidence_freshness=EXCLUDED.evidence_freshness,evidence_date=EXCLUDED.evidence_date,
-        discovery_evidence=EXCLUDED.discovery_evidence,updated_at=NOW()`,
-      [id, candidateProfileId, JSON.stringify(candidate.targetRoles), Math.round(candidate.roleMatchScore), Math.round(candidate.hiringEvidenceScore),
-        Math.round(candidate.overallConfidence), candidate.evidenceType, candidate.evidenceFreshness, new Date(candidate.evidenceDate),
-        candidate.discoverySource, candidate.discoveryUrl, JSON.stringify(candidate.discoveryEvidence)]
+      `INSERT INTO recruiter_proactive_evidence (recruiter_contact_id,candidate_profile_id,target_roles,role_match_score,hiring_evidence_score,overall_confidence,evidence_type,evidence_freshness,evidence_date,discovery_source,discovery_url,discovery_evidence)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       ON CONFLICT (recruiter_contact_id,candidate_profile_id,discovery_url) DO UPDATE SET
+         target_roles=EXCLUDED.target_roles,role_match_score=GREATEST(recruiter_proactive_evidence.role_match_score,EXCLUDED.role_match_score),
+         hiring_evidence_score=GREATEST(recruiter_proactive_evidence.hiring_evidence_score,EXCLUDED.hiring_evidence_score),
+         overall_confidence=GREATEST(recruiter_proactive_evidence.overall_confidence,EXCLUDED.overall_confidence),
+         evidence_freshness=EXCLUDED.evidence_freshness,evidence_date=EXCLUDED.evidence_date,
+         discovery_evidence=EXCLUDED.discovery_evidence,updated_at=NOW()`,
+      [id, candidateProfileId, JSON.stringify(candidate.targetRoles), Math.round(candidate.roleMatchScore), Math.round(candidate.hiringEvidenceScore), Math.round(candidate.overallConfidence), candidate.evidenceType, candidate.evidenceFreshness, new Date(candidate.evidenceDate), candidate.discoverySource, candidate.discoveryUrl, JSON.stringify(candidate.discoveryEvidence)]
     );
     return id;
   }
-
-  async createProactiveCampaign(input: {
-    recruiterContactId: string;
-    candidateProfileId: string;
-    targetRoles: string[];
-    subject: string;
-    body: string;
-  }): Promise<ProactiveCampaignRecord | null> {
-    const suppressed = await this.database.query<{ email_suppressed: boolean; domain_suppressed: boolean; contact_suppressed: boolean }>(
-      `SELECT c.suppressed AS contact_suppressed,
-              EXISTS (SELECT 1 FROM recruiter_suppressions s WHERE LOWER(s.email)=LOWER(c.email)) AS email_suppressed,
-              EXISTS (SELECT 1 FROM recruiter_suppressions s WHERE LOWER(s.company_domain)=LOWER(c.company_domain)) AS domain_suppressed
-       FROM recruiter_contacts c WHERE c.id=$1`,
-      [input.recruiterContactId]
-    );
-    if (suppressed.rows[0]?.contact_suppressed || suppressed.rows[0]?.email_suppressed || suppressed.rows[0]?.domain_suppressed) return null;
-
-    const existingContact = await this.database.query<{ email: string }>(
-      `SELECT email FROM recruiter_contacts WHERE id=$1`, [input.recruiterContactId]
-    );
+  async createProactiveCampaign(input: { recruiterContactId: string; candidateProfileId: string; targetRoles: string[]; subject: string; body: string; }): Promise<ProactiveCampaignRecord | null> {
+    const eligible = await this.database.query<{ id: string }>(`SELECT c.id FROM recruiter_contacts c WHERE c.id=$1 AND ${recruiterRealSendEligibilitySql("c")}`, [input.recruiterContactId]);
+    if (!eligible.rows[0]) return null;
+    const existingContact = await this.database.query<{ email: string }>(`SELECT email FROM recruiter_contacts WHERE id=$1`, [input.recruiterContactId]);
     const email = existingContact.rows[0]?.email;
     if (!email) return null;
-
-    const priorContact = await this.database.query<{ exists: boolean }>(
-      `SELECT EXISTS (
-        SELECT 1 FROM recruiter_outreach_messages m
-        JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id
-        WHERE s.candidate_profile_id=$1 AND LOWER(m.recipient_email)=LOWER($2)
-          AND m.status IN ('PREPARED','SENDING','SENT')
-      ) AS exists`,
-      [input.candidateProfileId, email]
-    );
+    const priorContact = await this.database.query<{ exists: boolean }>(`SELECT EXISTS (SELECT 1 FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id WHERE s.candidate_profile_id=$1 AND LOWER(m.recipient_email)=LOWER($2) AND m.status IN ('PREPARED','SENDING','SENT')) AS exists`, [input.candidateProfileId, email]);
     if (priorContact.rows[0]?.exists) return null;
-
-    const sequence = await this.database.query<{ id: string }>(
-      `INSERT INTO recruiter_outreach_sequences (
-        recruiter_contact_id,job_opportunity_id,application_id,candidate_profile_id,status,campaign_type,target_roles
-      ) VALUES ($1,NULL,NULL,$2,'READY','PROACTIVE_RECRUITER',$3)
-      ON CONFLICT DO NOTHING RETURNING id`,
-      [input.recruiterContactId, input.candidateProfileId, JSON.stringify(input.targetRoles)]
-    );
+    const sequence = await this.database.query<{ id: string }>(`INSERT INTO recruiter_outreach_sequences (recruiter_contact_id,job_opportunity_id,application_id,candidate_profile_id,status,campaign_type,target_roles)
+      SELECT $1,NULL,NULL,$2,'READY','PROACTIVE_RECRUITER',$3
+      WHERE EXISTS (SELECT 1 FROM recruiter_contacts c WHERE c.id=$1 AND ${recruiterRealSendEligibilitySql("c")})
+      ON CONFLICT DO NOTHING RETURNING id`, [input.recruiterContactId, input.candidateProfileId, JSON.stringify(input.targetRoles)]);
     const sequenceId = sequence.rows[0]?.id;
     if (!sequenceId) return null;
-
-    const message = await this.database.query<{ id: string }>(
-      `INSERT INTO recruiter_outreach_messages (sequence_id,message_type,sequence_step,recipient_email,subject,body,status)
-       VALUES ($1,'INITIAL',0,$2,$3,$4,'PREPARED') RETURNING id`,
-      [sequenceId, email, input.subject, input.body]
-    );
+    const message = await this.database.query<{ id: string }>(`INSERT INTO recruiter_outreach_messages (sequence_id,message_type,sequence_step,recipient_email,subject,body,status)
+      SELECT $1,'INITIAL',0,c.email,$2,$3,'PREPARED' FROM recruiter_contacts c
+      WHERE c.id=$4 AND ${recruiterRealSendEligibilitySql("c")} RETURNING id`, [sequenceId, input.subject, input.body, input.recruiterContactId]);
     const messageId = message.rows[0]?.id;
     if (!messageId) return null;
     return { sequenceId, messageId };
   }
 }
-
-function normalizeDomain(value: string): string {
-  return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? value.trim().toLowerCase();
-}
+function normalizeDomain(value: string): string { return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? value.trim().toLowerCase(); }
