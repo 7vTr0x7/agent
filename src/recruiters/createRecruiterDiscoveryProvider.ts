@@ -1,6 +1,7 @@
 import { JobPostingRecruiterDiscoveryProvider } from "./JobPostingRecruiterDiscoveryProvider";
 import { PublicRecruiterSearchProvider } from "./PublicRecruiterSearchProvider";
 import { PublicRecruiterIdentitySearchProvider } from "./PublicRecruiterIdentitySearchProvider";
+import { SnovRecruiterDiscoveryProvider } from "./SnovRecruiterDiscoveryProvider";
 import {
   RecruiterContactCandidate,
   RecruiterDiscoveryContact,
@@ -11,13 +12,13 @@ import {
   RecruiterVerificationResult
 } from "./RecruiterDiscovery";
 
-export type RecruiterDiscoveryProviderId = "public-web";
+export type RecruiterDiscoveryProviderId = "public-web" | "snov";
 
 export interface RecruiterDiscoveryProviderConfig {
   provider: RecruiterDiscoveryProviderId;
   /** @deprecated Kept only for backwards-compatible callers; public-web never uses it. */
   hunterApiKey?: string;
-  /** @deprecated Kept only for backwards-compatible callers; public-web never uses them. */
+  /** Snov credentials are required only when provider=snov. */
   snovClientId?: string;
   snovClientSecret?: string;
 }
@@ -55,7 +56,7 @@ function mergeContacts(contacts: RecruiterDiscoveryContact[]): RecruiterDiscover
       confidence: Math.max(existing.confidence ?? 0, contact.confidence ?? 0),
       verified: existing.verified || contact.verified,
       verificationStatus: existing.verified ? existing.verificationStatus : contact.verificationStatus ?? existing.verificationStatus,
-      provider: "public-web",
+      provider: existing.provider,
       linkedinProfileUrl: existing.linkedinProfileUrl ?? contact.linkedinProfileUrl,
       companyDomain: existing.companyDomain ?? contact.companyDomain,
       recruitingContext: existing.recruitingContext ?? contact.recruitingContext,
@@ -63,7 +64,7 @@ function mergeContacts(contacts: RecruiterDiscoveryContact[]): RecruiterDiscover
       discoveredAt: existing.discoveredAt ?? contact.discoveredAt,
       sources: [...existing.sources, ...(contact.sources ?? [])]
     };
-    byIdentity.set(key, hasEmail(merged) ? merged : merged);
+    byIdentity.set(key, merged);
   }
   return [...byIdentity.values()];
 }
@@ -128,6 +129,15 @@ class LayeredPublicRecruiterDiscoveryProvider implements RecruiterDiscoveryProvi
   }
 }
 
-export function createRecruiterDiscoveryProvider(_config: RecruiterDiscoveryProviderConfig): RecruiterDiscoveryProvider {
+export function createRecruiterDiscoveryProvider(config: RecruiterDiscoveryProviderConfig): RecruiterDiscoveryProvider {
+  if (config.provider === "snov") {
+    if (!config.snovClientId?.trim() || !config.snovClientSecret?.trim()) {
+      throw new Error("Snov recruiter discovery requires SNOV_CLIENT_ID and SNOV_CLIENT_SECRET.");
+    }
+    return new SnovRecruiterDiscoveryProvider({
+      clientId: config.snovClientId,
+      clientSecret: config.snovClientSecret
+    });
+  }
   return new LayeredPublicRecruiterDiscoveryProvider();
 }
