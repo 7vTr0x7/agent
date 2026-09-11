@@ -46,7 +46,13 @@ function identityRepository(initial = stored()): RecruiterIdentityRepository & {
     upsertIdentity: jest.fn(async () => state),
     addSources: jest.fn().mockResolvedValue(undefined),
     markEmailDiscovery: jest.fn(async (_id: string, status: StoredRecruiterIdentity["emailDiscoveryStatus"]) => { state.emailDiscoveryStatus = status; }),
-    enrichEmail: jest.fn(async (_id: string, email: string, verified: boolean, verificationStatus?: string, confidence?: number) => {
+    enrichEmail: jest.fn(async (_id: string, email: string, verified: boolean, verificationStatus?: string, confidence?: number, _verificationEvidence?: Array<{
+      provider: string;
+      status: string;
+      confidence?: number;
+      mailboxLevel?: boolean;
+      source?: string;
+    }>) => {
       state.email = email;
       state.verified = verified;
       state.verificationStatus = verificationStatus;
@@ -121,7 +127,14 @@ describe("recruiter identity/email pipeline", () => {
 
     const result = await service.discoverAndPersist(input, 5);
 
-    expect(identities.enrichEmail).toHaveBeenCalledWith("recruiter-1", "jane@acme.com", true, "VERIFIED", 96);
+    expect(identities.enrichEmail).toHaveBeenCalledWith(
+      "recruiter-1",
+      "jane@acme.com",
+      true,
+      "VERIFIED",
+      96,
+      [{ provider: "public-web", status: "VERIFIED", confidence: 96, mailboxLevel: false, source: "public_search_result" }]
+    );
     expect(result.metrics.emailDiscovery.found).toBe(1);
     expect(result.contacts).toHaveLength(1);
     expect(result.contacts[0]?.email).toBe("jane@acme.com");
@@ -152,7 +165,14 @@ describe("recruiter identity/email pipeline", () => {
 
     const result = await service.discoverAndPersist(input, 5);
 
-    expect(identities.enrichEmail).toHaveBeenCalledWith("recruiter-1", "jane@acme.com", false, "domain_mx_verified", 96);
+    expect(identities.enrichEmail).toHaveBeenCalledWith(
+      "recruiter-1",
+      "jane@acme.com",
+      false,
+      "domain_mx_verified",
+      96,
+      []
+    );
     expect(identities.markEmailDiscovery).not.toHaveBeenCalledWith("recruiter-1", "INVALID");
     expect(result.metrics.emailDiscovery.found).toBe(1);
     expect(result.contacts).toHaveLength(1);
