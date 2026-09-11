@@ -45,6 +45,10 @@ function deriveEmailStatus(candidate: RecruiterIdentityCandidate): RecruiterEmai
   return candidate.verified ? "VERIFIED" : "UNVERIFIED";
 }
 
+function hasMailboxVerification(candidate: RecruiterIdentityCandidate): boolean {
+  return candidate.verified && (candidate.verificationStatus === "VERIFIED" || candidate.verificationStatus === "mailbox_verified");
+}
+
 export class RecruiterIdentityRepository {
   constructor(private readonly database: Database) {}
 
@@ -59,6 +63,7 @@ export class RecruiterIdentityRepository {
         ? `email:${email}`
         : `name:${normalize(fullName ?? "")}|title:${normalize(candidate.title ?? "")}`;
     const emailStatus = deriveEmailStatus(candidate);
+    const verified = hasMailboxVerification(candidate);
     const domainStatus: RecruiterDomainStatus = email && !email.endsWith(`@${domain}`) ? "INVALID" : "VALID";
     const mxStatus: RecruiterMxStatus = emailStatus === "LIKELY" || emailStatus === "VERIFIED" ? "EXISTS" : "UNKNOWN";
     const evidence = JSON.stringify([
@@ -76,9 +81,9 @@ export class RecruiterIdentityRepository {
       [
         companyName.trim(), domain, email, fullName, candidate.title ?? null, candidate.department ?? null,
         candidate.seniority ?? null, candidate.country ?? null, candidate.location ?? null,
-        candidate.confidence ?? null, candidate.verified, candidate.verificationStatus ?? null,
+        candidate.confidence ?? null, verified, candidate.verificationStatus ?? null,
         candidate.provider, profileUrl, identityKey, email ? "FOUND" : "PENDING", emailStatus,
-        domainStatus, mxStatus, emailStatus === "VERIFIED" && candidate.verified, evidence, candidate.provider
+        domainStatus, mxStatus, verified, evidence, candidate.provider
       ]
     );
 
@@ -131,9 +136,9 @@ export class RecruiterIdentityRepository {
          RETURNING id,company_name,company_domain,email,full_name,title,department,seniority,country,location,confidence,verified,verification_status,provider,linkedin_profile_url,email_discovery_status,email_status,domain_status,mx_status,mailbox_evidence,verification_evidence,discovery_source,suppressed,suppression_reason,last_contacted_at,email_discovery_attempted_at,updated_at`,
         [id, companyName.trim(), email, fullName, candidate.title ?? null, candidate.department ?? null,
           candidate.seniority ?? null, candidate.country ?? null, candidate.location ?? null,
-          candidate.confidence ?? null, candidate.verified, candidate.verificationStatus ?? null,
+          candidate.confidence ?? null, verified, candidate.verificationStatus ?? null,
           candidate.provider, profileUrl, identityKey, emailStatus, domainStatus,
-          emailStatus === "VERIFIED" && candidate.verified, evidence]
+          verified, evidence]
       )).rows[0];
     }
 
