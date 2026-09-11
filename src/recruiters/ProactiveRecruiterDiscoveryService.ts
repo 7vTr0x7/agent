@@ -139,8 +139,16 @@ export class ProactiveRecruiterDiscoveryService {
 }
 
 function extractRecruiterName(evidence: string): string {
-  const match = evidence.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z'-]+){1,3})\s*(?:-|\||•|:)\s*(?:technical|it|technology|software|engineering|talent|recruiting|recruiter|sourcer|hiring)/i);
-  return match?.[1]?.trim() ?? "Unknown recruiter";
+  const roleTerms = "technical|it|technology|software|engineering|talent|recruiting|recruiter|sourcer|hiring";
+  const delimited = evidence.match(new RegExp(`\\b([A-Z][a-z]+(?:\\s+[A-Z][a-z'-]+){1,3})\\s*(?:-|\\||•|:)\\s*(?:${roleTerms})\\b`, "i"));
+  if (delimited?.[1]) return delimited[1].trim();
+  const adjacent = evidence.match(new RegExp(`\\b([A-Z][a-z]+(?:\\s+[A-Z][a-z'-]+)?)\\s+(?:${roleTerms})\\b`, "i"));
+  if (adjacent?.[1]) return adjacent[1].trim();
+  if (new RegExp(`\\b(?:${roleTerms})\\b`, "i").test(evidence)) {
+    const capitalizedWords = evidence.match(/\b[A-Z][a-z'-]+\b/g) ?? [];
+    if (capitalizedWords.length >= 2) return capitalizedWords.slice(0, 2).join(" ");
+  }
+  return "Unknown recruiter";
 }
 
 function classifyEvidenceFreshness(evidence: string, now: Date): "current" | "recent" | "historical" | "unknown" {
