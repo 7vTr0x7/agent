@@ -3,6 +3,11 @@ import { RecruiterDiscoveryInput, RecruiterIdentityCandidate } from "./Recruiter
 const RECRUITING_CONTEXT = /(recruiter|recruiting|talent acquisition|talent partner|talent acquisition partner|technical recruiter|engineering recruiter|hiring manager|human resources|\bhr\b|careers?|staffing|hiring|campus recruiter|campus hiring|people operations|people ops|recruitment|people partner)/i;
 const NON_RECRUITING_CONTEXT = /(customer support|technical support|sales|billing|privacy|legal|security|press|media|partnerships?|helpdesk|help desk|procurement|accounting|finance|account executive|customer success|marketing|operations)/i;
 const LINKEDIN_PROFILE_PATTERN = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
+const GENERIC_IDENTITY_WORDS = new Set([
+  "linkedin", "profile", "recruiter", "recruiting", "talent", "acquisition", "hiring", "manager", "technical",
+  "engineering", "software", "technology", "people", "human", "resources", "careers", "career", "jobs", "job",
+  "search", "results", "professional", "india", "bengaluru", "bangalore", "remote"
+]);
 const CONCURRENCY = 4;
 
 function normalizeDomain(value: string): string {
@@ -68,6 +73,14 @@ function queries(input: RecruiterDiscoveryInput): string[] {
   ];
 }
 
+function plausibleFullName(value: string | undefined): boolean {
+  if (!value) return false;
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2 || words.length > 5) return false;
+  if (words.some((word) => GENERIC_IDENTITY_WORDS.has(word.toLowerCase()))) return false;
+  return words.every((word) => /^[A-Z][A-Za-z.'-]+$/.test(word));
+}
+
 function parseProfiles(raw: string): RecruiterIdentityCandidate[] {
   const text = stripHtml(raw);
   const profiles = new Map<string, RecruiterIdentityCandidate>();
@@ -76,10 +89,9 @@ function parseProfiles(raw: string): RecruiterIdentityCandidate[] {
     const index = match.index ?? 0;
     const snippet = text.slice(Math.max(0, index - 220), Math.min(text.length, index + 360));
     if (NON_RECRUITING_CONTEXT.test(snippet) || !RECRUITING_CONTEXT.test(snippet)) continue;
-    const path = (() => { try { return new URL(url).pathname.split("/").filter(Boolean).pop() ?? ""; } catch { return ""; } })();
-    if (!path) continue;
     const titleMatch = snippet.match(/([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|\||:)\s*([^|.]{3,100})/);
-    const fullName = titleMatch?.[1]?.trim() || path.replace(/[-_]+/g, " ");
+    const fullName = titleMatch?.[1]?.trim();
+    if (!plausibleFullName(fullName)) continue;
     const title = titleMatch?.[2]?.trim();
     const evidence = [snippet].filter(Boolean);
     const existing = profiles.get(url);
