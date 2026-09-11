@@ -1,4 +1,4 @@
-import { PersistentRecruiterDiscoveryService } from "./PersistentRecruiterDiscoveryService";
+import { PersistentRecruiterDiscoveryService, deduplicateRecruiterCandidates } from "./PersistentRecruiterDiscoveryService";
 import { RecruiterDiscoveryProvider, RecruiterDiscoveryInput, RecruiterIdentityCandidate } from "./RecruiterDiscovery";
 import { RecruiterIdentityRepository, StoredRecruiterIdentity } from "./RecruiterIdentityRepository";
 import { RecruiterDiscoveryRepository } from "./RecruiterDiscoveryRepository";
@@ -29,14 +29,6 @@ function stored(overrides: Partial<StoredRecruiterIdentity> = {}): StoredRecruit
     emailDiscoveryStatus: "PENDING",
     ...overrides
   };
-}
-
-function baseRepository(): RecruiterDiscoveryRepository {
-  return {
-    hasRecentDiscovery: jest.fn().mockResolvedValue(false),
-    startDiscoveryRun: jest.fn().mockResolvedValue({ id: "run-1", status: "RUNNING", contactsFound: 0 }),
-    finishDiscoveryRun: jest.fn().mockResolvedValue(undefined)
-  } as unknown as RecruiterDiscoveryRepository;
 }
 
 function identityRepository(initial = stored()): RecruiterIdentityRepository & { state: StoredRecruiterIdentity } {
@@ -211,4 +203,21 @@ describe("recruiter identity/email pipeline", () => {
     expect(result.metrics.emailDiscovery.invalid).toBe(1);
     expect(result.contacts).toHaveLength(0);
   });
+
+  it("preserves explicit mailbox evidence through recruiter candidate deduplication", () => {
+    const deduplicated = deduplicateRecruiterCandidates([
+      { email: "jane@acme.com", fullName: "Jane Doe", title: "Technical Recruiter", confidence: 90, verified: false, provider: "public-web", sources: [] },
+      { email: "jane@acme.com", fullName: "Jane Doe", title: "Technical Recruiter", confidence: 95, verified: true, verificationStatus: "mailbox_verified", verificationEvidence: [{ provider: "snov", status: "mailbox_verified", mailboxLevel: true, source: "snov_email_verification" }], provider: "snov", sources: [] }
+    ]);
+    expect(deduplicated).toHaveLength(1);
+    expect(deduplicated[0]?.verificationEvidence).toEqual([{ provider: "snov", status: "mailbox_verified", mailboxLevel: true, source: "snov_email_verification" }]);
+  });
+
+  function baseRepository(): RecruiterDiscoveryRepository {
+    return {
+      hasRecentDiscovery: jest.fn().mockResolvedValue(false),
+      startDiscoveryRun: jest.fn().mockResolvedValue({ id: "run-1", status: "RUNNING", contactsFound: 0 }),
+      finishDiscoveryRun: jest.fn().mockResolvedValue(undefined)
+    } as unknown as RecruiterDiscoveryRepository;
+  }
 });
