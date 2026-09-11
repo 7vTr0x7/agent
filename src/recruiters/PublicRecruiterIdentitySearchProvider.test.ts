@@ -9,6 +9,7 @@ describe("PublicRecruiterIdentitySearchProvider", () => {
   });
 
   it("rejects slug-only LinkedIn identities without a plausible full name", async () => {
+    // Synthetic public-search response; no external request is made by this test.
     const html = `
       <a href="https://www.linkedin.com/in/john-doe-12345">john-doe-12345</a>
       Technical Recruiter at Acme Corp
