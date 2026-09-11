@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, phase4/controlled-real-world-activation]
   pull_request:
     branches: [main]
 
