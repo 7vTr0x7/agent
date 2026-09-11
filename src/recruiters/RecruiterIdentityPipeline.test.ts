@@ -155,7 +155,9 @@ describe("recruiter identity/email pipeline", () => {
     expect(identities.enrichEmail).toHaveBeenCalledWith("recruiter-1", "jane@acme.com", false, "domain_mx_verified", 96);
     expect(identities.markEmailDiscovery).not.toHaveBeenCalledWith("recruiter-1", "INVALID");
     expect(result.metrics.emailDiscovery.found).toBe(1);
-    expect(result.contacts).toHaveLength(0);
+    expect(result.contacts).toHaveLength(1);
+    expect(result.contacts[0]?.verified).toBe(false);
+    expect(result.contacts[0]?.verificationStatus).toBe("domain_mx_verified");
     expect(identities.state.verified).toBe(false);
     expect(identities.state.emailStatus).toBe("LIKELY");
   });
