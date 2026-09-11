@@ -50,7 +50,7 @@ function identityRepository(initial = stored()): RecruiterIdentityRepository & {
       state.email = email;
       state.verified = verified;
       state.verificationStatus = verificationStatus;
-      state.emailStatus = verificationStatus === "LIKELY" ? "LIKELY" : verified ? "VERIFIED" : "UNVERIFIED";
+      state.emailStatus = verificationStatus === "LIKELY" || verificationStatus === "domain_mx_verified" || verificationStatus === "domain_mx_verified_doh" ? "LIKELY" : verified ? "VERIFIED" : "UNVERIFIED";
       state.confidence = Math.max(state.confidence ?? 0, confidence ?? 0);
       state.emailDiscoveryStatus = "FOUND";
       return state;
