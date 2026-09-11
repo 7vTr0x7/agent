@@ -70,7 +70,7 @@ jobs:
             -e RECRUITER_MAX_CONTACTS_PER_APPLICATION=3 \
             -e RECRUITER_FOLLOWUP_ENABLED=false \
             -e RECRUITER_GENERIC_EMAIL_FALLBACK=false \
-            -e PHASE5_MATCH_LIMIT=50 \
+            -e PHASE5_MATCH_LIMIT=100 \
             -e PHASE5_RECRUITER_LIMIT=20 \
             -e PHASE5_PREPARATION_LIMIT=20 \
             job-agent:phase5 npm run phase5:controlled-runtime
