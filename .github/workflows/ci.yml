@@ -110,10 +110,36 @@ jobs:
       - name: Verify active Phase 6 database invariants
         shell: bash
         run: |
-          constraint_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_constraint WHERE conrelid='recruiter_contacts'::regclass AND conname IN ('recruiter_contacts_mailbox_verification_check','recruiter_contacts_verified_mailbox_evidence_check','recruiter_contacts_verified_email_status_check','recruiter_contacts_mailbox_verification_evidence_check','recruiter_contacts_mailbox_verification_evidence_quality_check') AND convalidated=true;")"
-          test "${constraint_count//[[:space:]]/}" = "5"
-          migration_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM schema_migrations WHERE filename IN ('030_recruiter_mailbox_verification_invariant.sql','031_recruiter_mailbox_verification_evidence_invariant.sql','032_recruiter_mailbox_evidence_quality_invariant.sql');")"
-          test "${migration_count//[[:space:]]/}" = "3"
+          set -euo pipefail
+
+          echo '=== schema_migrations table definition ==='
+          docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -c "SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='schema_migrations' ORDER BY ordinal_position;"
+
+          migration_columns="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT string_agg(column_name, ',' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_schema='public' AND table_name='schema_migrations';" | tr -d '[:space:]')"
+          test "$migration_columns" = 'id,name,applied_at'
+
+          migration_primary_key="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT string_agg(a.attname, ',' ORDER BY k.ordinality) FROM pg_constraint c JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS k(attnum, ordinality) ON TRUE JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum WHERE c.conrelid='public.schema_migrations'::regclass AND c.contype='p';" | tr -d '[:space:]')"
+          test "$migration_primary_key" = 'id'
+
+          echo '=== applied Phase 6 migrations ==='
+          docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -c "SELECT id,name,applied_at FROM schema_migrations WHERE name IN ('030_recruiter_mailbox_verification_invariant.sql','031_recruiter_mailbox_verification_evidence_invariant.sql','032_recruiter_mailbox_evidence_quality_invariant.sql') ORDER BY name;"
+
+          migration_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM schema_migrations WHERE name IN ('030_recruiter_mailbox_verification_invariant.sql','031_recruiter_mailbox_verification_evidence_invariant.sql','032_recruiter_mailbox_evidence_quality_invariant.sql');" | tr -d '[:space:]')"
+          test "$migration_count" = '3'
+
+          missing_migration_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM (VALUES ('030_recruiter_mailbox_verification_invariant.sql'),('031_recruiter_mailbox_verification_evidence_invariant.sql'),('032_recruiter_mailbox_evidence_quality_invariant.sql')) AS expected(name) LEFT JOIN schema_migrations m ON m.name=expected.name WHERE m.name IS NULL;" | tr -d '[:space:]')"
+          test "$missing_migration_count" = '0'
+
+          echo '=== active Phase 6 recruiter_contacts constraints ==='
+          docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -c "SELECT conname, convalidated, pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='public.recruiter_contacts'::regclass AND conname IN ('recruiter_contacts_mailbox_verification_check','recruiter_contacts_verified_mailbox_evidence_check','recruiter_contacts_verified_email_status_check','recruiter_contacts_mailbox_verification_evidence_check','recruiter_contacts_mailbox_verification_evidence_quality_check') ORDER BY conname;"
+
+          constraint_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_constraint WHERE conrelid='public.recruiter_contacts'::regclass AND conname IN ('recruiter_contacts_mailbox_verification_check','recruiter_contacts_verified_mailbox_evidence_check','recruiter_contacts_verified_email_status_check','recruiter_contacts_mailbox_verification_evidence_check','recruiter_contacts_mailbox_verification_evidence_quality_check') AND convalidated=true;" | tr -d '[:space:]')"
+          test "$constraint_count" = '5'
+
+          missing_constraint_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM (VALUES ('recruiter_contacts_mailbox_verification_check'),('recruiter_contacts_verified_mailbox_evidence_check'),('recruiter_contacts_verified_email_status_check'),('recruiter_contacts_mailbox_verification_evidence_check'),('recruiter_contacts_mailbox_verification_evidence_quality_check')) AS expected(conname) LEFT JOIN pg_constraint c ON c.conrelid='public.recruiter_contacts'::regclass AND c.conname=expected.conname AND c.convalidated=true WHERE c.oid IS NULL;" | tr -d '[:space:]')"
+          test "$missing_constraint_count" = '0'
+
+          echo "Phase 6 schema verification passed: migrations=$migration_count constraints=$constraint_count"
 
       - name: Verify isolated proactive recruiter runtime without a job
         shell: bash
