@@ -14,7 +14,7 @@ describe("SnovRecruiterDiscoveryProvider", () => {
       .mockResolvedValueOnce(response({ data: [{ email: "asha@example.com", smtp_status: "valid" }], status: "completed" }));
     const provider = new SnovRecruiterDiscoveryProvider({ clientId: "id", clientSecret: "secret", fetchImpl, pollDelayMs: 0 });
     const result = await provider.discover({ companyName: "Example", companyDomain: "example.com", jobTitle: "Frontend Engineer", jobDescription: "React", candidateProfileId: "candidate-1" });
-    expect(result.contacts[0]).toMatchObject({ email: "asha@example.com", fullName: "Asha Shah", verified: true, verificationStatus: "mailbox_verified", confidence: 95 });
+    expect(result.contacts[0]).toMatchObject({ email: "asha@example.com", fullName: "Asha Shah", verified: true, verificationStatus: "mailbox_verified", confidence: 95, verificationEvidence: [{ provider: "snov", status: "mailbox_verified", mailboxLevel: true, source: "snov_prospect_email_verification" }] });
     expect(fetchImpl).toHaveBeenCalledTimes(5);
   });
 
