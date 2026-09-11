@@ -45,29 +45,23 @@ const candidate: RecruiterIdentityCandidate = {
 };
 
 describe("RecruiterIdentityRepository", () => {
-  it("casts nullable dedupe parameters so PostgreSQL can infer their types after an insert conflict", async () => {
+  it("uses an atomic typed identity-key upsert instead of an ambiguous nullable-parameter conflict lookup", async () => {
     const row = storedRow();
     const database = {
-      query: jest.fn()
-        .mockResolvedValueOnce({ rows: [row] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ id: "contact-1" }] })
-        .mockResolvedValueOnce({ rows: [row] })
+      query: jest.fn().mockResolvedValue({ rows: [row] })
     };
 
     const repository = new RecruiterIdentityRepository(database as never);
     const first = await repository.upsertIdentity("Example Corp", "example.com", candidate);
-    expect(first.id).toBe("contact-1");
-
     const second = await repository.upsertIdentity("Example Corp", "example.com", candidate);
-    expect(second.id).toBe("contact-1");
 
-    const conflictLookupSql = database.query.mock.calls[2]?.[0] as string;
-    expect(conflictLookupSql).toContain("$2::text IS NOT NULL");
-    expect(conflictLookupSql).toContain("$3::text IS NOT NULL");
-    expect(conflictLookupSql).toContain("$4::text IS NOT NULL");
-    expect(conflictLookupSql).toContain("LOWER($2::text)");
-    expect(conflictLookupSql).toContain("LOWER($3::text)");
-    expect(conflictLookupSql).toContain("LOWER($4::text)");
+    expect(first.id).toBe("contact-1");
+    expect(second.id).toBe("contact-1");
+    expect(database.query).toHaveBeenCalledTimes(2);
+
+    const sql = database.query.mock.calls[0]?.[0] as string;
+    expect(sql).toContain("ON CONFLICT (company_domain, identity_key) DO UPDATE SET");
+    expect(sql).toContain("RETURNING id,company_name,company_domain");
+    expect(sql).not.toContain("IS NOT NULL AND LOWER(linkedin_profile_url)");
   });
 });
