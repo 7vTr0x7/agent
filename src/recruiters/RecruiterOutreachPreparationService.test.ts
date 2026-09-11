@@ -108,6 +108,19 @@ describe("RecruiterOutreachPreparationService", () => {
     expect(result[0]?.message.body).not.toContain("I’ve applied for the role");
   });
 
+  it("allows an unverified public email to become a dry-run draft, while live preparation still requires verification", async () => {
+    const dryRun = repository();
+    const dryRunService = new RecruiterOutreachPreparationService({ repository: dryRun.repo as never, requireVerifiedEmail: true, dryRun: true });
+    const draft = await dryRunService.prepare(input, [contact({ verified: false, verificationStatus: "LIKELY" })]);
+    expect(draft).toHaveLength(1);
+    expect(dryRun.calls.sequences).toBe(1);
+
+    const live = repository();
+    const liveService = new RecruiterOutreachPreparationService({ repository: live.repo as never, requireVerifiedEmail: true, dryRun: false });
+    await expect(liveService.prepare(input, [contact({ verified: false, verificationStatus: "LIKELY" })])).resolves.toEqual([]);
+    expect(live.calls.sequences).toBe(0);
+  });
+
   it("blocks suppressed contacts before creating a sequence", async () => {
     const { repo, calls } = repository({ suppressed: { email: true, domain: false } });
     const service = new RecruiterOutreachPreparationService({ repository: repo as never });
@@ -126,9 +139,9 @@ describe("RecruiterOutreachPreparationService", () => {
     expect(calls.messages).toBe(0);
   });
 
-  it("blocks an unverified contact when verification is required", async () => {
+  it("blocks an unverified contact when live preparation is enabled", async () => {
     const { repo, calls } = repository();
-    const service = new RecruiterOutreachPreparationService({ repository: repo as never, requireVerifiedEmail: true });
+    const service = new RecruiterOutreachPreparationService({ repository: repo as never, requireVerifiedEmail: true, dryRun: false });
 
     await expect(service.prepare(input, [contact({ verified: false })])).resolves.toEqual([]);
     expect(calls.sequences).toBe(0);
