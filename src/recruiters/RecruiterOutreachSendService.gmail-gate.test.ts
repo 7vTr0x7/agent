@@ -32,6 +32,29 @@ describe("RecruiterOutreachSendService Gmail kill switch", () => {
     else process.env.GMAIL_ENABLED = original;
   });
 
+  it("defaults Gmail sending to disabled when the environment variable is absent", async () => {
+    delete process.env.GMAIL_ENABLED;
+    const repo = repository();
+    const mailbox = { sendMessage: jest.fn() };
+    const service = new RecruiterOutreachSendService({
+      repository: repo,
+      mailbox: mailbox as never,
+      dryRun: false,
+      outboundEnabled: true,
+      activation: "canary",
+      maxMessagesPerDay: 1,
+      maxMessagesPerHour: 1
+    });
+
+    await expect(service.send(message, "acme.dev")).resolves.toEqual({
+      status: "SKIPPED",
+      messageId: message.id,
+      reason: "Gmail sending is disabled."
+    });
+    expect(mailbox.sendMessage).not.toHaveBeenCalled();
+    expect(repo.claimPreparedOutreachMessageWithinRateLimits).not.toHaveBeenCalled();
+  });
+
   it("blocks live recruiter delivery when GMAIL_ENABLED=false even if outbound is enabled", async () => {
     process.env.GMAIL_ENABLED = "false";
     const repo = repository();
