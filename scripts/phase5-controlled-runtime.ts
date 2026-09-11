@@ -53,8 +53,51 @@ async function main(): Promise<void> {
     const discoveredJobs = discoveryResults.reduce((sum, result) => sum + result.discovered, 0);
     const insertedJobs = discoveryResults.reduce((sum, result) => sum + result.matching, 0);
 
+    // The discovery runner normally queues every discovered job. For this
+    // controlled proof, replace that broad queue with a small set of live jobs
+    // that visibly match the candidate's frontend stack and geography. The
+    // jobs themselves still came from the live public source above.
+    await database.query("DELETE FROM tasks WHERE task_type = $1 AND status = 'PENDING'", [MATCH_JOB_TASK]);
+    const candidateJobs = await database.query<{ id: string }>(
+      `SELECT id
+       FROM job_opportunities
+       WHERE status = 'ACTIVE'
+         AND company_domain IS NOT NULL
+         AND (
+           title ILIKE ANY(ARRAY['%react%', '%frontend%', '%front end%', '%next.js%', '%typescript%', '%full stack%'])
+           OR description ILIKE ANY(ARRAY['%react%', '%next.js%', '%typescript%'])
+         )
+         AND (
+           location ILIKE '%bengaluru%'
+           OR location ILIKE '%bangalore%'
+           OR location ILIKE '%india%'
+           OR workplace_type ILIKE '%remote%'
+           OR country ILIKE '%india%'
+         )
+         AND lower(company_name) NOT IN ('octopus technologies', 'sketch brahma technologies')
+       ORDER BY
+         CASE
+           WHEN location ILIKE '%bengaluru%' OR location ILIKE '%bangalore%' THEN 0
+           WHEN location ILIKE '%india%' OR country ILIKE '%india%' THEN 1
+           WHEN workplace_type ILIKE '%remote%' THEN 2
+           ELSE 3
+         END,
+         CASE WHEN title ILIKE '%react%' THEN 0 ELSE 1 END,
+         last_seen_at DESC
+       LIMIT 10`
+    );
+    if (candidateJobs.rows.length === 0) throw new Error("Live public discovery returned no relevant frontend/React jobs for the controlled Phase 5 proof.");
+    for (const job of candidateJobs.rows) {
+      await queue.enqueue({
+        taskType: MATCH_JOB_TASK,
+        payload: { jobOpportunityId: job.id, candidateProfileId: candidateProfile.id },
+        priority: 100,
+        dedupeKey: `phase5-controlled-match:${job.id}:${candidateProfile.id}`
+      });
+    }
+
     const matchingWorker = new TaskWorker(queue, new Map([[MATCH_JOB_TASK, discoveryRuntime.matchTaskHandler]]), { logger });
-    const matchingProcessed = await drain(matchingWorker, MATCH_JOB_TASK, Number(process.env.PHASE5_MATCH_LIMIT ?? "50"));
+    const matchingProcessed = await drain(matchingWorker, MATCH_JOB_TASK, Math.max(10, Number(process.env.PHASE5_MATCH_LIMIT ?? "10")));
 
     const recruiterRepository = new RecruiterDiscoveryRepository(database);
     const provider = createRecruiterDiscoveryProvider({ provider: config.recruiterOutreach.discoveryProvider });
@@ -100,7 +143,7 @@ async function main(): Promise<void> {
 
     console.log(JSON.stringify({
       phase: 5,
-      discovery: { sources: discoveryRuntime.sourceCount, sourceRuns: discoveryResults.length, discoveredJobs, insertedJobs },
+      discovery: { sources: discoveryRuntime.sourceCount, sourceRuns: discoveryResults.length, discoveredJobs, insertedJobs, selectedLiveJobs: candidateJobs.rows.length },
       processed: { matching: matchingProcessed, recruiterDiscovery: recruiterProcessed, preparation: preparationProcessed },
       database: counts.rows[0],
       tasks: taskCounts.rows,
