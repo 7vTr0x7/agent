@@ -51,7 +51,7 @@ jobs:
             -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
             -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false \
             -e JOB_DISCOVERY_ENABLED=true \
-            -e 'JOB_SOURCES=[{"id":"remoteok:json","type":"api","name":"remoteok","feedUrl":"https://remoteok.com/api","status":"APPROVED"}]' \
+            -e 'JOB_SOURCES=[{"id":"remoteok:json","type":"api","name":"remoteok","feedUrl":"https://remoteok.com/api","status":"APPROVED"},{"id":"himalayas:json","type":"api","name":"himalayas","feedUrl":"https://himalayas.app/jobs/api?limit=20","status":"APPROVED"},{"id":"jobicy:json","type":"api","name":"jobicy","feedUrl":"https://jobicy.com/api/v2/remote-jobs?count=200","status":"APPROVED"}]' \
             -e CANDIDATE_PROFILE_ID=phase5-runtime-candidate \
             -e CANDIDATE_YEARS_EXPERIENCE=3 \
             -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,HTML,CSS,Tailwind,Bootstrap' \
@@ -70,9 +70,9 @@ jobs:
             -e RECRUITER_MAX_CONTACTS_PER_APPLICATION=3 \
             -e RECRUITER_FOLLOWUP_ENABLED=false \
             -e RECRUITER_GENERIC_EMAIL_FALLBACK=false \
-            -e PHASE5_MATCH_LIMIT=100 \
-            -e PHASE5_RECRUITER_LIMIT=20 \
-            -e PHASE5_PREPARATION_LIMIT=20 \
+            -e PHASE5_MATCH_LIMIT=10 \
+            -e PHASE5_RECRUITER_LIMIT=10 \
+            -e PHASE5_PREPARATION_LIMIT=10 \
             job-agent:phase5 npm run phase5:controlled-runtime
 
       - name: Verify schema and safety invariants
