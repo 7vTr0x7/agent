@@ -25,8 +25,7 @@ describe("PublicRecruiterIdentitySearchProvider", () => {
       companyDomain: "acme.com",
       jobTitle: "Frontend Developer",
       jobDescription: "React role",
-      candidateProfileId: "candidate-1",
-      jobOpportunityId: null
+      candidateProfileId: "candidate-1"
     });
 
     expect(result).toHaveLength(0);
