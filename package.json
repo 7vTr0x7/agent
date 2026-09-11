@@ -14,6 +14,7 @@
     "dry-run": "tsx scripts/dry-run-application.ts",
     "dry-run:recruiters": "tsx scripts/dry-run-recruiter-discovery.ts",
     "dry-run:recruiter-outreach": "tsx scripts/dry-run-recruiter-outreach.ts",
+    "phase5:controlled-runtime": "tsx scripts/phase5-controlled-runtime.ts",
     "preflight:recruiter-outreach": "tsx scripts/preflight-recruiter-outreach.ts",
     "preflight:autonomous": "tsx scripts/preflight-autonomous-runtime.ts",
     "reconcile:recruiter-outreach": "tsx scripts/reconcile-recruiter-outreach.ts",
