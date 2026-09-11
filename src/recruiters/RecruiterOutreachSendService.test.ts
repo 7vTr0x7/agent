@@ -1,331 +1,99 @@
 import { GmailMailbox } from "../email/GmailMailbox";
-import {
-  RecruiterDiscoveryRepository,
-  RecruiterOutreachMessageRecord,
-} from "./RecruiterDiscoveryRepository";
+import { RecruiterDiscoveryRepository, RecruiterOutreachMessageRecord } from "./RecruiterDiscoveryRepository";
 import { CONTROLLED_SEND_CONFIRMATION } from "./RecruiterOutreachActivationGate";
-import {
-  RecruiterOutreachSendService,
-  deterministicMessageId,
-} from "./RecruiterOutreachSendService";
+import { RecruiterOutreachSendService, deterministicMessageId } from "./RecruiterOutreachSendService";
 
-const message: RecruiterOutreachMessageRecord = {
-  id: "message-1",
-  sequenceId: "sequence-1",
-  messageType: "INITIAL",
-  sequenceStep: 0,
-  recipientEmail: "recruiter@acme.dev",
-  subject: "Application for Frontend Engineer at Acme",
-  body: "Hi,\n\nI’m Candidate.",
-  status: "PREPARED",
-};
+const message: RecruiterOutreachMessageRecord = { id: "message-1", sequenceId: "sequence-1", messageType: "INITIAL", sequenceStep: 0, recipientEmail: "recruiter@acme.dev", subject: "Application for Frontend Engineer at Acme", body: "Hi,\n\nI’m Candidate.", status: "PREPARED" };
 
-function repository(
-  overrides: Partial<RecruiterDiscoveryRepository> = {},
-): RecruiterDiscoveryRepository {
-  return {
-    getOutreachSequence: jest.fn().mockResolvedValue({
-      id: "sequence-1",
-      recruiterContactId: "contact-1",
-      jobOpportunityId: "job-1",
-      applicationId: null,
-      candidateProfileId: "candidate-1",
-      status: "ACTIVE",
-      nextActionAt: null,
-      followUpCount: 0,
-    }),
-    isSuppressed: jest.fn().mockResolvedValue({ email: false, domain: false }),
-    getOutreachMessage: jest.fn().mockResolvedValue(message),
-    countSentOutreachMessagesSince: jest.fn().mockResolvedValue(0),
-    claimPreparedOutreachMessage: jest.fn().mockResolvedValue(message),
-    claimPreparedOutreachMessageWithinRateLimits: jest
-      .fn()
-      .mockResolvedValue(message),
-    markOutreachMessageSent: jest.fn().mockResolvedValue(undefined),
-    markOutreachMessageFailed: jest.fn().mockResolvedValue(undefined),
-    ...overrides,
-  } as unknown as RecruiterDiscoveryRepository;
+function repository(overrides: Partial<RecruiterDiscoveryRepository> = {}): RecruiterDiscoveryRepository {
+  return { getOutreachSequence: jest.fn().mockResolvedValue({ id: "sequence-1", recruiterContactId: "contact-1", jobOpportunityId: "job-1", applicationId: null, candidateProfileId: "candidate-1", status: "ACTIVE", nextActionAt: null, followUpCount: 0 }), isSuppressed: jest.fn().mockResolvedValue({ email: false, domain: false }), getOutreachMessage: jest.fn().mockResolvedValue(message), countSentOutreachMessagesSince: jest.fn().mockResolvedValue(0), claimPreparedOutreachMessage: jest.fn().mockResolvedValue(message), claimPreparedOutreachMessageWithinRateLimits: jest.fn().mockResolvedValue(message), markOutreachMessageSent: jest.fn().mockResolvedValue(undefined), markOutreachMessageFailed: jest.fn().mockResolvedValue(undefined), ...overrides } as unknown as RecruiterDiscoveryRepository;
 }
-
 function mailbox(overrides: Partial<GmailMailbox> = {}): GmailMailbox {
-  return {
-    listMessages: jest.fn(),
-    getMessage: jest.fn(),
-    sendMessage: jest.fn().mockResolvedValue({
-      gmailMessageId: "gmail-1",
-      gmailThreadId: "thread-1",
-    }),
-    ...overrides,
-  } as unknown as GmailMailbox;
+  return { listMessages: jest.fn(), getMessage: jest.fn(), sendMessage: jest.fn().mockResolvedValue({ gmailMessageId: "gmail-1", gmailThreadId: "thread-1" }), ...overrides } as unknown as GmailMailbox;
 }
-
-function database(overrides: Record<string, jest.Mock> = {}): any {
-  const client = {
-    query: jest
-      .fn()
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            id: message.id,
-            sequence_id: message.sequenceId,
-            message_type: "INITIAL",
-            sequence_step: 0,
-            recipient_email: message.recipientEmail,
-            subject: message.subject,
-            body: message.body,
-            status: "PREPARED",
-            sequence_status: "ACTIVE",
-            recruiter_contact_id: "contact-1",
-            job_opportunity_id: "job-1",
-            candidate_profile_id: "candidate-1",
-            company_domain: "acme.dev",
-            contact_email: message.recipientEmail,
-            recruiter_verified: true,
-            recruiter_verification_status: "verified_mailbox",
-            send_state: "READY",
-            existing_client_message_id: null,
-          },
-        ],
-      })
-      .mockResolvedValueOnce({ rows: [{ suppressed: false }] })
-      .mockResolvedValueOnce({ rows: [{ day_count: "0", hour_count: "0" }] })
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            id: message.id,
-            sequence_id: message.sequenceId,
-            message_type: "INITIAL",
-            sequence_step: 0,
-            recipient_email: message.recipientEmail,
-            subject: message.subject,
-            body: message.body,
-            status: "SENDING",
-          },
-        ],
-      }),
-  };
-
-  return {
-    transaction: jest
-      .fn()
-      .mockImplementation(async (callback: (c: any) => Promise<unknown>) =>
-        callback(client),
-      ),
-    query: jest.fn().mockResolvedValue({ rows: [] }),
-    ...overrides,
-  };
+function database(options: { verification?: Partial<Record<string, unknown>>; sendState?: string; claim?: boolean; sendError?: Error } = {}): any {
+  const verification = { recruiter_verified: true, recruiter_verification_status: "mailbox_verified", recruiter_email_status: "VERIFIED", recruiter_mailbox_evidence: true, recruiter_relevance_status: "CURRENT", recruiter_suppressed: false, ...options.verification };
+  const client = { query: jest.fn()
+    .mockResolvedValueOnce({ rows: [] })
+    .mockResolvedValueOnce({ rows: [{ id: message.id, sequence_id: message.sequenceId, message_type: "INITIAL", sequence_step: 0, recipient_email: message.recipientEmail, subject: message.subject, body: message.body, status: "PREPARED", sequence_status: "ACTIVE", recruiter_contact_id: "contact-1", job_opportunity_id: "job-1", candidate_profile_id: "candidate-1", company_domain: "acme.dev", contact_email: message.recipientEmail, ...verification, send_state: options.sendState ?? "READY", existing_client_message_id: null }] })
+    .mockResolvedValueOnce({ rows: [{ suppressed: false }] })
+    .mockResolvedValueOnce({ rows: [{ day_count: "0", hour_count: "0" }] })
+    .mockResolvedValueOnce({ rows: options.claim === false ? [] : [{ id: message.id, sequence_id: message.sequenceId, message_type: "INITIAL", sequence_step: 0, recipient_email: message.recipientEmail, subject: message.subject, body: message.body, status: "SENDING" }] }) };
+  return { transaction: jest.fn().mockImplementation(async (callback: (c: any) => Promise<unknown>) => callback(client)), query: jest.fn().mockResolvedValue({ rows: [{ eligible: true }] }) };
+}
+function service(db: any, mail: GmailMailbox, repo = repository()): RecruiterOutreachSendService {
+  return new RecruiterOutreachSendService({ repository: repo, mailbox: mail, database: db, dryRun: false, outboundEnabled: true, gmailEnabled: true, automationEnabled: false, activation: "canary", controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION, controlledMessageId: message.id, controlledRecipient: message.recipientEmail, requireVerifiedEmail: true, maxMessagesPerDay: 1, maxMessagesPerHour: 1, attachResume: false });
 }
 
 describe("RecruiterOutreachSendService", () => {
-  it("never sends in dry-run mode", async () => {
-    const mail = mailbox();
-    const service = new RecruiterOutreachSendService({
-      repository: repository(),
-      mailbox: mail,
-      dryRun: true,
-    });
+  it("never sends in dry-run mode", async () => { const mail = mailbox(); const result = await new RecruiterOutreachSendService({ repository: repository(), mailbox: mail, dryRun: true }).send(message, "acme.dev"); expect(result).toEqual({ status: "DRY_RUN", messageId: message.id }); expect(mail.sendMessage).not.toHaveBeenCalled(); });
 
-    await expect(service.send(message, "acme.dev")).resolves.toEqual({
-      status: "DRY_RUN",
-      messageId: message.id,
-    });
+  it("blocks suppressed recipients before claiming or sending", async () => { const repo = repository({ isSuppressed: jest.fn().mockResolvedValue({ email: true, domain: false }) }); const result = await new RecruiterOutreachSendService({ repository: repo, mailbox: mailbox(), dryRun: false, outboundEnabled: true, gmailEnabled: true, activation: "canary", controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION, maxMessagesPerDay: 1, maxMessagesPerHour: 1 }).send(message, "acme.dev"); expect(result).toMatchObject({ status: "SKIPPED", reason: "Recipient is suppressed." }); });
+
+  it("requires the controlled message and recipient", async () => { const result = await new RecruiterOutreachSendService({ repository: repository(), mailbox: mailbox(), database: database(), dryRun: false, outboundEnabled: true, gmailEnabled: true, activation: "canary", controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION, controlledMessageId: "different", controlledRecipient: message.recipientEmail, maxMessagesPerDay: 1, maxMessagesPerHour: 1 }).send(message, "acme.dev"); expect(result).toMatchObject({ status: "SKIPPED" }); });
+
+  it.each([
+    ["MX-only", { recruiter_verified: true, recruiter_verification_status: "domain_mx_verified", recruiter_email_status: "LIKELY", recruiter_mailbox_evidence: false }],
+    ["verified boolean plus MX", { recruiter_verified: true, recruiter_verification_status: "domain_mx_verified", recruiter_email_status: "VERIFIED", recruiter_mailbox_evidence: false }],
+    ["public source", { recruiter_verified: true, recruiter_verification_status: "unverified_public_source", recruiter_email_status: "UNVERIFIED", recruiter_mailbox_evidence: false }],
+    ["verified public source", { recruiter_verified: true, recruiter_verification_status: "verified_public_source", recruiter_email_status: "VERIFIED", recruiter_mailbox_evidence: false }],
+    ["MX DoH", { recruiter_verified: true, recruiter_verification_status: "domain_mx_verified_doh", recruiter_email_status: "LIKELY", recruiter_mailbox_evidence: false }],
+    ["legacy verified alias", { recruiter_verified: true, recruiter_verification_status: "verified_mailbox", recruiter_email_status: "VERIFIED", recruiter_mailbox_evidence: false }]
+  ])("rejects unsafe %s state at the final send boundary", async (_name, verification) => {
+    const mail = mailbox();
+    const result = await service(database({ verification }), mail).send(message, "acme.dev");
+    expect(result).toMatchObject({ status: "SKIPPED" });
     expect(mail.sendMessage).not.toHaveBeenCalled();
   });
 
-  it("blocks suppressed recipients before claiming or sending", async () => {
-    const repo = repository({
-      isSuppressed: jest.fn().mockResolvedValue({ email: true, domain: false }),
-    });
-    const service = new RecruiterOutreachSendService({
-      repository: repo,
-      mailbox: mailbox(),
-      dryRun: false,
-      outboundEnabled: true,
-      gmailEnabled: true,
-      activation: "canary",
-      controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION,
-      maxMessagesPerDay: 1,
-      maxMessagesPerHour: 1,
-    });
-
-    await expect(service.send(message, "acme.dev")).resolves.toMatchObject({
-      status: "SKIPPED",
-      reason: "Recipient is suppressed.",
-    });
+  it("atomically claims, rechecks canonical eligibility, sends once, and persists provider identifiers", async () => {
+    const repo = repository(); const mail = mailbox(); const db = database();
+    const result = await service(db, mail, repo).send(message, "acme.dev");
+    expect(result).toEqual({ status: "SENT", messageId: message.id, gmailMessageId: "gmail-1", gmailThreadId: "thread-1" });
+    expect(mail.sendMessage).toHaveBeenCalledTimes(1);
+    expect(mail.sendMessage).toHaveBeenCalledWith({ to: message.recipientEmail, subject: message.subject, bodyText: message.body, messageId: deterministicMessageId(message.id), attachments: undefined });
+    expect(repo.markOutreachMessageSent).toHaveBeenCalledWith(message.id, { provider: "gmail", providerMessageId: "gmail-1", providerThreadId: "thread-1" });
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("send_state='SENT'"), [message.id]);
   });
 
-  it("requires the controlled message and recipient", async () => {
-    const service = new RecruiterOutreachSendService({
-      repository: repository(),
-      mailbox: mailbox(),
-      database: database(),
-      dryRun: false,
-      outboundEnabled: true,
-      gmailEnabled: true,
-      activation: "canary",
-      controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION,
-      controlledMessageId: "different",
-      controlledRecipient: message.recipientEmail,
-      maxMessagesPerDay: 1,
-      maxMessagesPerHour: 1,
-    });
-
-    await expect(service.send(message, "acme.dev")).resolves.toMatchObject({
-      status: "SKIPPED",
-    });
+  it("rejects a recruiter that becomes ineligible after atomic claim and sends nothing", async () => {
+    const mail = mailbox(); const db = database(); db.query = jest.fn().mockResolvedValue({ rows: [{ eligible: false }] });
+    const result = await service(db, mail).send(message, "acme.dev");
+    expect(result).toMatchObject({ status: "SKIPPED" });
+    expect(mail.sendMessage).not.toHaveBeenCalled();
   });
 
-  it("requires mailbox verification for real delivery", async () => {
-    const repo = repository();
-    const realDb = database();
-    realDb.transaction = jest
-      .fn()
-      .mockImplementation(
-        async (callback: (c: any) => Promise<unknown>) =>
-          callback({
-            query: jest
-              .fn()
-              .mockResolvedValueOnce({ rows: [] })
-              .mockResolvedValueOnce({
-                rows: [
-                  {
-                    ...message,
-                    sequence_id: message.sequenceId,
-                    sequence_status: "ACTIVE",
-                    recruiter_contact_id: "contact-1",
-                    job_opportunity_id: "job-1",
-                    candidate_profile_id: "candidate-1",
-                    company_domain: "acme.dev",
-                    contact_email: message.recipientEmail,
-                    recruiter_verified: false,
-                    send_state: "READY",
-                  },
-                ],
-              }),
-          }),
-      );
-
-    const service = new RecruiterOutreachSendService({
-      repository: repo,
-      mailbox: mailbox(),
-      database: realDb,
-      dryRun: false,
-      outboundEnabled: true,
-      gmailEnabled: true,
-      activation: "canary",
-      controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION,
-      controlledMessageId: message.id,
-      controlledRecipient: message.recipientEmail,
-      maxMessagesPerDay: 1,
-      maxMessagesPerHour: 1,
-    });
-
-    await expect(service.send(message, "acme.dev")).resolves.toMatchObject({
-      status: "SKIPPED",
-    });
+  it("exact replay after success makes zero additional Gmail calls", async () => {
+    const mail = mailbox(); const db = database(); const repo = repository(); const first = await service(db, mail, repo).send(message, "acme.dev");
+    expect(first.status).toBe("SENT");
+    const replayDb = database({ sendState: "SENT", claim: false });
+    const replay = await service(replayDb, mail, repo).send(message, "acme.dev");
+    expect(replay).toMatchObject({ status: "SKIPPED" });
+    expect(mail.sendMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("atomically claims, sends once, and persists provider identifiers", async () => {
-    const repo = repository();
-    const mail = mailbox();
+  it("two concurrent workers produce exactly one Gmail send", async () => {
+    const mail = mailbox(); const repo = repository();
+    let claimCount = 0;
+    const makeDb = () => { const db = database(); db.transaction = jest.fn().mockImplementation(async (callback: (c: any) => Promise<unknown>) => { claimCount += 1; if (claimCount === 1) return callback((database() as any).transaction ? (database() as any).transaction : {}); return null; }); return db; };
     const db = database();
-    const service = new RecruiterOutreachSendService({
-      repository: repo,
-      mailbox: mail,
-      database: db,
-      dryRun: false,
-      outboundEnabled: true,
-      gmailEnabled: true,
-      automationEnabled: false,
-      activation: "canary",
-      controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION,
-      controlledMessageId: message.id,
-      controlledRecipient: message.recipientEmail,
-      requireVerifiedEmail: true,
-      maxMessagesPerDay: 1,
-      maxMessagesPerHour: 1,
-      attachResume: false,
-    });
-
-    await expect(service.send(message, "acme.dev")).resolves.toEqual({
-      status: "SENT",
-      messageId: message.id,
-      gmailMessageId: "gmail-1",
-      gmailThreadId: "thread-1",
-    });
-    expect(mail.sendMessage).toHaveBeenCalledWith({
-      to: message.recipientEmail,
-      subject: message.subject,
-      bodyText: message.body,
-      messageId: deterministicMessageId(message.id),
-      attachments: undefined,
-    });
-    expect(repo.markOutreachMessageSent).toHaveBeenCalledWith(message.id, {
-      provider: "gmail",
-      providerMessageId: "gmail-1",
-      providerThreadId: "thread-1",
-    });
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("send_state='SENT'"),
-      [message.id],
-    );
+    db.transaction = jest.fn().mockImplementation(async (callback: (c: any) => Promise<unknown>) => { claimCount += 1; if (claimCount > 1) return null; const local = database(); return callback(await new Promise((resolve) => resolve((local as any)))); });
+    const a = service(db, mail, repo); const b = service(db, mail, repo);
+    const results = await Promise.all([a.send(message, "acme.dev"), b.send(message, "acme.dev")]);
+    expect(results.filter((result) => result.status === "SENT")).toHaveLength(1);
+    expect(mail.sendMessage).toHaveBeenCalledTimes(1);
+    void makeDb;
   });
 
-  it("keeps an uncertain Gmail result ambiguous instead of marking it FAILED", async () => {
-    const repo = repository();
-    const mail = mailbox({
-      sendMessage: jest
-        .fn()
-        .mockRejectedValue(new Error("network timeout after request acceptance")),
-    });
-    const db = database();
-    const service = new RecruiterOutreachSendService({
-      repository: repo,
-      mailbox: mail,
-      database: db,
-      dryRun: false,
-      outboundEnabled: true,
-      gmailEnabled: true,
-      activation: "canary",
-      controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION,
-      controlledMessageId: message.id,
-      controlledRecipient: message.recipientEmail,
-      maxMessagesPerDay: 1,
-      maxMessagesPerHour: 1,
-    });
-
-    await expect(service.send(message, "acme.dev")).rejects.toThrow(
-      "network timeout after request acceptance",
-    );
+  it("keeps an uncertain Gmail result ambiguous instead of retrying", async () => {
+    const repo = repository(); const mail = mailbox({ sendMessage: jest.fn().mockRejectedValue(new Error("network timeout after request acceptance")) }); const db = database();
+    await expect(service(db, mail, repo).send(message, "acme.dev")).rejects.toThrow("network timeout after request acceptance");
     expect(repo.markOutreachMessageFailed).not.toHaveBeenCalled();
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("send_state='AMBIGUOUS'"),
-      [message.id, "network timeout after request acceptance"],
-    );
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("send_state='AMBIGUOUS'"), [message.id, "network timeout after request acceptance"]);
   });
 
   it("refuses broad automation during Phase 6 controlled activation", async () => {
-    const service = new RecruiterOutreachSendService({
-      repository: repository(),
-      mailbox: mailbox(),
-      database: database(),
-      dryRun: false,
-      outboundEnabled: true,
-      gmailEnabled: true,
-      automationEnabled: true,
-      activation: "canary",
-      controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION,
-      controlledMessageId: message.id,
-      controlledRecipient: message.recipientEmail,
-      maxMessagesPerDay: 1,
-      maxMessagesPerHour: 1,
-    });
-
-    await expect(service.send(message, "acme.dev")).resolves.toMatchObject({
-      status: "SKIPPED",
-      reason:
-        "Phase 6 controlled activation refuses broad automation; AUTOMATION_ENABLED must remain false.",
-    });
+    const result = await new RecruiterOutreachSendService({ repository: repository(), mailbox: mailbox(), database: database(), dryRun: false, outboundEnabled: true, gmailEnabled: true, automationEnabled: true, activation: "canary", controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION, controlledMessageId: message.id, controlledRecipient: message.recipientEmail, maxMessagesPerDay: 1, maxMessagesPerHour: 1 }).send(message, "acme.dev");
+    expect(result).toMatchObject({ status: "SKIPPED", reason: "Phase 6 controlled activation refuses broad automation; AUTOMATION_ENABLED must remain false." });
   });
 });
