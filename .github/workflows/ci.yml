@@ -107,6 +107,14 @@ jobs:
           docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM tasks;"
           docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;"
 
+      - name: Verify active Phase 6 database invariants
+        shell: bash
+        run: |
+          constraint_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_constraint WHERE conrelid='recruiter_contacts'::regclass AND conname IN ('recruiter_contacts_mailbox_verification_check','recruiter_contacts_verified_mailbox_evidence_check','recruiter_contacts_verified_email_status_check','recruiter_contacts_mailbox_verification_evidence_check','recruiter_contacts_mailbox_verification_evidence_quality_check') AND convalidated=true;")"
+          test "${constraint_count//[[:space:]]/}" = "5"
+          migration_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM schema_migrations WHERE filename IN ('030_recruiter_mailbox_verification_invariant.sql','031_recruiter_mailbox_verification_evidence_invariant.sql','032_recruiter_mailbox_evidence_quality_invariant.sql');")"
+          test "${migration_count//[[:space:]]/}" = "3"
+
       - name: Verify isolated proactive recruiter runtime without a job
         shell: bash
         run: |
