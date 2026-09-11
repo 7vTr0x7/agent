@@ -78,7 +78,7 @@ export class ProactiveRecruiterTaskHandler {
       if (candidate.email) {
         try {
           const verification = await verifier(candidate.email);
-          candidate.emailStatus = verification.status;
+          candidate.emailStatus = normalizeEmailStatus(verification.status);
         } catch (error) {
           this.logger.error({ error: error instanceof Error ? error.message : String(error) }, "Proactive recruiter email verification failed");
           candidate.emailStatus = "UNVERIFIED";
@@ -132,14 +132,40 @@ function assertDiscoveryPayload(payload: Record<string, unknown>): ProactiveRecr
     throw new Error("Invalid proactive recruiter preferred locations");
   }
   if (payload.remoteEligible !== undefined && typeof payload.remoteEligible !== "boolean") throw new Error("Invalid proactive recruiter remote eligibility");
-  return payload as ProactiveRecruiterDiscoveryPayload;
+  return {
+    candidateProfileId: payload.candidateProfileId,
+    candidateName: payload.candidateName,
+    yearsExperience: payload.yearsExperience,
+    skills: payload.skills,
+    targetRoles: payload.targetRoles,
+    location: payload.location,
+    preferredLocations: payload.preferredLocations,
+    remoteEligible: payload.remoteEligible,
+    maxCandidates: payload.maxCandidates
+  };
 }
 
 function assertOutreachPayload(payload: Record<string, unknown>): ProactiveRecruiterOutreachPayload {
   if (typeof payload.messageId !== "string" || typeof payload.companyDomain !== "string" || typeof payload.candidateProfileId !== "string") {
     throw new Error("Invalid proactive recruiter outreach task payload");
   }
-  return payload as ProactiveRecruiterOutreachPayload;
+  return {
+    messageId: payload.messageId,
+    companyDomain: payload.companyDomain,
+    candidateProfileId: payload.candidateProfileId
+  };
+}
+
+function normalizeEmailStatus(value: string): "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID" {
+  switch (value) {
+    case "VERIFIED":
+    case "LIKELY":
+    case "UNVERIFIED":
+    case "INVALID":
+      return value;
+    default:
+      return "UNVERIFIED";
+  }
 }
 
 function buildProactiveMessage(profile: CandidateProfile, candidate: { recruiterName: string; recruiterRole: string; employer: string; targetRoles: string[]; evidenceFreshness: string; discoveryEvidence: string[] }): string {
