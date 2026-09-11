@@ -1,0 +1,105 @@
+name: Phase 5 Controlled Activation
+
+on:
+  push:
+    branches:
+      - phase5/real-job-recruiter-intelligence
+  workflow_dispatch:
+
+concurrency:
+  group: phase5-controlled-activation
+  cancel-in-progress: true
+
+jobs:
+  phase5:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build --tag job-agent:phase5 .
+
+      - name: Start isolated PostgreSQL
+        run: |
+          docker network create job-agent-phase5
+          docker run -d --name job-agent-phase5-postgres --network job-agent-phase5 \
+            -e POSTGRES_DB=job_agent \
+            -e POSTGRES_USER=job_agent \
+            -e POSTGRES_PASSWORD=phase5_test_password \
+            postgres:17-alpine
+          for i in $(seq 1 60); do
+            if docker exec job-agent-phase5-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec job-agent-phase5-postgres pg_isready -U job_agent -d job_agent
+
+      - name: Run real public job -> recruiter -> draft pipeline in safe mode
+        shell: bash
+        run: |
+          docker run --rm --network job-agent-phase5 \
+            -e NODE_ENV=test \
+            -e LOG_LEVEL=info \
+            -e DATABASE_URL=postgres://job_agent:phase5_test_password@job-agent-phase5-postgres:5432/job_agent \
+            -e AUTOMATION_ENABLED=false \
+            -e APPLICATION_DRY_RUN=true \
+            -e OUTBOUND_ENABLED=false \
+            -e GMAIL_ENABLED=false \
+            -e EMAIL_ENABLED=false \
+            -e PROACTIVE_RECRUITER_ENABLED=false \
+            -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
+            -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false \
+            -e JOB_DISCOVERY_ENABLED=true \
+            -e 'JOB_SOURCES=[{"id":"remoteok:json","type":"api","name":"remoteok","feedUrl":"https://remoteok.com/api","status":"APPROVED"}]' \
+            -e CANDIDATE_PROFILE_ID=phase5-runtime-candidate \
+            -e CANDIDATE_YEARS_EXPERIENCE=3 \
+            -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,HTML,CSS,Tailwind,Bootstrap' \
+            -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Frontend Developer,React Developer,Full Stack Developer,Full Stack Engineer' \
+            -e CANDIDATE_FIRST_NAME=Runtime \
+            -e CANDIDATE_LAST_NAME=Candidate \
+            -e CANDIDATE_FULL_NAME='Runtime Candidate' \
+            -e CANDIDATE_LOCATION=India \
+            -e CANDIDATE_SPONSORSHIP_REQUIRED=false \
+            -e CANDIDATE_NOTICE_PERIOD_DAYS=0 \
+            -e RECRUITER_OUTREACH_ENABLED=true \
+            -e RECRUITER_OUTREACH_DRY_RUN=true \
+            -e RECRUITER_OUTREACH_ACTIVATION=disabled \
+            -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false \
+            -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
+            -e RECRUITER_MAX_CONTACTS_PER_APPLICATION=3 \
+            -e RECRUITER_FOLLOWUP_ENABLED=false \
+            -e RECRUITER_GENERIC_EMAIL_FALLBACK=false \
+            -e PHASE5_MATCH_LIMIT=50 \
+            -e PHASE5_RECRUITER_LIMIT=20 \
+            -e PHASE5_PREPARATION_LIMIT=20 \
+            job-agent:phase5 npm run phase5:controlled-runtime
+
+      - name: Verify schema and safety invariants
+        shell: bash
+        run: |
+          jobs="$(docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM job_opportunities;' | tr -d '[:space:]')"
+          matches="$(docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM match_decisions;' | tr -d '[:space:]')"
+          recruiter_runs="$(docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM recruiter_discovery_runs;' | tr -d '[:space:]')"
+          recruiters="$(docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM recruiter_contacts;' | tr -d '[:space:]')"
+          email_candidates="$(docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM recruiter_contacts WHERE email IS NOT NULL;' | tr -d '[:space:]')"
+          prepared="$(docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='PREPARED';" | tr -d '[:space:]')"
+          sent="$(docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';" | tr -d '[:space:]')"
+          applications="$(docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM applications;' | tr -d '[:space:]')"
+          evidence_table="$(docker exec job-agent-phase5-postgres psql -U job_agent -d job_agent -tAc "SELECT to_regclass('public.recruiter_contact_job_evidence') IS NOT NULL;" | tr -d '[:space:]')"
+          test "$jobs" -ge 1
+          test "$matches" -ge 1
+          test "$recruiter_runs" -ge 1
+          test "$recruiters" -ge 1
+          test "$email_candidates" -ge 1
+          test "$prepared" -ge 1
+          test "$sent" -eq 0
+          test "$applications" -eq 0
+          test "$evidence_table" = 't'
+          printf 'jobs=%s matches=%s recruiter_runs=%s recruiters=%s email_candidates=%s prepared=%s sent=%s applications=%s job_evidence_table=%s\n' "$jobs" "$matches" "$recruiter_runs" "$recruiters" "$email_candidates" "$prepared" "$sent" "$applications" "$evidence_table"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f job-agent-phase5-postgres >/dev/null 2>&1 || true
+          docker network rm job-agent-phase5 >/dev/null 2>&1 || true
