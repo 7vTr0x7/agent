@@ -42,7 +42,7 @@ function deriveEmailStatus(candidate: RecruiterIdentityCandidate): RecruiterEmai
   if (candidate.verificationStatus === "VERIFIED" || candidate.verificationStatus === "mailbox_verified") return "VERIFIED";
   if (candidate.verificationStatus === "LIKELY" || candidate.verificationStatus === "domain_mx_verified" || candidate.verificationStatus === "domain_mx_verified_doh") return "LIKELY";
   if (candidate.verificationStatus === "INVALID" || candidate.verificationStatus === "invalid_email_format" || candidate.verificationStatus === "no_mx_record" || candidate.verificationStatus === "missing_email_domain") return "INVALID";
-  return candidate.verified ? "VERIFIED" : "UNVERIFIED";
+  return "UNVERIFIED";
 }
 
 function hasMailboxVerification(candidate: RecruiterIdentityCandidate): boolean {
