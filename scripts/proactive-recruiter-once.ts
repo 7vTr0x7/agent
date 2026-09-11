@@ -48,6 +48,18 @@ async function main(): Promise<void> {
       remoteEligible: process.env.CANDIDATE_REMOTE_ELIGIBLE !== "false",
       maxCandidates: config.proactiveRecruiter.maxCandidatesPerRun
     });
+
+    if (fixtureMode && process.env.PROACTIVE_RECRUITER_EXPECT_UNVERIFIED === "true") {
+      const result = await database.query<{ verified: boolean | null; email_status: string | null; verification_status: string | null; mailbox_evidence: boolean | null }>(
+        `SELECT verified, email_status, verification_status, mailbox_evidence FROM recruiter_contacts WHERE email = $1`,
+        ["jane@acme.com"]
+      );
+      const contact = result.rows[0];
+      if (!contact) throw new Error("Expected proactive recruiter fixture contact was not persisted.");
+      if (contact.verified === true || contact.mailbox_evidence === true || String(contact.email_status ?? "").toUpperCase() === "VERIFIED" || String(contact.verification_status ?? "").toLowerCase() === "mailbox_verified") {
+        throw new Error("Proactive recruiter fixture must remain unverified without mailbox-level evidence.");
+      }
+    }
   } finally {
     await database.close();
   }
