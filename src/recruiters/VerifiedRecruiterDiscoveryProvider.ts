@@ -28,5 +28,16 @@ export class VerifiedRecruiterDiscoveryProvider implements RecruiterDiscoveryPro
     return { provider: this.name, contacts, discoveredAt: discovered.discoveredAt };
   }
   verify(email: string): Promise<RecruiterVerificationResult> { return this.verifier.verify(email); }
-  private async verifyCandidate(contact: RecruiterContactCandidate): Promise<RecruiterContactCandidate> { const verification = await this.verifier.verify(contact.email); return { ...contact, verified: verification.verified, verificationStatus: verification.status, confidence: verification.confidence ?? contact.confidence, provider: contact.provider, sources: contact.sources }; }
+  private async verifyCandidate(contact: RecruiterContactCandidate): Promise<RecruiterContactCandidate> {
+    const verification = await this.verifier.verify(contact.email);
+    return {
+      ...contact,
+      verified: verification.verified,
+      verificationStatus: verification.status,
+      confidence: verification.confidence ?? contact.confidence,
+      verificationEvidence: verification.verificationEvidence ?? contact.verificationEvidence,
+      provider: contact.provider,
+      sources: contact.sources
+    };
+  }
 }

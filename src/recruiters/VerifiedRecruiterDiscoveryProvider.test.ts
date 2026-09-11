@@ -24,8 +24,9 @@ describe("VerifiedRecruiterDiscoveryProvider", () => {
       verify: jest.fn().mockResolvedValue({
         email: "recruiter@example.com",
         verified: true,
-        status: "valid",
-        confidence: 98
+        status: "mailbox_verified",
+        confidence: 98,
+        verificationEvidence: [{ provider: "snov", status: "valid", mailboxLevel: true, source: "snov_email_verification" }]
       })
     };
 
@@ -42,8 +43,9 @@ describe("VerifiedRecruiterDiscoveryProvider", () => {
     expect(result.contacts[0]).toMatchObject({
       email: "recruiter@example.com",
       verified: true,
-      verificationStatus: "valid",
-      confidence: 98
+      verificationStatus: "mailbox_verified",
+      confidence: 98,
+      verificationEvidence: [{ provider: "snov", status: "valid", mailboxLevel: true, source: "snov_email_verification" }]
     });
     expect(verifier.verify).toHaveBeenCalledWith("recruiter@example.com");
   });

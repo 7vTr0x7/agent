@@ -147,13 +147,48 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker exec \
+          fixture_name=job-agent-proactive-fixture
+          trap 'docker rm -f "$fixture_name" >/dev/null 2>&1 || true' EXIT
+          docker run -d --name "$fixture_name" --network job-agent-runtime \
+            -e NODE_ENV=test \
+            -e LOG_LEVEL=info \
+            -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-runtime-postgres:5432/job_agent \
+            -e AUTOMATION_ENABLED=true \
+            -e APPLICATION_DRY_RUN=true \
+            -e OUTBOUND_ENABLED=false \
+            -e GMAIL_ENABLED=false \
+            -e EMAIL_ENABLED=false \
             -e PROACTIVE_RECRUITER_ENABLED=true \
             -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
-            -e GMAIL_ENABLED=false \
-            -e OUTBOUND_ENABLED=false \
             -e PROACTIVE_RECRUITER_FIXTURE=true \
-            job-agent-runtime-app npx tsx scripts/proactive-recruiter-once.ts
+            -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
+            -e CANDIDATE_PROFILE_ID=runtime-test-candidate \
+            -e CANDIDATE_YEARS_EXPERIENCE=3 \
+            -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux,Node,Express,MongoDB' \
+            -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Full Stack Developer,React Developer' \
+            -e CANDIDATE_FIRST_NAME=Runtime \
+            -e CANDIDATE_LAST_NAME=Test \
+            -e CANDIDATE_FULL_NAME='Runtime Test' \
+            -e CANDIDATE_LOCATION=India \
+            -e CANDIDATE_SPONSORSHIP_REQUIRED=false \
+            -e CANDIDATE_NOTICE_PERIOD_DAYS=0 \
+            job-agent:ci node scripts/proactive-recruiter-once.cjs
+          for i in $(seq 1 30); do
+            fixture_running="$(docker inspect -f '{{.State.Running}}' "$fixture_name")"
+            if [ "$fixture_running" = 'false' ]; then break; fi
+            sleep 1
+          done
+          fixture_running="$(docker inspect -f '{{.State.Running}}' "$fixture_name")"
+          test "$fixture_running" = 'false'
+          fixture_exit="$(docker inspect -f '{{.State.ExitCode}}' "$fixture_name")"
+          echo "Proactive fixture container exit code: $fixture_exit"
+          docker logs "$fixture_name" | tee /tmp/proactive-recruiter-fixture.log
+          test "$fixture_exit" = '0'
+          grep -q '"status":"ok"' /tmp/proactive-recruiter-fixture.log
+          grep -q '"discovered":1' /tmp/proactive-recruiter-fixture.log
+          grep -q '"persisted":1' /tmp/proactive-recruiter-fixture.log
+          grep -q '"prepared":0' /tmp/proactive-recruiter-fixture.log
+          grep -q '"sendEnabled":false' /tmp/proactive-recruiter-fixture.log
           recruiter_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
           test "$recruiter_count" = '1'
           recruiter_verified="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT verified::int FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
