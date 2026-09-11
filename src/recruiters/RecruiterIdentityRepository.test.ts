@@ -47,9 +47,7 @@ const candidate: RecruiterIdentityCandidate = {
 describe("RecruiterIdentityRepository", () => {
   it("uses an atomic typed identity-key upsert instead of an ambiguous nullable-parameter conflict lookup", async () => {
     const row = storedRow();
-    const database = {
-      query: jest.fn().mockResolvedValue({ rows: [row] })
-    };
+    const database = { query: jest.fn().mockResolvedValue({ rows: [row] }) };
 
     const repository = new RecruiterIdentityRepository(database as never);
     const first = await repository.upsertIdentity("Example Corp", "example.com", candidate);
@@ -60,8 +58,20 @@ describe("RecruiterIdentityRepository", () => {
     expect(database.query).toHaveBeenCalledTimes(2);
 
     const sql = database.query.mock.calls[0]?.[0] as string;
-    expect(sql).toContain("ON CONFLICT (company_domain, identity_key) DO UPDATE SET");
+    expect(sql).toContain("ON CONFLICT (company_domain, identity_key) WHERE identity_key IS NOT NULL DO UPDATE SET");
     expect(sql).toContain("RETURNING id,company_name,company_domain");
-    expect(sql).not.toContain("IS NOT NULL AND LOWER(linkedin_profile_url)");
+    expect(sql).not.toContain("LOWER($2::text)");
+  });
+
+  it("does not reuse the email parameter inside CONCAT during enrichment, avoiding a varchar/text parameter type conflict", async () => {
+    const row = storedRow();
+    const database = { query: jest.fn().mockResolvedValue({ rows: [row] }) };
+    const repository = new RecruiterIdentityRepository(database as never);
+
+    await repository.enrichEmail("contact-1", "careers@example.com", false, "UNVERIFIED", 90);
+
+    const sql = database.query.mock.calls[0]?.[0] as string;
+    expect(sql).toContain("CONCAT('email:',email)");
+    expect(sql).not.toContain("CONCAT('email:',$2");
   });
 });
