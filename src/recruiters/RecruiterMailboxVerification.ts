@@ -1,6 +1,14 @@
 export type CanonicalMailboxVerificationStatus = "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID";
 export type CanonicalRecruiterRelevanceStatus = "CURRENT" | "RECENT" | "HISTORICAL" | "UNKNOWN";
 
+export interface RecruiterMailboxVerificationEvidence {
+  provider?: string | null;
+  status?: string | null;
+  confidence?: number | null;
+  mailboxLevel?: boolean | null;
+  source?: string | null;
+}
+
 export interface RecruiterMailboxVerificationRecord {
   verified?: boolean | null;
   verificationStatus?: string | null;
@@ -29,11 +37,23 @@ export function normalizeMailboxVerificationStatus(status: string | null | undef
   return "UNVERIFIED";
 }
 
+function hasExplicitMailboxEvidence(evidence: unknown[] | null | undefined): boolean {
+  if (!Array.isArray(evidence) || evidence.length === 0) return false;
+  return evidence.some((item): item is RecruiterMailboxVerificationEvidence => {
+    if (!item || typeof item !== "object") return false;
+    const candidate = item as RecruiterMailboxVerificationEvidence;
+    return candidate.mailboxLevel === true
+      && typeof candidate.provider === "string"
+      && candidate.provider.trim().length > 0
+      && typeof candidate.status === "string"
+      && candidate.status.trim().length > 0;
+  });
+}
+
 export function isMailboxVerifiedForRealSend(record: RecruiterMailboxVerificationRecord): boolean {
   return record.verified === true
     && record.mailboxEvidence === true
-    && Array.isArray(record.verificationEvidence)
-    && record.verificationEvidence.length > 0
+    && hasExplicitMailboxEvidence(record.verificationEvidence)
     && String(record.emailStatus ?? "").toUpperCase() === "VERIFIED"
     && normalizeMailboxVerificationStatus(record.verificationStatus) === "VERIFIED"
     && !LEGACY_UNSAFE_STATUSES.has(String(record.verificationStatus ?? "").trim().toLowerCase());
@@ -55,10 +75,16 @@ export function recruiterRealSendEligibilitySql(alias = "c"): string {
   return `COALESCE(${alias}.verified,FALSE)=TRUE
     AND COALESCE(${alias}.mailbox_evidence,FALSE)=TRUE
     AND jsonb_typeof(COALESCE(${alias}.verification_evidence,'[]'::jsonb))='array'
-    AND jsonb_array_length(CASE WHEN jsonb_typeof(COALESCE(${alias}.verification_evidence,'[]'::jsonb))='array' THEN COALESCE(${alias}.verification_evidence,'[]'::jsonb) ELSE '[]'::jsonb END)>0
+    AND EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(${alias}.verification_evidence,'[]'::jsonb))='array' THEN COALESCE(${alias}.verification_evidence,'[]'::jsonb) ELSE '[]'::jsonb END) AS evidence(item)
+      WHERE COALESCE(evidence.item->>'mailboxLevel','false')='true'
+        AND NULLIF(BTRIM(evidence.item->>'provider'),'') IS NOT NULL
+        AND NULLIF(BTRIM(evidence.item->>'status'),'') IS NOT NULL
+    )
     AND UPPER(COALESCE(${alias}.email_status,''))='VERIFIED'
     AND LOWER(COALESCE(${alias}.verification_status,''))='mailbox_verified'
-    AND COALESCE(${alias}.relevance_status,'UNKNOWN') IN ('CURRENT','RECENT')
+    AND UPPER(COALESCE(${alias}.relevance_status,'UNKNOWN')) IN ('CURRENT','RECENT')
     AND COALESCE(${alias}.suppressed,FALSE)=FALSE`;
 }
 
