@@ -11,7 +11,7 @@ const contact: StoredRecruiterContact = {
   department: "Talent Acquisition",
   confidence: 95,
   verified: true,
-  verificationStatus: "domain_mx_verified",
+  verificationStatus: "VERIFIED",
   provider: "public-web"
 };
 
