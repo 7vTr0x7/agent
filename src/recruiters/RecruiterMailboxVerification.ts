@@ -85,7 +85,14 @@ export function recruiterRealSendEligibilitySql(alias = "c"): string {
     AND UPPER(COALESCE(${alias}.email_status,''))='VERIFIED'
     AND LOWER(COALESCE(${alias}.verification_status,''))='mailbox_verified'
     AND UPPER(COALESCE(${alias}.relevance_status,'UNKNOWN')) IN ('CURRENT','RECENT')
-    AND COALESCE(${alias}.suppressed,FALSE)=FALSE`;
+    AND COALESCE(${alias}.suppressed,FALSE)=FALSE
+    AND ${alias}.email ~* '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$'
+    AND LOWER(SPLIT_PART(${alias}.email,'@',2))=LOWER(${alias}.company_domain)
+    AND NOT EXISTS (
+      SELECT 1 FROM recruiter_suppressions suppression
+      WHERE LOWER(COALESCE(suppression.email,''))=LOWER(${alias}.email)
+         OR LOWER(COALESCE(suppression.company_domain,''))=LOWER(${alias}.company_domain)
+    )`;
 }
 
 export const CANONICAL_MAILBOX_VERIFICATION_STATUS = VERIFIED_STATUS;
