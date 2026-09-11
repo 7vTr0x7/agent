@@ -72,11 +72,33 @@ export class RecruiterIdentityRepository {
       ...(candidate.sources ?? []).map((source) => ({ url: source.url ?? null, type: source.type ?? null, confidence: source.confidence ?? null }))
     ]);
 
-    const inserted = await this.database.query<any>(
+    const result = await this.database.query<any>(
       `INSERT INTO recruiter_contacts
         (company_name,company_domain,email,full_name,title,department,seniority,country,location,confidence,verified,verification_status,provider,linkedin_profile_url,identity_key,email_discovery_status,email_status,domain_status,mx_status,mailbox_evidence,verification_evidence,discovery_source,suppressed,email_discovery_attempted_at,last_seen_at,updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,FALSE,NOW(),NOW(),NOW())
-       ON CONFLICT DO NOTHING
+       ON CONFLICT (company_domain, identity_key) DO UPDATE SET
+         company_name=EXCLUDED.company_name,
+         email=COALESCE(EXCLUDED.email,recruiter_contacts.email),
+         full_name=COALESCE(EXCLUDED.full_name,recruiter_contacts.full_name),
+         title=COALESCE(EXCLUDED.title,recruiter_contacts.title),
+         department=COALESCE(EXCLUDED.department,recruiter_contacts.department),
+         seniority=COALESCE(EXCLUDED.seniority,recruiter_contacts.seniority),
+         country=COALESCE(EXCLUDED.country,recruiter_contacts.country),
+         location=COALESCE(EXCLUDED.location,recruiter_contacts.location),
+         confidence=CASE WHEN recruiter_contacts.confidence IS NULL THEN EXCLUDED.confidence WHEN EXCLUDED.confidence IS NULL THEN recruiter_contacts.confidence ELSE GREATEST(recruiter_contacts.confidence,EXCLUDED.confidence) END,
+         verified=recruiter_contacts.verified OR EXCLUDED.verified,
+         verification_status=CASE WHEN EXCLUDED.verified THEN EXCLUDED.verification_status ELSE COALESCE(recruiter_contacts.verification_status,EXCLUDED.verification_status) END,
+         provider=EXCLUDED.provider,
+         linkedin_profile_url=COALESCE(EXCLUDED.linkedin_profile_url,recruiter_contacts.linkedin_profile_url),
+         email_discovery_status=CASE WHEN EXCLUDED.email IS NOT NULL THEN 'FOUND' ELSE recruiter_contacts.email_discovery_status END,
+         email_status=CASE WHEN EXCLUDED.email IS NOT NULL THEN EXCLUDED.email_status ELSE recruiter_contacts.email_status END,
+         domain_status=EXCLUDED.domain_status,
+         mx_status=CASE WHEN EXCLUDED.email_status IN ('LIKELY','VERIFIED') THEN 'EXISTS' ELSE recruiter_contacts.mx_status END,
+         mailbox_evidence=recruiter_contacts.mailbox_evidence OR EXCLUDED.mailbox_evidence,
+         verification_evidence=CASE WHEN EXCLUDED.verification_evidence='[]'::jsonb THEN recruiter_contacts.verification_evidence ELSE EXCLUDED.verification_evidence END,
+         discovery_source=EXCLUDED.discovery_source,
+         last_seen_at=NOW(),
+         updated_at=NOW()
        RETURNING id,company_name,company_domain,email,full_name,title,department,seniority,country,location,confidence,verified,verification_status,provider,linkedin_profile_url,email_discovery_status,email_status,domain_status,mx_status,mailbox_evidence,verification_evidence,discovery_source,suppressed,suppression_reason,last_contacted_at,email_discovery_attempted_at,updated_at`,
       [
         companyName.trim(), domain, email, fullName, candidate.title ?? null, candidate.department ?? null,
@@ -87,61 +109,7 @@ export class RecruiterIdentityRepository {
       ]
     );
 
-    let row = inserted.rows[0];
-    if (!row) {
-      const existing = await this.database.query<any>(
-        `SELECT id FROM recruiter_contacts
-         WHERE company_domain=$1
-           AND (
-             ($2::text IS NOT NULL AND LOWER(linkedin_profile_url)=LOWER($2::text))
-             OR ($3::text IS NOT NULL AND LOWER(email)=LOWER($3::text))
-             OR ($4::text IS NOT NULL AND LOWER(full_name)=LOWER($4::text))
-             OR identity_key=$5
-           )
-         ORDER BY CASE
-           WHEN $2::text IS NOT NULL AND LOWER(linkedin_profile_url)=LOWER($2::text) THEN 1
-           WHEN $3::text IS NOT NULL AND LOWER(email)=LOWER($3::text) THEN 2
-           WHEN $4::text IS NOT NULL AND LOWER(full_name)=LOWER($4::text) THEN 3
-           ELSE 4 END
-         LIMIT 1`,
-        [domain, profileUrl, email, fullName, identityKey]
-      );
-      const id = existing.rows[0]?.id;
-      if (!id) throw new Error("Recruiter identity could not be deduplicated after insert conflict.");
-      row = (await this.database.query<any>(
-        `UPDATE recruiter_contacts SET
-           company_name=$2,
-           email=COALESCE($3,email),
-           full_name=COALESCE($4,full_name),
-           title=COALESCE($5,title),
-           department=COALESCE($6,department),
-           seniority=COALESCE($7,seniority),
-           country=COALESCE($8,country),
-           location=COALESCE($9,location),
-           confidence=CASE WHEN confidence IS NULL THEN $10 WHEN $10 IS NULL THEN confidence ELSE GREATEST(confidence,$10) END,
-           verified=verified OR $11,
-           verification_status=CASE WHEN $11 THEN $12 ELSE COALESCE(verification_status,$12) END,
-           provider=$13,
-           linkedin_profile_url=COALESCE($14,linkedin_profile_url),
-           identity_key=CASE WHEN $14 IS NOT NULL THEN $15 ELSE identity_key END,
-           email_discovery_status=CASE WHEN $3 IS NOT NULL THEN 'FOUND' ELSE email_discovery_status END,
-           email_status=CASE WHEN $3 IS NOT NULL THEN $16 ELSE email_status END,
-           domain_status=$17,
-           mx_status=CASE WHEN $16 IN ('LIKELY','VERIFIED') THEN 'EXISTS' ELSE mx_status END,
-           mailbox_evidence=mailbox_evidence OR $18,
-           verification_evidence=CASE WHEN $19::jsonb='[]'::jsonb THEN verification_evidence ELSE $19::jsonb END,
-           discovery_source=COALESCE($13,discovery_source),
-           last_seen_at=NOW(),updated_at=NOW()
-         WHERE id=$1
-         RETURNING id,company_name,company_domain,email,full_name,title,department,seniority,country,location,confidence,verified,verification_status,provider,linkedin_profile_url,email_discovery_status,email_status,domain_status,mx_status,mailbox_evidence,verification_evidence,discovery_source,suppressed,suppression_reason,last_contacted_at,email_discovery_attempted_at,updated_at`,
-        [id, companyName.trim(), email, fullName, candidate.title ?? null, candidate.department ?? null,
-          candidate.seniority ?? null, candidate.country ?? null, candidate.location ?? null,
-          candidate.confidence ?? null, verified, candidate.verificationStatus ?? null,
-          candidate.provider, profileUrl, identityKey, emailStatus, domainStatus,
-          verified, evidence]
-      )).rows[0];
-    }
-
+    const row = result.rows[0];
     if (!row) throw new Error("Recruiter identity could not be persisted.");
     return this.map(row);
   }
@@ -172,7 +140,7 @@ export class RecruiterIdentityRepository {
          mx_status=$7,
          mailbox_evidence=mailbox_evidence OR $8,
          verification_evidence=verification_evidence || $9::jsonb,
-         identity_key=CASE WHEN linkedin_profile_url IS NOT NULL THEN identity_key ELSE CONCAT('email:',$2) END,
+         identity_key=CASE WHEN linkedin_profile_url IS NOT NULL THEN identity_key ELSE CONCAT('email:',$2::text) END,
          last_seen_at=NOW(),updated_at=NOW()
        WHERE id=$1
        RETURNING id,company_name,company_domain,email,full_name,title,department,seniority,country,location,confidence,verified,verification_status,provider,linkedin_profile_url,email_discovery_status,email_status,domain_status,mx_status,mailbox_evidence,verification_evidence,discovery_source,suppressed,suppression_reason,last_contacted_at,email_discovery_attempted_at,updated_at`,
