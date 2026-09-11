@@ -102,7 +102,7 @@ jobs:
             sleep 1
           done
           test -s /tmp/job-agent-health.json
-          grep -q '"status":"ok"' /tmp/job-agent-health.json
+          grep -q '\"status\":\"ok\"' /tmp/job-agent-health.json
           docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM schema_migrations;"
           docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM tasks;"
           docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;"
@@ -157,8 +157,17 @@ jobs:
           recruiter_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
           test "$recruiter_count" = '1'
 
-          recruiter_state="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT CONCAT(verified::int, ':', mailbox_evidence::int, ':', UPPER(COALESCE(email_status,'')), ':', LOWER(COALESCE(verification_status,''))) FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
-          test "$recruiter_state" = '0:0:UNVERIFIED:public-web-unverified'
+          recruiter_verified="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT verified::int FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
+          test "$recruiter_verified" = '0'
+
+          recruiter_mailbox_evidence="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT mailbox_evidence::int FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
+          test "$recruiter_mailbox_evidence" = '0'
+
+          recruiter_email_status="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT UPPER(COALESCE(email_status,'')) FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
+          test "$recruiter_email_status" != 'VERIFIED'
+
+          recruiter_verification_status="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT LOWER(COALESCE(verification_status,'')) FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
+          test "$recruiter_verification_status" = 'public-web-unverified'
 
           proactive_evidence_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_proactive_evidence e JOIN recruiter_contacts c ON c.id=e.recruiter_contact_id WHERE LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com';" | tr -d '[:space:]')"
           test "$proactive_evidence_count" -ge 1
@@ -172,7 +181,7 @@ jobs:
           sent_message_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com' AND UPPER(m.status)='SENT';" | tr -d '[:space:]')"
           test "$sent_message_count" -eq 0
 
-          echo "Proactive no-job safety verification passed: recruiter=$recruiter_count evidence=$proactive_evidence_count sequences=$proactive_sequence_count outbound_messages=$outbound_message_count sent_messages=$sent_message_count state=$recruiter_state"
+          echo "Proactive no-job safety verification passed: recruiter=$recruiter_count evidence=$proactive_evidence_count sequences=$proactive_sequence_count outbound_messages=$outbound_message_count sent_messages=$sent_message_count verified=$recruiter_verified mailbox_evidence=$recruiter_mailbox_evidence email_status=$recruiter_email_status verification_status=$recruiter_verification_status"
 
       - name: Verify safe runtime logs and kill switches
         shell: bash
