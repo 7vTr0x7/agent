@@ -62,7 +62,6 @@ async function main(): Promise<void> {
       `SELECT id
        FROM job_opportunities
        WHERE status = 'ACTIVE'
-         AND company_domain IS NOT NULL
          AND (
            title ILIKE ANY(ARRAY['%react%', '%frontend%', '%front end%', '%next.js%', '%typescript%', '%full stack%'])
            OR description ILIKE ANY(ARRAY['%react%', '%next.js%', '%typescript%'])
