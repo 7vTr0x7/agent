@@ -1,0 +1,3 @@
+# Next engineering pass
+
+Use the user-provided security-hardening prompt in the current conversation as the authoritative task specification. Do not activate Gmail, outbound sending, real applications, or spend Snov credits. Audit and harden recruiter verification through the final send boundary, add the requested regression matrix, preserve migrations and safety defaults, validate locally/CI, and report exact results.
