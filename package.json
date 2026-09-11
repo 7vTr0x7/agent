@@ -21,6 +21,7 @@
     "doctor": "tsx scripts/doctor.ts",
     "discover:once": "tsx src/scripts/discover-once.ts",
     "matching:once": "tsx scripts/process-matching-once.ts",
+    "proactive-recruiter:once": "tsx scripts/proactive-recruiter-once.ts",
     "gmail:authorize": "tsx scripts/gmail-authorize.ts",
     "gmail:verify": "tsx scripts/gmail-verify.ts",
     "gmail:smoke-send": "tsx scripts/gmail-smoke-send.ts"

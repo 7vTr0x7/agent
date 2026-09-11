@@ -18,6 +18,9 @@ export interface RecruiterOutreachPreparationInput {
   applicationId?: string;
   candidateProfileId: string;
   candidateName: string;
+  candidateSkills?: readonly string[];
+  candidateYearsExperience?: number;
+  candidateLocation?: string;
   applicationOutcome?: RecruiterApplicationOutcome;
 }
 
@@ -110,6 +113,14 @@ function buildInitialMessage(input: RecruiterOutreachPreparationInput, contact: 
   const company = input.companyName.trim();
   const candidate = input.candidateName.trim() || "Candidate";
   const outcome = input.applicationOutcome ?? "NOT_ATTEMPTED";
+  const jobText = `${role} ${input.jobDescription}`.toLowerCase();
+  const skills = [...new Set((input.candidateSkills ?? []).map((skill) => skill.trim()).filter(Boolean))];
+  const relevantSkills = skills.filter((skill) => jobText.includes(skill.toLowerCase())).slice(0, 5);
+  const skillList = (relevantSkills.length ? relevantSkills : skills.slice(0, 4)).join(", ");
+  const experience = Number.isFinite(input.candidateYearsExperience) && (input.candidateYearsExperience ?? 0) > 0
+    ? `${input.candidateYearsExperience} years of experience`
+    : null;
+  const location = input.candidateLocation?.trim() ? input.candidateLocation.trim() : null;
 
   const applicationLine = outcome === "SUBMITTED"
     ? `I’ve applied for the role and wanted to reach out directly in case you’re involved in the hiring process.`
@@ -119,10 +130,15 @@ function buildInitialMessage(input: RecruiterOutreachPreparationInput, contact: 
         ? `I was unable to complete the application through the available application flow, so I wanted to reach out directly regarding the opportunity.`
         : `I’m reaching out directly regarding the opportunity in case you’re involved in the hiring process.`;
 
+  const profileLine = [experience, skillList ? `with experience in ${skillList}` : null].filter(Boolean).join(" ");
+  const locationLine = location ? `I’m currently based in ${location}.` : null;
+
   return [
     greeting,
     "",
     `I’m ${candidate}, and I’m interested in the ${role} opportunity at ${company}.`,
+    profileLine ? `My background includes ${profileLine}.` : null,
+    locationLine,
     "",
     applicationLine,
     "I’d be happy to share my resume or any additional information that would be useful for the team.",
@@ -130,5 +146,5 @@ function buildInitialMessage(input: RecruiterOutreachPreparationInput, contact: 
     "Thank you for your time.",
     "",
     candidate
-  ].join("\n");
+  ].filter((line): line is string => line !== null).join("\n");
 }

@@ -51,14 +51,21 @@ export class GmailSyncTaskHandler {
         const applicationId = await this.messages.associateAndUpdateApplication(classified, classification);
 
         if (this.recruiterInboundProcessor) {
-          try {
-            await this.recruiterInboundProcessor.process(classified);
-          } catch (error) {
-            console.error("Failed to process recruiter inbound Gmail message", {
-              gmailMessageId: classified.gmailMessageId,
-              gmailThreadId: classified.gmailThreadId,
-              error: error instanceof Error ? error.message : String(error)
-            });
+          const claimed = await this.messages.claimRecruiterInbound(classified.gmailMessageId);
+          if (claimed) {
+            try {
+              const inboundResult = await this.recruiterInboundProcessor.process(classified);
+              await this.messages.markRecruiterInboundProcessed(classified.gmailMessageId, inboundResult.status);
+            } catch (error) {
+              // Leave the durable processing timestamp in place so a subsequent
+              // sync can reclaim the message after the 10-minute recovery window.
+              console.error("Failed to process recruiter inbound Gmail message", {
+                gmailMessageId: classified.gmailMessageId,
+                gmailThreadId: classified.gmailThreadId,
+                error: error instanceof Error ? error.message : String(error)
+              });
+              throw error;
+            }
           }
         }
 

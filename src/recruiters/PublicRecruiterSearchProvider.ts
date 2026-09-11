@@ -220,6 +220,8 @@ export class PublicRecruiterSearchProvider implements RecruiterDiscoveryProvider
           verificationStatus: "unverified_public_source",
           provider: this.name,
           linkedinProfileUrl: linkedin,
+          recruitingContext: match.context,
+          discoveryEvidence: [match.context.slice(0, 560)],
           sources: [source]
         });
       }
@@ -234,19 +236,23 @@ export class PublicRecruiterSearchProvider implements RecruiterDiscoveryProvider
 
   async verify(email: string): Promise<RecruiterVerificationResult> {
     const normalized = normalizeEmail(email);
-    if (!isPlausibleRecruiterEmail(normalized)) return { email: normalized, verified: false, status: "invalid_email_format", confidence: 0 };
+    if (!isPlausibleRecruiterEmail(normalized)) return { email: normalized, verified: false, status: "INVALID", confidence: 0 };
     const domain = normalized.split("@")[1] ?? "";
-    if (!domain) return { email: normalized, verified: false, status: "missing_email_domain", confidence: 0 };
+    if (!domain) return { email: normalized, verified: false, status: "INVALID", confidence: 0 };
 
     try {
       const records = await dns.resolveMx(domain);
-      if (records.length > 0) return { email: normalized, verified: true, status: "domain_mx_verified", confidence: 75 };
-      return { email: normalized, verified: false, status: "no_mx_record", confidence: 0 };
+      if (records.length > 0) {
+        // MX proves that the domain advertises a receiving mail exchanger. It does
+        // not prove that this specific mailbox exists, so this is LIKELY, not VERIFIED.
+        return { email: normalized, verified: false, status: "LIKELY", confidence: 75 };
+      }
+      return { email: normalized, verified: false, status: "INVALID", confidence: 0 };
     } catch {
       const dohResult = await verifyMxViaDnsOverHttps(domain);
-      if (dohResult === true) return { email: normalized, verified: true, status: "domain_mx_verified_doh", confidence: 75 };
-      if (dohResult === false) return { email: normalized, verified: false, status: "no_mx_record", confidence: 0 };
-      return { email: normalized, verified: false, status: "mx_lookup_failed", confidence: 0 };
+      if (dohResult === true) return { email: normalized, verified: false, status: "LIKELY", confidence: 75 };
+      if (dohResult === false) return { email: normalized, verified: false, status: "INVALID", confidence: 0 };
+      return { email: normalized, verified: false, status: "UNVERIFIED", confidence: 0 };
     }
   }
 }

@@ -19,7 +19,9 @@ describe("GmailSyncTaskHandler failure isolation", () => {
     };
     const messages = {
       save: jest.fn().mockResolvedValue(undefined),
-      associateAndUpdateApplication: jest.fn().mockResolvedValue(null)
+      associateAndUpdateApplication: jest.fn().mockResolvedValue(null),
+      claimRecruiterInbound: jest.fn().mockResolvedValue(true),
+      markRecruiterInboundProcessed: jest.fn().mockResolvedValue(undefined)
     };
     const classifier = { classify: jest.fn().mockReturnValue("OTHER") };
 
@@ -50,7 +52,9 @@ describe("GmailSyncTaskHandler failure isolation", () => {
     };
     const messages = {
       save: jest.fn().mockResolvedValue(undefined),
-      associateAndUpdateApplication: jest.fn().mockResolvedValue(null)
+      associateAndUpdateApplication: jest.fn().mockResolvedValue(null),
+      claimRecruiterInbound: jest.fn().mockResolvedValue(true),
+      markRecruiterInboundProcessed: jest.fn().mockResolvedValue(undefined)
     };
     const classifier = { classify: jest.fn().mockReturnValue("RECRUITER") };
     const recruiterInboundProcessor = {

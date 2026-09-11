@@ -13,6 +13,9 @@ export interface DiscoverRecruitersTaskPayload {
   location?: string;
   candidateProfileId: string;
   candidateName?: string;
+  candidateSkills?: readonly string[];
+  candidateYearsExperience?: number;
+  candidateLocation?: string;
   jobOpportunityId: string;
   applicationId?: string;
   applicationOutcome?: RecruiterApplicationOutcome;
@@ -27,9 +30,6 @@ export class RecruiterDiscoveryTaskDispatcher {
       taskType: DISCOVER_RECRUITERS_TASK,
       payload,
       priority,
-      // The queue intentionally deduplicates only PENDING/RUNNING tasks.
-      // A time bucket keeps successful zero-result discoveries from being
-      // re-enqueued every matching cycle while still refreshing public data.
       dedupeKey: `recruiter-discovery:${RECRUITER_DISCOVERY_DEDUPE_VERSION}:${payload.jobOpportunityId}:${payload.candidateProfileId}:${refreshBucket}`
     });
   }

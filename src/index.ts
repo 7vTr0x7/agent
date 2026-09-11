@@ -59,6 +59,10 @@ import { RecruiterOutreachSendReconciliationService } from "./recruiters/Recruit
 import { RecruiterOutreachRuntimeScheduler } from "./recruiters/RecruiterOutreachRuntimeScheduler";
 import { RecruiterOutreachInboundProcessor } from "./recruiters/RecruiterOutreachInboundProcessor";
 import { createRecruiterDiscoveryProvider } from "./recruiters/createRecruiterDiscoveryProvider";
+import { ProactiveRecruiterDiscoveryService } from "./recruiters/ProactiveRecruiterDiscoveryService";
+import { ProactiveRecruiterRepository } from "./recruiters/ProactiveRecruiterRepository";
+import { ProactiveRecruiterTaskHandler } from "./recruiters/ProactiveRecruiterTaskHandler";
+import { ProactiveRecruiterTaskDispatcher, PROACTIVE_RECRUITER_DISCOVERY_TASK, PROACTIVE_RECRUITER_OUTREACH_TASK } from "./recruiters/ProactiveRecruiterTask";
 
 const config = loadConfig();
 const logger = pino({ level: config.logLevel });
@@ -80,7 +84,7 @@ async function main(): Promise<void> {
   const database = new Database(config.databaseUrl);
   const migrationRunner = new MigrationRunner(database);
   await migrationRunner.run();
-  logger.info({ nodeEnv: config.nodeEnv, automationEnabled: config.automationEnabled, applicationDryRun: config.applicationDryRun, discoveryEnabled: config.discoveryEnabled, discoveryIntervalMs: config.discoveryIntervalMs, applicationQueueIntervalMs: config.applicationQueueIntervalMs, staleSubmissionCheckIntervalMs: config.staleSubmissionCheckIntervalMs, staleSubmissionThresholdMinutes: config.staleSubmissionThresholdMinutes, followUpIntervalMs: config.followUpIntervalMs, interviewReminderIntervalMs: config.interviewReminderIntervalMs, configuredJobSources: config.jobSources ? "configured" : "none", resumeTailoringEnabled: config.resume.tailoringEnabled, gmailEnabled: config.gmail.enabled, gmailAccountTier: config.gmail.accountTier, gmailDailySendLimit: config.gmail.dailySendLimit, genericApplicationAdapterEnabled: config.genericApplicationAdapterEnabled, applicationRateLimitPerDay: config.applicationRateLimitPerDay, applicationCompanyRateLimitPerDay: config.applicationCompanyRateLimitPerDay, ollamaModel: config.ollama.model, ollamaBaseUrl: config.ollama.baseUrl, recruiterActivation: config.recruiterOutreach.activation, recruiterFollowUpEnabled: config.recruiterOutreach.followUpEnabled, recruiterFollowUpDayOffsets: config.recruiterOutreach.followUpDayOffsets }, "job-agent started");
+  logger.info({ nodeEnv: config.nodeEnv, automationEnabled: config.automationEnabled, applicationDryRun: config.applicationDryRun, discoveryEnabled: config.discoveryEnabled, discoveryIntervalMs: config.discoveryIntervalMs, applicationQueueIntervalMs: config.applicationQueueIntervalMs, staleSubmissionCheckIntervalMs: config.staleSubmissionCheckIntervalMs, staleSubmissionThresholdMinutes: config.staleSubmissionThresholdMinutes, followUpIntervalMs: config.followUpIntervalMs, interviewReminderIntervalMs: config.interviewReminderIntervalMs, configuredJobSources: config.jobSources ? "configured" : "none", resumeTailoringEnabled: config.resume.tailoringEnabled, gmailEnabled: config.gmail.enabled, gmailAccountTier: config.gmail.accountTier, gmailDailySendLimit: config.gmail.dailySendLimit, genericApplicationAdapterEnabled: config.genericApplicationAdapterEnabled, applicationRateLimitPerDay: config.applicationRateLimitPerDay, applicationCompanyRateLimitPerDay: config.applicationCompanyRateLimitPerDay, ollamaModel: config.ollama.model, ollamaBaseUrl: config.ollama.baseUrl, recruiterActivation: config.recruiterOutreach.activation, recruiterFollowUpEnabled: config.recruiterOutreach.followUpEnabled, recruiterFollowUpDayOffsets: config.recruiterOutreach.followUpDayOffsets, proactiveRecruiterEnabled: config.proactiveRecruiter.enabled, proactiveRecruiterSendEnabled: config.proactiveRecruiter.sendEnabled }, "job-agent started");
   const candidateProfiles = ConfiguredCandidateProfileResolver.fromEnvironment();
   const candidateProfile = await candidateProfiles.getById(process.env.CANDIDATE_PROFILE_ID ?? "");
   if (!candidateProfile) throw new Error("Configured candidate profile could not be resolved.");
@@ -144,6 +148,8 @@ async function main(): Promise<void> {
   let recruiterReconciliationService: RecruiterOutreachSendReconciliationService | undefined;
   let recruiterRuntimeScheduler: RecruiterOutreachRuntimeScheduler | undefined;
   let recruiterRepository: RecruiterDiscoveryRepository | undefined;
+  let proactiveRecruiterDispatcher: ProactiveRecruiterTaskDispatcher | undefined;
+  let proactiveRecruiterHandler: ProactiveRecruiterTaskHandler | undefined;
   if (config.recruiterOutreach.enabled) {
     const provider = createRecruiterDiscoveryProvider({ provider: config.recruiterOutreach.discoveryProvider });
     recruiterRepository = new RecruiterDiscoveryRepository(database);
@@ -158,6 +164,22 @@ async function main(): Promise<void> {
     recruiterRuntimeScheduler = new RecruiterOutreachRuntimeScheduler(recruiterFollowUpScheduler, recruiterReconciliationService, logger);
     recruiterDiscoveryDispatcher = new RecruiterDiscoveryTaskDispatcher(taskQueue);
     recruiterDiscoveryHandler = new RecruiterDiscoveryTaskHandler(discovery, config.recruiterOutreach.maxContactsPerApplication, recruiterPreparationDispatcher, logger);
+
+    if (config.proactiveRecruiter.enabled) {
+      proactiveRecruiterDispatcher = new ProactiveRecruiterTaskDispatcher(taskQueue);
+      proactiveRecruiterHandler = new ProactiveRecruiterTaskHandler(
+        new ProactiveRecruiterDiscoveryService(),
+        new ProactiveRecruiterRepository(database),
+        recruiterSendDispatcher,
+        {
+          enabled: config.proactiveRecruiter.enabled,
+          sendEnabled: config.proactiveRecruiter.sendEnabled && config.gmail.enabled && config.outboundEnabled,
+          maxCandidatesPerRun: config.proactiveRecruiter.maxCandidatesPerRun,
+          requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail
+        },
+        logger
+      );
+    }
   }
 
   const applicationTaskHandler = new ApplicationTaskHandler(applicationRepository, submissionService, candidateProfiles, excludedCompanies, emailDispatcher, tailoredResumeArtifacts, tailoredResumeRepository, applicationAttemptRepository, recruiterDiscoveryDispatcher);
@@ -166,6 +188,10 @@ async function main(): Promise<void> {
   if (recruiterDiscoveryHandler) handlers.set(DISCOVER_RECRUITERS_TASK, recruiterDiscoveryHandler);
   if (recruiterPreparationHandler) handlers.set(PREPARE_RECRUITER_OUTREACH_TASK, recruiterPreparationHandler);
   if (recruiterSendHandler) handlers.set(SEND_RECRUITER_EMAIL_TASK, recruiterSendHandler);
+  if (proactiveRecruiterHandler) {
+    handlers.set(PROACTIVE_RECRUITER_DISCOVERY_TASK, proactiveRecruiterHandler);
+    handlers.set(PROACTIVE_RECRUITER_OUTREACH_TASK, proactiveRecruiterHandler);
+  }
 
   let discoveryRuntime: ReturnType<typeof createDiscoveryRuntime> | undefined;
   if (config.discoveryEnabled) { discoveryRuntime = createDiscoveryRuntime(database, taskQueue, config, candidateProfile); handlers.set(MATCH_JOB_TASK, discoveryRuntime.matchTaskHandler); logger.info({ sourceCount: discoveryRuntime.sourceCount }, "Discovery runtime enabled"); }
@@ -186,10 +212,30 @@ async function main(): Promise<void> {
   const interviewReminderLoop = (): Promise<void> => runPeriodicLoop({ name: "interview-reminders", intervalMs: config.interviewReminderIntervalMs, signal: shutdownController.signal, logger, sleep, runOnce: async () => { if (!interviewReminderScheduler) return; await interviewReminderScheduler.runOnce(); } });
   const followUpLoop = (): Promise<void> => runPeriodicLoop({ name: "follow-ups", intervalMs: config.followUpIntervalMs, signal: shutdownController.signal, logger, sleep, runOnce: async () => { if (!followUpScheduler) return; await followUpScheduler.runOnce(); } });
   const recruiterMaintenanceLoop = (): Promise<void> => runPeriodicLoop({ name: "recruiter-maintenance", intervalMs: config.followUpIntervalMs, signal: shutdownController.signal, logger, sleep, runOnce: async () => { if (!recruiterRuntimeScheduler) return; await recruiterRuntimeScheduler.runOnce(); } });
+  const proactiveRecruiterLoop = (): Promise<void> => runPeriodicLoop({ name: "proactive-recruiter-discovery", intervalMs: config.proactiveRecruiter.intervalMs, signal: shutdownController.signal, logger, sleep, runOnce: async () => {
+    if (!proactiveRecruiterDispatcher || !config.proactiveRecruiter.enabled) return;
+    await proactiveRecruiterDispatcher.enqueueDiscovery({
+      candidateProfileId: candidateProfile.id,
+      candidateName: (candidateProfile.fullName ?? ([candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") || undefined)),
+      yearsExperience: candidateProfile.yearsExperience,
+      skills: [...candidateProfile.skills],
+      targetRoles: [...candidateProfile.targetTitles],
+      location: candidateProfile.location,
+      preferredLocations: csvEnvironment("CANDIDATE_PREFERRED_LOCATIONS"),
+      remoteEligible: booleanEnvironment("CANDIDATE_REMOTE_ELIGIBLE", true),
+      maxCandidates: config.proactiveRecruiter.maxCandidatesPerRun
+    });
+  } });
   const loops: Array<Promise<void>> = [applicationLoop(), staleSubmissionLoop()];
-  if (discoveryRuntime) loops.push(discoveryLoop()); if (gmailSyncDispatcher) loops.push(gmailSyncLoop()); if (interviewReminderScheduler) loops.push(interviewReminderLoop()); if (followUpScheduler) loops.push(followUpLoop()); if (recruiterRuntimeScheduler) loops.push(recruiterMaintenanceLoop());
+  if (discoveryRuntime) loops.push(discoveryLoop()); if (gmailSyncDispatcher) loops.push(gmailSyncLoop()); if (interviewReminderScheduler) loops.push(interviewReminderLoop()); if (followUpScheduler) loops.push(followUpLoop()); if (recruiterRuntimeScheduler) loops.push(recruiterMaintenanceLoop()); if (proactiveRecruiterDispatcher) loops.push(proactiveRecruiterLoop());
   await Promise.all([worker.run(), ...loops]);
   await database.close();
+}
+
+function booleanEnvironment(name: string, fallback: boolean): boolean {
+  const value = process.env[name];
+  if (value === undefined) return fallback;
+  return value === "true";
 }
 
 main().catch(async (error) => { logger.error({ err: error }, "job-agent crashed"); process.exitCode = 1; });
