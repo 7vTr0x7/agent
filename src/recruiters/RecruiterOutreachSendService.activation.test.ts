@@ -24,7 +24,7 @@ describe("RecruiterOutreachSendService activation", () => {
   it("cannot send when activation remains disabled even with outbound enabled", async () => {
     const mail = mailbox();
     const repo = repository();
-    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true, activation: "disabled", maxMessagesPerDay: 500, maxMessagesPerHour: 21 });
+    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, gmailEnabled: true, dryRun: false, outboundEnabled: true, activation: "disabled", maxMessagesPerDay: 500, maxMessagesPerHour: 21 });
     await expect(service.send(message, "acme.dev")).resolves.toEqual({ status: "SKIPPED", messageId: message.id, reason: "Recruiter outreach activation is disabled." });
     expect(mail.sendMessage).not.toHaveBeenCalled();
     expect(repo.claimPreparedOutreachMessageWithinRateLimits).not.toHaveBeenCalled();
@@ -33,7 +33,7 @@ describe("RecruiterOutreachSendService activation", () => {
   it("allows only a one-message canary configuration", async () => {
     const mail = mailbox();
     const repo = repository();
-    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true, activation: "canary", maxMessagesPerDay: 1, maxMessagesPerHour: 1 });
+    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, gmailEnabled: true, dryRun: false, outboundEnabled: true, activation: "canary", maxMessagesPerDay: 1, maxMessagesPerHour: 1 });
     await expect(service.send(message, "acme.dev")).resolves.toMatchObject({ status: "SENT", messageId: message.id });
     expect(mail.sendMessage).toHaveBeenCalledTimes(1);
   });
@@ -41,7 +41,7 @@ describe("RecruiterOutreachSendService activation", () => {
   it("cannot enter canary mode with the full Gmail ceiling", async () => {
     const mail = mailbox();
     const repo = repository();
-    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, dryRun: false, outboundEnabled: true, activation: "canary", maxMessagesPerDay: 500, maxMessagesPerHour: 21 });
+    const service = new RecruiterOutreachSendService({ repository: repo, mailbox: mail, gmailEnabled: true, dryRun: false, outboundEnabled: true, activation: "canary", maxMessagesPerDay: 500, maxMessagesPerHour: 21 });
     await expect(service.send(message, "acme.dev")).resolves.toEqual({ status: "SKIPPED", messageId: message.id, reason: "Canary activation requires exactly 1 recruiter message per day and per hour." });
     expect(mail.sendMessage).not.toHaveBeenCalled();
   });
