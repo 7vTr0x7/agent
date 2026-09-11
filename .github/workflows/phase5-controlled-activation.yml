@@ -55,7 +55,7 @@ jobs:
             -e CANDIDATE_PROFILE_ID=phase5-runtime-candidate \
             -e CANDIDATE_YEARS_EXPERIENCE=3 \
             -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,HTML,CSS,Tailwind,Bootstrap' \
-            -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Frontend Developer,React Developer,Full Stack Developer,Full Stack Engineer' \
+            -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Frontend Developer,React Developer,UI Developer,Full Stack Developer,Full Stack Engineer' \
             -e CANDIDATE_FIRST_NAME=Runtime \
             -e CANDIDATE_LAST_NAME=Candidate \
             -e CANDIDATE_FULL_NAME='Runtime Candidate' \
