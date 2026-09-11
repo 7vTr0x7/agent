@@ -6,6 +6,7 @@ export interface RecruiterMailboxVerificationRecord {
   verificationStatus?: string | null;
   emailStatus?: string | null;
   mailboxEvidence?: boolean | null;
+  verificationEvidence?: unknown[] | null;
   suppressed?: boolean | null;
   relevanceStatus?: string | null;
 }
@@ -31,6 +32,8 @@ export function normalizeMailboxVerificationStatus(status: string | null | undef
 export function isMailboxVerifiedForRealSend(record: RecruiterMailboxVerificationRecord): boolean {
   return record.verified === true
     && record.mailboxEvidence === true
+    && Array.isArray(record.verificationEvidence)
+    && record.verificationEvidence.length > 0
     && String(record.emailStatus ?? "").toUpperCase() === "VERIFIED"
     && normalizeMailboxVerificationStatus(record.verificationStatus) === "VERIFIED"
     && !LEGACY_UNSAFE_STATUSES.has(String(record.verificationStatus ?? "").trim().toLowerCase());
@@ -51,6 +54,8 @@ export function isEligibleForRealRecruiterSend(record: RecruiterMailboxVerificat
 export function recruiterRealSendEligibilitySql(alias = "c"): string {
   return `COALESCE(${alias}.verified,FALSE)=TRUE
     AND COALESCE(${alias}.mailbox_evidence,FALSE)=TRUE
+    AND jsonb_typeof(COALESCE(${alias}.verification_evidence,'[]'::jsonb))='array'
+    AND jsonb_array_length(CASE WHEN jsonb_typeof(COALESCE(${alias}.verification_evidence,'[]'::jsonb))='array' THEN COALESCE(${alias}.verification_evidence,'[]'::jsonb) ELSE '[]'::jsonb END)>0
     AND UPPER(COALESCE(${alias}.email_status,''))='VERIFIED'
     AND LOWER(COALESCE(${alias}.verification_status,''))='mailbox_verified'
     AND COALESCE(${alias}.relevance_status,'UNKNOWN') IN ('CURRENT','RECENT')
