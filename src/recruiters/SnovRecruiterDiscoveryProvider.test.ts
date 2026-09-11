@@ -18,13 +18,21 @@ describe("SnovRecruiterDiscoveryProvider", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(5);
   });
 
-  it("reuses a cached access token and returns canonical verification status", async () => {
+  it("reuses a cached access token and returns canonical verification status with mailbox evidence", async () => {
     const fetchImpl: typeof fetch = jest.fn()
       .mockResolvedValueOnce(response({ access_token: "token", expires_in: 3600 }))
       .mockResolvedValueOnce(response({ data: { task_hash: "verify-task" } }))
       .mockResolvedValueOnce(response({ data: [{ email: "recruiter@example.com", status: "valid", score: 98 }], status: "completed" }));
     const provider = new SnovRecruiterDiscoveryProvider({ clientId: "id", clientSecret: "secret", fetchImpl, pollDelayMs: 0 });
-    await expect(provider.verify("recruiter@example.com")).resolves.toEqual({ email: "recruiter@example.com", verified: true, status: "mailbox_verified", confidence: 98 });
+    const result = await provider.verify("recruiter@example.com");
+    expect(result).toMatchObject({ email: "recruiter@example.com", verified: true, status: "mailbox_verified", confidence: 98 });
+    expect(result.verificationEvidence).toEqual([{
+      provider: "snov",
+      status: "mailbox_verified",
+      confidence: 98,
+      mailboxLevel: true,
+      source: "snov_email_verification"
+    }]);
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
