@@ -140,7 +140,7 @@ export class RecruiterIdentityRepository {
          mx_status=$7,
          mailbox_evidence=mailbox_evidence OR $8,
          verification_evidence=verification_evidence || $9::jsonb,
-         identity_key=CASE WHEN linkedin_profile_url IS NOT NULL THEN identity_key ELSE CONCAT('email:',$2::text) END,
+         identity_key=CASE WHEN linkedin_profile_url IS NOT NULL THEN identity_key ELSE CONCAT('email:',email) END,
          last_seen_at=NOW(),updated_at=NOW()
        WHERE id=$1
        RETURNING id,company_name,company_domain,email,full_name,title,department,seniority,country,location,confidence,verified,verification_status,provider,linkedin_profile_url,email_discovery_status,email_status,domain_status,mx_status,mailbox_evidence,verification_evidence,discovery_source,suppressed,suppression_reason,last_contacted_at,email_discovery_attempted_at,updated_at`,
