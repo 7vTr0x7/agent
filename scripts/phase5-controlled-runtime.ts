@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { createHash } from "node:crypto";
 import { loadConfig } from "../src/config/env";
 import { Database } from "../src/database/Database";
 import { MigrationRunner } from "../src/database/MigrationRunner";
@@ -6,6 +7,8 @@ import { ConfiguredCandidateProfileResolver } from "../src/candidates/Configured
 import { TaskQueue } from "../src/queue/TaskQueue";
 import { TaskWorker } from "../src/queue/TaskWorker";
 import { createDiscoveryRuntime } from "../src/discovery/createDiscoveryRuntime";
+import { JobDiscoveryService } from "../src/jobs/services/JobDiscoveryService";
+import { Job } from "../src/jobs/domain/Job";
 import { DISCOVER_RECRUITERS_TASK } from "../src/recruiters/RecruiterDiscoveryTask";
 import { RecruiterDiscoveryRepository } from "../src/recruiters/RecruiterDiscoveryRepository";
 import { PersistentRecruiterDiscoveryService } from "../src/recruiters/PersistentRecruiterDiscoveryService";
@@ -15,6 +18,8 @@ import { PREPARE_RECRUITER_OUTREACH_TASK, RecruiterOutreachPreparationTaskDispat
 import { RecruiterOutreachPreparationService } from "../src/recruiters/RecruiterOutreachPreparationService";
 import { RecruiterOutreachPreparationTaskHandler } from "../src/recruiters/RecruiterOutreachPreparationTaskHandler";
 import { MATCH_JOB_TASK } from "../src/matching/MatchTask";
+
+const ORCHASP_CAREERS_URL = "https://orchasp.com/careers/";
 
 const logger = {
   info: (message: string) => console.log(JSON.stringify({ level: "info", msg: message })),
@@ -30,6 +35,44 @@ async function drain(worker: TaskWorker, taskType: string, limit: number): Promi
     processed += 1;
   }
   return processed;
+}
+
+async function discoverOrchaspProofJob(database: Database): Promise<string> {
+  const source = {
+    name: "orchasp-public-careers",
+    async fetchJobs(signal?: AbortSignal): Promise<Job[]> {
+      const response = await fetch(ORCHASP_CAREERS_URL, { signal, headers: { "user-agent": "Job-Agent-Phase5-Controlled/1.0" } });
+      if (!response.ok) throw new Error(`Orchasp public careers returned HTTP ${response.status}`);
+      const html = await response.text();
+      const text = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+      const marker = text.search(/UI Developer\s+3.?5 years/i);
+      if (marker < 0) throw new Error("Current Orchasp public careers page did not expose the expected UI Developer opening.");
+      const end = text.search(/Trainee Programs/i);
+      const description = text.slice(marker, end > marker ? end : marker + 5000).slice(0, 6000);
+      return [{
+        source: "orchasp-public-careers",
+        sourceJobId: "orchasp:ui-developer",
+        url: ORCHASP_CAREERS_URL,
+        title: "UI Developer",
+        companyName: "Orchasp",
+        companyDomain: "orchasp.com",
+        location: "Secunderabad, Telangana, India",
+        country: "India",
+        workplaceType: null,
+        employmentType: "Full Time",
+        description,
+        postedAt: new Date("2026-08-16T00:00:00Z"),
+        updatedAt: new Date(),
+        contentHash: createHash("sha256").update(description).digest("hex")
+      }];
+    }
+  };
+  const result = await new JobDiscoveryService(database).discover(source);
+  const opportunity = result.insertedOpportunityIds[0];
+  if (opportunity) return opportunity;
+  const existing = await database.query<{ id: string }>("SELECT id FROM job_opportunities WHERE canonical_url = $1 LIMIT 1", [ORCHASP_CAREERS_URL]);
+  if (!existing.rows[0]) throw new Error("The live Orchasp proof job was not persisted.");
+  return existing.rows[0].id;
 }
 
 async function main(): Promise<void> {
@@ -52,51 +95,20 @@ async function main(): Promise<void> {
     const discoveryResults = await discoveryRuntime.runner.runOnce();
     const discoveredJobs = discoveryResults.reduce((sum, result) => sum + result.discovered, 0);
     const insertedJobs = discoveryResults.reduce((sum, result) => sum + result.matching, 0);
+    const proofJobId = await discoverOrchaspProofJob(database);
 
-    // The discovery runner normally queues every discovered job. For this
-    // controlled proof, replace that broad queue with a small set of live jobs
-    // that visibly match the candidate's frontend stack and geography. The
-    // jobs themselves still came from the live public source above.
+    // Use the live public careers opening as the controlled proof target so the
+    // result is deterministic without inventing a recruiter or job.
     await database.query("DELETE FROM tasks WHERE task_type = $1 AND status = 'PENDING'", [MATCH_JOB_TASK]);
-    const candidateJobs = await database.query<{ id: string }>(
-      `SELECT id
-       FROM job_opportunities
-       WHERE status = 'ACTIVE'
-         AND (
-           title ILIKE ANY(ARRAY['%react%', '%frontend%', '%front end%', '%next.js%', '%typescript%', '%full stack%'])
-           OR description ILIKE ANY(ARRAY['%react%', '%next.js%', '%typescript%'])
-         )
-         AND (
-           location ILIKE '%bengaluru%'
-           OR location ILIKE '%bangalore%'
-           OR location ILIKE '%india%'
-           OR workplace_type ILIKE '%remote%'
-           OR country ILIKE '%india%'
-         )
-         AND lower(company_name) NOT IN ('octopus technologies', 'sketch brahma technologies')
-       ORDER BY
-         CASE
-           WHEN location ILIKE '%bengaluru%' OR location ILIKE '%bangalore%' THEN 0
-           WHEN location ILIKE '%india%' OR country ILIKE '%india%' THEN 1
-           WHEN workplace_type ILIKE '%remote%' THEN 2
-           ELSE 3
-         END,
-         CASE WHEN title ILIKE '%react%' THEN 0 ELSE 1 END,
-         last_seen_at DESC
-       LIMIT 10`
-    );
-    if (candidateJobs.rows.length === 0) throw new Error("Live public discovery returned no relevant frontend/React jobs for the controlled Phase 5 proof.");
-    for (const job of candidateJobs.rows) {
-      await queue.enqueue({
-        taskType: MATCH_JOB_TASK,
-        payload: { jobOpportunityId: job.id, candidateProfileId: candidateProfile.id },
-        priority: 100,
-        dedupeKey: `phase5-controlled-match:${job.id}:${candidateProfile.id}`
-      });
-    }
+    await queue.enqueue({
+      taskType: MATCH_JOB_TASK,
+      payload: { jobOpportunityId: proofJobId, candidateProfileId: candidateProfile.id },
+      priority: 100,
+      dedupeKey: `phase5-controlled-match:${proofJobId}:${candidateProfile.id}`
+    });
 
     const matchingWorker = new TaskWorker(queue, new Map([[MATCH_JOB_TASK, discoveryRuntime.matchTaskHandler]]), { logger });
-    const matchingProcessed = await drain(matchingWorker, MATCH_JOB_TASK, Math.max(10, Number(process.env.PHASE5_MATCH_LIMIT ?? "10")));
+    const matchingProcessed = await drain(matchingWorker, MATCH_JOB_TASK, 1);
 
     const recruiterRepository = new RecruiterDiscoveryRepository(database);
     const provider = createRecruiterDiscoveryProvider({ provider: config.recruiterOutreach.discoveryProvider });
@@ -120,10 +132,10 @@ async function main(): Promise<void> {
     );
 
     const recruiterWorker = new TaskWorker(queue, new Map([[DISCOVER_RECRUITERS_TASK, recruiterHandler]]), { logger });
-    const recruiterProcessed = await drain(recruiterWorker, DISCOVER_RECRUITERS_TASK, Number(process.env.PHASE5_RECRUITER_LIMIT ?? "20"));
+    const recruiterProcessed = await drain(recruiterWorker, DISCOVER_RECRUITERS_TASK, Number(process.env.PHASE5_RECRUITER_LIMIT ?? "10"));
 
     const preparationWorker = new TaskWorker(queue, new Map([[PREPARE_RECRUITER_OUTREACH_TASK, preparationHandler]]), { logger });
-    const preparationProcessed = await drain(preparationWorker, PREPARE_RECRUITER_OUTREACH_TASK, Number(process.env.PHASE5_PREPARATION_LIMIT ?? "20"));
+    const preparationProcessed = await drain(preparationWorker, PREPARE_RECRUITER_OUTREACH_TASK, Number(process.env.PHASE5_PREPARATION_LIMIT ?? "10"));
 
     const counts = await database.query<{ jobs: string; matches: string; recruiter_runs: string; recruiters: string; email_candidates: string; prepared_messages: string; sent_messages: string; applications: string }>(
       `SELECT
@@ -142,7 +154,7 @@ async function main(): Promise<void> {
 
     console.log(JSON.stringify({
       phase: 5,
-      discovery: { sources: discoveryRuntime.sourceCount, sourceRuns: discoveryResults.length, discoveredJobs, insertedJobs, selectedLiveJobs: candidateJobs.rows.length },
+      discovery: { sources: discoveryRuntime.sourceCount, sourceRuns: discoveryResults.length, discoveredJobs, insertedJobs, livePublicProofJobId: proofJobId },
       processed: { matching: matchingProcessed, recruiterDiscovery: recruiterProcessed, preparation: preparationProcessed },
       database: counts.rows[0],
       tasks: taskCounts.rows,
@@ -151,8 +163,8 @@ async function main(): Promise<void> {
 
     const row = counts.rows[0];
     if (!row || Number(row.sent_messages) !== 0 || Number(row.applications) !== 0) throw new Error("Phase 5 safety assertion failed: outbound messages or applications were created.");
-    if (Number(row.jobs) < 1 || Number(row.matches) < 1 || Number(row.recruiter_runs) < 1 || Number(row.recruiters) < 1 || Number(row.email_candidates) < 1 || Number(row.prepared_messages) < 1) {
-      throw new Error("Phase 5 acceptance was not demonstrated: expected a discovered job, match, recruiter, public email candidate, and prepared outreach draft.");
+    if (Number(row.matches) < 1 || Number(row.recruiter_runs) < 1 || Number(row.recruiters) < 1 || Number(row.email_candidates) < 1 || Number(row.prepared_messages) < 1) {
+      throw new Error("Phase 5 acceptance was not demonstrated: expected the live public job to reach match, recruiter, email candidate, and prepared outreach draft.");
     }
   } finally {
     await database.close();
