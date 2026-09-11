@@ -60,7 +60,11 @@ export class MatchTaskHandler {
 
     const dispatches: Promise<unknown>[] = [];
     if (this.applications && match.decision === "APPLY") dispatches.push(this.applications.enqueue(jobOpportunityId, candidateProfileId, 30));
-    if (this.recruiters) dispatches.push(this.enqueueRecruiterDiscoveryIfEligible(job, candidateProfileId));
+    // Recruiter intelligence is downstream of a positive/reviewable match. A
+    // rejected job must not trigger employer/recruiter discovery work.
+    if (this.recruiters && (match.decision === "APPLY" || match.decision === "REVIEW")) {
+      dispatches.push(this.enqueueRecruiterDiscoveryIfEligible(job, candidateProfileId));
+    }
     await Promise.all(dispatches);
   }
 
