@@ -25,18 +25,22 @@ async function main(): Promise<void> {
   });
 
   const verifiedContacts = await Promise.all(result.contacts.map(async (contact) => {
-    if (contact.verified) return contact;
+    if (contact.verificationStatus === "VERIFIED" && contact.verified) return contact;
+    if (!contact.email) return contact;
     try {
       const verification = await provider.verify(contact.email);
-      if (!verification.verified) return contact;
       return {
         ...contact,
-        verified: true,
+        // Public-web verification intentionally cannot claim mailbox-level proof.
+        // Keep verified=false for MX-only results; a future authorized mailbox
+        // verifier may explicitly return VERIFIED when it has mailbox evidence.
+        verified: verification.status === "VERIFIED",
         verificationStatus: verification.status,
+        emailStatus: verification.status,
         confidence: Math.min(100, Math.max(contact.confidence ?? 0, verification.confidence ?? 0))
       };
     } catch {
-      return contact;
+      return { ...contact, verified: false, verificationStatus: "UNVERIFIED", emailStatus: "UNVERIFIED" as const };
     }
   }));
 
@@ -51,12 +55,13 @@ async function main(): Promise<void> {
     confidence: contact.confidence,
     verified: contact.verified,
     verificationStatus: contact.verificationStatus,
+    emailStatus: contact.emailStatus,
     linkedinProfileUrl: contact.linkedinProfileUrl,
     sourceCount: contact.sources?.length ?? 0
   }));
 
   const sendEligible = verifiedContacts.filter((contact) =>
-    contact.verified && (contact.confidence ?? 0) >= 80
+    contact.verified && contact.verificationStatus === "VERIFIED" && (contact.confidence ?? 0) >= 80
   ).length;
 
   console.log(JSON.stringify({
@@ -67,7 +72,7 @@ async function main(): Promise<void> {
     jobTitle,
     discovered: verifiedContacts.length,
     sendEligible,
-    note: "Public-web discovery plus free domain-MX deliverability verification. verified=true means the employer domain accepts mail via MX; it does not claim that the individual mailbox exists. This command never sends recruiter email.",
+    note: "Public-web discovery never upgrades an address to VERIFIED from MX alone. LIKELY means the destination domain advertises an MX receiver; VERIFIED requires mailbox-level evidence from an authorized verifier. This command never sends recruiter email.",
     contacts
   }, null, 2));
 }
