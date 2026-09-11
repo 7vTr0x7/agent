@@ -1,11 +1,15 @@
 import "dotenv/config";
 import { loadConfig } from "../src/config/env";
+import { CONTROLLED_SEND_CONFIRMATION } from "../src/recruiters/RecruiterOutreachActivationGate";
 
 function fail(message: string): never { throw new Error(`Recruiter outreach preflight failed: ${message}`); }
 
 function main(): void {
   const config = loadConfig();
   const checks: string[] = [];
+  const controlledConfirmation = process.env.RECRUITER_CONTROLLED_SEND_CONFIRM?.trim();
+  const controlledMessageId = process.env.RECRUITER_CONTROLLED_MESSAGE_ID?.trim();
+  const controlledRecipient = process.env.RECRUITER_CONTROLLED_RECIPIENT?.trim().toLowerCase();
   if (!config.recruiterOutreach.enabled) {
     console.log(JSON.stringify({ status: "SAFE", enabled: false, dryRun: config.recruiterOutreach.dryRun, activation: config.recruiterOutreach.activation, outboundEnabled: config.outboundEnabled, provider: config.recruiterOutreach.discoveryProvider, gmailAccountTier: config.gmail.accountTier, gmailDailySendLimit: config.gmail.dailySendLimit, checks: ["Recruiter outreach is disabled; no recruiter email can be sent."] }, null, 2));
     return;
@@ -13,6 +17,9 @@ function main(): void {
   if (!config.recruiterOutreach.dryRun && !config.outboundEnabled) fail("RECRUITER_OUTREACH_DRY_RUN=false requires OUTBOUND_ENABLED=true.");
   if (!config.recruiterOutreach.dryRun && !config.gmail.enabled) fail("real recruiter outreach requires GMAIL_ENABLED=true.");
   if (!config.recruiterOutreach.dryRun && config.recruiterOutreach.activation === "disabled") fail("real recruiter outreach requires explicit activation=canary or activation=live.");
+  if (!config.recruiterOutreach.dryRun && controlledConfirmation !== CONTROLLED_SEND_CONFIRMATION) fail(`real recruiter outreach requires RECRUITER_CONTROLLED_SEND_CONFIRM=${CONTROLLED_SEND_CONFIRMATION}.`);
+  if (!config.recruiterOutreach.dryRun && !controlledMessageId) fail("controlled recruiter outreach requires RECRUITER_CONTROLLED_MESSAGE_ID; broad message selection is forbidden.");
+  if (!config.recruiterOutreach.dryRun && !controlledRecipient) fail("controlled recruiter outreach requires RECRUITER_CONTROLLED_RECIPIENT; broad recipient selection is forbidden.");
   if (!config.recruiterOutreach.dryRun && config.recruiterOutreach.activation === "canary" && (config.recruiterOutreach.maxMessagesPerDay !== 1 || config.recruiterOutreach.maxMessagesPerHour !== 1)) fail("canary activation requires exactly 1 recruiter message per day and per hour.");
   if (!config.recruiterOutreach.dryRun && config.recruiterOutreach.activation === "live" && !config.recruiterOutreach.liveActivationConfirmed) fail("live activation requires RECRUITER_LIVE_ACTIVATION_CONFIRMED=true.");
   if (!config.recruiterOutreach.dryRun && config.recruiterOutreach.discoveryProvider === "job-posting") fail("job-posting is discovery-only and cannot provide verified recruiter contacts for real sending.");
@@ -25,6 +32,6 @@ function main(): void {
   if (config.recruiterOutreach.requireVerifiedEmail && config.recruiterOutreach.discoveryProvider === "job-posting") checks.push("job-posting contacts remain blocked from sending until a verification provider confirms deliverability.");
   if (config.recruiterOutreach.maxContactsPerApplication > 3) checks.push("max contacts per application is above the conservative default of 3; review before activation.");
   if (config.recruiterOutreach.followUpEnabled && config.recruiterOutreach.followUpDayOffsets.length === 0) fail("follow-ups are enabled but no follow-up offsets are configured.");
-  console.log(JSON.stringify({ status: "PASS", enabled: true, dryRun: config.recruiterOutreach.dryRun, activation: config.recruiterOutreach.activation, liveActivationConfirmed: config.recruiterOutreach.liveActivationConfirmed, outboundEnabled: config.outboundEnabled, gmailEnabled: config.gmail.enabled, gmailAccountTier: config.gmail.accountTier, gmailDailySendLimit: config.gmail.dailySendLimit, provider: config.recruiterOutreach.discoveryProvider, requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail, minConfidence: config.recruiterOutreach.minConfidence, maxContactsPerApplication: config.recruiterOutreach.maxContactsPerApplication, maxMessagesPerHour: config.recruiterOutreach.maxMessagesPerHour, maxMessagesPerDay: config.recruiterOutreach.maxMessagesPerDay, followUpEnabled: config.recruiterOutreach.followUpEnabled, checks }, null, 2));
+  console.log(JSON.stringify({ status: "PASS", enabled: true, dryRun: config.recruiterOutreach.dryRun, activation: config.recruiterOutreach.activation, liveActivationConfirmed: config.recruiterOutreach.liveActivationConfirmed, controlledMessageId: controlledMessageId ? "configured" : "missing", controlledRecipient: controlledRecipient ? "configured" : "missing", outboundEnabled: config.outboundEnabled, gmailEnabled: config.gmail.enabled, gmailAccountTier: config.gmail.accountTier, gmailDailySendLimit: config.gmail.dailySendLimit, provider: config.recruiterOutreach.discoveryProvider, requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail, minConfidence: config.recruiterOutreach.minConfidence, maxContactsPerApplication: config.recruiterOutreach.maxContactsPerApplication, maxMessagesPerHour: config.recruiterOutreach.maxMessagesPerHour, maxMessagesPerDay: config.recruiterOutreach.maxMessagesPerDay, followUpEnabled: config.recruiterOutreach.followUpEnabled, checks }, null, 2));
 }
 try { main(); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }
