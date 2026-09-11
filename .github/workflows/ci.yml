@@ -144,6 +144,8 @@ jobs:
       - name: Verify isolated proactive recruiter runtime without a job
         shell: bash
         run: |
+          set -euo pipefail
+
           docker exec \
             -e PROACTIVE_RECRUITER_ENABLED=true \
             -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
@@ -151,9 +153,26 @@ jobs:
             -e OUTBOUND_ENABLED=false \
             -e PROACTIVE_RECRUITER_FIXTURE=true \
             job-agent-runtime-app npx tsx scripts/proactive-recruiter-once.ts
-          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_proactive_evidence;")" -ge 1
-          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_sequences WHERE campaign_type='PROACTIVE_RECRUITER' AND job_opportunity_id IS NULL;")" -ge 1
-          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';")" -eq 0
+
+          recruiter_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
+          test "$recruiter_count" = '1'
+
+          recruiter_state="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT CONCAT(verified::int, ':', mailbox_evidence::int, ':', UPPER(COALESCE(email_status,'')), ':', LOWER(COALESCE(verification_status,''))) FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
+          test "$recruiter_state" = '0:0:UNVERIFIED:public-web-unverified'
+
+          proactive_evidence_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_proactive_evidence e JOIN recruiter_contacts c ON c.id=e.recruiter_contact_id WHERE LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com';" | tr -d '[:space:]')"
+          test "$proactive_evidence_count" -ge 1
+
+          proactive_sequence_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_sequences s JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE s.campaign_type='PROACTIVE_RECRUITER' AND s.job_opportunity_id IS NULL AND LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com';" | tr -d '[:space:]')"
+          test "$proactive_sequence_count" -eq 0
+
+          outbound_message_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com';" | tr -d '[:space:]')"
+          test "$outbound_message_count" -eq 0
+
+          sent_message_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com' AND UPPER(m.status)='SENT';" | tr -d '[:space:]')"
+          test "$sent_message_count" -eq 0
+
+          echo "Proactive no-job safety verification passed: recruiter=$recruiter_count evidence=$proactive_evidence_count sequences=$proactive_sequence_count outbound_messages=$outbound_message_count sent_messages=$sent_message_count state=$recruiter_state"
 
       - name: Verify safe runtime logs and kill switches
         shell: bash
