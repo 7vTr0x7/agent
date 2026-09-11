@@ -93,15 +93,15 @@ export class RecruiterIdentityRepository {
         `SELECT id FROM recruiter_contacts
          WHERE company_domain=$1
            AND (
-             ($2 IS NOT NULL AND LOWER(linkedin_profile_url)=LOWER($2))
-             OR ($3 IS NOT NULL AND LOWER(email)=LOWER($3))
-             OR ($4 IS NOT NULL AND LOWER(full_name)=LOWER($4))
+             ($2::text IS NOT NULL AND LOWER(linkedin_profile_url)=LOWER($2::text))
+             OR ($3::text IS NOT NULL AND LOWER(email)=LOWER($3::text))
+             OR ($4::text IS NOT NULL AND LOWER(full_name)=LOWER($4::text))
              OR identity_key=$5
            )
          ORDER BY CASE
-           WHEN $2 IS NOT NULL AND LOWER(linkedin_profile_url)=LOWER($2) THEN 1
-           WHEN $3 IS NOT NULL AND LOWER(email)=LOWER($3) THEN 2
-           WHEN $4 IS NOT NULL AND LOWER(full_name)=LOWER($4) THEN 3
+           WHEN $2::text IS NOT NULL AND LOWER(linkedin_profile_url)=LOWER($2::text) THEN 1
+           WHEN $3::text IS NOT NULL AND LOWER(email)=LOWER($3::text) THEN 2
+           WHEN $4::text IS NOT NULL AND LOWER(full_name)=LOWER($4::text) THEN 3
            ELSE 4 END
          LIMIT 1`,
         [domain, profileUrl, email, fullName, identityKey]
