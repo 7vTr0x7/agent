@@ -56,11 +56,11 @@ export class RecruiterOutreachSendService {
     const database = this.options.database!;
     return database.transaction(async (client) => {
       await client.query(`SELECT pg_advisory_xact_lock(hashtext('job-agent:recruiter-outreach-rate-limit'))`);
-      const result = await client.query<any>(`SELECT m.id,m.sequence_id,m.message_type,m.sequence_step,m.recipient_email,m.subject,m.body,m.status,s.recruiter_contact_id,s.job_opportunity_id,s.candidate_profile_id,c.company_domain,c.email AS contact_email,c.verified AS recruiter_verified,c.verification_status AS recruiter_verification_status,m.send_state,m.client_message_id AS existing_client_message_id FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE m.id=$1 FOR UPDATE OF m,s,c`, [messageId]);
+      const result = await client.query<any>(`SELECT m.id,m.sequence_id,m.message_type,m.sequence_step,m.recipient_email,m.subject,m.body,m.status,s.status AS sequence_status,s.recruiter_contact_id,s.job_opportunity_id,s.candidate_profile_id,c.company_domain,c.email AS contact_email,c.verified AS recruiter_verified,c.verification_status AS recruiter_verification_status,m.send_state,m.client_message_id AS existing_client_message_id FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE m.id=$1 FOR UPDATE OF m,s,c`, [messageId]);
       const row = result.rows[0];
       if (!row || row.status !== "PREPARED") return null;
       if (row.job_opportunity_id === null) return null;
-      if (row.sequence_status && row.sequence_status !== "READY" && row.sequence_status !== "ACTIVE") return null;
+      if (row.sequence_status !== "READY" && row.sequence_status !== "ACTIVE") return null;
       if (String(row.recipient_email).toLowerCase() !== String(row.contact_email).toLowerCase()) return null;
       if (this.requireVerifiedEmail && !row.recruiter_verified) return null;
       if (row.send_state === "SENT" || row.send_state === "AMBIGUOUS") return null;
