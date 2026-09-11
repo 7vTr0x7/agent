@@ -9,6 +9,14 @@ export interface RecruiterDiscoveryInput {
   applicationId?: string;
 }
 
+export interface RecruiterVerificationEvidence {
+  provider: string;
+  status: string;
+  confidence?: number;
+  mailboxLevel?: boolean;
+  source?: string;
+}
+
 export interface RecruiterIdentityCandidate {
   email?: string;
   fullName?: string;
@@ -20,6 +28,7 @@ export interface RecruiterIdentityCandidate {
   confidence?: number;
   verified: boolean;
   verificationStatus?: string;
+  verificationEvidence?: RecruiterVerificationEvidence[];
   provider: string;
   linkedinProfileUrl?: string;
   companyDomain?: string;
@@ -53,13 +62,7 @@ export interface RecruiterVerificationResult {
   status: string;
   confidence?: number;
   /** Structured evidence describing how the verification decision was established. */
-  verificationEvidence?: Array<{
-    provider: string;
-    status: string;
-    confidence?: number;
-    mailboxLevel?: boolean;
-    source?: string;
-  }>;
+  verificationEvidence?: RecruiterVerificationEvidence[];
 }
 
 export interface RecruiterDiscoveryProvider {
