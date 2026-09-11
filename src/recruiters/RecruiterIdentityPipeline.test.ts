@@ -50,6 +50,7 @@ function identityRepository(initial = stored()): RecruiterIdentityRepository & {
       state.email = email;
       state.verified = verified;
       state.verificationStatus = verificationStatus;
+      state.emailStatus = verificationStatus === "LIKELY" ? "LIKELY" : verified ? "VERIFIED" : "UNVERIFIED";
       state.confidence = Math.max(state.confidence ?? 0, confidence ?? 0);
       state.emailDiscoveryStatus = "FOUND";
       return state;
@@ -94,7 +95,7 @@ describe("recruiter identity/email pipeline", () => {
     expect(result.contacts).toHaveLength(0);
   });
 
-  it("enriches the same recruiter identity when a later email is found", async () => {
+  it("enriches the same recruiter identity when a later verified email is found", async () => {
     const repo = baseRepository();
     const identities = identityRepository();
     const email: RecruiterIdentityCandidate = {
@@ -116,7 +117,7 @@ describe("recruiter identity/email pipeline", () => {
       provider: "public-web",
       linkedinProfileUrl: "https://linkedin.com/in/jane-doe",
       sources: [{ url: "https://linkedin.com/in/jane-doe", type: "public_linkedin_search", confidence: 95 }]
-    }], [email]) });
+    }], [email], { verified: true, status: "VERIFIED", confidence: 96 }) });
 
     const result = await service.discoverAndPersist(input, 5);
 
@@ -126,7 +127,7 @@ describe("recruiter identity/email pipeline", () => {
     expect(result.contacts[0]?.email).toBe("jane@acme.com");
   });
 
-  it("never treats an MX/domain-only verifier result as mailbox verification", async () => {
+  it("preserves MX/domain-only evidence as LIKELY and never makes it outreach eligible", async () => {
     const repo = baseRepository();
     const identities = identityRepository();
     const email: RecruiterIdentityCandidate = {
@@ -151,10 +152,12 @@ describe("recruiter identity/email pipeline", () => {
 
     const result = await service.discoverAndPersist(input, 5);
 
-    expect(identities.markEmailDiscovery).toHaveBeenCalledWith("recruiter-1", "INVALID");
-    expect(identities.enrichEmail).not.toHaveBeenCalledWith("recruiter-1", "jane@acme.com", true, "domain_mx_verified", 96);
-    expect(result.metrics.emailDiscovery.invalid).toBe(1);
+    expect(identities.enrichEmail).toHaveBeenCalledWith("recruiter-1", "jane@acme.com", false, "domain_mx_verified", 96);
+    expect(identities.markEmailDiscovery).not.toHaveBeenCalledWith("recruiter-1", "INVALID");
+    expect(result.metrics.emailDiscovery.found).toBe(1);
     expect(result.contacts).toHaveLength(0);
+    expect(identities.state.verified).toBe(false);
+    expect(identities.state.emailStatus).toBe("LIKELY");
   });
 
   it("retains the recruiter when an email is invalid and never makes it outreach eligible", async () => {
@@ -174,6 +177,7 @@ describe("recruiter identity/email pipeline", () => {
       title: "Technical Recruiter",
       confidence: 99,
       verified: true,
+      verificationStatus: "VERIFIED",
       provider: "public-web",
       linkedinProfileUrl: "https://linkedin.com/in/jane-doe",
       sources: [{ type: "public_search_result", confidence: 99 }]
