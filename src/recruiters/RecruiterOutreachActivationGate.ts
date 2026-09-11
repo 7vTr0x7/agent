@@ -4,6 +4,7 @@ export interface RecruiterOutreachActivationInput {
   activation: RecruiterOutreachActivation;
   dryRun: boolean;
   liveActivationConfirmed: boolean;
+  controlledSendConfirmation?: string;
   maxMessagesPerDay: number;
   maxMessagesPerHour: number;
 }
@@ -13,10 +14,15 @@ export interface RecruiterOutreachActivationResult {
   reason: string;
 }
 
-/** Explicit runtime activation boundary. */
+export const CONTROLLED_SEND_CONFIRMATION = "SEND_ONE_REAL_EMAIL";
+
+/** Explicit runtime activation boundary. Real delivery requires the separate controlled-send confirmation. */
 export function evaluateRecruiterOutreachActivation(input: RecruiterOutreachActivationInput): RecruiterOutreachActivationResult {
   if (input.dryRun) return { allowed: true, reason: "Dry-run mode is active; real delivery is disabled." };
   if (input.activation === "disabled") return { allowed: false, reason: "Recruiter outreach activation is disabled." };
+  if (input.controlledSendConfirmation !== CONTROLLED_SEND_CONFIRMATION) {
+    return { allowed: false, reason: `Real recruiter delivery requires explicit controlled confirmation ${CONTROLLED_SEND_CONFIRMATION}.` };
+  }
   if (input.activation === "canary") {
     if (input.maxMessagesPerDay !== 1 || input.maxMessagesPerHour !== 1) {
       return { allowed: false, reason: "Canary activation requires exactly 1 recruiter message per day and per hour." };
