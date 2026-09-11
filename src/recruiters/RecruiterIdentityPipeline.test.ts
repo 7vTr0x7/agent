@@ -57,7 +57,11 @@ function identityRepository(initial = stored()): RecruiterIdentityRepository & {
   } as unknown as RecruiterIdentityRepository & { state: StoredRecruiterIdentity };
 }
 
-function provider(discovered: RecruiterIdentityCandidate[], emails: RecruiterIdentityCandidate[] = [], verification: { verified: boolean; status: string; confidence: number } = { email: "jane@acme.com", verified: false, status: "LIKELY", confidence: 75 } as { email: string; verified: boolean; status: string; confidence: number }): RecruiterDiscoveryProvider {
+function provider(
+  discovered: RecruiterIdentityCandidate[],
+  emails: RecruiterIdentityCandidate[] = [],
+  verification: { verified: boolean; status: string; confidence: number } = { verified: false, status: "LIKELY", confidence: 75 }
+): RecruiterDiscoveryProvider {
   return {
     name: "public-web",
     discover: jest.fn().mockResolvedValue({ provider: "public-web", contacts: discovered, discoveredAt: new Date() }),
@@ -143,7 +147,7 @@ describe("recruiter identity/email pipeline", () => {
       provider: "public-web",
       linkedinProfileUrl: "https://linkedin.com/in/jane-doe",
       sources: [{ type: "public_linkedin_search", confidence: 95 }]
-    }], [email], { email: "jane@acme.com", verified: true, status: "domain_mx_verified", confidence: 75 }));
+    }], [email], { verified: true, status: "domain_mx_verified", confidence: 75 }));
 
     const result = await service.discoverAndPersist(input, 5);
 
