@@ -76,7 +76,7 @@ export class RecruiterIdentityRepository {
       `INSERT INTO recruiter_contacts
         (company_name,company_domain,email,full_name,title,department,seniority,country,location,confidence,verified,verification_status,provider,linkedin_profile_url,identity_key,email_discovery_status,email_status,domain_status,mx_status,mailbox_evidence,verification_evidence,discovery_source,suppressed,email_discovery_attempted_at,last_seen_at,updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,FALSE,NOW(),NOW(),NOW())
-       ON CONFLICT (company_domain, identity_key) DO UPDATE SET
+       ON CONFLICT (company_domain, identity_key) WHERE identity_key IS NOT NULL DO UPDATE SET
          company_name=EXCLUDED.company_name,
          email=COALESCE(EXCLUDED.email,recruiter_contacts.email),
          full_name=COALESCE(EXCLUDED.full_name,recruiter_contacts.full_name),
