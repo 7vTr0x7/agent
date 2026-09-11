@@ -71,13 +71,16 @@ export class RecruiterOutreachPreparationService {
         sources: []
       };
 
-      const requiresVerification = this.requireVerifiedEmail && contact.provider !== "job-posting";
+      // Phase 5 may create a draft for human review from public email evidence.
+      // The verified-email requirement remains enforced by the live send path;
+      // dry-run preparation itself has no outbound side effect.
+      const requiresVerificationForPreparation = this.requireVerifiedEmail && !this.dryRun && contact.provider !== "job-posting";
       const safety = evaluateRecruiterOutreachSafety({
         companyName: input.companyName,
         companyDomain: input.companyDomain,
         contact: candidate,
         minConfidence: this.minConfidence,
-        requireVerifiedEmail: requiresVerification,
+        requireVerifiedEmail: requiresVerificationForPreparation,
         suppressedEmail: suppressed.email,
         suppressedDomain: suppressed.domain,
         duplicateSequence: duplicate,
