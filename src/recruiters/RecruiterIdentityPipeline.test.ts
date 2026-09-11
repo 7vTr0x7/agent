@@ -148,7 +148,7 @@ describe("recruiter identity/email pipeline", () => {
       provider: "public-web",
       linkedinProfileUrl: "https://linkedin.com/in/jane-doe",
       sources: [{ type: "public_linkedin_search", confidence: 95 }]
-    }], [email], { verified: true, status: "domain_mx_verified", confidence: 75 }));
+    }], [email], { verified: true, status: "domain_mx_verified", confidence: 75 }) });
 
     const result = await service.discoverAndPersist(input, 5);
 
