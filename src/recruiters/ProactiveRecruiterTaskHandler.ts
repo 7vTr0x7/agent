@@ -26,11 +26,11 @@ export class ProactiveRecruiterTaskHandler {
 
   async handle(task: ClaimedTask): Promise<void> {
     if (task.taskType === PROACTIVE_RECRUITER_DISCOVERY_TASK) {
-      await this.handleDiscovery(task.payload as ProactiveRecruiterDiscoveryPayload);
+      await this.handleDiscovery(assertDiscoveryPayload(task.payload));
       return;
     }
     if (task.taskType === PROACTIVE_RECRUITER_OUTREACH_TASK) {
-      await this.handleOutreach(task.payload as ProactiveRecruiterOutreachPayload);
+      await this.handleOutreach(assertOutreachPayload(task.payload));
       return;
     }
     throw new Error(`Unsupported proactive recruiter task type: ${task.taskType}`);
@@ -39,20 +39,20 @@ export class ProactiveRecruiterTaskHandler {
   async handleDiscovery(payload: ProactiveRecruiterDiscoveryPayload): Promise<void> {
     if (!this.options.enabled) return;
     const preferredLocations = payload.preferredLocations?.length
-      ? payload.preferredLocations
+      ? [...payload.preferredLocations]
       : ["Bengaluru", "Bangalore", "India", "Remote"];
     const profile: CandidateProfile = {
       id: payload.candidateProfileId,
       yearsExperience: payload.yearsExperience,
-      skills: payload.skills,
-      targetTitles: payload.targetRoles,
+      skills: [...payload.skills],
+      targetTitles: [...payload.targetRoles],
       location: payload.location,
       fullName: payload.candidateName,
       standardizedAnswers: { preferredLocations: preferredLocations.join(", ") }
     };
     const discovered = await this.discovery.discover({
-      targetRoles: profile.targetTitles,
-      skills: profile.skills,
+      targetRoles: [...profile.targetTitles],
+      skills: [...profile.skills],
       yearsExperience: profile.yearsExperience,
       preferredLocations,
       remoteEligible: payload.remoteEligible
@@ -88,7 +88,7 @@ export class ProactiveRecruiterTaskHandler {
       if (!recruiterContactId) continue;
       persisted += 1;
 
-      if (!candidate.email || candidate.emailStatus === "INVALID" || candidate.emailStatus === "SUPPRESSED") continue;
+      if (!candidate.email || candidate.emailStatus === "INVALID") continue;
       if (this.options.requireVerifiedEmail && candidate.emailStatus !== "VERIFIED") continue;
       if (!candidate.employerDomain) continue;
 
@@ -97,7 +97,7 @@ export class ProactiveRecruiterTaskHandler {
       const campaign = await this.repository.createProactiveCampaign({
         recruiterContactId,
         candidateProfileId: payload.candidateProfileId,
-        targetRoles: profile.targetTitles,
+        targetRoles: [...profile.targetTitles],
         subject,
         body
       });
@@ -114,6 +114,32 @@ export class ProactiveRecruiterTaskHandler {
     if (!this.options.sendEnabled) return;
     await this.sendDispatcher.enqueue({ messageId: payload.messageId, companyDomain: payload.companyDomain });
   }
+}
+
+function assertDiscoveryPayload(payload: Record<string, unknown>): ProactiveRecruiterDiscoveryPayload {
+  if (
+    typeof payload.candidateProfileId !== "string" ||
+    typeof payload.yearsExperience !== "number" ||
+    !Array.isArray(payload.skills) || !payload.skills.every((value): value is string => typeof value === "string") ||
+    !Array.isArray(payload.targetRoles) || !payload.targetRoles.every((value): value is string => typeof value === "string") ||
+    typeof payload.maxCandidates !== "number"
+  ) {
+    throw new Error("Invalid proactive recruiter discovery task payload");
+  }
+  if (payload.candidateName !== undefined && typeof payload.candidateName !== "string") throw new Error("Invalid proactive recruiter candidate name");
+  if (payload.location !== undefined && typeof payload.location !== "string") throw new Error("Invalid proactive recruiter location");
+  if (payload.preferredLocations !== undefined && (!Array.isArray(payload.preferredLocations) || !payload.preferredLocations.every((value): value is string => typeof value === "string"))) {
+    throw new Error("Invalid proactive recruiter preferred locations");
+  }
+  if (payload.remoteEligible !== undefined && typeof payload.remoteEligible !== "boolean") throw new Error("Invalid proactive recruiter remote eligibility");
+  return payload as ProactiveRecruiterDiscoveryPayload;
+}
+
+function assertOutreachPayload(payload: Record<string, unknown>): ProactiveRecruiterOutreachPayload {
+  if (typeof payload.messageId !== "string" || typeof payload.companyDomain !== "string" || typeof payload.candidateProfileId !== "string") {
+    throw new Error("Invalid proactive recruiter outreach task payload");
+  }
+  return payload as ProactiveRecruiterOutreachPayload;
 }
 
 function buildProactiveMessage(profile: CandidateProfile, candidate: { recruiterName: string; recruiterRole: string; employer: string; targetRoles: string[]; evidenceFreshness: string; discoveryEvidence: string[] }): string {
