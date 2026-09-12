@@ -6,6 +6,7 @@ import {
   ApplicationSubmissionResult,
   normalizeApplicationSubmissionResult
 } from "./ApplicationAdapter";
+import { effectiveApplicationCapabilities } from "./ApplicationAdapterCapabilities";
 import { ApplicationFieldMapper } from "./ApplicationFieldMapper";
 import { ApplicationFormFiller } from "./ApplicationFormFiller";
 import { FormFieldDetector } from "./FormFieldDetector";
@@ -115,6 +116,18 @@ export class ApplicationSubmissionService {
 
       const adapter = this.adapters.resolve(target.url);
       if (!adapter) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: false, reason: "No application adapter can safely handle the resolved application URL.", adapterName: null, result: null };
+
+      const capabilities = effectiveApplicationCapabilities(adapter);
+      if (capabilities && !["ACTIVE", "CONFIGURABLE"].includes(capabilities.application)) {
+        return {
+          submitted: false,
+          outcome: "NOT_SUBMITTED",
+          safetyAllowed: false,
+          reason: `Application adapter '${adapter.name}' is ${capabilities.application}; discovery support does not imply application automation support.`,
+          adapterName: adapter.name,
+          result: null
+        };
+      }
 
       const flow = await this.flowController.prepare(session.page, request.candidateProfile, request.companyName, request.excludedCompanies);
       if (!flow.allowed) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: false, reason: flow.reasons.join(" ") || "Application flow was not allowed to proceed safely.", adapterName: adapter.name, result: null };
