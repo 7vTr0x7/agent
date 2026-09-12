@@ -2,6 +2,7 @@ import { GmailApiMailbox } from "../email/GmailApiMailbox";
 import { Database } from "../database/Database";
 import { TaskQueue } from "../queue/TaskQueue";
 import { AppConfig } from "../config/env";
+import { GlobalExternalSideEffectGate } from "../shared/safety/GlobalExternalSideEffectGate";
 import { RecruiterDiscoveryRepository } from "./RecruiterDiscoveryRepository";
 import { RecruiterOutreachSendService } from "./RecruiterOutreachSendService";
 import { RecruiterOutreachSendTaskDispatcher } from "./RecruiterOutreachSendTask";
@@ -11,54 +12,31 @@ import { ProactiveRecruiterRepository } from "./ProactiveRecruiterRepository";
 import { ProactiveRecruiterTaskHandler } from "./ProactiveRecruiterTaskHandler";
 import { ProactiveRecruiterTaskDispatcher } from "./ProactiveRecruiterTask";
 
-export interface ProactiveRecruiterRuntime {
-  dispatcher: ProactiveRecruiterTaskDispatcher;
-  handler: ProactiveRecruiterTaskHandler;
-  sendHandler: RecruiterOutreachSendTaskHandler;
-}
+export interface ProactiveRecruiterRuntime { dispatcher: ProactiveRecruiterTaskDispatcher; handler: ProactiveRecruiterTaskHandler; sendHandler: RecruiterOutreachSendTaskHandler; }
 
-export function createProactiveRecruiterRuntime(
-  database: Database,
-  taskQueue: TaskQueue,
-  config: AppConfig,
-  gmailMailbox: GmailApiMailbox | undefined,
-  logger: Pick<Console, "error" | "info">
-): ProactiveRecruiterRuntime {
+export function createProactiveRecruiterRuntime(database: Database, taskQueue: TaskQueue, config: AppConfig, gmailMailbox: GmailApiMailbox | undefined, logger: Pick<Console, "error" | "info">): ProactiveRecruiterRuntime {
   const repository = new RecruiterDiscoveryRepository(database);
   const sendDispatcher = new RecruiterOutreachSendTaskDispatcher(taskQueue);
   const sendService = new RecruiterOutreachSendService({
-    repository,
-    database,
-    mailbox: gmailMailbox,
-    dryRun: config.recruiterOutreach.dryRun,
-    outboundEnabled: config.outboundEnabled,
-    gmailEnabled: config.gmail.enabled,
-    automationEnabled: config.automationEnabled,
-    activation: config.recruiterOutreach.activation,
-    liveActivationConfirmed: config.recruiterOutreach.liveActivationConfirmed,
+    repository, database, mailbox: gmailMailbox, dryRun: config.recruiterOutreach.dryRun,
+    outboundEnabled: config.outboundEnabled, gmailEnabled: config.gmail.enabled, automationEnabled: config.automationEnabled,
+    activation: config.recruiterOutreach.activation, liveActivationConfirmed: config.recruiterOutreach.liveActivationConfirmed,
     controlledSendConfirmation: process.env.RECRUITER_CONTROLLED_SEND_CONFIRM,
     controlledMessageId: process.env.RECRUITER_CONTROLLED_MESSAGE_ID?.trim() || null,
     controlledRecipient: process.env.RECRUITER_CONTROLLED_RECIPIENT?.trim().toLowerCase() || null,
     requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail,
-    maxMessagesPerDay: config.recruiterOutreach.maxMessagesPerDay,
-    maxMessagesPerHour: config.recruiterOutreach.maxMessagesPerHour,
-    resumePath: process.env.CANDIDATE_RESUME_PATH?.trim() || null,
-    attachResume: process.env.RECRUITER_ATTACH_RESUME !== "false",
-    maxAttachmentBytes: Number(process.env.RECRUITER_MAX_ATTACHMENT_BYTES ?? 10 * 1024 * 1024)
+    maxMessagesPerDay: config.recruiterOutreach.maxMessagesPerDay, maxMessagesPerHour: config.recruiterOutreach.maxMessagesPerHour,
+    resumePath: process.env.CANDIDATE_RESUME_PATH?.trim() || null, attachResume: process.env.RECRUITER_ATTACH_RESUME !== "false",
+    maxAttachmentBytes: Number(process.env.RECRUITER_MAX_ATTACHMENT_BYTES ?? 10 * 1024 * 1024),
+    externalSideEffectGate: new GlobalExternalSideEffectGate(database)
   });
   const sendHandler = new RecruiterOutreachSendTaskHandler(sendService, repository, logger);
   const dispatcher = new ProactiveRecruiterTaskDispatcher(taskQueue);
-  const handler = new ProactiveRecruiterTaskHandler(
-    new ProactiveRecruiterDiscoveryService(),
-    new ProactiveRecruiterRepository(database),
-    sendDispatcher,
-    {
-      enabled: config.proactiveRecruiter.enabled,
-      sendEnabled: config.proactiveRecruiter.sendEnabled && config.gmail.enabled && config.outboundEnabled,
-      maxCandidatesPerRun: config.proactiveRecruiter.maxCandidatesPerRun,
-      requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail
-    },
-    logger
-  );
+  const handler = new ProactiveRecruiterTaskHandler(new ProactiveRecruiterDiscoveryService(), new ProactiveRecruiterRepository(database), sendDispatcher, {
+    enabled: config.proactiveRecruiter.enabled,
+    sendEnabled: config.proactiveRecruiter.sendEnabled && config.gmail.enabled && config.outboundEnabled,
+    maxCandidatesPerRun: config.proactiveRecruiter.maxCandidatesPerRun,
+    requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail
+  }, logger);
   return { dispatcher, handler, sendHandler };
 }
