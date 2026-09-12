@@ -93,8 +93,19 @@ async function main(): Promise<void> {
     };
     const messageId = (await db.query<{ id: string }>("SELECT id FROM recruiter_outreach_messages WHERE sequence_id=$1 LIMIT 1", [validCampaign.sequenceId])).rows[0]?.id;
     if (!messageId) throw new Error("Valid proactive message was not persisted.");
-    const message = await recruiterRepository.getOutreachMessage(messageId);
-    if (!message) throw new Error("Valid proactive message could not be loaded.");
+    const messageRow = (await db.query<any>("SELECT id,sequence_id,message_type,sequence_step,recipient_email,subject,body,status FROM recruiter_outreach_messages WHERE id=$1", [messageId])).rows[0];
+    if (!messageRow) throw new Error("Valid proactive message could not be loaded.");
+    const message = {
+      id: messageRow.id,
+      sequenceId: messageRow.sequence_id,
+      messageType: messageRow.message_type,
+      sequenceStep: Number(messageRow.sequence_step),
+      recipientEmail: messageRow.recipient_email,
+      subject: messageRow.subject,
+      body: messageRow.body,
+      status: messageRow.status
+    } as const;
+    if (!message.recipientEmail || !message.sequenceId || !message.status) throw new Error("Fixture message normalization failed.");
     const sendService = new RecruiterOutreachSendService({ repository: recruiterRepository, database: db, mailbox, dryRun: false, outboundEnabled: true, gmailEnabled: true, automationEnabled: false, activation: "canary", controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION, controlledMessageId: messageId, controlledRecipient: email, requireVerifiedEmail: true, maxMessagesPerDay: 1, maxMessagesPerHour: 1, externalSideEffectGate: killSwitch });
     const blockedSend = await sendService.send(message, domain);
     if (blockedSend.status !== "SKIPPED" || mailboxCalls.length !== 0) throw new Error(`Global kill switch did not block live send: ${JSON.stringify(blockedSend)}`);
