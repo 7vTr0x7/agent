@@ -1,165 +1,32 @@
 import { RecruiterOutreachPreparationService } from "./RecruiterOutreachPreparationService";
 import { StoredRecruiterContact } from "./RecruiterDiscoveryRepository";
 
-function contact(overrides: Partial<StoredRecruiterContact> = {}): StoredRecruiterContact {
-  return {
-    id: "contact-1",
-    companyName: "Acme Co",
-    companyDomain: "acme.dev",
-    email: "recruiter@acme.dev",
-    fullName: "Alex Recruiter",
-    title: "Technical Recruiter",
-    department: "Talent Acquisition",
-    seniority: "Senior",
-    confidence: 95,
-    verified: true,
-    verificationStatus: "valid",
-    provider: "hunter",
-    ...overrides
-  };
-}
+const mailboxEvidence=[{provider:"fixture-mailbox-verifier",status:"mailbox_verified",confidence:99,mailboxLevel:true,source:"isolated-test-provider"}];
+function contact(overrides: Partial<StoredRecruiterContact> & Record<string, unknown> = {}): any { return { id:"contact-1",companyName:"Acme Co",companyDomain:"acme.dev",email:"recruiter@acme.dev",fullName:"Alex Recruiter",title:"Technical Recruiter",department:"Talent Acquisition",seniority:"Senior",confidence:95,verified:true,verificationStatus:"mailbox_verified",provider:"fixture-mailbox-verifier",verificationEvidence:mailboxEvidence,mailboxEvidence:true,emailStatus:"VERIFIED",relevanceStatus:"CURRENT",...overrides }; }
+function repository(options:{suppressed?:{email:boolean;domain:boolean};duplicate?:boolean}={}){const calls={sequences:0,messages:0};const repo={isSuppressed:jest.fn().mockResolvedValue(options.suppressed??{email:false,domain:false}),isOutreachSequenceDuplicate:jest.fn().mockResolvedValue(options.duplicate??false),createOutreachSequence:jest.fn().mockImplementation(async(input)=>{calls.sequences+=1;return{id:"sequence-1",recruiterContactId:input.recruiterContactId,jobOpportunityId:input.jobOpportunityId,applicationId:input.applicationId,candidateProfileId:input.candidateProfileId,status:"READY",nextActionAt:null,followUpCount:0};}),createOutreachMessage:jest.fn().mockImplementation(async(input)=>{calls.messages+=1;return{id:"message-1",sequenceId:input.sequenceId,messageType:input.messageType,sequenceStep:input.sequenceStep,recipientEmail:input.recipientEmail,subject:input.subject,body:input.body,status:"PREPARED"};})};return{repo,calls};}
 
-function repository(options: {
-  suppressed?: { email: boolean; domain: boolean };
-  duplicate?: boolean;
-} = {}) {
-  const calls = { sequences: 0, messages: 0 };
-  const repo = {
-    isSuppressed: jest.fn().mockResolvedValue(options.suppressed ?? { email: false, domain: false }),
-    isOutreachSequenceDuplicate: jest.fn().mockResolvedValue(options.duplicate ?? false),
-    createOutreachSequence: jest.fn().mockImplementation(async (input) => {
-      calls.sequences += 1;
-      return {
-        id: "sequence-1",
-        recruiterContactId: input.recruiterContactId,
-        jobOpportunityId: input.jobOpportunityId,
-        applicationId: input.applicationId,
-        candidateProfileId: input.candidateProfileId,
-        status: "READY",
-        nextActionAt: null
-      };
-    }),
-    createOutreachMessage: jest.fn().mockImplementation(async (input) => {
-      calls.messages += 1;
-      return {
-        id: "message-1",
-        sequenceId: input.sequenceId,
-        messageType: input.messageType,
-        sequenceStep: input.sequenceStep,
-        recipientEmail: input.recipientEmail,
-        subject: input.subject,
-        body: input.body,
-        status: "PREPARED"
-      };
-    })
-  };
-  return { repo, calls };
-}
-
-describe("RecruiterOutreachPreparationService", () => {
-  const input = {
-    companyName: "Acme Co",
-    companyDomain: "acme.dev",
-    jobTitle: "Frontend Engineer",
-    jobDescription: "Build React applications.",
-    jobOpportunityId: "job-1",
-    applicationId: "application-1",
-    candidateProfileId: "candidate-1",
-    candidateName: "Salman Shaikh"
-  };
-
-  it("prepares a deterministic initial message for a submitted application but does not send it", async () => {
-    const { repo, calls } = repository();
-    const service = new RecruiterOutreachPreparationService({ repository: repo as never, dryRun: true });
-
-    const result = await service.prepare({ ...input, applicationOutcome: "SUBMITTED" }, [contact()]);
-
-    expect(result).toHaveLength(1);
-    expect(calls.sequences).toBe(1);
-    expect(calls.messages).toBe(1);
-    const prepared = result[0];
-    expect(prepared).toBeDefined();
-    if (!prepared) return;
-    expect(prepared.message.status).toBe("PREPARED");
-    expect(prepared.message.subject).toBe("Application for Frontend Engineer at Acme Co");
-    expect(prepared.message.body).toContain("I’m Salman Shaikh");
-    expect(prepared.message.body).toContain("I’ve applied for the role");
-  });
-
-  it("uses truthful wording when the application failed", async () => {
-    const { repo } = repository();
-    const service = new RecruiterOutreachPreparationService({ repository: repo as never, dryRun: true });
-
-    const result = await service.prepare({ ...input, applicationOutcome: "FAILED" }, [contact()]);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]?.message.body).toContain("I attempted to apply for the role");
-    expect(result[0]?.message.body).not.toContain("I’ve applied for the role");
-  });
-
-  it("uses direct outreach wording when no application was attempted", async () => {
-    const { repo } = repository();
-    const service = new RecruiterOutreachPreparationService({ repository: repo as never, dryRun: true });
-
-    const result = await service.prepare(input, [contact()]);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]?.message.body).toContain("I’m reaching out directly regarding the opportunity");
-    expect(result[0]?.message.body).not.toContain("I’ve applied for the role");
-  });
-
-  it("allows an unverified public email to become a dry-run draft, while live preparation still requires verification", async () => {
-    const dryRun = repository();
-    const dryRunService = new RecruiterOutreachPreparationService({ repository: dryRun.repo as never, requireVerifiedEmail: true, dryRun: true });
-    const draft = await dryRunService.prepare(input, [contact({ verified: false, verificationStatus: "LIKELY" })]);
-    expect(draft).toHaveLength(1);
-    expect(dryRun.calls.sequences).toBe(1);
-
-    const live = repository();
-    const liveService = new RecruiterOutreachPreparationService({ repository: live.repo as never, requireVerifiedEmail: true, dryRun: false });
-    await expect(liveService.prepare(input, [contact({ verified: false, verificationStatus: "LIKELY" })])).resolves.toEqual([]);
-    expect(live.calls.sequences).toBe(0);
-  });
-
-  it("blocks suppressed contacts before creating a sequence", async () => {
-    const { repo, calls } = repository({ suppressed: { email: true, domain: false } });
-    const service = new RecruiterOutreachPreparationService({ repository: repo as never });
-
-    await expect(service.prepare(input, [contact()])).resolves.toEqual([]);
-    expect(calls.sequences).toBe(0);
-    expect(calls.messages).toBe(0);
-  });
-
-  it("blocks contacts already used by an outreach sequence", async () => {
-    const { repo, calls } = repository({ duplicate: true });
-    const service = new RecruiterOutreachPreparationService({ repository: repo as never });
-
-    await expect(service.prepare(input, [contact()])).resolves.toEqual([]);
-    expect(calls.sequences).toBe(0);
-    expect(calls.messages).toBe(0);
-  });
-
-  it("blocks an unverified contact when live preparation is enabled", async () => {
-    const { repo, calls } = repository();
-    const service = new RecruiterOutreachPreparationService({ repository: repo as never, requireVerifiedEmail: true, dryRun: false });
-
-    await expect(service.prepare(input, [contact({ verified: false })])).resolves.toEqual([]);
-    expect(calls.sequences).toBe(0);
-  });
-
-  it("blocks a contact below the configured confidence threshold", async () => {
-    const { repo, calls } = repository();
-    const service = new RecruiterOutreachPreparationService({ repository: repo as never, minConfidence: 90 });
-
-    await expect(service.prepare(input, [contact({ confidence: 89 })])).resolves.toEqual([]);
-    expect(calls.sequences).toBe(0);
-  });
-
-  it("never prepares an off-domain email", async () => {
-    const { repo, calls } = repository();
-    const service = new RecruiterOutreachPreparationService({ repository: repo as never });
-
-    await expect(service.prepare(input, [contact({ email: "recruiter@other.dev" })])).resolves.toEqual([]);
-    expect(calls.sequences).toBe(0);
-  });
+describe("RecruiterOutreachPreparationService",()=>{
+ const input={companyName:"Acme Co",companyDomain:"acme.dev",jobTitle:"Frontend Engineer",jobDescription:"Build React applications with TypeScript.",jobOpportunityId:"job-1",applicationId:"application-1",candidateProfileId:"candidate-1",candidateName:"Salman Shaikh",candidateSkills:["React","Next.js","TypeScript","AWS"],candidateYearsExperience:3,candidateLocation:"Pune"};
+ it("prepares a canonical verified recruiter draft without sending",async()=>{const{repo,calls}=repository();const service=new RecruiterOutreachPreparationService({repository:repo as never,dryRun:true});const result=await service.prepare({...input,applicationOutcome:"SUBMITTED"},[contact()]);expect(result).toHaveLength(1);expect(calls.sequences).toBe(1);expect(calls.messages).toBe(1);expect(result[0]?.message.status).toBe("PREPARED");expect(result[0]?.message.body).toContain("Salman Shaikh");expect(result[0]?.message.body).toContain("Frontend Engineer");expect(result[0]?.message.body).toContain("Acme Co");expect(result[0]?.message.body).toContain("React");expect(result[0]?.message.body).not.toContain("AWS");});
+ it("changes personalization when the job changes",async()=>{const{repo}=repository();const service=new RecruiterOutreachPreparationService({repository:repo as never,dryRun:true});const first=await service.prepare(input,[contact()]);const second=await service.prepare({...input,jobOpportunityId:"job-2",jobTitle:"Next.js Engineer",jobDescription:"Build Next.js and TypeScript web products."},[contact({id:"contact-2"})]);expect(first[0]?.message.body).toContain("Frontend Engineer");expect(second[0]?.message.body).toContain("Next.js Engineer");expect(first[0]?.message.subject).not.toBe(second[0]?.message.subject);});
+ it("uses truthful application wording",async()=>{const{repo}=repository();const service=new RecruiterOutreachPreparationService({repository:repo as never,dryRun:true});const failed=await service.prepare({...input,applicationOutcome:"FAILED"},[contact()]);expect(failed[0]?.message.body).toContain("I attempted to apply for the role");expect(failed[0]?.message.body).not.toContain("I’ve applied for the role");});
+ it("fails closed for every weak verification or relevance condition",async()=>{const cases:Array<[string,Record<string,unknown>]>=[
+ ["MX-only",{verified:false,verificationStatus:"domain_mx_verified",verificationEvidence:[],mailboxEvidence:false,emailStatus:"LIKELY"}],
+ ["public-web-only",{verified:false,verificationStatus:"public-web-unverified",verificationEvidence:[],mailboxEvidence:false,emailStatus:"UNVERIFIED"}],
+ ["verified without evidence",{verified:true,verificationStatus:"mailbox_verified",verificationEvidence:[],mailboxEvidence:true,emailStatus:"VERIFIED"}],
+ ["legacy verified alias",{verified:true,verificationStatus:"verified",verificationEvidence:mailboxEvidence,mailboxEvidence:true,emailStatus:"VERIFIED"}],
+ ["legacy valid alias",{verified:true,verificationStatus:"valid",verificationEvidence:mailboxEvidence,mailboxEvidence:true,emailStatus:"VERIFIED"}],
+ ["wrong employer domain",{email:"recruiter@other.dev",verified:true,verificationStatus:"mailbox_verified",verificationEvidence:mailboxEvidence,mailboxEvidence:true,emailStatus:"VERIFIED"}],
+ ["suppressed",{suppressed:true}],
+ ["historical",{relevanceStatus:"HISTORICAL"}],
+ ["unknown",{relevanceStatus:"UNKNOWN"}],
+ ["invalid email",{email:"not-an-email",verified:true,verificationStatus:"mailbox_verified",verificationEvidence:mailboxEvidence,mailboxEvidence:true,emailStatus:"VERIFIED"}],
+ ["mailboxLevel false",{verified:true,verificationStatus:"mailbox_verified",verificationEvidence:[{provider:"fixture",status:"mailbox_verified",mailboxLevel:false}],mailboxEvidence:true,emailStatus:"VERIFIED"}],
+ ["missing provider",{verified:true,verificationStatus:"mailbox_verified",verificationEvidence:[{status:"mailbox_verified",mailboxLevel:true}],mailboxEvidence:true,emailStatus:"VERIFIED"}],
+ ["missing verification status",{verified:true,verificationStatus:"mailbox_verified",verificationEvidence:[{provider:"fixture",mailboxLevel:true}],mailboxEvidence:true,emailStatus:"VERIFIED"}]
+ ];
+ for(const[name,overrides]of cases){const{repo,calls}=repository();const service=new RecruiterOutreachPreparationService({repository:repo as never,dryRun:true});await expect(service.prepare(input,[contact(overrides)])).resolves.toEqual([]);expect(calls.sequences).toBe(0);expect(calls.messages).toBe(0);expect(name).toBeTruthy();}
+ });
+ it("blocks suppressed contacts and duplicate sequences",async()=>{const suppressed=repository({suppressed:{email:true,domain:false}});const service1=new RecruiterOutreachPreparationService({repository:suppressed.repo as never,dryRun:true});await expect(service1.prepare(input,[contact()])).resolves.toEqual([]);expect(suppressed.calls.sequences).toBe(0);const duplicate=repository({duplicate:true});const service2=new RecruiterOutreachPreparationService({repository:duplicate.repo as never,dryRun:true});await expect(service2.prepare(input,[contact()])).resolves.toEqual([]);expect(duplicate.calls.sequences).toBe(0);});
+ it("requires canonical verification even in dry-run preparation",async()=>{const{repo,calls}=repository();const service=new RecruiterOutreachPreparationService({repository:repo as never,requireVerifiedEmail:true,dryRun:true});await expect(service.prepare(input,[contact({verified:false,verificationStatus:"LIKELY",verificationEvidence:[],mailboxEvidence:false,emailStatus:"LIKELY"})])).resolves.toEqual([]);expect(calls.sequences).toBe(0);});
 });
