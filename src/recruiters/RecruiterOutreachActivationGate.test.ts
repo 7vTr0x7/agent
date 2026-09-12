@@ -1,7 +1,7 @@
 import { CONTROLLED_SEND_CONFIRMATION, evaluateRecruiterOutreachActivation } from "./RecruiterOutreachActivationGate";
 
 describe("RecruiterOutreachActivationGate", () => {
-  const canary = { activation: "canary" as const, dryRun: false, liveActivationConfirmed: false, maxMessagesPerDay: 1, maxMessagesPerHour: 1 };
+  const canary = { activation: "canary" as const, dryRun: false, liveActivationConfirmed: false, maxMessagesPerDay: 1, maxMessagesPerHour: 1, controlledMessageId: "message-1", controlledRecipient: "recruiter@example.test" };
 
   it("keeps dry-run safe regardless of activation", () => {
     expect(evaluateRecruiterOutreachActivation({ activation: "live", dryRun: true, liveActivationConfirmed: true, maxMessagesPerDay: 500, maxMessagesPerHour: 21 })).toEqual({ allowed: true, reason: "Dry-run mode is active; real delivery is disabled." });
@@ -11,15 +11,16 @@ describe("RecruiterOutreachActivationGate", () => {
     expect(evaluateRecruiterOutreachActivation({ ...canary, activation: "disabled" })).toEqual({ allowed: false, reason: "Recruiter outreach activation is disabled." });
   });
 
-  it("requires explicit controlled confirmation for a canary send", () => {
-    expect(evaluateRecruiterOutreachActivation(canary).allowed).toBe(false);
+  it("requires explicit controlled confirmation and a bound target for a canary send", () => {
+    const missingTarget = { ...canary, controlledMessageId: undefined, controlledRecipient: undefined };
+    expect(evaluateRecruiterOutreachActivation(missingTarget).allowed).toBe(false);
     expect(evaluateRecruiterOutreachActivation({ ...canary, controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION }).allowed).toBe(true);
     expect(evaluateRecruiterOutreachActivation({ ...canary, controlledSendConfirmation: "WRONG" }).allowed).toBe(false);
   });
 
   it("only allows a one-message canary", () => {
     expect(evaluateRecruiterOutreachActivation({ ...canary, controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION }).allowed).toBe(true);
-    expect(evaluateRecruiterOutreachActivation({ ...canary, maxMessagesPerDay: 2, controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION }).allowed).toBe(false);
+    expect(evaluateRecruiterOutreachActivation({ ...canary, maxMessagesPerDay: 2, controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION })).toEqual({ allowed: false, reason: "Canary activation requires exactly 1 recruiter message per day and per hour." });
   });
 
   it("requires explicit confirmation for live delivery", () => {
