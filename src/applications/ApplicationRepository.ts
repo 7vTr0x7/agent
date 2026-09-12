@@ -4,6 +4,7 @@ import { ApplicationSubmissionOutcome, NormalizedApplicationSubmissionResult } f
 import { evaluateApplicationPolicy, PERMANENTLY_EXCLUDED_COMPANIES } from "./ApplicationPolicy";
 import { ApplicationRateLimitPolicy } from "./ApplicationRateLimitPolicy";
 import { ApplicationCompanyRateLimitPolicy } from "./ApplicationCompanyRateLimitPolicy";
+import { classifyApplicationFailure } from "./ApplicationFailureClassifier";
 
 export interface PreparedApplication { applicationId: string; jobOpportunityId: string; candidateProfileId: string; url: string; jobTitle: string; companyName: string; companyDomain?: string | null; jobDescription: string; }
 export type PrepareApplicationResult = { prepared: true; application: PreparedApplication } | { prepared: false; reason: string };
@@ -52,10 +53,7 @@ export class ApplicationRepository {
       const row = candidate.rows[0];
       if (!row) return { prepared: false, reason: "No eligible match decision exists." };
       const reusableExistingApplication = row.existing_application_id !== null && ["READY", "DRAFTED"].includes(row.existing_application_status ?? "");
-      const policy = evaluateApplicationPolicy({
-        matchDecision: row.match_decision, opportunityStatus: row.opportunity_status, hasRanking: row.has_ranking,
-        hasExistingApplication: row.has_application && !reusableExistingApplication, companyName: row.company_name, excludedCompanies: this.excludedCompanies
-      });
+      const policy = evaluateApplicationPolicy({ matchDecision: row.match_decision, opportunityStatus: row.opportunity_status, hasRanking: row.has_ranking, hasExistingApplication: row.has_application && !reusableExistingApplication, companyName: row.company_name, excludedCompanies: this.excludedCompanies });
       if (policy.decision === "BLOCK") return { prepared: false, reason: policy.reason };
 
       let jobId = row.job_id;
@@ -79,10 +77,7 @@ export class ApplicationRepository {
         }
       }
       if (!jobId) return { prepared: false, reason: "Unable to materialize a legacy job record for this opportunity." };
-
-      if (reusableExistingApplication && row.existing_application_id) {
-        return { prepared: true, application: { applicationId: row.existing_application_id, jobOpportunityId, candidateProfileId, url: row.canonical_url, jobTitle: row.job_title, companyName: row.company_name, companyDomain: row.company_domain, jobDescription: row.job_description } };
-      }
+      if (reusableExistingApplication && row.existing_application_id) return { prepared: true, application: { applicationId: row.existing_application_id, jobOpportunityId, candidateProfileId, url: row.canonical_url, jobTitle: row.job_title, companyName: row.company_name, companyDomain: row.company_domain, jobDescription: row.job_description } };
 
       const inserted = await client.query<{ id: string }>(`INSERT INTO applications (job_id, job_opportunity_id, candidate_profile_id, status) VALUES ($1, $2, $3, 'READY') ON CONFLICT (job_opportunity_id) DO NOTHING RETURNING id`, [jobId, jobOpportunityId, candidateProfileId]);
       const application = inserted.rows[0];
@@ -140,9 +135,10 @@ export class ApplicationRepository {
       if (confirmed && !result.confirmationUrl?.trim() && !result.externalApplicationId?.trim()) throw new Error("Confirmed application outcome requires confirmation evidence.");
       const nextStatus = outcome === "CONFIRMED_SUCCESS" ? "SENT" : outcome === "DEFINITIVE_FAILURE" ? "SUBMISSION_FAILED" : outcome === "NOT_SUBMITTED" ? "READY" : "SUBMISSION_UNKNOWN";
       const eventType = outcome === "CONFIRMED_SUCCESS" ? "APPLICATION_SUBMITTED" : outcome === "DEFINITIVE_FAILURE" ? "APPLICATION_SUBMISSION_FAILED" : outcome === "NOT_SUBMITTED" ? "APPLICATION_SUBMISSION_NOT_SUBMITTED" : "APPLICATION_SUBMISSION_AMBIGUOUS";
-      await client.query(`UPDATE application_attempts SET adapter_name = $2, safety_allowed = TRUE, submitted = $3, reason = $4, confirmation_url = $5, external_application_id = $6, outcome = $7, phase = 'FINALIZED', final_url = $8, response_status = $9, request_sent_at = $10, response_received_at = $11, confirmation_attempted_at = $12, confirmation_received_at = $13, ambiguity_reason = $14, metadata = COALESCE(metadata, '{}'::jsonb) || $15::jsonb, updated_at = NOW() WHERE id = $1`, [attemptId, adapterName, confirmed, result.reason, result.confirmationUrl, result.externalApplicationId, outcome, result.evidence.finalUrl, result.evidence.responseStatus, result.evidence.requestSentAt, result.evidence.responseReceivedAt, new Date(), confirmed ? new Date() : null, outcome === "AMBIGUOUS" ? result.reason : null, JSON.stringify({ requestObserved: result.evidence.requestObserved, responseObserved: result.evidence.responseObserved, outcome })]);
+      const failureCode = confirmed ? null : classifyApplicationFailure(result.reason, outcome);
+      await client.query(`UPDATE application_attempts SET adapter_name = $2, safety_allowed = TRUE, submitted = $3, reason = $4, failure_code = $5, confirmation_url = $6, external_application_id = $7, outcome = $8, phase = 'FINALIZED', final_url = $9, response_status = $10, request_sent_at = $11, response_received_at = $12, confirmation_attempted_at = $13, confirmation_received_at = $14, ambiguity_reason = $15, metadata = COALESCE(metadata, '{}'::jsonb) || $16::jsonb, updated_at = NOW() WHERE id = $1`, [attemptId, adapterName, confirmed, result.reason, failureCode, result.confirmationUrl, result.externalApplicationId, outcome, result.evidence.finalUrl, result.evidence.responseStatus, result.evidence.requestSentAt, result.evidence.responseReceivedAt, new Date(), confirmed ? new Date() : null, outcome === "AMBIGUOUS" ? result.reason : null, JSON.stringify({ requestObserved: result.evidence.requestObserved, responseObserved: result.evidence.responseObserved, outcome, failureCode })]);
       await client.query(`UPDATE applications SET status = $2, applied_at = CASE WHEN $2 = 'SENT' THEN NOW() ELSE applied_at END, updated_at = NOW() WHERE id = $1`, [applicationId, nextStatus]);
-      await client.query(`INSERT INTO application_events (application_id, from_status, to_status, event_type, metadata) VALUES ($1, 'SUBMISSION_IN_PROGRESS', $2, $3, $4::jsonb)`, [applicationId, nextStatus, eventType, JSON.stringify({ attemptId, adapterName, outcome, reason: result.reason, confirmationUrl: result.confirmationUrl, externalApplicationId: result.externalApplicationId, evidence: { requestObserved: result.evidence.requestObserved, responseObserved: result.evidence.responseObserved, responseStatus: result.evidence.responseStatus, finalUrl: result.evidence.finalUrl } })]);
+      await client.query(`INSERT INTO application_events (application_id, from_status, to_status, event_type, metadata) VALUES ($1, 'SUBMISSION_IN_PROGRESS', $2, $3, $4::jsonb)`, [applicationId, nextStatus, eventType, JSON.stringify({ attemptId, adapterName, outcome, reason: result.reason, confirmationUrl: result.confirmationUrl, externalApplicationId: result.externalApplicationId, failureCode, evidence: { requestObserved: result.evidence.requestObserved, responseObserved: result.evidence.responseObserved, responseStatus: result.evidence.responseStatus, finalUrl: result.evidence.finalUrl } })]);
       return true;
     });
   }
@@ -165,7 +161,7 @@ export class ApplicationRepository {
   async listStaleSubmissionEvidence(olderThanMinutes: number): Promise<StaleSubmissionEvidence[]> {
     if (!Number.isFinite(olderThanMinutes) || olderThanMinutes <= 0) throw new Error("olderThanMinutes must be a positive finite number.");
     const result = await this.database.query<StaleSubmissionEvidenceRow>(`SELECT a.id, a.candidate_profile_id, jo.company_name, jo.canonical_url AS target_url, a.updated_at, aa.id AS attempt_id, aa.outcome AS attempt_outcome, aa.phase AS attempt_phase, aa.idempotency_key, aa.task_id, t.status AS task_status, t.lease_expires_at AS task_lease_expires_at, aa.confirmation_url, aa.external_application_id, aa.final_url, aa.response_status, aa.request_sent_at, aa.response_received_at, aa.confirmation_attempted_at, aa.confirmation_received_at, aa.ambiguity_reason, aa.metadata FROM applications a INNER JOIN job_opportunities jo ON jo.id = a.job_opportunity_id LEFT JOIN LATERAL (SELECT * FROM application_attempts aa0 WHERE aa0.application_id = a.id ORDER BY aa0.attempted_at DESC, aa0.id DESC LIMIT 1) aa ON TRUE LEFT JOIN tasks t ON t.id = aa.task_id WHERE a.status = 'SUBMISSION_IN_PROGRESS' AND a.updated_at < NOW() - ($1 * INTERVAL '1 minute') ORDER BY a.updated_at ASC, a.id ASC`, [olderThanMinutes]);
-    return result.rows.map((row) => ({ applicationId: row.id, candidateProfileId: row.candidate_profile_id, companyName: row.company_name, targetUrl: row.target_url, startedAt: row.updated_at, attemptId: row.attempt_id, attemptOutcome: row.attempt_outcome, attemptPhase: row.attempt_phase, idempotencyKey: row.idempotency_key, taskId: row.task_id, taskStatus: row.task_status, taskLeaseExpiresAt: row.task_lease_expires_at, confirmationUrl: row.confirmation_url, externalApplicationId: row.external_application_id, finalUrl: row.final_url, responseStatus: row.response_status, requestSentAt: row.request_sent_at, responseReceivedAt: row.response_received_at, confirmationAttemptedAt: row.confirmation_attempted_at, confirmationReceivedAt: row.confirmation_received_at, ambiguityReason: row.ambiguity_reason, metadata: row.metadata }));
+    return result.rows.map((row) => ({ applicationId: row.id, candidateProfileId: row.candidate_profile_id, companyName: row.company_name, targetUrl: row.target_url, startedAt: row.updated_at, attemptId: row.attempt_id, attemptOutcome: row.attempt_outcome, attemptPhase: row.attempt_phase, idempotencyKey: row.idempotency_key, taskId: row.task_id, taskStatus: row.task_status, taskLeaseExpiresAt: row.task_lease_expires_at, confirmationUrl: row.confirmation_url, externalApplicationId: row.external_application_id, finalUrl: row.final_url, responseStatus: row.response_status, requestSentAt: row.request_sent_at, responseReceivedAt: row.responseReceivedAt, confirmationAttemptedAt: row.confirmationAttemptedAt, confirmationReceivedAt: row.confirmationReceivedAt, ambiguityReason: row.ambiguityReason, metadata: row.metadata }));
   }
 
   async reconcileStaleSubmissions(olderThanMinutes: number): Promise<StaleReconciliationResult> {
