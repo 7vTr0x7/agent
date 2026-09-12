@@ -27,15 +27,16 @@ export class JobRankingService {
     private readonly rankings: JobRankingRepository
   ) {}
 
-  async rankAndPersist(
-    input: RankJobOpportunityInput
-  ): Promise<RankJobOpportunityResult> {
+  async rankAndPersist(input: RankJobOpportunityInput): Promise<RankJobOpportunityResult> {
     const eligibility = evaluateJobEligibility(
       {
         companyName: input.job.companyName,
+        title: input.job.title,
+        description: input.job.description,
         location: input.job.location,
         country: input.job.country,
-        workplaceType: input.job.workplaceType
+        workplaceType: input.job.workplaceType,
+        postedAt: input.job.postedAt
       },
       this.policy
     );
@@ -52,11 +53,7 @@ export class JobRankingService {
     );
 
     if (eligibility.decision === "REJECT") {
-      return {
-        eligibility,
-        ranking,
-        persisted: false
-      };
+      return { eligibility, ranking, persisted: false };
     }
 
     await this.rankings.save({
@@ -65,10 +62,6 @@ export class JobRankingService {
       ranking
     });
 
-    return {
-      eligibility,
-      ranking,
-      persisted: true
-    };
+    return { eligibility, ranking, persisted: true };
   }
 }
