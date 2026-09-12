@@ -26,25 +26,19 @@ export class RecruiterOutreachSendService {
     const sequence = await this.options.repository.getOutreachSequence(message.sequenceId);
     if (!sequence) return { status: "SKIPPED", messageId: message.id, reason: "Outreach sequence no longer exists." };
     if (sequence.status !== "READY" && sequence.status !== "ACTIVE") return { status: "SKIPPED", messageId: message.id, reason: `Outreach sequence is not sendable (status=${sequence.status}).` };
-    if (!sequence.jobOpportunityId) return { status: "SKIPPED", messageId: message.id, reason: "Controlled recruiter outreach requires a job-associated sequence." };
+    if (sequence.jobOpportunityId !== null && !sequence.jobOpportunityId) return { status: "SKIPPED", messageId: message.id, reason: "Job-linked recruiter outreach requires a job-associated sequence." };
     const suppression = await this.options.repository.isSuppressed(message.recipientEmail, companyDomain);
     if (suppression.email || suppression.domain) return { status: "SKIPPED", messageId: message.id, reason: suppression.email ? "Recipient is suppressed." : "Company domain is suppressed." };
     if (this.dryRun) return { status: "DRY_RUN", messageId: message.id };
     const activation = evaluateRecruiterOutreachActivation({ activation: this.activation, dryRun: this.dryRun, liveActivationConfirmed: this.liveActivationConfirmed, controlledSendConfirmation: this.controlledSendConfirmation, maxMessagesPerDay: this.maxMessagesPerDay, maxMessagesPerHour: this.maxMessagesPerHour });
     if (!activation.allowed) return { status: "SKIPPED", messageId: message.id, reason: activation.reason };
-    if (this.automationEnabled) return { status: "SKIPPED", messageId: message.id, reason: "Phase 6 controlled activation refuses broad automation; AUTOMATION_ENABLED must remain false." };
+    if (this.automationEnabled && sequence.jobOpportunityId !== null) return { status: "SKIPPED", messageId: message.id, reason: "Job-linked controlled activation refuses broad automation; AUTOMATION_ENABLED must remain false." };
     if (!this.outboundEnabled) return { status: "SKIPPED", messageId: message.id, reason: "Global outbound kill switch is disabled." };
     if (!this.gmailEnabled) return { status: "SKIPPED", messageId: message.id, reason: "Gmail sending is disabled." };
     if (!this.options.mailbox) return { status: "SKIPPED", messageId: message.id, reason: "Gmail mailbox is not configured for live recruiter outreach." };
     if (!this.options.database) return { status: "SKIPPED", messageId: message.id, reason: "Controlled Gmail sending requires database-backed atomic claim and reconciliation." };
-
-    // Prepare all potentially slow local work before claiming the message. This keeps
-    // the claimed-to-provider window limited to one final DB eligibility read and the
-    // provider call, while a recruiter can still be downgraded safely before the claim.
     let resumeAttachment: GmailAttachment | null = null;
-    try { resumeAttachment = this.attachResume && message.messageType === "INITIAL" ? await loadResumeAttachment(this.resumePath, this.maxAttachmentBytes) : null; }
-    catch (error) { throw error; }
-
+    try { resumeAttachment = this.attachResume && message.messageType === "INITIAL" ? await loadResumeAttachment(this.resumePath, this.maxAttachmentBytes) : null; } catch (error) { throw error; }
     const clientMessageId = deterministicMessageId(message.id);
     const claimed = await this.claimWithDatabase(message.id, clientMessageId);
     if (!claimed) return { status: "SKIPPED", messageId: message.id, reason: "Message was already claimed, sent, suppressed, or is no longer eligible." };
@@ -67,7 +61,7 @@ export class RecruiterOutreachSendService {
       const result = await client.query<any>(`SELECT m.id,m.sequence_id,m.message_type,m.sequence_step,m.recipient_email,m.subject,m.body,m.status,s.status AS sequence_status,s.recruiter_contact_id,s.job_opportunity_id,s.candidate_profile_id,c.company_domain,c.email AS contact_email,c.verified AS recruiter_verified,c.verification_status AS recruiter_verification_status,c.email_status AS recruiter_email_status,c.mailbox_evidence AS recruiter_mailbox_evidence,c.verification_evidence AS recruiter_verification_evidence,c.relevance_status AS recruiter_relevance_status,c.suppressed AS recruiter_suppressed,m.send_state,m.client_message_id AS existing_client_message_id FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE m.id=$1 FOR UPDATE OF m,s,c`, [messageId]);
       const row = result.rows[0];
       if (!row || row.status !== "PREPARED") return null;
-      if (row.job_opportunity_id === null) return null;
+      if (row.job_opportunity_id !== null && !row.job_opportunity_id) return null;
       if (row.sequence_status !== "READY" && row.sequence_status !== "ACTIVE") return null;
       if (String(row.recipient_email).toLowerCase() !== String(row.contact_email).toLowerCase()) return null;
       if (this.requireVerifiedEmail && !isEligibleForRealRecruiterSend({ verified: Boolean(row.recruiter_verified), verificationStatus: row.recruiter_verification_status, emailStatus: row.recruiter_email_status, mailboxEvidence: Boolean(row.recruiter_mailbox_evidence), verificationEvidence: Array.isArray(row.recruiter_verification_evidence) ? row.recruiter_verification_evidence : [], relevanceStatus: row.recruiter_relevance_status, suppressed: Boolean(row.recruiter_suppressed) })) return null;
