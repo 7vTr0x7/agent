@@ -50,8 +50,9 @@ describe("Phase 9 browser fixture lifecycle", () => {
   it("terminates cleanly twice without leaving browser/server lifecycle resources", async () => {
     for (let run = 1; run <= 2; run += 1) {
       const result = await runFixture();
-      expect(result.signal).toBeNull();
-      expect(result.code).toBe(0);
+      if (result.signal !== null || result.code !== 0) {
+        throw new Error(`Phase 9 fixture run ${run} exited unexpectedly. code=${result.code} signal=${result.signal}\nstdout=${result.stdout}\nstderr=${result.stderr}`);
+      }
       expect(result.stdout).toContain('"status":"ok"');
       expect(result.stdout).toContain('"realApplicationsSubmitted":0');
       expect(result.stdout).toContain('"activeBrowserSessionsBeforeCleanup":0');
