@@ -83,7 +83,6 @@ export class BrowserSessionService {
   }
 
   async close(session: BrowserSession): Promise<void> {
-    this.activeSessions.delete(session);
     const errors: unknown[] = [];
 
     try {
@@ -111,6 +110,8 @@ export class BrowserSessionService {
     if (errors.length > 0) {
       throw errors[0];
     }
+
+    this.activeSessions.delete(session);
   }
 
   async closeAll(): Promise<void> {
