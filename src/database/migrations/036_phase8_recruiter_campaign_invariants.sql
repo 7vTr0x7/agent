@@ -11,7 +11,7 @@ ALTER TABLE recruiter_outreach_sequences
     (campaign_type = 'PROACTIVE_RECRUITER' AND job_opportunity_id IS NULL AND application_id IS NULL)
     OR
     (campaign_type = 'JOB_RECRUITER' AND job_opportunity_id IS NOT NULL)
-  ) NOT VALID;
+  );
 
 CREATE OR REPLACE FUNCTION job_agent_recruiter_cross_path_guard()
 RETURNS TRIGGER
