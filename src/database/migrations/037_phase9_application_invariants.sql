@@ -3,29 +3,13 @@ ALTER TABLE application_attempts
 
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'application_attempts_failure_code_check'
-  ) THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'application_attempts_failure_code_check') THEN
     ALTER TABLE application_attempts
       ADD CONSTRAINT application_attempts_failure_code_check CHECK (
         failure_code IS NULL OR failure_code IN (
-          'UNSUPPORTED_PLATFORM',
-          'INVALID_APPLICATION_URL',
-          'AUTH_REQUIRED',
-          'CAPTCHA_REQUIRED',
-          'BOT_CHALLENGE',
-          'MISSING_REQUIRED_DATA',
-          'UNSUPPORTED_FIELD',
-          'INVALID_ATTACHMENT',
-          'DUPLICATE_APPLICATION',
-          'EXCLUDED_EMPLOYER',
-          'TIMEOUT',
-          'NETWORK_ERROR',
-          'PROVIDER_ERROR',
-          'SUBMISSION_AMBIGUOUS',
-          'VALIDATION_FAILED',
-          'MANUAL_REVIEW',
-          'PROMPT_INJECTION'
+          'UNSUPPORTED_PLATFORM', 'INVALID_APPLICATION_URL', 'AUTH_REQUIRED', 'CAPTCHA_REQUIRED', 'BOT_CHALLENGE',
+          'MISSING_REQUIRED_DATA', 'UNSUPPORTED_FIELD', 'INVALID_ATTACHMENT', 'DUPLICATE_APPLICATION', 'EXCLUDED_EMPLOYER',
+          'TIMEOUT', 'NETWORK_ERROR', 'PROVIDER_ERROR', 'SUBMISSION_AMBIGUOUS', 'VALIDATION_FAILED', 'MANUAL_REVIEW', 'PROMPT_INJECTION'
         )
       );
   END IF;
@@ -39,9 +23,9 @@ DECLARE
   latest_attempt RECORD;
   employer_name TEXT;
 BEGIN
-  SELECT j.company_name INTO employer_name
-  FROM jobs j
-  WHERE j.id = NEW.job_id;
+  SELECT jo.company_name INTO employer_name
+  FROM job_opportunities jo
+  WHERE jo.id = NEW.job_opportunity_id;
 
   IF LOWER(TRIM(COALESCE(employer_name, ''))) IN ('octopus technologies', 'sketch brahma technologies')
      AND NEW.status IN ('READY', 'QUEUED', 'CLAIMED', 'FORM_DISCOVERED', 'FILLING', 'VALIDATING', 'READY_TO_SUBMIT', 'SUBMISSION_IN_PROGRESS', 'SUBMISSION_UNKNOWN', 'SENT') THEN
@@ -63,7 +47,7 @@ BEGIN
     END IF;
   END IF;
 
-  IF OLD.status = 'SUBMISSION_UNKNOWN' AND NEW.status = 'SENT' THEN
+  IF TG_OP = 'UPDATE' AND OLD.status = 'SUBMISSION_UNKNOWN' AND NEW.status = 'SENT' THEN
     IF latest_attempt.outcome IS DISTINCT FROM 'CONFIRMED_SUCCESS' THEN
       RAISE EXCEPTION 'Ambiguous application cannot become SENT without reconciliation evidence';
     END IF;
