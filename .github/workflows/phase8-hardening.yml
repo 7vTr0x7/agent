@@ -74,23 +74,36 @@ jobs:
           grep -q '"sent":0' phase8-runtime-output.log
           grep -q '"snovCreditsUsed":0' phase8-runtime-output.log
           grep -q '"productionDatabase":false' phase8-runtime-output.log
+      - name: Cross-path dedup fixture
+        run: |
+          set -o pipefail
+          docker run --rm --network job-agent-phase8 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase8-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=false -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase8-ci tsx scripts/phase8-cross-path-runtime.ts 2>&1 | tee phase8-cross-path-output.log
+          grep -q '"status":"ok"' phase8-cross-path-output.log
+          grep -q '"jobFirst":"blocked"' phase8-cross-path-output.log
+          grep -q '"proactiveFirst":"blocked"' phase8-cross-path-output.log
       - name: Upload Phase 8 runtime output
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: phase8-runtime-output
-          path: phase8-runtime-output.log
+          path: |
+            phase8-runtime-output.log
+            phase8-cross-path-output.log
           if-no-files-found: error
-      - name: Database invariant checks
+      - name: Worker wiring and database invariant checks
         run: |
           set -euo pipefail
+          grep -q 'proactive-recruiter-discovery' src/index.ts
+          grep -q 'proactiveRecruiterDispatcher' src/index.ts
           migration_count="$(docker exec job-agent-phase8-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM schema_migrations WHERE name='036_phase8_recruiter_campaign_invariants.sql';" | tr -d '[:space:]')"
           test "$migration_count" = '1'
           campaign_check="$(docker exec job-agent-phase8-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_constraint WHERE conname='recruiter_outreach_sequences_campaign_job_consistency_check';" | tr -d '[:space:]')"
           test "$campaign_check" = '1'
+          trigger_check="$(docker exec job-agent-phase8-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_trigger WHERE tgname='trg_recruiter_cross_path_guard';" | tr -d '[:space:]')"
+          test "$trigger_check" = '1'
           sent_count="$(docker exec job-agent-phase8-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';" | tr -d '[:space:]')"
           test "$sent_count" = '0'
-          echo "Phase 8 database gates passed: migration=$migration_count campaign_constraint=$campaign_check sent=$sent_count"
+          echo "Phase 8 database gates passed: migration=$migration_count campaign_constraint=$campaign_check cross_path_trigger=$trigger_check sent=$sent_count"
       - name: Static security audit
         run: |
           set -euo pipefail
