@@ -49,7 +49,8 @@ export class ApplicationSubmissionService {
     private readonly dryRun = false,
     private readonly flowController = new ApplicationFlowController(),
     private readonly navigationTimeoutMs = DEFAULT_NAVIGATION_TIMEOUT_MS,
-    private readonly submissionTimeoutMs = DEFAULT_SUBMISSION_TIMEOUT_MS
+    private readonly submissionTimeoutMs = DEFAULT_SUBMISSION_TIMEOUT_MS,
+    private readonly applicationLiveEnabled = !dryRun
   ) {}
 
   async submit(request: ApplicationSubmissionRequest): Promise<ApplicationSubmissionOutcome> {
@@ -72,7 +73,7 @@ export class ApplicationSubmissionService {
       if (capabilities && !["ACTIVE", "CONFIGURABLE"].includes(capabilities.application)) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: false, reason: `Application adapter '${adapter.name}' is ${capabilities.application}; discovery support does not imply application automation support.`, adapterName: adapter.name, result: null };
       const flow = await this.flowController.prepare(session.page, request.candidateProfile, request.companyName, request.excludedCompanies);
       if (!flow.allowed) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: false, reason: flow.reasons.join(" ") || "Application flow was not allowed to proceed safely.", adapterName: adapter.name, result: null };
-      if (this.dryRun) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: true, reason: "APPLICATION_DRY_RUN is enabled; submission was not attempted.", adapterName: adapter.name, result: null };
+      if (this.dryRun || !this.applicationLiveEnabled) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: true, reason: this.dryRun ? "APPLICATION_DRY_RUN is enabled; submission was not attempted." : "APPLICATION_LIVE_ENABLED is false; live application submission was not attempted.", adapterName: adapter.name, result: null };
 
       if (this.applications.beginSubmissionAttempt) reservation = await this.applications.beginSubmissionAttempt(request.context.applicationId, request.taskId ?? null, request.workerId ?? null, target.url);
       else {
