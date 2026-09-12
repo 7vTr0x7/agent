@@ -15,27 +15,53 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Build Docker image
         run: docker build --tag job-agent:controlled-discovery .
 
       - name: Start isolated PostgreSQL
+        shell: bash
         run: |
+          set -euo pipefail
           docker network create job-agent-discovery
           docker run -d --name job-agent-discovery-postgres --network job-agent-discovery \
             -e POSTGRES_DB=job_agent \
             -e POSTGRES_USER=job_agent \
             -e POSTGRES_PASSWORD=runtime_test_password \
             postgres:17-alpine
-          for i in $(seq 1 60); do
-            if docker exec job-agent-discovery-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then break; fi
+
+          echo 'Waiting for isolated PostgreSQL to accept connections...'
+          ready=0
+          for i in $(seq 1 120); do
+            if docker exec job-agent-discovery-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then
+              ready=1
+              echo "PostgreSQL readiness probe passed on attempt $i"
+              break
+            fi
             sleep 1
           done
-          docker exec job-agent-discovery-postgres pg_isready -U job_agent -d job_agent
+
+          if [ "$ready" -ne 1 ]; then
+            echo 'FAIL: isolated PostgreSQL did not become ready within 120 seconds'
+            echo '=== postgres container state ==='
+            docker inspect job-agent-discovery-postgres --format '{{json .State}}' || true
+            echo '=== postgres logs ==='
+            docker logs job-agent-discovery-postgres || true
+            exit 1
+          fi
+
+          echo 'Verifying actual SQL connectivity and database identity...'
+          test "$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc 'SELECT 1;' | tr -d '[:space:]')" = '1'
+          test "$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc 'SELECT current_database();' | tr -d '[:space:]')" = 'job_agent'
+          test "$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc 'SELECT current_user;' | tr -d '[:space:]')" = 'job_agent'
+          echo 'Isolated PostgreSQL SQL readiness and identity checks passed.'
 
       - name: Run full discovery federation in safe mode
         shell: bash
         run: |
+          set -euo pipefail
           docker run -d --name job-agent-discovery-app --network job-agent-discovery \
             -e NODE_ENV=test \
             -e LOG_LEVEL=info \
@@ -72,6 +98,35 @@ jobs:
             -e INTERVIEW_REMINDER_INTERVAL_MS=3600000 \
             job-agent:controlled-discovery
 
+          echo 'Waiting for application startup migrations to complete before accepting discovery results...'
+          migrations_ready=0
+          for i in $(seq 1 120); do
+            if docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT to_regclass('public.schema_migrations') IS NOT NULL AND EXISTS (SELECT 1 FROM schema_migrations);" 2>/dev/null | tr -d '[:space:]' | grep -qx 't'; then
+              migrations_ready=1
+              echo "Migration readiness probe passed on attempt $i"
+              break
+            fi
+            if ! docker inspect -f '{{.State.Running}}' job-agent-discovery-app 2>/dev/null | grep -q true; then
+              echo 'FAIL: discovery app exited before migrations became ready'
+              docker logs job-agent-discovery-app || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if [ "$migrations_ready" -ne 1 ]; then
+            echo 'FAIL: application migrations did not become observable within 120 seconds'
+            echo '=== discovery app logs ==='
+            docker logs job-agent-discovery-app || true
+            echo '=== postgres logs ==='
+            docker logs job-agent-discovery-postgres || true
+            exit 1
+          fi
+
+          latest_migration="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc 'SELECT name FROM schema_migrations ORDER BY id DESC LIMIT 1;' | tr -d '[:space:]')"
+          echo "latest_migration=$latest_migration"
+          test "$latest_migration" = '037_phase9_application_invariants.sql'
+
           expected_sources=14
           for i in $(seq 1 4800); do
             completed="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs WHERE status <> 'RUNNING';" 2>/dev/null | tr -d '[:space:]' || true)"
@@ -91,6 +146,7 @@ jobs:
       - name: Verify discovery database output and safety
         shell: bash
         run: |
+          set -euo pipefail
           sources="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM sources;" | tr -d '[:space:]')"
           attempted="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs;" | tr -d '[:space:]')"
           terminal="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs WHERE status <> 'RUNNING';" | tr -d '[:space:]')"
@@ -112,6 +168,11 @@ jobs:
           peak="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -Atc "WITH events AS (SELECT started_at AS t, 1 AS delta FROM source_runs UNION ALL SELECT finished_at AS t, -1 AS delta FROM source_runs WHERE finished_at IS NOT NULL), ordered AS (SELECT t, delta, SUM(delta) OVER (ORDER BY t, delta DESC) AS active FROM events) SELECT COALESCE(MAX(active),0) FROM ordered;" | tr -d '[:space:]')"
           test "$peak" -le 4
           printf 'peak_source_concurrency=%s\n' "$peak"
+
+          effective_db_url="postgres://job_agent:runtime_test_password@job-agent-discovery-postgres:5432/job_agent"
+          test "$effective_db_url" = 'postgres://job_agent:runtime_test_password@job-agent-discovery-postgres:5432/job_agent'
+          test "$(docker inspect job-agent-discovery-app --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^DATABASE_URL=' | cut -d= -f2-)" = "$effective_db_url"
+          echo 'DATABASE_URL isolation verification passed.'
 
           docker logs job-agent-discovery-app 2>&1 | tee /tmp/job-agent-discovery.log
           ! grep -Eiq 'FATAL|UnhandledPromiseRejection|Unhandled exception|migration error|authentication error' /tmp/job-agent-discovery.log
