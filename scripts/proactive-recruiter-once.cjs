@@ -22,11 +22,14 @@ async function main() {
     const taskQueue = new TaskQueue(database);
     const fixturePage = "Jane Doe - Technical Recruiter at Acme Corp actively hiring React frontend engineers <https://linkedin.com/in/jane-doe> jane@acme.com";
     const discovery = new ProactiveRecruiterDiscoveryService(fixtureMode ? { fetchText: async () => fixturePage } : {});
+    const safeFixtureVerifier = fixtureMode
+      ? async () => ({ status: "UNVERIFIED", confidence: 0, verificationEvidence: [] })
+      : undefined;
     const handler = new ProactiveRecruiterTaskHandler(
       discovery,
       new ProactiveRecruiterRepository(database),
       new RecruiterOutreachSendTaskDispatcher(taskQueue),
-      { enabled: true, sendEnabled: false, maxCandidatesPerRun: config.proactiveRecruiter.maxCandidatesPerRun, requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail },
+      { enabled: true, sendEnabled: false, maxCandidatesPerRun: config.proactiveRecruiter.maxCandidatesPerRun, requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail, ...(safeFixtureVerifier ? { verifyEmail: safeFixtureVerifier } : {}) },
       logger
     );
     await handler.handleDiscovery({
