@@ -2,7 +2,7 @@ name: Phase 8 Hardening
 
 on:
   push:
-    branches: [phase8/recruiter-first-outreach]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
