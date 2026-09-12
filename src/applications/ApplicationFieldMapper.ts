@@ -2,20 +2,10 @@ import { ApplicationField } from "./FormFieldDetector";
 import { CandidateProfile } from "../candidates/CandidateProfile";
 
 export type ApplicationFieldKey =
-  | "firstName"
-  | "lastName"
-  | "fullName"
-  | "email"
-  | "phone"
-  | "location"
-  | "workAuthorization"
-  | "sponsorshipRequired"
-  | "noticePeriodDays"
-  | "yearsExperience"
-  | "linkedinUrl"
-  | "githubUrl"
-  | "portfolioUrl"
-  | "resumePath";
+  | "firstName" | "lastName" | "fullName" | "email" | "phone" | "location"
+  | "workAuthorization" | "sponsorshipRequired" | "noticePeriodDays" | "yearsExperience"
+  | "currentCompensationLpa" | "expectedCompensationLpa"
+  | "linkedinUrl" | "githubUrl" | "portfolioUrl" | "resumePath";
 
 export interface ApplicationFieldMapping {
   field: ApplicationField;
@@ -32,85 +22,51 @@ const FIELD_ALIASES: Readonly<Record<ApplicationFieldKey, readonly string[]>> = 
   fullName: ["full name", "name", "candidate name", "your name"],
   email: ["email", "email address", "emailaddress", "e-mail", "e-mail address"],
   phone: ["phone", "phone number", "mobile", "mobile number", "telephone", "contact number"],
-  location: ["location", "current location", "city", "current city", "address"],
+  location: ["location", "current location", "city", "current city"],
   workAuthorization: ["work authorization", "work eligibility", "right to work", "authorized to work"],
   sponsorshipRequired: ["sponsorship", "visa sponsorship", "require sponsorship", "need sponsorship"],
   noticePeriodDays: ["notice period", "notice period days", "availability", "days to join"],
   yearsExperience: ["years of experience", "years experience", "experience", "total experience"],
+  currentCompensationLpa: ["current compensation", "current ctc", "current salary", "current annual compensation", "current annual salary", "current lpa"],
+  expectedCompensationLpa: ["expected compensation", "expected ctc", "expected salary", "expected annual compensation", "expected annual salary", "expected lpa"],
   linkedinUrl: ["linkedin", "linkedin url", "linkedin profile", "linkedin profile url"],
   githubUrl: ["github", "github url", "github profile", "github profile url"],
   portfolioUrl: ["portfolio", "portfolio url", "personal website", "website"],
   resumePath: ["resume", "cv", "curriculum vitae", "resume upload", "cv upload"]
 };
 
-const UNSAFE_KEYS = new Set<ApplicationFieldKey>([
-  "workAuthorization",
-  "sponsorshipRequired",
-  "noticePeriodDays",
-  "yearsExperience"
+const POLICY_SENSITIVE_KEYS = new Set<ApplicationFieldKey>([
+  "workAuthorization", "sponsorshipRequired", "noticePeriodDays", "yearsExperience", "expectedCompensationLpa"
 ]);
 
 function normalize(value: string | null | undefined): string {
-  return (value ?? "")
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+  return (value ?? "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function fieldParts(field: ApplicationField): readonly string[] {
-  return [field.label, field.name, field.placeholder]
-    .filter((value): value is string => Boolean(value))
-    .map(normalize)
-    .filter(Boolean);
+  return [field.label, field.name, field.placeholder].filter((value): value is string => Boolean(value)).map(normalize).filter(Boolean);
 }
 
 function resolveKey(field: ApplicationField): { key: ApplicationFieldKey | null; confidence: number } {
   const parts = fieldParts(field);
   if (parts.length === 0) return { key: null, confidence: 0 };
+  if (parts.some((part) => part === "email" || part === "email address" || part === "e mail" || part === "e mail address")) return { key: "email", confidence: 1 };
 
-  const emailParts = parts.filter((part) =>
-    part === "email" || part === "email address" || part === "e mail" || part === "e mail address"
-  );
-  if (emailParts.length > 0) return { key: "email", confidence: 1 };
-
-  const matches = (Object.entries(FIELD_ALIASES) as [ApplicationFieldKey, readonly string[]][])
-    .map(([key, aliases]) => {
-      const score = aliases.reduce((best, alias) => {
-        const normalizedAlias = normalize(alias);
-        return Math.max(
-          best,
-          ...parts.map((part) => {
-            if (part === normalizedAlias) return 1;
-            if (part.includes(normalizedAlias)) return 0.9;
-            return 0;
-          })
-        );
-      }, 0);
-      return { key, score };
-    })
+  const matches = (Object.entries(FIELD_ALIASES) as [ApplicationFieldKey, readonly string[]][]) 
+    .map(([key, aliases]) => ({ key, score: aliases.reduce((best, alias) => Math.max(best, ...parts.map((part) => part === normalize(alias) ? 1 : part.includes(normalize(alias)) ? 0.9 : 0)), 0) }))
     .filter((match) => match.score > 0)
     .sort((a, b) => b.score - a.score);
-
   const best = matches[0];
   if (!best) return { key: null, confidence: 0 };
-
   const second = matches[1];
-  if (second && best.score === second.score) {
-    return { key: null, confidence: best.score };
-  }
-
+  if (second && best.score === second.score) return { key: null, confidence: best.score };
   return { key: best.key, confidence: best.score };
 }
 
 function valueFor(profile: CandidateProfile, key: ApplicationFieldKey): string | boolean | number | null {
-  if (key === "fullName") {
-    return profile.fullName ?? ([profile.firstName, profile.lastName].filter(Boolean).join(" ") || null);
-  }
+  if (key === "fullName") return profile.fullName ?? ([profile.firstName, profile.lastName].filter(Boolean).join(" ") || null);
   if (key === "resumePath") return profile.resumePath ?? null;
-
   const standardized = profile.standardizedAnswers?.[key];
-  if (UNSAFE_KEYS.has(key) && standardized !== undefined) return standardized;
   return profile[key] ?? standardized ?? null;
 }
 
@@ -118,28 +74,16 @@ export class ApplicationFieldMapper {
   map(fields: readonly ApplicationField[], profile: CandidateProfile): readonly ApplicationFieldMapping[] {
     return fields.map((field) => {
       const { key, confidence } = resolveKey(field);
-      if (!key) {
-        return {
-          field,
-          key: null,
-          value: null,
-          confidence,
-          autoFill: false,
-          reason: field.required ? "Required field is ambiguous or unsupported; manual review required." : "Field is ambiguous or unsupported; skipped safely."
-        };
-      }
+      if (!key) return { field, key: null, value: null, confidence, autoFill: false, reason: field.required ? "Required field is ambiguous or unsupported; manual review required." : "Field is ambiguous or unsupported; skipped safely." };
 
       const value = valueFor(profile, key);
-      const explicitPolicyAnswer = UNSAFE_KEYS.has(key) && profile.standardizedAnswers?.[key] !== undefined;
-      const autoFill = confidence >= 0.9 && value !== null && (!UNSAFE_KEYS.has(key) || explicitPolicyAnswer);
+      const explicitPolicyAnswer = POLICY_SENSITIVE_KEYS.has(key) && profile.standardizedAnswers?.[key] !== undefined;
+      const autoFill = confidence >= 0.9 && value !== null && (!POLICY_SENSITIVE_KEYS.has(key) || explicitPolicyAnswer || key === "yearsExperience" && profile.yearsExperience >= 0 || key === "noticePeriodDays" && profile.noticePeriodDays !== undefined);
       const reason = value === null
         ? "No candidate value is configured for this field."
         : autoFill
-          ? explicitPolicyAnswer
-            ? "Explicit candidate standardized answer with high-confidence field mapping."
-            : "Deterministic field mapping with high confidence."
+          ? explicitPolicyAnswer ? "Explicit candidate standardized answer with high-confidence field mapping." : "Canonical candidate profile value with high-confidence field mapping."
           : "Field requires an explicitly configured standardized answer before automatic filling.";
-
       return { field, key, value, confidence, autoFill, reason };
     });
   }
