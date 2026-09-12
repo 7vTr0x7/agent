@@ -32,7 +32,7 @@ export class RecruiterOutreachSendService {
     if (this.dryRun) return { status: "DRY_RUN", messageId: message.id };
     const activation = evaluateRecruiterOutreachActivation({ activation: this.activation, dryRun: this.dryRun, liveActivationConfirmed: this.liveActivationConfirmed, controlledSendConfirmation: this.controlledSendConfirmation, maxMessagesPerDay: this.maxMessagesPerDay, maxMessagesPerHour: this.maxMessagesPerHour });
     if (!activation.allowed) return { status: "SKIPPED", messageId: message.id, reason: activation.reason };
-    if (this.automationEnabled && sequence.jobOpportunityId !== null) return { status: "SKIPPED", messageId: message.id, reason: "Job-linked controlled activation refuses broad automation; AUTOMATION_ENABLED must remain false." };
+    if (this.automationEnabled && sequence.jobOpportunityId !== null) return { status: "SKIPPED", messageId: message.id, reason: "Phase 6 controlled activation refuses broad automation; AUTOMATION_ENABLED must remain false." };
     if (!this.outboundEnabled) return { status: "SKIPPED", messageId: message.id, reason: "Global outbound kill switch is disabled." };
     if (!this.gmailEnabled) return { status: "SKIPPED", messageId: message.id, reason: "Gmail sending is disabled." };
     if (!this.options.mailbox) return { status: "SKIPPED", messageId: message.id, reason: "Gmail mailbox is not configured for live recruiter outreach." };
