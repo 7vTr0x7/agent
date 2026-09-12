@@ -110,15 +110,15 @@ jobs:
           set -euo pipefail
           migration_count="$(docker exec job-agent-phase7-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM schema_migrations WHERE name='034_recruiter_relevance_freshness.sql';" | tr -d '[:space:]')"
           test "$migration_count" = '1'
-          current_relevance="$(docker exec job-agent-phase7-postgres psql -U job_agent -d job_agent -tAc "SELECT relevance_status FROM recruiter_contacts WHERE LOWER(email)='alex.recruiter@phase7fixture.example.com';" | tr -d '[:space:]')"
+          current_relevance="$(docker exec job-agent-phase7-postgres psql -U job_agent -d job_agent -tAc "SELECT relevance_status FROM recruiter_contacts WHERE LOWER(email)='alex.recruiter@example.com';" | tr -d '[:space:]')"
           test "$current_relevance" = 'CURRENT'
           verified_quality="$(docker exec job-agent-phase7-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts WHERE verified=true AND (mailbox_evidence=false OR email_status<>'VERIFIED' OR verification_status<>'mailbox_verified' OR jsonb_typeof(verification_evidence)<>'array');" | tr -d '[:space:]')"
           test "$verified_quality" = '0'
           sent_count="$(docker exec job-agent-phase7-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';" | tr -d '[:space:]')"
           test "$sent_count" = '0'
-          sequence_count="$(docker exec job-agent-phase7-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_sequences WHERE recruiter_contact_id=(SELECT id FROM recruiter_contacts WHERE LOWER(email)='alex.recruiter@phase7fixture.example.com') AND job_opportunity_id='70000000-0000-4000-8000-000000000001';" | tr -d '[:space:]')"
+          sequence_count="$(docker exec job-agent-phase7-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_sequences WHERE recruiter_contact_id=(SELECT id FROM recruiter_contacts WHERE LOWER(email)='alex.recruiter@example.com') AND job_opportunity_id='70000000-0000-4000-8000-000000000001';" | tr -d '[:space:]')"
           test "$sequence_count" = '1'
-          message_count="$(docker exec job-agent-phase7-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id WHERE s.recruiter_contact_id=(SELECT id FROM recruiter_contacts WHERE LOWER(email)='alex.recruiter@phase7fixture.example.com') AND s.job_opportunity_id='70000000-0000-4000-8000-000000000001';" | tr -d '[:space:]')"
+          message_count="$(docker exec job-agent-phase7-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id WHERE s.recruiter_contact_id=(SELECT id FROM recruiter_contacts WHERE LOWER(email)='alex.recruiter@example.com') AND s.job_opportunity_id='70000000-0000-4000-8000-000000000001';" | tr -d '[:space:]')"
           test "$message_count" = '1'
           echo "Phase 7 database gates passed: migration=$migration_count relevance=$current_relevance verified_quality=$verified_quality sequences=$sequence_count messages=$message_count sent=$sent_count"
       - name: Static security audit
