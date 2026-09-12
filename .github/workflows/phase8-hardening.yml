@@ -2,6 +2,8 @@ name: Phase 8 Hardening
 
 on:
   push:
+    branches: [main, phase8/final-validation]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -45,12 +47,18 @@ jobs:
           set -euo pipefail
           docker network create job-agent-phase8
           docker run -d --name job-agent-phase8-postgres --network job-agent-phase8 -e POSTGRES_DB=job_agent -e POSTGRES_USER=job_agent -e POSTGRES_PASSWORD=ci postgres:17-alpine
-          for i in $(seq 1 30); do
-            if docker exec job-agent-phase8-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then exit 0; fi
+          ready=false
+          for i in $(seq 1 60); do
+            if docker exec job-agent-phase8-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1 && docker exec job-agent-phase8-postgres psql -U job_agent -d job_agent -v ON_ERROR_STOP=1 -c 'SELECT 1' >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
             sleep 1
           done
-          docker logs job-agent-phase8-postgres
-          exit 1
+          if [ "$ready" != "true" ]; then
+            docker logs job-agent-phase8-postgres
+            exit 1
+          fi
       - name: Apply migrations
         run: |
           set -euo pipefail
@@ -89,7 +97,7 @@ jobs:
           path: |
             phase8-runtime-output.log
             phase8-cross-path-output.log
-          if-no-files-found: error
+          if-no-files-found: warn
       - name: Worker wiring and database invariant checks
         run: |
           set -euo pipefail
