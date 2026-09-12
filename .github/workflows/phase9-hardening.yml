@@ -82,7 +82,7 @@ jobs:
       - name: Phase 9 isolated browser/application fixture
         run: |
           set -euo pipefail
-          NODE_ENV=test APPLICATION_DRY_RUN=true GMAIL_ENABLED=false OUTBOUND_ENABLED=false PROACTIVE_RECRUITER_ENABLED=false PROACTIVE_RECRUITER_SEND_ENABLED=false STALE_SUBMISSION_RECONCILIATION_ENABLED=false RECRUITER_REQUIRE_VERIFIED_EMAIL=true npx tsx scripts/phase9-application-runtime.ts 2>&1 | tee phase9-application-runtime.log
+          timeout --foreground --signal=TERM 5m env NODE_ENV=test APPLICATION_DRY_RUN=true GMAIL_ENABLED=false OUTBOUND_ENABLED=false PROACTIVE_RECRUITER_ENABLED=false PROACTIVE_RECRUITER_SEND_ENABLED=false STALE_SUBMISSION_RECONCILIATION_ENABLED=false RECRUITER_REQUIRE_VERIFIED_EMAIL=true npx tsx scripts/phase9-application-runtime.ts 2>&1 | tee phase9-application-runtime.log
           grep -q '"status":"ok"' phase9-application-runtime.log
           grep -q '"wouldApply":true' phase9-application-runtime.log
           grep -q '"realApplicationsSubmitted":0' phase9-application-runtime.log
