@@ -7,6 +7,7 @@ import { ApplicationEmailContext } from "../notifications/Email";
 import { TailoredResumeArtifactService } from "../resume/TailoredResumeArtifactService";
 import { TailoredResumeRepository } from "../resume/TailoredResumeRepository";
 import { ApplicationAttemptRepository } from "./ApplicationAttemptRepository";
+import { classifyApplicationFailure } from "./ApplicationFailureClassifier";
 import { RecruiterDiscoveryTaskDispatcher } from "../recruiters/RecruiterDiscoveryTask";
 
 export interface CandidateProfileResolver { getById(candidateProfileId: string): Promise<CandidateProfile | null>; }
@@ -43,9 +44,7 @@ export class ApplicationTaskHandler {
     let applicationProfile = candidateProfile;
     if (this.tailoredResumeArtifacts) {
       const artifact = await this.tailoredResumeArtifacts.create(prepared.application.jobTitle, prepared.application.jobDescription);
-      if (this.tailoredResumeRepository) {
-        await this.tailoredResumeRepository.save({ applicationId: prepared.application.applicationId, jobOpportunityId: prepared.application.jobOpportunityId, candidateProfileId: prepared.application.candidateProfileId, jobTitle: prepared.application.jobTitle, sourceVersion: artifact.sourceVersion, resumePath: artifact.resumePath, atsScore: artifact.atsScore, matchedKeywords: artifact.matchedKeywords, missingKeywords: artifact.missingKeywords, warnings: artifact.warnings });
-      }
+      if (this.tailoredResumeRepository) await this.tailoredResumeRepository.save({ applicationId: prepared.application.applicationId, jobOpportunityId: prepared.application.jobOpportunityId, candidateProfileId: prepared.application.candidateProfileId, jobTitle: prepared.application.jobTitle, sourceVersion: artifact.sourceVersion, resumePath: artifact.resumePath, atsScore: artifact.atsScore, matchedKeywords: artifact.matchedKeywords, missingKeywords: artifact.missingKeywords, warnings: artifact.warnings });
       applicationProfile = { ...candidateProfile, resumePath: artifact.resumePath };
     }
 
@@ -65,24 +64,19 @@ export class ApplicationTaskHandler {
       throw error;
     }
 
-    console.log(JSON.stringify({
-      level: 30, taskId: task.id, taskType: task.taskType, workerId: task.workerId,
-      applicationId: prepared.application.applicationId, jobOpportunityId: prepared.application.jobOpportunityId,
-      companyName: prepared.application.companyName, jobTitle: prepared.application.jobTitle,
-      adapterName: outcome.adapterName, attemptId: outcome.attemptId, outcome: outcome.outcome,
-      submitted: outcome.submitted, safetyAllowed: outcome.safetyAllowed,
-      requestObserved: outcome.result?.evidence?.requestObserved,
-      responseObserved: outcome.result?.evidence?.responseObserved,
-      responseStatus: outcome.result?.evidence?.responseStatus,
-      finalUrl: outcome.result?.evidence?.finalUrl,
-      confirmationUrl: outcome.result?.confirmationUrl,
-      externalApplicationId: outcome.result?.externalApplicationId,
-      reason: outcome.reason,
-      msg: "Application submission outcome"
-    }));
+    console.log(JSON.stringify({ level: 30, taskId: task.id, taskType: task.taskType, workerId: task.workerId, applicationId: prepared.application.applicationId, jobOpportunityId: prepared.application.jobOpportunityId, companyName: prepared.application.companyName, jobTitle: prepared.application.jobTitle, adapterName: outcome.adapterName, attemptId: outcome.attemptId, outcome: outcome.outcome, submitted: outcome.submitted, safetyAllowed: outcome.safetyAllowed, requestObserved: outcome.result?.evidence?.requestObserved, responseObserved: outcome.result?.evidence?.responseObserved, responseStatus: outcome.result?.evidence?.responseStatus, finalUrl: outcome.result?.evidence?.finalUrl, confirmationUrl: outcome.result?.confirmationUrl, externalApplicationId: outcome.result?.externalApplicationId, reason: outcome.reason, msg: "Application submission outcome" }));
 
     if (this.attemptRepository && !outcome.attemptId) {
-      await this.attemptRepository.record({ applicationId: prepared.application.applicationId, adapterName: outcome.adapterName ?? "unknown", safetyAllowed: outcome.safetyAllowed, submitted: outcome.submitted, reason: outcome.reason, confirmationUrl: outcome.result?.confirmationUrl ?? null, externalApplicationId: outcome.result?.externalApplicationId ?? null });
+      await this.attemptRepository.record({
+        applicationId: prepared.application.applicationId,
+        adapterName: outcome.adapterName ?? "unknown",
+        safetyAllowed: outcome.safetyAllowed,
+        submitted: outcome.submitted,
+        reason: outcome.reason,
+        failureCode: classifyApplicationFailure(outcome.reason, outcome.outcome),
+        confirmationUrl: outcome.result?.confirmationUrl ?? null,
+        externalApplicationId: outcome.result?.externalApplicationId ?? null
+      });
     }
 
     if (this.recruiterDiscoveryDispatcher && prepared.application.companyDomain && shouldFallbackToRecruiter(outcome)) {
