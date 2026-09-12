@@ -2,6 +2,8 @@ name: Phase 8 Hardening
 
 on:
   push:
+    branches: [main, phase8/final-validation]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
