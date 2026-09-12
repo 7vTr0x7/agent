@@ -81,9 +81,10 @@ describe("ApplicationSubmissionService", () => {
           <label for="email">Email Address</label>
           <input id="email" name="email" type="email" required />
           ${includeUnsafeField ? `
-          <label for="experience">Years of experience</label>
-          <input id="experience" name="experience" type="text" required />
+          <label for="custom-question">Custom required question</label>
+          <input id="custom-question" name="custom_question" type="text" required />
           ` : ""}
+          <button type="submit">Submit application</button>
         </form>
       `);
     });
@@ -99,7 +100,7 @@ describe("ApplicationSubmissionService", () => {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   });
 
-  it("fills safe fields but refuses to submit when a required unsafe field remains unresolved", async () => {
+  it("fills approved fields but refuses to submit when a required unsupported field remains unresolved", async () => {
     const adapter = new RecordingAdapter();
     const repository = new RecordingApplicationRepository();
     const service = new ApplicationSubmissionService(
@@ -134,7 +135,7 @@ describe("ApplicationSubmissionService", () => {
     expect(result.submitted).toBe(false);
     expect(result.safetyAllowed).toBe(false);
     expect(result.adapterName).toBe("recording-adapter");
-    expect(result.reason).toContain("Years of experience");
+    expect(result.reason).toContain("Custom required question");
     expect(adapter.submitted).toBe(false);
     expect(repository.beginCalls).toBe(0);
     expect(repository.calls).toHaveLength(0);
