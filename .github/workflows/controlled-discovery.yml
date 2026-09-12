@@ -70,6 +70,7 @@ jobs:
             -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-discovery-postgres:5432/job_agent \
             -e AUTOMATION_ENABLED=false \
             -e APPLICATION_DRY_RUN=true \
+            -e APPLICATION_LIVE_ENABLED=false \
             -e OUTBOUND_ENABLED=false \
             -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false \
             -e JOB_DISCOVERY_ENABLED=true \
@@ -125,7 +126,7 @@ jobs:
 
           latest_migration="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc 'SELECT name FROM schema_migrations ORDER BY id DESC LIMIT 1;' | tr -d '[:space:]')"
           echo "latest_migration=$latest_migration"
-          test "$latest_migration" = '037_phase9_application_invariants.sql'
+          test "$latest_migration" = '038_phase10_activation_safety.sql'
 
           expected_sources=14
           for i in $(seq 1 4800); do
@@ -170,7 +171,6 @@ jobs:
           printf 'peak_source_concurrency=%s\n' "$peak"
 
           effective_db_url="postgres://job_agent:runtime_test_password@job-agent-discovery-postgres:5432/job_agent"
-          test "$effective_db_url" = 'postgres://job_agent:runtime_test_password@job-agent-discovery-postgres:5432/job_agent'
           test "$(docker inspect job-agent-discovery-app --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^DATABASE_URL=' | cut -d= -f2-)" = "$effective_db_url"
           echo 'DATABASE_URL isolation verification passed.'
 
