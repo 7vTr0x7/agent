@@ -32,4 +32,13 @@ r = r.replace('SELECT id,recruiter_contact_id,job_opportunity_id,application_id,
 r = r.replace('RETURNING id,recruiter_contact_id,job_opportunity_id,application_id,candidate_profile_id,status,next_action_at,follow_up_count', 'RETURNING id,recruiter_contact_id,job_opportunity_id,application_id,candidate_profile_id,status,campaign_type,next_action_at,follow_up_count')
 r = r.replace('candidateProfileId:row.candidate_profile_id,status:row.status,nextActionAt:', 'candidateProfileId:row.candidate_profile_id,status:row.status,campaignType:row.campaign_type,nextActionAt:')
 repo.write_text(r)
+
+ci = Path('.github/workflows/ci.yml')
+c = ci.read_text()
+old = 'branches: [main, phase4/controlled-real-world-activation, phase5/real-job-recruiter-intelligence, phase6/controlled-real-gmail-activation, phase7/recruiter-discovery-outreach-preparation]'
+new = 'branches: [main, phase4/controlled-real-world-activation, phase5/real-job-recruiter-intelligence, phase6/controlled-real-gmail-activation, phase7/recruiter-discovery-outreach-preparation, phase8/recruiter-first-outreach]'
+if old not in c:
+    raise SystemExit('Missing CI push branch list')
+c = c.replace(old, new, 1)
+ci.write_text(c)
 print('Phase 8 bootstrap source patch applied.')
