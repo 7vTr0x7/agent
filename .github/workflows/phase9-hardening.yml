@@ -1,0 +1,150 @@
+name: Phase 9 Hardening
+
+on:
+  push:
+    branches: [main, phase9/application-hardening]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hardening:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Safe defaults
+        run: |
+          set -euo pipefail
+          test "false" = "${AUTOMATION_ENABLED:-false}"
+          test "true" = "${APPLICATION_DRY_RUN:-true}"
+          test "false" = "${GMAIL_ENABLED:-false}"
+          test "false" = "${OUTBOUND_ENABLED:-false}"
+          test "false" = "${PROACTIVE_RECRUITER_ENABLED:-false}"
+          test "false" = "${PROACTIVE_RECRUITER_SEND_ENABLED:-false}"
+          test "false" = "${STALE_SUBMISSION_RECONCILIATION_ENABLED:-false}"
+          echo 'Phase 9 safety defaults verified.'
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Full tests
+        run: |
+          set -o pipefail
+          npm test -- --runInBand 2>&1 | tee phase9-test-output.log
+      - name: Upload test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase9-test-output
+          path: phase9-test-output.log
+          if-no-files-found: error
+      - name: Docker build
+        run: docker build --tag job-agent:phase9-ci .
+      - name: Start isolated PostgreSQL
+        run: |
+          set -euo pipefail
+          docker network create job-agent-phase9
+          docker run -d --name job-agent-phase9-postgres --network job-agent-phase9 -e POSTGRES_DB=job_agent -e POSTGRES_USER=job_agent -e POSTGRES_PASSWORD=ci postgres:17-alpine
+          ready=false
+          for i in $(seq 1 60); do
+            if docker exec job-agent-phase9-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1 && docker exec job-agent-phase9-postgres psql -U job_agent -d job_agent -v ON_ERROR_STOP=1 -c 'SELECT 1' >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != "true" ]; then
+            docker logs job-agent-phase9-postgres
+            exit 1
+          fi
+      - name: Apply migrations
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-phase9 -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase9-postgres:5432/job_agent job-agent:phase9-ci node -e "const {Database}=require('./dist/database/Database'); const {MigrationRunner}=require('./dist/database/MigrationRunner'); const db=new Database(process.env.DATABASE_URL); new MigrationRunner(db).run().then(()=>db.close()).catch(e=>{console.error(e);process.exit(1)})"
+      - name: Phase 9 isolated browser/application fixture
+        run: |
+          set -euo pipefail
+          NODE_ENV=test APPLICATION_DRY_RUN=true GMAIL_ENABLED=false OUTBOUND_ENABLED=false PROACTIVE_RECRUITER_ENABLED=false PROACTIVE_RECRUITER_SEND_ENABLED=false STALE_SUBMISSION_RECONCILIATION_ENABLED=false npx tsx scripts/phase9-application-runtime.ts 2>&1 | tee phase9-application-runtime.log
+          grep -q '"status":"ok"' phase9-application-runtime.log
+          grep -q '"wouldApply":true' phase9-application-runtime.log
+          grep -q '"realApplicationsSubmitted":0' phase9-application-runtime.log
+          grep -q '"captcha":"blocked"' phase9-application-runtime.log
+          grep -q '"authentication":"blocked"' phase9-application-runtime.log
+          grep -q '"promptInjection":"blocked"' phase9-application-runtime.log
+          grep -q '"maliciousRedirect":"blocked"' phase9-application-runtime.log
+          grep -q '"catalogOnlyAdapter":"blocked"' phase9-application-runtime.log
+      - name: Database invariants and no real submissions
+        run: |
+          set -euo pipefail
+          migration_count="$(docker exec job-agent-phase9-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM schema_migrations WHERE name='037_phase9_application_invariants.sql';" | tr -d '[:space:]')"
+          test "$migration_count" = '1'
+          trigger_count="$(docker exec job-agent-phase9-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_trigger WHERE tgname='trg_application_phase9_state';" | tr -d '[:space:]')"
+          test "$trigger_count" = '1'
+          failure_code_check="$(docker exec job-agent-phase9-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_constraint WHERE conname='application_attempts_failure_code_check';" | tr -d '[:space:]')"
+          test "$failure_code_check" = '1'
+          sent_count="$(docker exec job-agent-phase9-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications WHERE status='SENT';" | tr -d '[:space:]')"
+          test "$sent_count" = '0'
+          echo "Phase 9 database gates passed: migration=$migration_count trigger=$trigger_count failure_code_check=$failure_code_check sent=$sent_count"
+      - name: Phase 7 recruiter regression
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-phase9 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase9-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=false -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase9-ci npm run phase7:recruiter-outreach-runtime 2>&1 | tee phase7-regression-output.log
+          grep -q '"status":"ok"' phase7-regression-output.log
+          grep -q '"prepared":1' phase7-regression-output.log
+          grep -q '"sent":"0"' phase7-regression-output.log
+      - name: Phase 8 recruiter-first regression
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-phase9 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase9-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=true -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase9-ci npm run phase8:recruiter-first-runtime 2>&1 | tee phase8-runtime-output.log
+          grep -q '"status":"ok"' phase8-runtime-output.log
+          grep -q '"jobsDiscovered":0' phase8-runtime-output.log
+          grep -q '"campaignType":"PROACTIVE_RECRUITER"' phase8-runtime-output.log
+          grep -q '"jobId":null' phase8-runtime-output.log
+          grep -q '"prepared":true' phase8-runtime-output.log
+          grep -q '"sent":0' phase8-runtime-output.log
+          grep -q '"snovCreditsUsed":0' phase8-runtime-output.log
+      - name: Cross-path recruiter dedup regression
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-phase9 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase9-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=false -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase9-ci npx tsx scripts/phase8-cross-path-runtime.ts 2>&1 | tee phase8-cross-path-output.log
+          grep -q '"status":"ok"' phase8-cross-path-output.log
+          grep -q '"jobFirst":"blocked"' phase8-cross-path-output.log
+          grep -q '"proactiveFirst":"blocked"' phase8-cross-path-output.log
+      - name: Static security audit
+        run: |
+          set -euo pipefail
+          if grep -RInE '(^|[^[:alnum:]_])(TODO|FIXME|HACK|AGENT_NEXT_PASS)([^[:alnum:]_]|$)' src scripts; then exit 1; fi
+          if grep -RInE 'continue-on-error:[[:space:]]*true' .github/workflows --exclude=phase7-hardening.yml --exclude=phase8-hardening.yml --exclude=phase9-hardening.yml; then exit 1; fi
+          if grep -RInE '^[[:space:]]*[^#].*\|\|[[:space:]]*true' src scripts; then exit 1; fi
+          if grep -RInE 'console\.(log|info|error).*?(access_token|refresh_token|client_secret|api[_-]?key|password=|GMAIL_CLIENT_SECRET|SNOV_API_KEY)' src scripts; then exit 1; fi
+          if grep -RInE 'playwright.*(captcha|recaptcha|hcaptcha)|solveCaptcha|captchaToken|cf_clearance' src scripts; then exit 1; fi
+          echo 'Static Phase 9 security audit passed.'
+      - name: Upload runtime output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase9-runtime-output
+          path: |
+            phase9-application-runtime.log
+            phase7-regression-output.log
+            phase8-runtime-output.log
+            phase8-cross-path-output.log
+          if-no-files-found: warn
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f job-agent-phase9-postgres >/dev/null 2>&1 || true
+          docker network rm job-agent-phase9 >/dev/null 2>&1 || true
