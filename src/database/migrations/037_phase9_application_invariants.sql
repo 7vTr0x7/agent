@@ -59,7 +59,7 @@ $$;
 
 DROP TRIGGER IF EXISTS trg_application_phase9_state ON applications;
 CREATE CONSTRAINT TRIGGER trg_application_phase9_state
-AFTER INSERT OR UPDATE OF status ON applications
+AFTER INSERT OR UPDATE ON applications
 DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW
 EXECUTE FUNCTION validate_application_phase9_state();
