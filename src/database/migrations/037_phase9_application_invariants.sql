@@ -21,7 +21,9 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
   latest_attempt RECORD;
+  latest_submission_event RECORD;
   employer_name TEXT;
+  evidence_ok BOOLEAN := FALSE;
 BEGIN
   SELECT jo.company_name INTO employer_name
   FROM job_opportunities jo
@@ -40,15 +42,27 @@ BEGIN
     ORDER BY attempted_at DESC, id DESC
     LIMIT 1;
 
-    IF latest_attempt.outcome IS DISTINCT FROM 'CONFIRMED_SUCCESS'
-       OR (NULLIF(TRIM(COALESCE(latest_attempt.confirmation_url, '')), '') IS NULL
-           AND NULLIF(TRIM(COALESCE(latest_attempt.external_application_id, '')), '') IS NULL) THEN
+    evidence_ok := latest_attempt.outcome = 'CONFIRMED_SUCCESS'
+      AND (NULLIF(TRIM(COALESCE(latest_attempt.confirmation_url, '')), '') IS NOT NULL
+           OR NULLIF(TRIM(COALESCE(latest_attempt.external_application_id, '')), '') IS NOT NULL);
+
+    IF NOT evidence_ok THEN
+      SELECT metadata INTO latest_submission_event
+      FROM application_events
+      WHERE application_id = NEW.id
+        AND event_type IN ('APPLICATION_SUBMITTED', 'APPLICATION_SUBMISSION_RECOVERED')
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1;
+      evidence_ok := COALESCE(NULLIF(TRIM(COALESCE(latest_submission_event.metadata->>'confirmationUrl', '')), ''), NULLIF(TRIM(COALESCE(latest_submission_event.metadata->>'externalApplicationId', '')), '')) IS NOT NULL;
+    END IF;
+
+    IF NOT evidence_ok THEN
       RAISE EXCEPTION 'Application cannot enter SENT without confirmed submission outcome and independent evidence';
     END IF;
   END IF;
 
   IF TG_OP = 'UPDATE' AND OLD.status = 'SUBMISSION_UNKNOWN' AND NEW.status = 'SENT' THEN
-    IF latest_attempt.outcome IS DISTINCT FROM 'CONFIRMED_SUCCESS' THEN
+    IF NOT evidence_ok THEN
       RAISE EXCEPTION 'Ambiguous application cannot become SENT without reconciliation evidence';
     END IF;
   END IF;
