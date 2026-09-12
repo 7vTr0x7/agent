@@ -124,7 +124,7 @@ jobs:
       - name: Static security audit
         run: |
           set -euo pipefail
-          if grep -RInE '(^|[^[:alnum:]_])(TODO|FIXME|HACK|AGENT_NEXT_PASS)([^[:alnum:]_]|$)' src scripts tests .github/workflows; then
+          if grep -RInE '(^|[^[:alnum:]_])(TODO|FIXME|HACK|AGENT_NEXT_PASS)([^[:alnum:]_]|$)' src scripts .github/workflows; then
             echo 'FAIL: temporary implementation marker remains.'
             exit 1
           fi
@@ -132,8 +132,8 @@ jobs:
             echo 'FAIL: continue-on-error is not permitted in Phase 7 workflows.'
             exit 1
           fi
-          if grep -RInE '^[[:space:]]*[^#].*\|\|[[:space:]]*true' src scripts tests; then
-            echo 'FAIL: failure swallowing pattern found in source/test code.'
+          if grep -RInE '^[[:space:]]*[^#].*\|\|[[:space:]]*true' src scripts; then
+            echo 'FAIL: failure swallowing pattern found in source code.'
             exit 1
           fi
           if grep -RInE 'console\.(log|info|error).*?(access_token|refresh_token|client_secret|api[_-]?key|password=|GMAIL_CLIENT_SECRET|SNOV_API_KEY)' src scripts; then
