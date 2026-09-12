@@ -17,6 +17,7 @@
     "phase5:controlled-runtime": "tsx scripts/phase5-controlled-runtime.ts",
     "phase6:controlled-gmail": "tsx scripts/phase6-controlled-gmail-runtime.ts",
     "phase7:recruiter-outreach-runtime": "tsx scripts/phase7-recruiter-outreach-runtime.ts",
+    "phase8:recruiter-first-runtime": "tsx scripts/phase8-recruiter-first-runtime.ts",
     "list:phase6-eligible-outreach": "tsx scripts/list-phase6-eligible-outreach.ts",
     "preflight:recruiter-outreach": "tsx scripts/preflight-recruiter-outreach.ts",
     "preflight:autonomous": "tsx scripts/preflight-autonomous-runtime.ts",
