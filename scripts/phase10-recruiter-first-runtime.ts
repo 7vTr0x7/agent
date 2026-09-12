@@ -1,7 +1,9 @@
 import { Database } from "../src/database/Database";
 import { GlobalExternalSideEffectGate } from "../src/shared/safety/GlobalExternalSideEffectGate";
+import { GmailMailbox } from "../src/email/GmailMailbox";
+import { RecruiterDiscoveryRepository } from "../src/recruiters/RecruiterDiscoveryRepository";
 import { RecruiterOutreachSendService } from "../src/recruiters/RecruiterOutreachSendService";
-import { RecruiterOutreachActivation, CONTROLLED_SEND_CONFIRMATION, evaluateRecruiterOutreachActivation } from "../src/recruiters/RecruiterOutreachActivationGate";
+import { CONTROLLED_SEND_CONFIRMATION, evaluateRecruiterOutreachActivation } from "../src/recruiters/RecruiterOutreachActivationGate";
 import { ProactiveRecruiterRepository } from "../src/recruiters/ProactiveRecruiterRepository";
 
 const DB = process.env.DATABASE_URL;
@@ -45,17 +47,18 @@ async function main(): Promise<void> {
     const jobs = await db.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM job_opportunities WHERE company_domain=$1", [domain]);
     if (jobs.rows[0]?.count !== "0") throw new Error("No-job fixture isolation failed: a job exists for the proactive company.");
 
-    const repository = new ProactiveRecruiterRepository(db);
+    const proactiveRepository = new ProactiveRecruiterRepository(db);
+    const recruiterRepository = new RecruiterDiscoveryRepository(db);
     const validContactId = await insertContact(db, { suffix: "Valid", email, verified: true, verificationStatus: "mailbox_verified", emailStatus: "VERIFIED", mailboxEvidence: true, evidence: validEvidence });
-    const validCampaign = await repository.createProactiveCampaign({ recruiterContactId: validContactId, candidateProfileId: profileId, targetRoles, subject, body });
+    const validCampaign = await proactiveRepository.createProactiveCampaign({ recruiterContactId: validContactId, candidateProfileId: profileId, targetRoles, subject, body });
     if (!validCampaign) throw new Error("Valid proactive recruiter campaign was not created without a job.");
 
     const campaignRow = await db.query<any>("SELECT campaign_type,job_opportunity_id,candidate_profile_id FROM recruiter_outreach_sequences WHERE id=$1", [validCampaign.sequenceId]);
     if (campaignRow.rows[0]?.campaign_type !== "PROACTIVE_RECRUITER" || campaignRow.rows[0]?.job_opportunity_id !== null || campaignRow.rows[0]?.candidate_profile_id !== profileId) throw new Error(`Proactive campaign shape is invalid: ${JSON.stringify(campaignRow.rows[0])}`);
 
     const duplicates = await Promise.all([
-      repository.createProactiveCampaign({ recruiterContactId: validContactId, candidateProfileId: profileId, targetRoles, subject, body }),
-      repository.createProactiveCampaign({ recruiterContactId: validContactId, candidateProfileId: profileId, targetRoles, subject, body })
+      proactiveRepository.createProactiveCampaign({ recruiterContactId: validContactId, candidateProfileId: profileId, targetRoles, subject, body }),
+      proactiveRepository.createProactiveCampaign({ recruiterContactId: validContactId, candidateProfileId: profileId, targetRoles, subject, body })
     ]);
     if (duplicates.some(Boolean)) throw new Error("Concurrent proactive campaign creation created a duplicate.");
 
@@ -73,7 +76,7 @@ async function main(): Promise<void> {
     const blocked: Record<string, boolean> = {};
     for (const item of negatives) {
       const id = await insertContact(db, item);
-      const prepared = await repository.createProactiveCampaign({ recruiterContactId: id, candidateProfileId: `${profileId}-${item.name}`, targetRoles, subject, body });
+      const prepared = await proactiveRepository.createProactiveCampaign({ recruiterContactId: id, candidateProfileId: `${profileId}-${item.name}`, targetRoles, subject, body });
       blocked[item.name] = !prepared;
       if (prepared) throw new Error(`Unsafe recruiter ${item.name} became campaign-eligible.`);
     }
@@ -83,10 +86,16 @@ async function main(): Promise<void> {
     if (!kill.allowed) throw new Error("Expected Phase 10 default global emergency stop to be active in isolated validation.");
 
     const mailboxCalls: string[] = [];
-    const mailbox = { sendMessage: async (message: { to: string }) => { mailboxCalls.push(message.to); return { gmailMessageId: "fixture-message", gmailThreadId: "fixture-thread" }; } };
-    const sendService = new RecruiterOutreachSendService({ repository: new (require("../src/recruiters/RecruiterDiscoveryRepository").RecruiterDiscoveryRepository)(db), database: db, mailbox, dryRun: false, outboundEnabled: true, gmailEnabled: true, automationEnabled: false, activation: "canary" as RecruiterOutreachActivation, controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION, controlledMessageId: (await db.query<{ id: string }>("SELECT id FROM recruiter_outreach_messages WHERE sequence_id=$1 LIMIT 1", [validCampaign.sequenceId])).rows[0]?.id ?? null, controlledRecipient: email, requireVerifiedEmail: true, maxMessagesPerDay: 1, maxMessagesPerHour: 1, externalSideEffectGate: killSwitch });
-    const message = await (new (require("../src/recruiters/RecruiterDiscoveryRepository").RecruiterDiscoveryRepository)(db)).getOutreachMessage((await db.query<{ id: string }>("SELECT id FROM recruiter_outreach_messages WHERE sequence_id=$1 LIMIT 1", [validCampaign.sequenceId])).rows[0]!.id);
-    if (!message) throw new Error("Valid proactive message was not persisted.");
+    const mailbox: GmailMailbox = {
+      listMessages: async () => [],
+      getMessage: async () => { throw new Error("Not implemented in isolated send-block fixture"); },
+      sendMessage: async (message) => { mailboxCalls.push(message.to); return { gmailMessageId: "fixture-message", gmailThreadId: "fixture-thread" }; }
+    };
+    const messageId = (await db.query<{ id: string }>("SELECT id FROM recruiter_outreach_messages WHERE sequence_id=$1 LIMIT 1", [validCampaign.sequenceId])).rows[0]?.id;
+    if (!messageId) throw new Error("Valid proactive message was not persisted.");
+    const message = await recruiterRepository.getOutreachMessage(messageId);
+    if (!message) throw new Error("Valid proactive message could not be loaded.");
+    const sendService = new RecruiterOutreachSendService({ repository: recruiterRepository, database: db, mailbox, dryRun: false, outboundEnabled: true, gmailEnabled: true, automationEnabled: false, activation: "canary", controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION, controlledMessageId: messageId, controlledRecipient: email, requireVerifiedEmail: true, maxMessagesPerDay: 1, maxMessagesPerHour: 1, externalSideEffectGate: killSwitch });
     const blockedSend = await sendService.send(message, domain);
     if (blockedSend.status !== "SKIPPED" || mailboxCalls.length !== 0) throw new Error(`Global kill switch did not block live send: ${JSON.stringify(blockedSend)}`);
 
