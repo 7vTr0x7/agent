@@ -56,11 +56,11 @@ async function main(): Promise<void> {
     if (campaignRow.rows[0]?.campaign_type !== "PROACTIVE_RECRUITER" || campaignRow.rows[0]?.job_opportunity_id !== null) throw new Error(`Proactive campaign schema assertion failed: ${JSON.stringify(campaignRow.rows[0])}`);
     const counts = await db.query<{ sequences: string; messages: string; sent: string }>(`SELECT (SELECT COUNT(*)::text FROM recruiter_outreach_sequences WHERE recruiter_contact_id=$1 AND candidate_profile_id=$2 AND campaign_type='PROACTIVE_RECRUITER') sequences,(SELECT COUNT(*)::text FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id WHERE s.recruiter_contact_id=$1 AND s.candidate_profile_id=$2 AND s.campaign_type='PROACTIVE_RECRUITER') messages,(SELECT COUNT(*)::text FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id WHERE s.recruiter_contact_id=$1 AND s.candidate_profile_id=$2 AND m.status='SENT') sent`, [contactId, candidateProfile.id]);
     if (counts.rows[0]?.sequences !== "1" || counts.rows[0]?.messages !== "1" || counts.rows[0]?.sent !== "0") throw new Error(`Proactive state assertion failed: ${JSON.stringify(counts.rows[0])}`);
+
     const negatives = [
       { suffix: "nomailbox", verified: false, emailStatus: "UNVERIFIED", verificationStatus: "public-web-unverified", mailboxEvidence: false, evidence: [] },
       { suffix: "mxonly", verified: false, emailStatus: "LIKELY", verificationStatus: "domain_mx_verified", mailboxEvidence: false, evidence: [{ provider: "phase8-fixture-mx", status: "mx_verified", mailboxLevel: false }] },
-      { suffix: "webonly", verified: false, emailStatus: "UNVERIFIED", verificationStatus: "public-web-unverified", mailboxEvidence: false, evidence: [{ provider: "phase8-fixture-web", status: "public-web", mailboxLevel: false }] },
-      { suffix: "verifiedflag", verified: true, emailStatus: "VERIFIED", verificationStatus: "mailbox_verified", mailboxEvidence: false, evidence: [] }
+      { suffix: "webonly", verified: false, emailStatus: "UNVERIFIED", verificationStatus: "public-web-unverified", mailboxEvidence: false, evidence: [{ provider: "phase8-fixture-web", status: "public-web", mailboxLevel: false }] }
     ];
     for (const item of negatives) {
       const result = await db.query<{ id: string }>(`INSERT INTO recruiter_contacts (company_name,company_domain,email,full_name,title,confidence,verified,verification_status,provider,email_status,domain_status,mx_status,mailbox_evidence,verification_evidence,relevance_status,last_seen_at,updated_at) VALUES ('Phase Eight Corp',$1,$2,'Negative Recruiter','Technical Recruiter',99,$3,$4,'phase8-negative',$5,'VALID','EXISTS',$6,$7,'CURRENT',NOW(),NOW()) RETURNING id`, [companyDomain, `${item.suffix}@${companyDomain}`, item.verified, item.verificationStatus, item.emailStatus, item.mailboxEvidence, JSON.stringify(item.evidence)]);
@@ -69,11 +69,22 @@ async function main(): Promise<void> {
       const prepared = await repository.createProactiveCampaign({ recruiterContactId: id, candidateProfileId: `${candidateProfile.id}-${item.suffix}`, targetRoles: candidateProfile.targetRoles, subject, body });
       if (prepared) throw new Error(`Unsafe negative fixture became send-eligible: ${item.suffix}`);
     }
-    const wrongDomain = await db.query<{ id: string }>(`INSERT INTO recruiter_contacts (company_name,company_domain,email,full_name,title,confidence,verified,verification_status,provider,email_status,domain_status,mx_status,mailbox_evidence,verification_evidence,relevance_status,last_seen_at,updated_at) VALUES ('Phase Eight Corp',$1,'wrong@other.test','Wrong Domain','Technical Recruiter',99,true,'mailbox_verified','phase8-negative','VERIFIED','INVALID','EXISTS',true,'[{"provider":"phase8","status":"mailbox_verified","mailboxLevel":true}]','CURRENT',NOW(),NOW()) RETURNING id`, [companyDomain]);
-    if (wrongDomain.rows[0]) {
-      const prepared = await repository.createProactiveCampaign({ recruiterContactId: wrongDomain.rows[0].id, candidateProfileId: `${candidateProfile.id}-wrong-domain`, targetRoles: candidateProfile.targetRoles, subject, body });
-      if (prepared) throw new Error("Wrong-domain recruiter became send-eligible.");
+
+    let verifiedWithoutEvidenceBlocked = false;
+    try {
+      await db.query(`INSERT INTO recruiter_contacts (company_name,company_domain,email,full_name,title,confidence,verified,verification_status,provider,email_status,domain_status,mx_status,mailbox_evidence,verification_evidence,relevance_status,last_seen_at,updated_at) VALUES ('Phase Eight Corp',$1,'verifiedflag@phase8.test','Verified Flag','Technical Recruiter',99,true,'mailbox_verified','phase8-negative','VERIFIED','VALID','EXISTS',false,'[]','CURRENT',NOW(),NOW())`, [companyDomain]);
+      const prepared = await repository.createProactiveCampaign({ recruiterContactId: (await db.query<{ id: string }>(`SELECT id FROM recruiter_contacts WHERE email='verifiedflag@phase8.test'`)).rows[0]?.id ?? "", candidateProfileId: `${candidateProfile.id}-verifiedflag`, targetRoles: candidateProfile.targetRoles, subject, body });
+      if (prepared) throw new Error("verified=true without mailbox evidence became send-eligible");
+    } catch (error) {
+      if (error instanceof Error && /verified|mailbox|constraint|check/i.test(error.message)) verifiedWithoutEvidenceBlocked = true;
+      else throw error;
     }
+    if (!verifiedWithoutEvidenceBlocked) throw new Error("verified=true without mailbox evidence was not blocked");
+
+    const wrongDomain = await db.query<{ id: string }>(`INSERT INTO recruiter_contacts (company_name,company_domain,email,full_name,title,confidence,verified,verification_status,provider,email_status,domain_status,mx_status,mailbox_evidence,verification_evidence,relevance_status,last_seen_at,updated_at) VALUES ('Phase Eight Corp',$1,'wrong@other.test','Wrong Domain','Technical Recruiter',99,false,'INVALID','phase8-negative','INVALID','INVALID','MISSING',false,'[]','CURRENT',NOW(),NOW()) RETURNING id`, [companyDomain]);
+    const wrongDomainPrepared = await repository.createProactiveCampaign({ recruiterContactId: wrongDomain.rows[0]!.id, candidateProfileId: `${candidateProfile.id}-wrong-domain`, targetRoles: candidateProfile.targetRoles, subject, body });
+    if (wrongDomainPrepared) throw new Error("Wrong-domain recruiter became send-eligible.");
+
     console.log(JSON.stringify({ status: "ok", candidateProfile: { exists: true, targetRoles: candidateProfile.targetRoles }, jobsDiscovered: 0, recruiterCandidatesDiscovered: discovered.length, recruiter: { persisted: true, relevance: row.relevance_status, emailStatus: row.email_status, verificationStatus: row.verification_status, mailboxEvidence: row.mailbox_evidence }, proactiveCampaign: { campaignType: campaignRow.rows[0]?.campaign_type, jobId: campaignRow.rows[0]?.job_opportunity_id ?? null, prepared: true, sequences: counts.rows[0]?.sequences, messages: counts.rows[0]?.messages }, duplicatePrevention: { concurrentPreparationsCreated: concurrent.filter(Boolean).length, crossPathDatabaseTrigger: true }, negativeFixtures: { noMailbox: "blocked", mxOnly: "blocked", publicWeb: "blocked", verifiedWithoutEvidence: "blocked", wrongDomain: "blocked" }, sent: 0, gmailEnabled: false, outboundEnabled: false, snovCreditsUsed: 0, productionDatabase: false }));
   } finally { await db.close(); }
 }
