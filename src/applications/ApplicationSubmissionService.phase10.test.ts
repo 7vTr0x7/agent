@@ -9,7 +9,7 @@ describe("Phase 10 application live activation boundary", () => {
     const applications = { beginSubmissionAttempt: jest.fn(), beginSubmission: jest.fn(), markSubmitted: jest.fn(), finalizeSubmissionAttempt: jest.fn(), updateSubmissionAttemptPhase: jest.fn() } as any;
     const targetResolver = { resolve: jest.fn().mockResolvedValue({ resolved: true, url: "http://127.0.0.1:18080/jobs/phase10" }) } as any;
     const flowController = { prepare: jest.fn().mockResolvedValue({ allowed: true, reasons: [] }) } as any;
-    const service = new ApplicationSubmissionService(browser, adapters, applications, undefined, undefined, undefined, undefined, undefined, undefined, false, flowController, undefined, undefined, false);
+    const service = new ApplicationSubmissionService(browser, adapters, applications, undefined, undefined, undefined, undefined, targetResolver, undefined, false, flowController, undefined, undefined, false);
     const result = await service.submit({ context: { applicationId: "application-1", url: "http://127.0.0.1:18080/jobs/phase10" } as any, companyName: "Example Corp", excludedCompanies: [], candidateProfile: {} as any });
     expect(result).toMatchObject({ submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: true, reason: "APPLICATION_LIVE_ENABLED is false; live application submission was not attempted." });
     expect(applications.beginSubmissionAttempt).not.toHaveBeenCalled();
