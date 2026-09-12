@@ -89,7 +89,7 @@ export class BrowserSessionService {
 
   async close(session: BrowserSession): Promise<void> {
     const errors: unknown[] = [];
-    let serverTerminated = false;
+    let serverTerminated = this.isServerTerminated(session.server);
 
     try {
       if (!session.page.isClosed()) {
@@ -115,16 +115,23 @@ export class BrowserSessionService {
       errors.push(error);
     }
 
-    try {
-      await this.closeServer(session.server);
-      serverTerminated = true;
-    } catch (error) {
-      errors.push(error);
+    serverTerminated = serverTerminated || this.isServerTerminated(session.server);
+    if (!serverTerminated) {
       try {
-        await this.killServer(session.server);
+        await this.closeServer(session.server);
         serverTerminated = true;
-      } catch (killError) {
-        errors.push(killError);
+      } catch (error) {
+        errors.push(error);
+        if (!this.isServerTerminated(session.server)) {
+          try {
+            await this.killServer(session.server);
+            serverTerminated = true;
+          } catch (killError) {
+            errors.push(killError);
+          }
+        } else {
+          serverTerminated = true;
+        }
       }
     }
 
@@ -132,7 +139,7 @@ export class BrowserSessionService {
       this.activeSessions.delete(session);
     }
 
-    if (errors.length > 0) {
+    if (errors.length > 0 && !serverTerminated) {
       throw errors[0];
     }
   }
@@ -144,6 +151,11 @@ export class BrowserSessionService {
 
   activeSessionCount(): number {
     return this.activeSessions.size;
+  }
+
+  private isServerTerminated(server: BrowserServer): boolean {
+    const child = server.process();
+    return child.exitCode !== null || child.signalCode !== null || child.killed;
   }
 
   private async closeContext(context: BrowserContext): Promise<void> {
