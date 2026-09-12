@@ -1,4 +1,5 @@
-import { RecruiterContactCandidate, RecruiterVerificationEvidence } from "./RecruiterDiscovery";
+import { RecruiterContactCandidate } from "./RecruiterDiscovery";
+import type { RecruiterVerificationEvidence } from "./RecruiterDiscovery";
 import { RecruiterDiscoveryRepository, StoredRecruiterContact, RecruiterOutreachSequenceRecord, RecruiterOutreachMessageRecord } from "./RecruiterDiscoveryRepository";
 import { evaluateRecruiterOutreachSafety } from "./RecruiterOutreachSafetyGate";
 export type RecruiterApplicationOutcome="SUBMITTED"|"FAILED"|"BLOCKED"|"NOT_ATTEMPTED";
