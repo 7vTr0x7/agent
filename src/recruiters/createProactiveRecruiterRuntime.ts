@@ -1,15 +1,15 @@
 import { GmailApiMailbox } from "../email/GmailApiMailbox";
-import { TaskQueue, TaskWorker } from "../queue/TaskQueue";
-import { CandidateProfile } from "../candidates/CandidateProfile";
+import { Database } from "../database/Database";
+import { TaskQueue } from "../queue/TaskQueue";
 import { AppConfig } from "../config/env";
 import { RecruiterDiscoveryRepository } from "./RecruiterDiscoveryRepository";
 import { RecruiterOutreachSendService } from "./RecruiterOutreachSendService";
-import { RecruiterOutreachSendTaskDispatcher, SEND_RECRUITER_EMAIL_TASK } from "./RecruiterOutreachSendTask";
+import { RecruiterOutreachSendTaskDispatcher } from "./RecruiterOutreachSendTask";
 import { RecruiterOutreachSendTaskHandler } from "./RecruiterOutreachSendTaskHandler";
 import { ProactiveRecruiterDiscoveryService } from "./ProactiveRecruiterDiscoveryService";
 import { ProactiveRecruiterRepository } from "./ProactiveRecruiterRepository";
 import { ProactiveRecruiterTaskHandler } from "./ProactiveRecruiterTaskHandler";
-import { ProactiveRecruiterTaskDispatcher, PROACTIVE_RECRUITER_DISCOVERY_TASK, PROACTIVE_RECRUITER_OUTREACH_TASK } from "./ProactiveRecruiterTask";
+import { ProactiveRecruiterTaskDispatcher } from "./ProactiveRecruiterTask";
 
 export interface ProactiveRecruiterRuntime {
   dispatcher: ProactiveRecruiterTaskDispatcher;
@@ -18,9 +18,8 @@ export interface ProactiveRecruiterRuntime {
 }
 
 export function createProactiveRecruiterRuntime(
-  database: ConstructorParameters<typeof RecruiterDiscoveryRepository>[0],
+  database: Database,
   taskQueue: TaskQueue,
-  candidateProfile: CandidateProfile,
   config: AppConfig,
   gmailMailbox: GmailApiMailbox | undefined,
   logger: Pick<Console, "error" | "info">
@@ -61,10 +60,5 @@ export function createProactiveRecruiterRuntime(
     },
     logger
   );
-  void candidateProfile;
-  void TaskWorker;
-  void SEND_RECRUITER_EMAIL_TASK;
-  void PROACTIVE_RECRUITER_DISCOVERY_TASK;
-  void PROACTIVE_RECRUITER_OUTREACH_TASK;
   return { dispatcher, handler, sendHandler };
 }
