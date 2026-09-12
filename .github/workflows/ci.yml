@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, phase4/controlled-real-world-activation, phase5/real-job-recruiter-intelligence, phase6/controlled-real-gmail-activation]
+    branches: [main, phase4/controlled-real-world-activation, phase5/real-job-recruiter-intelligence, phase6/controlled-real-gmail-activation, phase7/recruiter-discovery-outreach-preparation]
   pull_request:
     branches: [main]
 
