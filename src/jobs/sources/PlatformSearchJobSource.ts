@@ -7,7 +7,7 @@ import { PlaywrightJobPageRenderer } from "./RenderedJobPageRenderer";
 import { extractSearchResultUrls, SearchResultExtractionDiagnostics } from "./SearchResultUrlExtractor";
 import { getPlatformSearchUrls } from "./PlatformSearchProfiles";
 
-const PLATFORM_CONCURRENCY = 4;
+const DEFAULT_PLATFORM_CONCURRENCY = 8;
 const SEARCH_CONCURRENCY = 2;
 const PAGE_CONCURRENCY = 4;
 const DETAIL_CONCURRENCY = 4;
@@ -66,7 +66,7 @@ export class PlatformSearchJobSource implements JobSource {
   async fetchJobs(signal?: AbortSignal): Promise<Job[]> {
     const platforms = JOB_PLATFORM_REGISTRY;
     if (!platforms.length) return [];
-    const results = await mapWithConcurrency(platforms, PLATFORM_CONCURRENCY, async (platform) => {
+    const results = await mapWithConcurrency(platforms, getPlatformConcurrency(), async (platform) => {
       if (signal?.aborted) return [];
       try {
         return await this.platformDiscovery(platform.name, signal, this.onDiagnostic);
@@ -77,6 +77,12 @@ export class PlatformSearchJobSource implements JobSource {
     });
     return results.flat();
   }
+}
+
+export function getPlatformConcurrency(): number {
+  const configured = Number.parseInt(process.env.PLATFORM_SEARCH_CONCURRENCY ?? "", 10);
+  if (!Number.isFinite(configured) || configured < 1) return DEFAULT_PLATFORM_CONCURRENCY;
+  return Math.min(configured, JOB_PLATFORM_REGISTRY.length || 1);
 }
 
 const sharedRenderer = new PlaywrightJobPageRenderer();
@@ -102,7 +108,7 @@ export async function discoverPlatform(platformName: string, signal?: AbortSigna
     return [];
   }
   if (!links.length) {
-    onDiagnostic({ ...diagnosticsBase, pageSuccesses: 0, pageFailures: 0, parseSuccesses: 0, parseFailures: 0, parseFailureReasons: { no_search_urls: 1 }, jobs: 0, finalOutcome: "SUCCESS_ZERO_JOBS", extractionMode: "STATIC_ZERO_RENDER_ZERO" });
+    onDiagnostic({ ...diagnosticsBase, pageSuccesses: 0, pageFailures: 0, parseSuccesses: 0, parseFailures: 0, parseFailureReasons: { no_search_urls: 1 }, jobs: 0, errors: 0, finalOutcome: "SUCCESS_ZERO_JOBS", extractionMode: "STATIC_ZERO_RENDER_ZERO" });
     return [];
   }
 
@@ -129,8 +135,6 @@ export async function discoverPlatform(platformName: string, signal?: AbortSigna
     if (!html) { pageFailures += 1; errors += 1; return; }
     pageSuccesses += 1;
 
-    // Search/list pages can contain many JobPosting records. The collection parser also
-    // preserves the single-record parser as its final fallback for legitimate one-job pages.
     const parsed = parsePlatformJobPageCollection(html, url, platformName);
     if (parsed.jobs.length > 0) {
       parseSuccesses += 1;
@@ -172,8 +176,6 @@ export async function discoverPlatform(platformName: string, signal?: AbortSigna
     if (!html) { errors += 1; return; }
     detailPagesFetched += 1;
 
-    // Detail URLs represent individual job pages in this flow, so keep the existing
-    // single-record parser semantics while collection pages use the collection parser.
     const parsed = parsePlatformJobPage(html, url, platformName);
     recordParseDiagnostic(parsed.diagnostics, parseFailureReasons);
     if (parsed.job) { parseSuccesses += 1; detailJobsParsed += 1; collectJobs([parsed.job]); return; }
@@ -280,7 +282,7 @@ function platformSearchDomain(platformName: string): string | null {
   return knownDomains[platformName] ?? null;
 }
 function isRestrictedOrChallengePage(html: string): boolean { const text = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().toLowerCase(); return ["captcha", "verify you are human", "unusual traffic", "access denied", "robot check", "security check", "challenge-platform", "enable javascript and cookies"].some((signal) => text.includes(signal)); }
-function decodeXml(value: string): string { return value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;/g, "'"); }
+function decodeXml(value: string): string { return value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">\").replace(/&quot;/gi, '"').replace(/&#39;/g, "'"); }
 
 async function fetchText(url: string, timeoutMs: number, parentSignal?: AbortSignal): Promise<string | null> {
   for (let attempt = 0; attempt <= FETCH_RETRIES; attempt += 1) {
