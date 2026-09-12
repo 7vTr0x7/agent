@@ -83,7 +83,7 @@ async function main(): Promise<void> {
 
     const killSwitch = new GlobalExternalSideEffectGate(db);
     const kill = await killSwitch.evaluate();
-    if (!kill.allowed) throw new Error("Expected Phase 10 default global emergency stop to be active in isolated validation.");
+    if (kill.allowed) throw new Error("Expected Phase 10 default global emergency stop to be active in isolated validation.");
 
     const mailboxCalls: string[] = [];
     const mailbox: GmailMailbox = {
