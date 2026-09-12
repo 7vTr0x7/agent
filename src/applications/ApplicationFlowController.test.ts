@@ -57,6 +57,8 @@ describe("ApplicationFlowController", () => {
     const context = await browser.newContext();
     const page = await context.newPage();
     const profile: CandidateProfile = { id: "candidate-1", yearsExperience: 3, skills: ["React.js"], targetTitles: ["Frontend Engineer"], email: "salman@example.com" };
+    await page.route("http://application.test/**", async (route) => { await route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><html><body></body></html>" }); });
+    await page.goto("http://application.test/");
     await page.setContent(`<form><label for="email">Email</label><input id="email" name="email" type="email" required /></form>`);
     const result = await new ApplicationFlowController().prepare(page, profile, "Example Company", []);
     expect(result.allowed).toBe(false);
