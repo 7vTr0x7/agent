@@ -6,6 +6,7 @@ export interface BrowserSessionOptions {
   navigationTimeoutMs?: number;
   launchTimeoutMs?: number;
   lifecycleTimeoutMs?: number;
+  pageCloseTimeoutMs?: number;
 }
 
 export interface BrowserSession {
@@ -16,6 +17,7 @@ export interface BrowserSession {
 
 const DEFAULT_LAUNCH_TIMEOUT_MS = 30_000;
 const DEFAULT_LIFECYCLE_TIMEOUT_MS = 10_000;
+const DEFAULT_PAGE_CLOSE_TIMEOUT_MS = 1_000;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -84,13 +86,16 @@ export class BrowserSessionService {
 
   async close(session: BrowserSession): Promise<void> {
     const errors: unknown[] = [];
+    let browserClosed = false;
 
     try {
-      await withTimeout(
-        session.page.close({ reason: "Phase 9 fixture lifecycle cleanup" }),
-        this.options.lifecycleTimeoutMs ?? DEFAULT_LIFECYCLE_TIMEOUT_MS,
-        "Timed out closing the Playwright page."
-      );
+      if (!session.page.isClosed()) {
+        await withTimeout(
+          session.page.close({ reason: "Phase 9 fixture lifecycle cleanup" }),
+          this.options.pageCloseTimeoutMs ?? DEFAULT_PAGE_CLOSE_TIMEOUT_MS,
+          "Timed out closing the Playwright page; continuing with context cleanup."
+        );
+      }
     } catch (error) {
       errors.push(error);
     }
@@ -103,15 +108,18 @@ export class BrowserSessionService {
 
     try {
       await this.closeBrowser(session.browser);
+      browserClosed = true;
     } catch (error) {
       errors.push(error);
+    }
+
+    if (browserClosed) {
+      this.activeSessions.delete(session);
     }
 
     if (errors.length > 0) {
       throw errors[0];
     }
-
-    this.activeSessions.delete(session);
   }
 
   async closeAll(): Promise<void> {
