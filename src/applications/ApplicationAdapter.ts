@@ -1,4 +1,5 @@
 import { Page } from "playwright";
+import { ApplicationAdapterCapabilities } from "./ApplicationAdapterCapabilities";
 
 export type ApplicationSubmissionOutcome =
   | "CONFIRMED_SUCCESS"
@@ -95,6 +96,7 @@ export function normalizeApplicationSubmissionResult(
 
 export interface ApplicationAdapter {
   readonly name: string;
+  readonly capabilities?: ApplicationAdapterCapabilities;
   canHandle(url: string): boolean;
   submit(
     page: Page,
@@ -109,21 +111,12 @@ export class ApplicationAdapterRegistry {
     const matches = this.adapters.filter((adapter) => adapter.canHandle(url));
     if (matches.length === 0) return null;
 
-    // The generic adapter is deliberately a fallback. A specialized adapter
-    // must always win regardless of registration order; multiple specialized
-    // matches are treated as unsafe ambiguity and fail closed.
     const specializedMatches = matches.filter(
       (adapter) => adapter.name !== "generic-form"
     );
 
-    if (specializedMatches.length === 1) {
-      return specializedMatches[0] ?? null;
-    }
-
-    if (specializedMatches.length > 1) {
-      return null;
-    }
-
+    if (specializedMatches.length === 1) return specializedMatches[0] ?? null;
+    if (specializedMatches.length > 1) return null;
     return matches.find((adapter) => adapter.name === "generic-form") ?? null;
   }
 }

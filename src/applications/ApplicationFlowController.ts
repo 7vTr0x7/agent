@@ -15,6 +15,7 @@ export interface ApplicationFlowResult {
 }
 
 const NEXT_LABEL = /^(?:next|continue|continue application|continue to review|save and continue|next step|review application|proceed)$/i;
+const SUBMIT_LABEL = /^(?:submit|submit application|send application|complete application|apply(?: now)?)$/i;
 const MAX_STEPS = 8;
 
 export class ApplicationFlowController {
@@ -40,13 +41,7 @@ export class ApplicationFlowController {
 
       const hazards = await this.hazardDetector.detect(page);
       if (hazards.length > 0) {
-        return {
-          allowed: false,
-          reasons: hazards.map((hazard) => hazard.reason),
-          pagesProcessed: step + 1,
-          mappings,
-          fillResults
-        };
+        return { allowed: false, reasons: hazards.map((hazard) => hazard.reason), pagesProcessed: step + 1, mappings, fillResults };
       }
 
       const fields = await this.detector.detect(page);
@@ -55,33 +50,22 @@ export class ApplicationFlowController {
       mappings.push(...pageMappings);
       fillResults.push(...pageFillResults);
 
-      const safety = this.safetyGate.evaluate({
-        url: page.url(),
-        companyName,
-        excludedCompanies,
-        mappings: pageMappings,
-        fillResults: pageFillResults
-      });
-
-      if (!safety.allowed) {
-        return {
-          allowed: false,
-          reasons: safety.reasons,
-          pagesProcessed: step + 1,
-          mappings,
-          fillResults
-        };
-      }
+      const safety = this.safetyGate.evaluate({ url: page.url(), companyName, excludedCompanies, mappings: pageMappings, fillResults: pageFillResults });
+      if (!safety.allowed) return { allowed: false, reasons: safety.reasons, pagesProcessed: step + 1, mappings, fillResults };
 
       const next = await this.resolveNextControl(page);
       if (!next) {
-        return {
-          allowed: true,
-          reasons: [],
-          pagesProcessed: step + 1,
-          mappings,
-          fillResults
-        };
+        const finalSubmit = await this.resolveFinalSubmitControl(page);
+        if (!finalSubmit) {
+          return {
+            allowed: false,
+            reasons: ["No unique visible and enabled final application submit control was found; manual review required."],
+            pagesProcessed: step + 1,
+            mappings,
+            fillResults
+          };
+        }
+        return { allowed: true, reasons: [], pagesProcessed: step + 1, mappings, fillResults };
       }
 
       try {
@@ -103,28 +87,31 @@ export class ApplicationFlowController {
       await page.waitForTimeout(250);
     }
 
-    return {
-      allowed: false,
-      reasons: [`Application flow exceeded the safe ${MAX_STEPS}-step limit; manual review required.`],
-      pagesProcessed: MAX_STEPS,
-      mappings,
-      fillResults
-    };
+    return { allowed: false, reasons: [`Application flow exceeded the safe ${MAX_STEPS}-step limit; manual review required.`], pagesProcessed: MAX_STEPS, mappings, fillResults };
   }
 
   private async resolveNextControl(page: Page): Promise<Locator | null> {
     const controls = page.locator("button, input[type='button'], input[type='submit'], a");
     const matches: Locator[] = [];
-
     for (let index = 0; index < await controls.count(); index += 1) {
       const control = controls.nth(index);
       if (!(await control.isVisible().catch(() => false)) || !(await control.isEnabled().catch(() => false))) continue;
-
       const label = await this.readLabel(control);
-      if (!NEXT_LABEL.test(label)) continue;
-      matches.push(control);
+      if (NEXT_LABEL.test(label)) matches.push(control);
     }
+    return matches.length === 1 ? matches[0] ?? null : null;
+  }
 
+  private async resolveFinalSubmitControl(page: Page): Promise<Locator | null> {
+    const controls = page.locator("button, input[type='submit'], input[type='button']");
+    const matches: Locator[] = [];
+    for (let index = 0; index < await controls.count(); index += 1) {
+      const control = controls.nth(index);
+      if (!(await control.isVisible().catch(() => false)) || !(await control.isEnabled().catch(() => false))) continue;
+      const type = ((await control.getAttribute("type")) ?? "").trim().toLowerCase();
+      const label = await this.readLabel(control);
+      if (type === "submit" || SUBMIT_LABEL.test(label)) matches.push(control);
+    }
     return matches.length === 1 ? matches[0] ?? null : null;
   }
 

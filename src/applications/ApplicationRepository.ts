@@ -4,6 +4,7 @@ import { ApplicationSubmissionOutcome, NormalizedApplicationSubmissionResult } f
 import { evaluateApplicationPolicy, PERMANENTLY_EXCLUDED_COMPANIES } from "./ApplicationPolicy";
 import { ApplicationRateLimitPolicy } from "./ApplicationRateLimitPolicy";
 import { ApplicationCompanyRateLimitPolicy } from "./ApplicationCompanyRateLimitPolicy";
+import { classifyApplicationFailure } from "./ApplicationFailureClassifier";
 
 export interface PreparedApplication { applicationId: string; jobOpportunityId: string; candidateProfileId: string; url: string; jobTitle: string; companyName: string; companyDomain?: string | null; jobDescription: string; }
 export type PrepareApplicationResult = { prepared: true; application: PreparedApplication } | { prepared: false; reason: string };
@@ -21,55 +22,26 @@ export interface VerifiedSubmissionEvidence { confirmationUrl: string; externalA
 export interface StaleReconciliationResult { inspected: number; confirmedSuccess: number; definitiveFailure: number; safeToRetry: number; markedUnknown: number; unchangedActive: number; }
 
 export class ApplicationRepository {
-  constructor(
-    private readonly database: Database,
-    private readonly excludedCompanies: readonly string[] = PERMANENTLY_EXCLUDED_COMPANIES,
-    private readonly rateLimitPolicy = new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 200 }),
-    private readonly companyRateLimitPolicy = new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 20 })
-  ) {}
+  constructor(private readonly database: Database, private readonly excludedCompanies: readonly string[] = PERMANENTLY_EXCLUDED_COMPANIES, private readonly rateLimitPolicy = new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 200 }), private readonly companyRateLimitPolicy = new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 20 })) {}
 
   async prepare(jobOpportunityId: string, candidateProfileId: string): Promise<PrepareApplicationResult> {
     return this.database.transaction(async (client) => {
-      const candidate = await client.query<{
-        job_opportunity_id: string; match_decision: "APPLY" | "REJECT" | "REVIEW"; opportunity_status: "ACTIVE" | "STALE" | "CLOSED";
-        job_title: string; company_name: string; company_domain: string | null; canonical_url: string; job_description: string;
-        posted_at: Date | null; updated_at: Date | null; has_ranking: boolean; has_application: boolean;
-        existing_application_id: string | null; existing_application_status: string | null; job_id: string | null;
-      }>(
-        `SELECT jo.id AS job_opportunity_id, md.decision AS match_decision, jo.status AS opportunity_status,
-                jo.title AS job_title, jo.company_name, jo.company_domain, jo.canonical_url,
-                jo.description AS job_description, jo.posted_at, jo.updated_at,
-                EXISTS (SELECT 1 FROM job_rankings jr WHERE jr.job_opportunity_id = jo.id AND jr.candidate_profile_id = md.candidate_profile_id) AS has_ranking,
-                existing_application.id AS existing_application_id, existing_application.status AS existing_application_status,
-                (existing_application.id IS NOT NULL) AS has_application,
-                (SELECT j.id FROM jobs j WHERE j.job_opportunity_id = jo.id ORDER BY j.created_at ASC, j.id ASC LIMIT 1) AS job_id
-         FROM job_opportunities jo
-         INNER JOIN match_decisions md ON md.job_opportunity_id = jo.id AND md.candidate_profile_id = $2
-         LEFT JOIN LATERAL (SELECT a.id, a.status FROM applications a WHERE a.job_opportunity_id = jo.id ORDER BY a.created_at ASC, a.id ASC LIMIT 1) existing_application ON TRUE
-         WHERE jo.id = $1 FOR UPDATE OF jo`,
+      const candidate = await client.query<{ job_opportunity_id: string; match_decision: "APPLY" | "REJECT" | "REVIEW"; opportunity_status: "ACTIVE" | "STALE" | "CLOSED"; job_title: string; company_name: string; company_domain: string | null; canonical_url: string; job_description: string; posted_at: Date | null; updated_at: Date | null; has_ranking: boolean; has_application: boolean; existing_application_id: string | null; existing_application_status: string | null; job_id: string | null; }>(
+        `SELECT jo.id AS job_opportunity_id, md.decision AS match_decision, jo.status AS opportunity_status, jo.title AS job_title, jo.company_name, jo.company_domain, jo.canonical_url, jo.description AS job_description, jo.posted_at, jo.updated_at, EXISTS (SELECT 1 FROM job_rankings jr WHERE jr.job_opportunity_id = jo.id AND jr.candidate_profile_id = md.candidate_profile_id) AS has_ranking, existing_application.id AS existing_application_id, existing_application.status AS existing_application_status, (existing_application.id IS NOT NULL) AS has_application, (SELECT j.id FROM jobs j WHERE j.job_opportunity_id = jo.id ORDER BY j.created_at ASC, j.id ASC LIMIT 1) AS job_id FROM job_opportunities jo INNER JOIN match_decisions md ON md.job_opportunity_id = jo.id AND md.candidate_profile_id = $2 LEFT JOIN LATERAL (SELECT a.id, a.status FROM applications a WHERE a.job_opportunity_id = jo.id ORDER BY a.created_at ASC, a.id ASC LIMIT 1) existing_application ON TRUE WHERE jo.id = $1 FOR UPDATE OF jo`,
         [jobOpportunityId, candidateProfileId]
       );
       const row = candidate.rows[0];
       if (!row) return { prepared: false, reason: "No eligible match decision exists." };
       const reusableExistingApplication = row.existing_application_id !== null && ["READY", "DRAFTED"].includes(row.existing_application_status ?? "");
-      const policy = evaluateApplicationPolicy({
-        matchDecision: row.match_decision, opportunityStatus: row.opportunity_status, hasRanking: row.has_ranking,
-        hasExistingApplication: row.has_application && !reusableExistingApplication, companyName: row.company_name, excludedCompanies: this.excludedCompanies
-      });
+      const policy = evaluateApplicationPolicy({ matchDecision: row.match_decision, opportunityStatus: row.opportunity_status, hasRanking: row.has_ranking, hasExistingApplication: row.has_application && !reusableExistingApplication, companyName: row.company_name, excludedCompanies: this.excludedCompanies });
       if (policy.decision === "BLOCK") return { prepared: false, reason: policy.reason };
-
       let jobId = row.job_id;
       if (!jobId) {
         await client.query(`SELECT pg_advisory_xact_lock(hashtext($1::text))`, [`materialize-job:${jobOpportunityId}`]);
         const existing = await client.query<{ id: string }>(`SELECT id FROM jobs WHERE job_opportunity_id = $1::uuid ORDER BY created_at ASC, id ASC LIMIT 1`, [jobOpportunityId]);
         jobId = existing.rows[0]?.id ?? null;
         if (!jobId) {
-          const inserted = await client.query<{ id: string }>(
-            `INSERT INTO jobs (source, source_job_id, url, title, company_name, location, country, workplace_type, employment_type, description, posted_at, discovered_at, content_hash, created_at, updated_at, job_opportunity_id)
-             VALUES ('opportunity-materialized', $1::text, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, COALESCE($11::timestamptz, NOW()), encode(digest($2 || ':' || $1::text, 'sha256'), 'hex'), COALESCE($12::timestamptz, NOW()), COALESCE($13::timestamptz, $12::timestamptz, NOW()), $1::uuid)
-             ON CONFLICT (content_hash) DO NOTHING RETURNING id`,
-            [jobOpportunityId, row.canonical_url, row.job_title, row.company_name, null, null, null, null, row.job_description, row.posted_at, row.updated_at, row.updated_at, row.updated_at]
-          );
+          const inserted = await client.query<{ id: string }>(`INSERT INTO jobs (source, source_job_id, url, title, company_name, location, country, workplace_type, employment_type, description, posted_at, discovered_at, content_hash, created_at, updated_at, job_opportunity_id) VALUES ('opportunity-materialized', $1::text, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, COALESCE($11::timestamptz, NOW()), encode(digest($2 || ':' || $1::text, 'sha256'), 'hex'), COALESCE($12::timestamptz, NOW()), COALESCE($13::timestamptz, $12::timestamptz, NOW()), $1::uuid) ON CONFLICT (content_hash) DO NOTHING RETURNING id`, [jobOpportunityId, row.canonical_url, row.job_title, row.company_name, null, null, null, null, row.job_description, row.posted_at, row.updated_at, row.updated_at, row.updated_at]);
           jobId = inserted.rows[0]?.id ?? null;
         }
         if (!jobId) {
@@ -79,11 +51,7 @@ export class ApplicationRepository {
         }
       }
       if (!jobId) return { prepared: false, reason: "Unable to materialize a legacy job record for this opportunity." };
-
-      if (reusableExistingApplication && row.existing_application_id) {
-        return { prepared: true, application: { applicationId: row.existing_application_id, jobOpportunityId, candidateProfileId, url: row.canonical_url, jobTitle: row.job_title, companyName: row.company_name, companyDomain: row.company_domain, jobDescription: row.job_description } };
-      }
-
+      if (reusableExistingApplication && row.existing_application_id) return { prepared: true, application: { applicationId: row.existing_application_id, jobOpportunityId, candidateProfileId, url: row.canonical_url, jobTitle: row.job_title, companyName: row.company_name, companyDomain: row.company_domain, jobDescription: row.job_description } };
       const inserted = await client.query<{ id: string }>(`INSERT INTO applications (job_id, job_opportunity_id, candidate_profile_id, status) VALUES ($1, $2, $3, 'READY') ON CONFLICT (job_opportunity_id) DO NOTHING RETURNING id`, [jobId, jobOpportunityId, candidateProfileId]);
       const application = inserted.rows[0];
       if (!application) return { prepared: false, reason: "Application was already created concurrently." };
@@ -92,10 +60,7 @@ export class ApplicationRepository {
     });
   }
 
-  async isTaskOwned(taskId: string, workerId: string): Promise<boolean> {
-    const result = await this.database.query(`SELECT 1 FROM tasks WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND lease_expires_at > NOW() LIMIT 1`, [taskId, workerId]);
-    return result.rows.length === 1;
-  }
+  async isTaskOwned(taskId: string, workerId: string): Promise<boolean> { const result = await this.database.query(`SELECT 1 FROM tasks WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND lease_expires_at > NOW() LIMIT 1`, [taskId, workerId]); return result.rows.length === 1; }
 
   async beginSubmissionAttempt(applicationId: string, taskId: string | null = null, workerId: string | null = null, targetUrl: string | null = null): Promise<SubmissionReservation | null> {
     return this.database.transaction(async (client) => {
@@ -140,9 +105,10 @@ export class ApplicationRepository {
       if (confirmed && !result.confirmationUrl?.trim() && !result.externalApplicationId?.trim()) throw new Error("Confirmed application outcome requires confirmation evidence.");
       const nextStatus = outcome === "CONFIRMED_SUCCESS" ? "SENT" : outcome === "DEFINITIVE_FAILURE" ? "SUBMISSION_FAILED" : outcome === "NOT_SUBMITTED" ? "READY" : "SUBMISSION_UNKNOWN";
       const eventType = outcome === "CONFIRMED_SUCCESS" ? "APPLICATION_SUBMITTED" : outcome === "DEFINITIVE_FAILURE" ? "APPLICATION_SUBMISSION_FAILED" : outcome === "NOT_SUBMITTED" ? "APPLICATION_SUBMISSION_NOT_SUBMITTED" : "APPLICATION_SUBMISSION_AMBIGUOUS";
-      await client.query(`UPDATE application_attempts SET adapter_name = $2, safety_allowed = TRUE, submitted = $3, reason = $4, confirmation_url = $5, external_application_id = $6, outcome = $7, phase = 'FINALIZED', final_url = $8, response_status = $9, request_sent_at = $10, response_received_at = $11, confirmation_attempted_at = $12, confirmation_received_at = $13, ambiguity_reason = $14, metadata = COALESCE(metadata, '{}'::jsonb) || $15::jsonb, updated_at = NOW() WHERE id = $1`, [attemptId, adapterName, confirmed, result.reason, result.confirmationUrl, result.externalApplicationId, outcome, result.evidence.finalUrl, result.evidence.responseStatus, result.evidence.requestSentAt, result.evidence.responseReceivedAt, new Date(), confirmed ? new Date() : null, outcome === "AMBIGUOUS" ? result.reason : null, JSON.stringify({ requestObserved: result.evidence.requestObserved, responseObserved: result.evidence.responseObserved, outcome })]);
+      const failureCode = confirmed ? null : classifyApplicationFailure(result.reason, outcome);
+      await client.query(`UPDATE application_attempts SET adapter_name = $2, safety_allowed = TRUE, submitted = $3, reason = $4, failure_code = $5, confirmation_url = $6, external_application_id = $7, outcome = $8, phase = 'FINALIZED', final_url = $9, response_status = $10, request_sent_at = $11, response_received_at = $12, confirmation_attempted_at = $13, confirmation_received_at = $14, ambiguity_reason = $15, metadata = COALESCE(metadata, '{}'::jsonb) || $16::jsonb, updated_at = NOW() WHERE id = $1`, [attemptId, adapterName, confirmed, result.reason, failureCode, result.confirmationUrl, result.externalApplicationId, outcome, result.evidence.finalUrl, result.evidence.responseStatus, result.evidence.requestSentAt, result.evidence.responseReceivedAt, new Date(), confirmed ? new Date() : null, outcome === "AMBIGUOUS" ? result.reason : null, JSON.stringify({ requestObserved: result.evidence.requestObserved, responseObserved: result.evidence.responseObserved, outcome, failureCode })]);
       await client.query(`UPDATE applications SET status = $2, applied_at = CASE WHEN $2 = 'SENT' THEN NOW() ELSE applied_at END, updated_at = NOW() WHERE id = $1`, [applicationId, nextStatus]);
-      await client.query(`INSERT INTO application_events (application_id, from_status, to_status, event_type, metadata) VALUES ($1, 'SUBMISSION_IN_PROGRESS', $2, $3, $4::jsonb)`, [applicationId, nextStatus, eventType, JSON.stringify({ attemptId, adapterName, outcome, reason: result.reason, confirmationUrl: result.confirmationUrl, externalApplicationId: result.externalApplicationId, evidence: { requestObserved: result.evidence.requestObserved, responseObserved: result.evidence.responseObserved, responseStatus: result.evidence.responseStatus, finalUrl: result.evidence.finalUrl } })]);
+      await client.query(`INSERT INTO application_events (application_id, from_status, to_status, event_type, metadata) VALUES ($1, 'SUBMISSION_IN_PROGRESS', $2, $3, $4::jsonb)`, [applicationId, nextStatus, eventType, JSON.stringify({ attemptId, adapterName, outcome, reason: result.reason, confirmationUrl: result.confirmationUrl, externalApplicationId: result.externalApplicationId, failureCode, evidence: { requestObserved: result.evidence.requestObserved, responseObserved: result.evidence.responseObserved, responseStatus: result.evidence.responseStatus, finalUrl: result.evidence.finalUrl } })]);
       return true;
     });
   }

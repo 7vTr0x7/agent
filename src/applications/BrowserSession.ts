@@ -1,42 +1,192 @@
-import { chromium, Browser, BrowserContext, Page } from "playwright";
+import { chromium, Browser, BrowserContext, BrowserServer, Page } from "playwright";
 
 export interface BrowserSessionOptions {
   headless?: boolean;
   storageStatePath?: string;
   navigationTimeoutMs?: number;
+  launchTimeoutMs?: number;
+  lifecycleTimeoutMs?: number;
+  pageCloseTimeoutMs?: number;
 }
 
 export interface BrowserSession {
   browser: Browser;
   context: BrowserContext;
   page: Page;
+  server: BrowserServer;
+}
+
+const DEFAULT_LAUNCH_TIMEOUT_MS = 30_000;
+const DEFAULT_LIFECYCLE_TIMEOUT_MS = 10_000;
+const DEFAULT_PAGE_CLOSE_TIMEOUT_MS = 1_000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
 }
 
 export class BrowserSessionService {
+  private readonly activeSessions = new Set<BrowserSession>();
+
   constructor(private readonly options: BrowserSessionOptions = {}) {}
 
   async create(): Promise<BrowserSession> {
-    const browser = await chromium.launch({
-      headless: this.options.headless ?? true
+    const server = await chromium.launchServer({
+      headless: this.options.headless ?? true,
+      timeout: this.options.launchTimeoutMs ?? DEFAULT_LAUNCH_TIMEOUT_MS,
+      handleSIGINT: true,
+      handleSIGTERM: true,
+      handleSIGHUP: true
     });
 
-    const context = await browser.newContext(
-      this.options.storageStatePath
-        ? { storageState: this.options.storageStatePath }
-        : undefined
-    );
+    let browser: Browser | undefined;
+    let context: BrowserContext | undefined;
+    try {
+      browser = await chromium.connect(server.wsEndpoint(), {
+        timeout: this.options.launchTimeoutMs ?? DEFAULT_LAUNCH_TIMEOUT_MS
+      });
+      context = await withTimeout(
+        browser.newContext(
+          this.options.storageStatePath
+            ? { storageState: this.options.storageStatePath }
+            : undefined
+        ),
+        this.options.lifecycleTimeoutMs ?? DEFAULT_LIFECYCLE_TIMEOUT_MS,
+        "Timed out creating the Playwright browser context."
+      );
 
-    if (this.options.navigationTimeoutMs !== undefined) {
-      context.setDefaultNavigationTimeout(this.options.navigationTimeoutMs);
+      if (this.options.navigationTimeoutMs !== undefined) {
+        context.setDefaultNavigationTimeout(this.options.navigationTimeoutMs);
+      }
+
+      const page = await withTimeout(
+        context.newPage(),
+        this.options.lifecycleTimeoutMs ?? DEFAULT_LIFECYCLE_TIMEOUT_MS,
+        "Timed out creating the Playwright page."
+      );
+
+      const session = { browser, context, page, server };
+      this.activeSessions.add(session);
+      return session;
+    } catch (error) {
+      if (context) await this.closeContext(context).catch(() => undefined);
+      if (browser) await this.closeBrowser(browser).catch(() => undefined);
+      await this.killServer(server).catch(() => undefined);
+      throw error;
     }
-
-    const page = await context.newPage();
-
-    return { browser, context, page };
   }
 
   async close(session: BrowserSession): Promise<void> {
-    await session.context.close();
-    await session.browser.close();
+    const errors: unknown[] = [];
+    let serverTerminated = this.isServerTerminated(session.server);
+
+    try {
+      if (!session.page.isClosed()) {
+        await withTimeout(
+          session.page.close({ reason: "Phase 9 fixture lifecycle cleanup" }),
+          this.options.pageCloseTimeoutMs ?? DEFAULT_PAGE_CLOSE_TIMEOUT_MS,
+          "Timed out closing the Playwright page; continuing with context cleanup."
+        );
+      }
+    } catch (error) {
+      errors.push(error);
+    }
+
+    try {
+      await this.closeContext(session.context);
+    } catch (error) {
+      errors.push(error);
+    }
+
+    try {
+      await this.closeBrowser(session.browser);
+    } catch (error) {
+      errors.push(error);
+    }
+
+    serverTerminated = serverTerminated || this.isServerTerminated(session.server);
+    if (!serverTerminated) {
+      try {
+        await this.closeServer(session.server);
+        serverTerminated = true;
+      } catch (error) {
+        errors.push(error);
+        if (!this.isServerTerminated(session.server)) {
+          try {
+            await this.killServer(session.server);
+            serverTerminated = true;
+          } catch (killError) {
+            errors.push(killError);
+          }
+        } else {
+          serverTerminated = true;
+        }
+      }
+    }
+
+    if (serverTerminated) {
+      this.activeSessions.delete(session);
+    }
+
+    if (errors.length > 0 && !serverTerminated) {
+      throw errors[0];
+    }
+  }
+
+  async closeAll(): Promise<void> {
+    const sessions = [...this.activeSessions];
+    await Promise.allSettled(sessions.map((session) => this.close(session)));
+  }
+
+  activeSessionCount(): number {
+    return this.activeSessions.size;
+  }
+
+  private isServerTerminated(server: BrowserServer): boolean {
+    const child = server.process();
+    return child.exitCode !== null || child.signalCode !== null || child.killed;
+  }
+
+  private async closeContext(context: BrowserContext): Promise<void> {
+    await withTimeout(
+      context.close({ reason: "Phase 9 fixture lifecycle cleanup" }),
+      this.options.lifecycleTimeoutMs ?? DEFAULT_LIFECYCLE_TIMEOUT_MS,
+      "Timed out closing the Playwright browser context."
+    );
+  }
+
+  private async closeBrowser(browser: Browser): Promise<void> {
+    await withTimeout(
+      browser.close({ reason: "Phase 9 fixture lifecycle cleanup" }),
+      this.options.lifecycleTimeoutMs ?? DEFAULT_LIFECYCLE_TIMEOUT_MS,
+      "Timed out closing the Playwright browser connection."
+    );
+  }
+
+  private async closeServer(server: BrowserServer): Promise<void> {
+    await withTimeout(
+      server.close(),
+      this.options.lifecycleTimeoutMs ?? DEFAULT_LIFECYCLE_TIMEOUT_MS,
+      "Timed out closing the Playwright browser server."
+    );
+  }
+
+  private async killServer(server: BrowserServer): Promise<void> {
+    await withTimeout(
+      server.kill(),
+      this.options.lifecycleTimeoutMs ?? DEFAULT_LIFECYCLE_TIMEOUT_MS,
+      "Timed out forcefully terminating the Playwright browser server."
+    );
   }
 }

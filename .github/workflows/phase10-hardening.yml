@@ -1,0 +1,179 @@
+name: Phase 10 Hardening
+
+on:
+  push:
+    branches: [main, phase9/application-hardening]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: phase10-hardening-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  hardening:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Safe defaults
+        run: |
+          set -euo pipefail
+          test "false" = "${AUTOMATION_ENABLED:-false}"
+          test "true" = "${APPLICATION_DRY_RUN:-true}"
+          test "false" = "${APPLICATION_LIVE_ENABLED:-false}"
+          test "false" = "${GMAIL_ENABLED:-false}"
+          test "false" = "${OUTBOUND_ENABLED:-false}"
+          test "false" = "${PROACTIVE_RECRUITER_ENABLED:-false}"
+          test "false" = "${PROACTIVE_RECRUITER_SEND_ENABLED:-false}"
+          test "false" = "${STALE_SUBMISSION_RECONCILIATION_ENABLED:-false}"
+          test "true" = "${RECRUITER_REQUIRE_VERIFIED_EMAIL:-true}"
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Full tests
+        run: |
+          set -o pipefail
+          npm test -- --runInBand 2>&1 | tee phase10-test-output.log
+      - name: Docker build
+        run: docker build --tag job-agent:phase10-ci .
+      - name: Start isolated PostgreSQL
+        run: |
+          set -euo pipefail
+          docker network create job-agent-phase10
+          docker run -d --name job-agent-phase10-postgres --network job-agent-phase10 -e POSTGRES_DB=job_agent -e POSTGRES_USER=job_agent -e POSTGRES_PASSWORD=ci postgres:17-alpine
+          ready=false
+          for i in $(seq 1 60); do
+            if docker exec job-agent-phase10-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1 && docker exec job-agent-phase10-postgres psql -U job_agent -d job_agent -v ON_ERROR_STOP=1 -c 'SELECT 1' >/dev/null 2>&1; then ready=true; break; fi
+            sleep 1
+          done
+          if [ "$ready" != "true" ]; then docker logs job-agent-phase10-postgres; exit 1; fi
+          docker exec job-agent-phase10-postgres psql -U job_agent -d job_agent -v ON_ERROR_STOP=1 -c 'SELECT current_database(), current_user, 1 AS select_one;'
+      - name: Apply migrations
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-phase10 -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase10-postgres:5432/job_agent job-agent:phase10-ci node -e "const {Database}=require('./dist/database/Database'); const {MigrationRunner}=require('./dist/database/MigrationRunner'); const db=new Database(process.env.DATABASE_URL); new MigrationRunner(db).run().then(()=>db.close()).catch(e=>{console.error(e);process.exit(1)})"
+          latest="$(docker exec job-agent-phase10-postgres psql -U job_agent -d job_agent -tAc 'SELECT name FROM schema_migrations ORDER BY id DESC LIMIT 1' | tr -d '[:space:]')"
+          test "$latest" = '038_phase10_activation_safety.sql'
+      - name: Phase 10 recruiter-first no-job runtime
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-phase10 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase10-postgres:5432/job_agent job-agent:phase10-ci ./node_modules/.bin/tsx scripts/phase10-recruiter-first-runtime.ts 2>&1 | tee phase10-recruiter-first-runtime.log
+          grep -q '"status":"ok"' phase10-recruiter-first-runtime.log
+          grep -q '"jobsDiscovered":0' phase10-recruiter-first-runtime.log
+          grep -q '"campaignType":"PROACTIVE_RECRUITER"' phase10-recruiter-first-runtime.log
+          grep -q '"jobId":null' phase10-recruiter-first-runtime.log
+          grep -q '"concurrentDuplicates":0' phase10-recruiter-first-runtime.log
+          grep -q '"killSwitch":"blocked-live-send"' phase10-recruiter-first-runtime.log
+          grep -q '"gmailCalls":0' phase10-recruiter-first-runtime.log
+          grep -q '"realGmailSend":false' phase10-recruiter-first-runtime.log
+          grep -q '"snovCreditsUsed":0' phase10-recruiter-first-runtime.log
+      - name: Phase 10 readiness command
+        run: |
+          set +e
+          docker run --rm --network job-agent-phase10 \
+            -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase10-postgres:5432/job_agent \
+            -e CANDIDATE_PROFILE_ID=phase10-proactive-candidate \
+            job-agent:phase10-ci npm run phase10:readiness > phase10-readiness.log 2>&1
+          code=$?
+          set -e
+          echo "phase10-readiness exit code: $code"
+          cat phase10-readiness.log
+          test "$code" -eq 1
+          grep -Eq '"status"[[:space:]]*:[[:space:]]*"BLOCKED"' phase10-readiness.log
+          grep -Eq '"name"[[:space:]]*:[[:space:]]*"Kill Switch State"' phase10-readiness.log
+          grep -q 'Global emergency stop is ACTIVE' phase10-readiness.log
+      - name: Phase 9 application regression
+        run: |
+          set -euo pipefail
+          timeout --foreground --signal=TERM --kill-after=15s 5m env NODE_ENV=test APPLICATION_DRY_RUN=true APPLICATION_LIVE_ENABLED=false GMAIL_ENABLED=false OUTBOUND_ENABLED=false PROACTIVE_RECRUITER_ENABLED=false PROACTIVE_RECRUITER_SEND_ENABLED=false STALE_SUBMISSION_RECONCILIATION_ENABLED=false RECRUITER_REQUIRE_VERIFIED_EMAIL=true ./node_modules/.bin/tsx scripts/phase9-application-runtime.ts 2>&1 | tee phase9-application-runtime.log
+          grep -q '"status":"ok"' phase9-application-runtime.log
+          grep -q '"realApplicationsSubmitted":0' phase9-application-runtime.log
+          grep -q '"captcha":"blocked"' phase9-application-runtime.log
+          grep -q '"authentication":"blocked"' phase9-application-runtime.log
+          grep -q '"promptInjection":"blocked"' phase9-application-runtime.log
+          grep -q '"maliciousRedirect":"blocked"' phase9-application-runtime.log
+          grep -q '"catalogOnlyAdapter":"blocked"' phase9-application-runtime.log
+      - name: Phase 7 recruiter regression
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-phase10 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase10-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e APPLICATION_LIVE_ENABLED=false -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=false -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase10-ci npm run phase7:recruiter-outreach-runtime 2>&1 | tee phase7-regression-output.log
+          grep -q '"status":"ok"' phase7-regression-output.log
+          grep -q '"prepared":1' phase7-regression-output.log
+          grep -q '"sent":"0"' phase7-regression-output.log
+      - name: Phase 8 recruiter-first regression
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-phase10 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase10-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e APPLICATION_LIVE_ENABLED=false -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=true -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase10-ci npm run phase8:recruiter-first-runtime 2>&1 | tee phase8-runtime-output.log
+          grep -q '"status":"ok"' phase8-runtime-output.log
+          grep -q '"jobsDiscovered":0' phase8-runtime-output.log
+          grep -q '"campaignType":"PROACTIVE_RECRUITER"' phase8-runtime-output.log
+          grep -q '"jobId":null' phase8-runtime-output.log
+          grep -q '"prepared":true' phase8-runtime-output.log
+          grep -q '"sent":0' phase8-runtime-output.log
+          grep -q '"snovCreditsUsed":0' phase8-runtime-output.log
+      - name: Cross-path dedup regression
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-phase10 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase10-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e APPLICATION_LIVE_ENABLED=false -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=false -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase10-ci ./node_modules/.bin/tsx scripts/phase8-cross-path-runtime.ts 2>&1 | tee phase10-cross-path-output.log
+          grep -q '"status":"ok"' phase10-cross-path-output.log
+          grep -q '"jobFirst":"blocked"' phase10-cross-path-output.log
+          grep -q '"proactiveFirst":"blocked"' phase10-cross-path-output.log
+      - name: Database invariants and side-effect safety
+        run: |
+          set -euo pipefail
+          migration_count="$(docker exec job-agent-phase10-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM schema_migrations WHERE name='038_phase10_activation_safety.sql';" | tr -d '[:space:]')"; test "$migration_count" = '1'
+          kill_row="$(docker exec job-agent-phase10-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM runtime_safety_controls WHERE id=TRUE AND kill_switch_active=TRUE;" | tr -d '[:space:]')"; test "$kill_row" = '1'
+          proactive_unique="$(docker exec job-agent-phase10-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_indexes WHERE indexname='uq_proactive_recruiter_sequence_identity';" | tr -d '[:space:]')"; test "$proactive_unique" = '1'
+          sent_count="$(docker exec job-agent-phase10-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';" | tr -d '[:space:]')"; test "$sent_count" = '0'
+          echo "Phase 10 database gates passed: migration=$migration_count kill_switch=$kill_row proactive_unique=$proactive_unique sent=$sent_count"
+      - name: Security audit
+        run: |
+          set -euo pipefail
+          if grep -RInE '(^|[^[:alnum:]_])(TODO|FIXME|HACK|AGENT_NEXT_PASS)([^[:alnum:]_]|$)' src scripts; then exit 1; fi
+          if grep -RInE 'continue-on-error:[[:space:]]*true' .github/workflows; then exit 1; fi
+          if grep -RInE 'console\.(log|info|error).*?(access_token|refresh_token|client_secret|api[_-]?key|password=|GMAIL_CLIENT_SECRET|SNOV_API_KEY)' src scripts; then exit 1; fi
+          if grep -RInE 'solveCaptcha|captchaToken|cf_clearance|bypass.*mfa|bypass.*captcha' src scripts; then exit 1; fi
+          echo 'Phase 10 security audit passed.'
+      - name: Production side-effect proof
+        run: |
+          set -euo pipefail
+          test "false" = "${GMAIL_LIVE_SEND_DURING_HARDENING:-false}"
+          test "false" = "${APPLICATION_LIVE_SUBMISSION_DURING_HARDENING:-false}"
+          grep -q 'realGmailSend.*false' phase10-recruiter-first-runtime.log
+          grep -q 'realApplicationsSubmitted.*0' phase9-application-runtime.log
+      - name: Upload Phase 10 outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase10-hardening-output
+          path: |
+            phase10-test-output.log
+            phase10-recruiter-first-runtime.log
+            phase10-readiness.log
+            phase9-application-runtime.log
+            phase7-regression-output.log
+            phase8-runtime-output.log
+            phase10-cross-path-output.log
+          if-no-files-found: warn
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f job-agent-phase10-postgres >/dev/null 2>&1 || true
+          docker network rm job-agent-phase10 >/dev/null 2>&1 || true

@@ -5,8 +5,9 @@ import { Database } from "../database/Database";
 import { RecruiterDiscoveryRepository, RecruiterOutreachMessageRecord } from "./RecruiterDiscoveryRepository";
 import { evaluateRecruiterOutreachActivation, RecruiterOutreachActivation } from "./RecruiterOutreachActivationGate";
 import { isEligibleForRealRecruiterSend, recruiterRealSendEligibilitySql } from "./RecruiterMailboxVerification";
+import { GlobalExternalSideEffectGate } from "../shared/safety/GlobalExternalSideEffectGate";
 
-export interface RecruiterOutreachSendOptions { repository: RecruiterDiscoveryRepository; database?: Database; mailbox?: GmailMailbox; dryRun?: boolean; outboundEnabled?: boolean; gmailEnabled?: boolean; automationEnabled?: boolean; activation?: RecruiterOutreachActivation; liveActivationConfirmed?: boolean; controlledSendConfirmation?: string; controlledMessageId?: string | null; controlledRecipient?: string | null; requireVerifiedEmail?: boolean; maxMessagesPerDay?: number; maxMessagesPerHour?: number; resumePath?: string | null; attachResume?: boolean; maxAttachmentBytes?: number; }
+export interface RecruiterOutreachSendOptions { repository: RecruiterDiscoveryRepository; database?: Database; mailbox?: GmailMailbox; dryRun?: boolean; outboundEnabled?: boolean; gmailEnabled?: boolean; automationEnabled?: boolean; activation?: RecruiterOutreachActivation; liveActivationConfirmed?: boolean; controlledSendConfirmation?: string; controlledMessageId?: string | null; controlledRecipient?: string | null; requireVerifiedEmail?: boolean; maxMessagesPerDay?: number; maxMessagesPerHour?: number; resumePath?: string | null; attachResume?: boolean; maxAttachmentBytes?: number; externalSideEffectGate?: GlobalExternalSideEffectGate; }
 export type RecruiterOutreachSendResult = { status: "DRY_RUN"; messageId: string } | { status: "SENT"; messageId: string; gmailMessageId: string; gmailThreadId: string } | { status: "SKIPPED"; messageId: string; reason: string };
 function deterministicMessageId(messageId: string): string { return `<recruiter-outreach-${messageId}@job-agent.local>`; }
 const DEFAULT_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
@@ -21,8 +22,8 @@ export class RecruiterOutreachSendService {
   constructor(private readonly options: RecruiterOutreachSendOptions) { this.dryRun = options.dryRun ?? true; this.outboundEnabled = options.outboundEnabled ?? false; this.gmailEnabled = options.gmailEnabled ?? (process.env.GMAIL_ENABLED === "true"); this.automationEnabled = options.automationEnabled ?? (process.env.AUTOMATION_ENABLED === "true"); this.activation = options.activation ?? "disabled"; this.liveActivationConfirmed = options.liveActivationConfirmed ?? false; this.controlledSendConfirmation = options.controlledSendConfirmation ?? process.env.RECRUITER_CONTROLLED_SEND_CONFIRM; this.controlledMessageId = options.controlledMessageId ?? process.env.RECRUITER_CONTROLLED_MESSAGE_ID?.trim() ?? null; this.controlledRecipient = options.controlledRecipient ?? process.env.RECRUITER_CONTROLLED_RECIPIENT?.trim().toLowerCase() ?? null; this.requireVerifiedEmail = options.requireVerifiedEmail ?? true; this.maxMessagesPerDay = options.maxMessagesPerDay ?? 20; this.maxMessagesPerHour = options.maxMessagesPerHour ?? 5; this.resumePath = options.resumePath?.trim() || process.env.CANDIDATE_RESUME_PATH?.trim() || null; const value = process.env.RECRUITER_ATTACH_RESUME; this.attachResume = options.attachResume ?? (value === undefined ? true : value === "true"); this.maxAttachmentBytes = options.maxAttachmentBytes ?? Number(process.env.RECRUITER_MAX_ATTACHMENT_BYTES ?? DEFAULT_MAX_ATTACHMENT_BYTES); if (!Number.isInteger(this.maxMessagesPerDay) || this.maxMessagesPerDay < 1) throw new Error("Recruiter daily send limit must be a positive integer."); if (!Number.isInteger(this.maxMessagesPerHour) || this.maxMessagesPerHour < 1) throw new Error("Recruiter hourly send limit must be a positive integer."); if (!Number.isInteger(this.maxAttachmentBytes) || this.maxAttachmentBytes < 1) throw new Error("Recruiter attachment size limit must be a positive integer."); }
   async send(message: RecruiterOutreachMessageRecord, companyDomain: string): Promise<RecruiterOutreachSendResult> {
     if (message.status !== "PREPARED") return { status: "SKIPPED", messageId: message.id, reason: `Message is not PREPARED (status=${message.status}).` };
-    if (this.controlledMessageId && message.id !== this.controlledMessageId && !this.dryRun) return { status: "SKIPPED", messageId: message.id, reason: "Controlled Phase 6 activation is restricted to the explicitly selected outreach message." };
-    if (this.controlledRecipient && message.recipientEmail.toLowerCase() !== this.controlledRecipient && !this.dryRun) return { status: "SKIPPED", messageId: message.id, reason: "Controlled Phase 6 activation is restricted to the explicitly selected recipient." };
+    if (this.controlledMessageId && message.id !== this.controlledMessageId && !this.dryRun) return { status: "SKIPPED", messageId: message.id, reason: "Controlled activation is restricted to the explicitly selected outreach message." };
+    if (this.controlledRecipient && message.recipientEmail.toLowerCase() !== this.controlledRecipient && !this.dryRun) return { status: "SKIPPED", messageId: message.id, reason: "Controlled activation is restricted to the explicitly selected recipient." };
     const sequence = await this.options.repository.getOutreachSequence(message.sequenceId);
     if (!sequence) return { status: "SKIPPED", messageId: message.id, reason: "Outreach sequence no longer exists." };
     if (sequence.status !== "READY" && sequence.status !== "ACTIVE") return { status: "SKIPPED", messageId: message.id, reason: `Outreach sequence is not sendable (status=${sequence.status}).` };
@@ -33,13 +34,14 @@ export class RecruiterOutreachSendService {
     const suppression = await this.options.repository.isSuppressed(message.recipientEmail, companyDomain);
     if (suppression.email || suppression.domain) return { status: "SKIPPED", messageId: message.id, reason: suppression.email ? "Recipient is suppressed." : "Company domain is suppressed." };
     if (this.dryRun) return { status: "DRY_RUN", messageId: message.id };
-    const activation = evaluateRecruiterOutreachActivation({ activation: this.activation, dryRun: this.dryRun, liveActivationConfirmed: this.liveActivationConfirmed, controlledSendConfirmation: this.controlledSendConfirmation, maxMessagesPerDay: this.maxMessagesPerDay, maxMessagesPerHour: this.maxMessagesPerHour });
+    const activation = evaluateRecruiterOutreachActivation({ activation: this.activation, dryRun: this.dryRun, liveActivationConfirmed: this.liveActivationConfirmed, controlledSendConfirmation: this.controlledSendConfirmation, controlledMessageId: this.controlledMessageId, controlledRecipient: this.controlledRecipient, maxMessagesPerDay: this.maxMessagesPerDay, maxMessagesPerHour: this.maxMessagesPerHour });
     if (!activation.allowed) return { status: "SKIPPED", messageId: message.id, reason: activation.reason };
-    if (this.automationEnabled && sequence.jobOpportunityId !== null) return { status: "SKIPPED", messageId: message.id, reason: "Phase 6 controlled activation refuses broad automation; AUTOMATION_ENABLED must remain false." };
+    if (this.automationEnabled && sequence.jobOpportunityId !== null) return { status: "SKIPPED", messageId: message.id, reason: "Broad application automation cannot be used to authorize recruiter delivery." };
     if (!this.outboundEnabled) return { status: "SKIPPED", messageId: message.id, reason: "Global outbound kill switch is disabled." };
     if (!this.gmailEnabled) return { status: "SKIPPED", messageId: message.id, reason: "Gmail sending is disabled." };
     if (!this.options.mailbox) return { status: "SKIPPED", messageId: message.id, reason: "Gmail mailbox is not configured for live recruiter outreach." };
-    if (!this.options.database) return { status: "SKIPPED", messageId: message.id, reason: "Controlled Gmail sending requires database-backed atomic claim and reconciliation." };
+    if (!this.options.database) return { status: "SKIPPED", messageId: message.id, reason: "Live Gmail sending requires database-backed atomic claim and reconciliation." };
+    if (this.options.externalSideEffectGate) { const gate = await this.options.externalSideEffectGate.evaluate(); if (!gate.allowed) return { status: "SKIPPED", messageId: message.id, reason: gate.reason }; }
     let resumeAttachment: GmailAttachment | null = null;
     try { resumeAttachment = this.attachResume && message.messageType === "INITIAL" ? await loadResumeAttachment(this.resumePath, this.maxAttachmentBytes) : null; } catch (error) { throw error; }
     const clientMessageId = deterministicMessageId(message.id);
@@ -47,6 +49,7 @@ export class RecruiterOutreachSendService {
     if (!claimed) return { status: "SKIPPED", messageId: message.id, reason: "Message was already claimed, sent, suppressed, or is no longer eligible." };
     const stillEligible = await this.recheckEligibility(claimed.recruiterContactId);
     if (!stillEligible) { await this.markClaimFailed(claimed.id, "Recruiter stopped satisfying the canonical real-send eligibility predicate immediately before Gmail submission."); return { status: "SKIPPED", messageId: message.id, reason: "Recruiter is no longer eligible for real sending." }; }
+    if (this.options.externalSideEffectGate) { const gate = await this.options.externalSideEffectGate.evaluate(); if (!gate.allowed) { await this.markClaimFailed(claimed.id, gate.reason); return { status: "SKIPPED", messageId: message.id, reason: gate.reason }; } }
     try {
       const sent = await this.options.mailbox.sendMessage({ to: claimed.recipientEmail, subject: claimed.subject, bodyText: claimed.body, messageId: claimed.clientMessageId, attachments: resumeAttachment ? [resumeAttachment] : undefined });
       await this.options.repository.markOutreachMessageSent(claimed.id, { provider: "gmail", providerMessageId: sent.gmailMessageId, providerThreadId: sent.gmailThreadId });
@@ -57,11 +60,7 @@ export class RecruiterOutreachSendService {
       throw error;
     }
   }
-  private async getCampaignType(sequenceId: string): Promise<"JOB_RECRUITER" | "PROACTIVE_RECRUITER"> {
-    if (!this.options.database) return "JOB_RECRUITER";
-    const result = await this.options.database.query<{ campaign_type: "JOB_RECRUITER" | "PROACTIVE_RECRUITER" }>(`SELECT campaign_type FROM recruiter_outreach_sequences WHERE id=$1`, [sequenceId]);
-    return result.rows[0]?.campaign_type ?? "JOB_RECRUITER";
-  }
+  private async getCampaignType(sequenceId: string): Promise<"JOB_RECRUITER" | "PROACTIVE_RECRUITER"> { if (!this.options.database) return "JOB_RECRUITER"; const result = await this.options.database.query<{ campaign_type: "JOB_RECRUITER" | "PROACTIVE_RECRUITER" }>(`SELECT campaign_type FROM recruiter_outreach_sequences WHERE id=$1`, [sequenceId]); return result.rows[0]?.campaign_type ?? "JOB_RECRUITER"; }
   private async claimWithDatabase(messageId: string, clientMessageId: string): Promise<ClaimedSendRecord | null> {
     const database = this.options.database!;
     return database.transaction(async (client) => {
@@ -86,11 +85,7 @@ export class RecruiterOutreachSendService {
       return { id: claimed.id, sequenceId: claimed.sequence_id, messageType: claimed.message_type, sequenceStep: Number(claimed.sequence_step), recipientEmail: claimed.recipient_email, subject: claimed.subject, body: claimed.body, status: claimed.status, recruiterContactId: row.recruiter_contact_id, recruiterVerified: Boolean(row.recruiter_verified), recruiterVerificationStatus: row.recruiter_verification_status ?? null, recruiterEmailStatus: row.recruiter_email_status ?? null, recruiterMailboxEvidence: Boolean(row.recruiter_mailbox_evidence), recruiterVerificationEvidence: Array.isArray(row.recruiter_verification_evidence) ? row.recruiter_verification_evidence : [], recruiterRelevanceStatus: row.recruiter_relevance_status ?? null, recruiterSuppressed: Boolean(row.recruiter_suppressed), companyDomain: row.company_domain, jobOpportunityId: row.job_opportunity_id, candidateProfileId: row.candidate_profile_id, clientMessageId };
     });
   }
-  private async recheckEligibility(contactId: string): Promise<boolean> {
-    if (!this.options.database) return false;
-    const result = await this.options.database.query<any>(`SELECT ${recruiterRealSendEligibilitySql("c")} AS eligible FROM recruiter_contacts c WHERE c.id=$1`, [contactId]);
-    return result.rows[0]?.eligible === true;
-  }
+  private async recheckEligibility(contactId: string): Promise<boolean> { if (!this.options.database) return false; const result = await this.options.database.query<any>(`SELECT ${recruiterRealSendEligibilitySql("c")} AS eligible FROM recruiter_contacts c WHERE c.id=$1`, [contactId]); return result.rows[0]?.eligible === true; }
   private async markClaimFailed(messageId: string, reason: string): Promise<void> { if (!this.options.database) return; await this.options.database.query(`UPDATE recruiter_outreach_messages SET status='FAILED',send_state='FAILED',failure_reason=$2,send_claimed_at=NULL,send_started_at=NULL,updated_at=NOW() WHERE id=$1 AND status='SENDING'`, [messageId, reason]); }
 }
 export { deterministicMessageId, loadResumeAttachment, resolveResumePath };

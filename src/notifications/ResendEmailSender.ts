@@ -1,10 +1,12 @@
 import { EmailMessage, EmailSender } from "./Email";
+import { GlobalExternalSideEffectGate } from "../shared/safety/GlobalExternalSideEffectGate";
 
 export interface ResendEmailSenderOptions {
   apiKey: string;
   from: string;
   baseUrl?: string;
   fetchImpl?: typeof fetch;
+  externalSideEffectGate?: GlobalExternalSideEffectGate;
 }
 
 export class ResendEmailSender implements EmailSender {
@@ -17,6 +19,7 @@ export class ResendEmailSender implements EmailSender {
   }
 
   async send(message: EmailMessage): Promise<void> {
+    if (this.options.externalSideEffectGate) await this.options.externalSideEffectGate.assertAllowed();
     const response = await this.fetchImpl(`${this.baseUrl}/emails`, {
       method: "POST",
       headers: {
