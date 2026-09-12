@@ -26,7 +26,10 @@ export class RecruiterOutreachSendService {
     const sequence = await this.options.repository.getOutreachSequence(message.sequenceId);
     if (!sequence) return { status: "SKIPPED", messageId: message.id, reason: "Outreach sequence no longer exists." };
     if (sequence.status !== "READY" && sequence.status !== "ACTIVE") return { status: "SKIPPED", messageId: message.id, reason: `Outreach sequence is not sendable (status=${sequence.status}).` };
-    if (sequence.jobOpportunityId !== null && !sequence.jobOpportunityId) return { status: "SKIPPED", messageId: message.id, reason: "Job-linked recruiter outreach requires a job-associated sequence." };
+    if (sequence.jobOpportunityId === null) {
+      const campaignType = this.options.database ? await this.getCampaignType(sequence.id) : "JOB_RECRUITER";
+      if (campaignType !== "PROACTIVE_RECRUITER") return { status: "SKIPPED", messageId: message.id, reason: "Job-linked recruiter outreach requires a job-associated sequence." };
+    } else if (!sequence.jobOpportunityId) return { status: "SKIPPED", messageId: message.id, reason: "Job-linked recruiter outreach requires a job-associated sequence." };
     const suppression = await this.options.repository.isSuppressed(message.recipientEmail, companyDomain);
     if (suppression.email || suppression.domain) return { status: "SKIPPED", messageId: message.id, reason: suppression.email ? "Recipient is suppressed." : "Company domain is suppressed." };
     if (this.dryRun) return { status: "DRY_RUN", messageId: message.id };
@@ -54,13 +57,19 @@ export class RecruiterOutreachSendService {
       throw error;
     }
   }
+  private async getCampaignType(sequenceId: string): Promise<"JOB_RECRUITER" | "PROACTIVE_RECRUITER"> {
+    if (!this.options.database) return "JOB_RECRUITER";
+    const result = await this.options.database.query<{ campaign_type: "JOB_RECRUITER" | "PROACTIVE_RECRUITER" }>(`SELECT campaign_type FROM recruiter_outreach_sequences WHERE id=$1`, [sequenceId]);
+    return result.rows[0]?.campaign_type ?? "JOB_RECRUITER";
+  }
   private async claimWithDatabase(messageId: string, clientMessageId: string): Promise<ClaimedSendRecord | null> {
     const database = this.options.database!;
     return database.transaction(async (client) => {
       await client.query(`SELECT pg_advisory_xact_lock(hashtext('job-agent:recruiter-outreach-rate-limit'))`);
-      const result = await client.query<any>(`SELECT m.id,m.sequence_id,m.message_type,m.sequence_step,m.recipient_email,m.subject,m.body,m.status,s.status AS sequence_status,s.recruiter_contact_id,s.job_opportunity_id,s.candidate_profile_id,c.company_domain,c.email AS contact_email,c.verified AS recruiter_verified,c.verification_status AS recruiter_verification_status,c.email_status AS recruiter_email_status,c.mailbox_evidence AS recruiter_mailbox_evidence,c.verification_evidence AS recruiter_verification_evidence,c.relevance_status AS recruiter_relevance_status,c.suppressed AS recruiter_suppressed,m.send_state,m.client_message_id AS existing_client_message_id FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE m.id=$1 FOR UPDATE OF m,s,c`, [messageId]);
+      const result = await client.query<any>(`SELECT m.id,m.sequence_id,m.message_type,m.sequence_step,m.recipient_email,m.subject,m.body,m.status,s.status AS sequence_status,s.recruiter_contact_id,s.job_opportunity_id,s.campaign_type,s.candidate_profile_id,c.company_domain,c.email AS contact_email,c.verified AS recruiter_verified,c.verification_status AS recruiter_verification_status,c.email_status AS recruiter_email_status,c.mailbox_evidence AS recruiter_mailbox_evidence,c.verification_evidence AS recruiter_verification_evidence,c.relevance_status AS recruiter_relevance_status,c.suppressed AS recruiter_suppressed,m.send_state,m.client_message_id AS existing_client_message_id FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE m.id=$1 FOR UPDATE OF m,s,c`, [messageId]);
       const row = result.rows[0];
       if (!row || row.status !== "PREPARED") return null;
+      if (row.job_opportunity_id === null && row.campaign_type !== "PROACTIVE_RECRUITER") return null;
       if (row.job_opportunity_id !== null && !row.job_opportunity_id) return null;
       if (row.sequence_status !== "READY" && row.sequence_status !== "ACTIVE") return null;
       if (String(row.recipient_email).toLowerCase() !== String(row.contact_email).toLowerCase()) return null;
