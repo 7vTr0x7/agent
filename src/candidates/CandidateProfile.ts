@@ -12,6 +12,8 @@ export interface CandidateProfile {
   workAuthorization?: string;
   sponsorshipRequired?: boolean;
   noticePeriodDays?: number;
+  currentCompensationLpa?: number;
+  expectedCompensationLpa?: number;
   linkedinUrl?: string;
   githubUrl?: string;
   portfolioUrl?: string;
