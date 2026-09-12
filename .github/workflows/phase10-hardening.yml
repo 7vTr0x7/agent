@@ -87,7 +87,10 @@ jobs:
       - name: Phase 10 readiness command
         run: |
           set +e
-          DATABASE_URL=postgres://job_agent:ci@job-agent-phase10-postgres:5432/job_agent CANDIDATE_PROFILE_ID=phase10-proactive-candidate npm run phase10:readiness > phase10-readiness.log 2>&1
+          docker run --rm --network job-agent-phase10 \
+            -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase10-postgres:5432/job_agent \
+            -e CANDIDATE_PROFILE_ID=phase10-proactive-candidate \
+            job-agent:phase10-ci npm run phase10:readiness > phase10-readiness.log 2>&1
           code=$?
           set -e
           echo "phase10-readiness exit code: $code"
