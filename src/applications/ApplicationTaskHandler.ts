@@ -7,6 +7,7 @@ import { ApplicationEmailContext } from "../notifications/Email";
 import { TailoredResumeArtifactService } from "../resume/TailoredResumeArtifactService";
 import { TailoredResumeRepository } from "../resume/TailoredResumeRepository";
 import { ApplicationAttemptRepository } from "./ApplicationAttemptRepository";
+import { RecruiterDiscoveryTaskDispatcher } from "../recruiters/RecruiterDiscoveryTask";
 
 export interface CandidateProfileResolver { getById(candidateProfileId: string): Promise<CandidateProfile | null>; }
 export interface ApplicationEmailDispatcher {
@@ -24,8 +25,7 @@ export class ApplicationTaskHandler {
     private readonly tailoredResumeArtifacts?: TailoredResumeArtifactService,
     private readonly tailoredResumeRepository?: TailoredResumeRepository,
     private readonly attemptRepository?: Pick<ApplicationAttemptRepository, "record">,
-    // Legacy recruiter dispatcher slot retained for constructor compatibility.
-    _legacyRecruiterDiscoveryDispatcher?: unknown,
+    private readonly recruiterDiscoveryDispatcher?: Pick<RecruiterDiscoveryTaskDispatcher, "enqueue">,
     private readonly submissionOwnershipVerifier?: (task: ClaimedTask<ApplyJobTaskPayload>) => Promise<boolean>
   ) {}
 
@@ -85,10 +85,35 @@ export class ApplicationTaskHandler {
       await this.attemptRepository.record({ applicationId: prepared.application.applicationId, adapterName: outcome.adapterName ?? "unknown", safetyAllowed: outcome.safetyAllowed, submitted: outcome.submitted, reason: outcome.reason, confirmationUrl: outcome.result?.confirmationUrl ?? null, externalApplicationId: outcome.result?.externalApplicationId ?? null });
     }
 
+    if (this.recruiterDiscoveryDispatcher && prepared.application.companyDomain && shouldFallbackToRecruiter(outcome)) {
+      await this.recruiterDiscoveryDispatcher.enqueue({
+        companyName: prepared.application.companyName,
+        companyDomain: prepared.application.companyDomain,
+        jobTitle: prepared.application.jobTitle,
+        jobDescription: prepared.application.jobDescription,
+        candidateProfileId: candidateProfile.id,
+        candidateName: candidateProfile.fullName ?? ([candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") || undefined),
+        candidateSkills: [...candidateProfile.skills],
+        candidateYearsExperience: candidateProfile.yearsExperience,
+        candidateLocation: candidateProfile.location,
+        jobOpportunityId: prepared.application.jobOpportunityId,
+        applicationId: prepared.application.applicationId,
+        applicationOutcome: outcome.outcome === "DEFINITIVE_FAILURE" ? "FAILED" : "BLOCKED"
+      });
+      console.log(JSON.stringify({ level: 30, applicationId: prepared.application.applicationId, jobOpportunityId: prepared.application.jobOpportunityId, companyName: prepared.application.companyName, reason: outcome.reason, msg: "Application safely blocked; recruiter fallback queued" }));
+    }
+
     if (!this.emailDispatcher || !candidateProfile.email) return;
     const candidateName = candidateProfile.fullName ?? ([candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") || "Candidate");
     const context: ApplicationEmailContext = { recipient: candidateProfile.email, candidateName, jobTitle: prepared.application.jobTitle, companyName: prepared.application.companyName, applicationId: prepared.application.applicationId, confirmationUrl: outcome.result?.confirmationUrl, reason: outcome.outcome === "CONFIRMED_SUCCESS" ? undefined : outcome.reason };
     if (outcome.outcome === "CONFIRMED_SUCCESS") await this.emailDispatcher.enqueueApplicationSubmitted(context);
     else await this.emailDispatcher.enqueueApplicationBlocked(context);
   }
+}
+
+function shouldFallbackToRecruiter(outcome: ApplicationSubmissionOutcome): boolean {
+  if (outcome.outcome === "AMBIGUOUS" || outcome.outcome === "CONFIRMED_SUCCESS") return false;
+  const reason = outcome.reason.toLowerCase();
+  if (/(?:excluded|duplicate|already exists|already applied|application has already been completed|task lease ownership was lost)/i.test(reason)) return false;
+  return /(unsupported|catalog_only|manual review|captcha|human-verification|authentication|mfa|two-factor|bot|security challenge|application adapter|application url|redirect|required .*field|assessment|sensitive|could not be handled safely|not attempted|could not be completed)/i.test(reason);
 }
