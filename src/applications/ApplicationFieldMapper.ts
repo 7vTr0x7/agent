@@ -35,10 +35,6 @@ const FIELD_ALIASES: Readonly<Record<ApplicationFieldKey, readonly string[]>> = 
   resumePath: ["resume", "cv", "curriculum vitae", "resume upload", "cv upload"]
 };
 
-const POLICY_SENSITIVE_KEYS = new Set<ApplicationFieldKey>([
-  "workAuthorization", "sponsorshipRequired", "noticePeriodDays", "yearsExperience", "expectedCompensationLpa"
-]);
-
 function normalize(value: string | null | undefined): string {
   return (value ?? "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
@@ -51,7 +47,6 @@ function resolveKey(field: ApplicationField): { key: ApplicationFieldKey | null;
   const parts = fieldParts(field);
   if (parts.length === 0) return { key: null, confidence: 0 };
   if (parts.some((part) => part === "email" || part === "email address" || part === "e mail" || part === "e mail address")) return { key: "email", confidence: 1 };
-
   const matches = (Object.entries(FIELD_ALIASES) as [ApplicationFieldKey, readonly string[]][]) 
     .map(([key, aliases]) => ({ key, score: aliases.reduce((best, alias) => Math.max(best, ...parts.map((part) => part === normalize(alias) ? 1 : part.includes(normalize(alias)) ? 0.9 : 0)), 0) }))
     .filter((match) => match.score > 0)
@@ -75,15 +70,13 @@ export class ApplicationFieldMapper {
     return fields.map((field) => {
       const { key, confidence } = resolveKey(field);
       if (!key) return { field, key: null, value: null, confidence, autoFill: false, reason: field.required ? "Required field is ambiguous or unsupported; manual review required." : "Field is ambiguous or unsupported; skipped safely." };
-
       const value = valueFor(profile, key);
-      const explicitPolicyAnswer = POLICY_SENSITIVE_KEYS.has(key) && profile.standardizedAnswers?.[key] !== undefined;
-      const autoFill = confidence >= 0.9 && value !== null && (!POLICY_SENSITIVE_KEYS.has(key) || explicitPolicyAnswer || key === "yearsExperience" && profile.yearsExperience >= 0 || key === "noticePeriodDays" && profile.noticePeriodDays !== undefined);
+      const autoFill = confidence >= 0.9 && value !== null;
       const reason = value === null
         ? "No candidate value is configured for this field."
         : autoFill
-          ? explicitPolicyAnswer ? "Explicit candidate standardized answer with high-confidence field mapping." : "Canonical candidate profile value with high-confidence field mapping."
-          : "Field requires an explicitly configured standardized answer before automatic filling.";
+          ? "Canonical candidate profile value with high-confidence field mapping."
+          : "Field requires a candidate value before automatic filling.";
       return { field, key, value, confidence, autoFill, reason };
     });
   }
