@@ -30,7 +30,7 @@ jobs:
       - name: Full tests
         run: |
           set -o pipefail
-          npm test -- --runInBand 2>&1 | tee phase8-test-output.log
+          npm test -- --runInBand --detectOpenHandles --forceExit 2>&1 | tee phase8-test-output.log
       - name: Upload test output
         if: always()
         uses: actions/upload-artifact@v4
