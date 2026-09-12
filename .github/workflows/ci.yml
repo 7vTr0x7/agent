@@ -44,7 +44,7 @@ jobs:
           docker run -d --name job-agent-runtime-postgres --network job-agent-runtime \
             -e POSTGRES_DB=job_agent \
             -e POSTGRES_USER=job_agent \
-            -e POSTGRES_PASSWORD=runtime_test_password \
+            -e POSTGRES_PASSWORD=ci \
             postgres:17-alpine
           for i in $(seq 1 30); do
             if docker exec job-agent-runtime-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then exit 0; fi
@@ -61,7 +61,7 @@ jobs:
             -e LOG_LEVEL=info \
             -e API_HOST=0.0.0.0 \
             -e API_PORT=3000 \
-            -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-runtime-postgres:5432/job_agent \
+            -e DATABASE_URL=postgres://job_agent:ci@job-agent-runtime-postgres:5432/job_agent \
             -e AUTOMATION_ENABLED=true \
             -e APPLICATION_DRY_RUN=true \
             -e OUTBOUND_ENABLED=false \
@@ -152,7 +152,7 @@ jobs:
           docker run -d --name "$fixture_name" --network job-agent-runtime \
             -e NODE_ENV=test \
             -e LOG_LEVEL=info \
-            -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-runtime-postgres:5432/job_agent \
+            -e DATABASE_URL=postgres://job_agent:ci@job-agent-runtime-postgres:5432/job_agent \
             -e AUTOMATION_ENABLED=true \
             -e APPLICATION_DRY_RUN=true \
             -e OUTBOUND_ENABLED=false \
@@ -182,7 +182,11 @@ jobs:
           test "$fixture_running" = 'false'
           fixture_exit="$(docker inspect -f '{{.State.ExitCode}}' "$fixture_name")"
           echo "Proactive fixture container exit code: $fixture_exit"
-          docker logs "$fixture_name" | tee /tmp/proactive-recruiter-fixture.log
+          docker logs "$fixture_name" > /tmp/proactive-recruiter-fixture.log 2>&1
+          docker_logs_rc=$?
+          cat /tmp/proactive-recruiter-fixture.log
+          echo "Proactive fixture docker logs exit code: $docker_logs_rc"
+          test "$docker_logs_rc" = '0'
           test "$fixture_exit" = '0'
           grep -q '"status":"ok"' /tmp/proactive-recruiter-fixture.log
           grep -q '"discovered":1' /tmp/proactive-recruiter-fixture.log
