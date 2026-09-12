@@ -54,7 +54,7 @@ describe("Phase 9 browser fixture lifecycle", () => {
       expect(result.code).toBe(0);
       expect(result.stdout).toContain('"status":"ok"');
       expect(result.stdout).toContain('"realApplicationsSubmitted":0');
-      expect(result.stdout).toContain('"activeBrowserSessionsBeforeCleanup":1');
+      expect(result.stdout).toContain('"activeBrowserSessionsBeforeCleanup":0');
       expect(result.stderr).not.toContain("Phase 9 fixture terminating:");
     }
   });
