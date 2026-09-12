@@ -7,7 +7,7 @@ const policy: JobSearchPolicy = {
   targetCountry: "India",
   allowRemote: true,
   excludedCompanies: ["Octopus Technologies", "Sketch Brahma Technologies"],
-  maxAgeDays: 0
+  maxAgeDays: 7
 };
 
 function opportunity(overrides: Partial<JobOpportunity> = {}): JobOpportunity {
@@ -22,7 +22,7 @@ function opportunity(overrides: Partial<JobOpportunity> = {}): JobOpportunity {
     workplaceType: "onsite",
     employmentType: "Full-time",
     description: "React and TypeScript",
-    postedAt: null,
+    postedAt: new Date(),
     sourceUpdatedAt: null,
     lastSeenAt: new Date(),
     closedAt: null,
@@ -37,66 +37,28 @@ describe("DiscoveryMatchDispatcher", () => {
   test("enqueues newly discovered eligible opportunities with location priority", async () => {
     const enqueued: Array<{ id: string; profileId: string; priority: number }> = [];
     const opportunities = { findById: async () => opportunity() };
-    const matchTasks = {
-      enqueue: async (id: string, profileId: string, priority: number) => {
-        enqueued.push({ id, profileId, priority });
-        return "task-1";
-      }
-    };
-
-    const dispatcher = new DiscoveryMatchDispatcher(
-      opportunities as never,
-      matchTasks as never,
-      policy,
-      "default-profile"
-    );
-
+    const matchTasks = { enqueue: async (id: string, profileId: string, priority: number) => { enqueued.push({ id, profileId, priority }); return "task-1"; } };
+    const dispatcher = new DiscoveryMatchDispatcher(opportunities as never, matchTasks as never, policy, "default-profile");
     const result = await dispatcher.dispatch(["opportunity-1"]);
-
     expect(result).toEqual({ enqueued: 1, rejected: 0, missing: 0 });
-    expect(enqueued).toEqual([
-      { id: "opportunity-1", profileId: "default-profile", priority: 30 }
-    ]);
+    expect(enqueued).toEqual([{ id: "opportunity-1", profileId: "default-profile", priority: 30 }]);
   });
 
   test("does not enqueue explicitly excluded companies", async () => {
     const enqueue = jest.fn();
-    const opportunities = {
-      findById: async () => opportunity({ companyName: "Octopus Technologies" })
-    };
-    const matchTasks = { enqueue };
-
-    const dispatcher = new DiscoveryMatchDispatcher(
-      opportunities as never,
-      matchTasks as never,
-      policy,
-      "default-profile"
-    );
-
+    const opportunities = { findById: async () => opportunity({ companyName: "Octopus Technologies" }) };
+    const dispatcher = new DiscoveryMatchDispatcher(opportunities as never, { enqueue } as never, policy, "default-profile");
     const result = await dispatcher.dispatch(["opportunity-1"]);
-
     expect(result).toEqual({ enqueued: 0, rejected: 1, missing: 0 });
     expect(enqueue).not.toHaveBeenCalled();
   });
 
-  test("keeps outside-India opportunities eligible for candidate evaluation", async () => {
+  test("rejects outside-India onsite opportunities", async () => {
     const enqueue = jest.fn().mockResolvedValue("task-1");
-    const opportunities = {
-      findById: async () =>
-        opportunity({ location: "London, United Kingdom", country: "United Kingdom" })
-    };
-    const matchTasks = { enqueue };
-
-    const dispatcher = new DiscoveryMatchDispatcher(
-      opportunities as never,
-      matchTasks as never,
-      policy,
-      "default-profile"
-    );
-
+    const opportunities = { findById: async () => opportunity({ location: "London, United Kingdom", country: "United Kingdom" }) };
+    const dispatcher = new DiscoveryMatchDispatcher(opportunities as never, { enqueue } as never, policy, "default-profile");
     const result = await dispatcher.dispatch(["opportunity-1"]);
-
-    expect(result).toEqual({ enqueued: 1, rejected: 0, missing: 0 });
-    expect(enqueue).toHaveBeenCalledWith("opportunity-1", "default-profile", 10);
+    expect(result).toEqual({ enqueued: 0, rejected: 1, missing: 0 });
+    expect(enqueue).not.toHaveBeenCalled();
   });
 });
