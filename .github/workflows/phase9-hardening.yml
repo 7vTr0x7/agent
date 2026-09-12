@@ -82,7 +82,7 @@ jobs:
       - name: Phase 9 isolated browser/application fixture
         run: |
           set -euo pipefail
-          timeout --foreground --signal=TERM 5m env NODE_ENV=test APPLICATION_DRY_RUN=true GMAIL_ENABLED=false OUTBOUND_ENABLED=false PROACTIVE_RECRUITER_ENABLED=false PROACTIVE_RECRUITER_SEND_ENABLED=false STALE_SUBMISSION_RECONCILIATION_ENABLED=false RECRUITER_REQUIRE_VERIFIED_EMAIL=true npx tsx scripts/phase9-application-runtime.ts 2>&1 | tee phase9-application-runtime.log
+          timeout --foreground --signal=TERM --kill-after=15s 5m env NODE_ENV=test APPLICATION_DRY_RUN=true GMAIL_ENABLED=false OUTBOUND_ENABLED=false PROACTIVE_RECRUITER_ENABLED=false PROACTIVE_RECRUITER_SEND_ENABLED=false STALE_SUBMISSION_RECONCILIATION_ENABLED=false RECRUITER_REQUIRE_VERIFIED_EMAIL=true ./node_modules/.bin/tsx scripts/phase9-application-runtime.ts 2>&1 | tee phase9-application-runtime.log
           grep -q '"status":"ok"' phase9-application-runtime.log
           grep -q '"wouldApply":true' phase9-application-runtime.log
           grep -q '"realApplicationsSubmitted":0' phase9-application-runtime.log
@@ -124,7 +124,7 @@ jobs:
       - name: Cross-path recruiter dedup regression
         run: |
           set -euo pipefail
-          docker run --rm --network job-agent-phase9 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase9-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=false -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase9-ci npx tsx scripts/phase8-cross-path-runtime.ts 2>&1 | tee phase8-cross-path-output.log
+          docker run --rm --network job-agent-phase9 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase9-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=false -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase9-ci ./node_modules/.bin/tsx scripts/phase8-cross-path-runtime.ts 2>&1 | tee phase8-cross-path-output.log
           grep -q '"status":"ok"' phase8-cross-path-output.log
           grep -q '"jobFirst":"blocked"' phase8-cross-path-output.log
           grep -q '"proactiveFirst":"blocked"' phase8-cross-path-output.log
