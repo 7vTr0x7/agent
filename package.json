@@ -19,6 +19,7 @@
     "phase7:recruiter-outreach-runtime": "tsx scripts/phase7-recruiter-outreach-runtime.ts",
     "phase8:recruiter-first-runtime": "tsx scripts/phase8-recruiter-first-runtime.ts",
     "phase10:readiness": "tsx scripts/phase10-readiness.ts",
+    "phase10:controlled-live-recruiter": "tsx scripts/phase10-controlled-live-recruiter.ts",
     "list:phase6-eligible-outreach": "tsx scripts/list-phase6-eligible-outreach.ts",
     "preflight:recruiter-outreach": "tsx scripts/preflight-recruiter-outreach.ts",
     "preflight:autonomous": "tsx scripts/preflight-autonomous-runtime.ts",
