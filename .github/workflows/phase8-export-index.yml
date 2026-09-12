@@ -1,0 +1,29 @@
+name: Phase 8 Export Patched Index
+
+on:
+  push:
+    branches: [phase8/recruiter-first-outreach]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Apply trusted Phase 8 patch
+        run: python3 scripts/phase8-bootstrap-patch.py
+      - name: Package patched index
+        run: |
+          set -euo pipefail
+          mkdir -p phase8-index/src
+          cp src/index.ts phase8-index/src/index.ts
+          tar -czf phase8-index.tar.gz phase8-index
+      - name: Upload patched index
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-index
+          path: phase8-index.tar.gz
+          if-no-files-found: error
