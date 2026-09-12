@@ -1,0 +1,137 @@
+name: Phase 7 Hardening
+
+on:
+  push:
+    branches: [phase7/recruiter-discovery-outreach-preparation]
+  workflow_dispatch:
+
+jobs:
+  hardening:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Tests
+        run: npm test -- --runInBand
+      - name: Build Docker image
+        run: docker build --tag job-agent:phase7-ci .
+      - name: Start isolated PostgreSQL
+        run: |
+          set -euo pipefail
+          docker network create job-agent-phase7
+          docker run -d --name job-agent-phase7-postgres --network job-agent-phase7 -e POSTGRES_DB=job_agent -e POSTGRES_USER=job_agent -e POSTGRES_PASSWORD=ci postgres:17-alpine
+          for i in $(seq 1 30); do
+            if docker exec job-agent-phase7-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then exit 0; fi
+            sleep 1
+          done
+          docker logs job-agent-phase7-postgres
+          exit 1
+      - name: Run isolated Phase 7 recruiter pipeline
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-phase7 \
+            -e NODE_ENV=test \
+            -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase7-postgres:5432/job_agent \
+            -e AUTOMATION_ENABLED=false \
+            -e APPLICATION_DRY_RUN=true \
+            -e OUTBOUND_ENABLED=false \
+            -e GMAIL_ENABLED=false \
+            -e EMAIL_ENABLED=false \
+            -e PROACTIVE_RECRUITER_ENABLED=false \
+            -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
+            -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
+            -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false \
+            job-agent:phase7-ci node -e "require('./dist/database/MigrationRunner').MigrationRunner"
+          docker run --rm --network job-agent-phase7 \
+            -e NODE_ENV=test \
+            -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase7-postgres:5432/job_agent \
+            -e AUTOMATION_ENABLED=false \
+            -e APPLICATION_DRY_RUN=true \
+            -e OUTBOUND_ENABLED=false \
+            -e GMAIL_ENABLED=false \
+            -e EMAIL_ENABLED=false \
+            -e PROACTIVE_RECRUITER_ENABLED=false \
+            -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
+            -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
+            -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false \
+            job-agent:phase7-ci node -e "const {Database}=require('./dist/database/Database'); const {MigrationRunner}=require('./dist/database/MigrationRunner'); const db=new Database(process.env.DATABASE_URL); new MigrationRunner(db).run().then(()=>db.close()).catch(e=>{console.error(e);process.exit(1)})"
+          GMAIL_ENABLED=false OUTBOUND_ENABLED=false PROACTIVE_RECRUITER_SEND_ENABLED=false DATABASE_URL=postgres://job_agent:ci@localhost:5432/job_agent true
+      - name: Run comprehensive Phase 7 fixture
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-phase7 \
+            -e NODE_ENV=test \
+            -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase7-postgres:5432/job_agent \
+            -e AUTOMATION_ENABLED=false \
+            -e APPLICATION_DRY_RUN=true \
+            -e OUTBOUND_ENABLED=false \
+            -e GMAIL_ENABLED=false \
+            -e PROACTIVE_RECRUITER_ENABLED=false \
+            -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
+            -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
+            -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false \
+            job-agent:phase7-ci npm run phase7:recruiter-outreach-runtime | tee /tmp/phase7-runtime.log
+          grep -q '"status":"ok"' /tmp/phase7-runtime.log
+          grep -q '"prepared":1' /tmp/phase7-runtime.log
+          grep -q '"sent":"0"' /tmp/phase7-runtime.log
+          grep -q '"sendEnabled":false' /tmp/phase7-runtime.log
+          grep -q '"gmailEnabled":false' /tmp/phase7-runtime.log
+      - name: Verify Phase 7 database invariants and relevance freshness
+        run: |
+          set -euo pipefail
+          migration_count="$(docker exec job-agent-phase7-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM schema_migrations WHERE name='034_recruiter_relevance_freshness.sql';" | tr -d '[:space:]')"
+          test "$migration_count" = '1'
+          current_relevance="$(docker exec job-agent-phase7-postgres psql -U job_agent -d job_agent -tAc "SELECT relevance_status FROM recruiter_contacts WHERE LOWER(email)='alex.recruiter@phase7fixture.test';" | tr -d '[:space:]')"
+          test "$current_relevance" = 'CURRENT'
+          verified_quality="$(docker exec job-agent-phase7-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts WHERE verified=true AND (mailbox_evidence=false OR email_status<>'VERIFIED' OR verification_status<>'mailbox_verified' OR jsonb_typeof(verification_evidence)<>'array');" | tr -d '[:space:]')"
+          test "$verified_quality" = '0'
+          sent_count="$(docker exec job-agent-phase7-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';" | tr -d '[:space:]')"
+          test "$sent_count" = '0'
+          sequence_count="$(docker exec job-agent-phase7-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_sequences WHERE recruiter_contact_id=(SELECT id FROM recruiter_contacts WHERE LOWER(email)='alex.recruiter@phase7fixture.test') AND job_opportunity_id='70000000-0000-4000-8000-000000000001';" | tr -d '[:space:]')"
+          test "$sequence_count" = '1'
+          message_count="$(docker exec job-agent-phase7-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id WHERE s.recruiter_contact_id=(SELECT id FROM recruiter_contacts WHERE LOWER(email)='alex.recruiter@phase7fixture.test') AND s.job_opportunity_id='70000000-0000-4000-8000-000000000001';" | tr -d '[:space:]')"
+          test "$message_count" = '1'
+          echo "Phase 7 database gates passed: migration=$migration_count relevance=$current_relevance verified_quality=$verified_quality sequences=$sequence_count messages=$message_count sent=$sent_count"
+      - name: Static security audit
+        run: |
+          set -euo pipefail
+          if grep -RInE '(^|[^[:alnum:]_])(TODO|FIXME|HACK|AGENT_NEXT_PASS)([^[:alnum:]_]|$)' src scripts tests .github/workflows; then
+            echo 'FAIL: temporary implementation marker remains.'
+            exit 1
+          fi
+          if grep -RInE 'continue-on-error:[[:space:]]*true' .github/workflows; then
+            echo 'FAIL: continue-on-error is not permitted in Phase 7 workflows.'
+            exit 1
+          fi
+          if grep -RInE '^[[:space:]]*[^#].*\|\|[[:space:]]*true' src scripts tests; then
+            echo 'FAIL: failure swallowing pattern found in source/test code.'
+            exit 1
+          fi
+          if grep -RInE 'console\.(log|info|error).*?(access_token|refresh_token|client_secret|api[_-]?key|password=|GMAIL_CLIENT_SECRET|SNOV_API_KEY)' src scripts; then
+            echo 'FAIL: possible secret logging pattern found.'
+            exit 1
+          fi
+          echo 'Static Phase 7 security audit passed.'
+      - name: Verify final safe flags
+        run: |
+          set -euo pipefail
+          test "false" = "${GMAIL_ENABLED:-false}"
+          test "false" = "${OUTBOUND_ENABLED:-false}"
+          test "false" = "${PROACTIVE_RECRUITER_SEND_ENABLED:-false}"
+          echo 'Phase 7 outbound kill switches are disabled.'
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f job-agent-phase7-postgres >/dev/null 2>&1 || true
+          docker network rm job-agent-phase7 >/dev/null 2>&1 || true
