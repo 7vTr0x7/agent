@@ -80,7 +80,7 @@ jobs:
           GMAIL_ENABLED=false OUTBOUND_ENABLED=false PROACTIVE_RECRUITER_SEND_ENABLED=false DATABASE_URL=postgres://job_agent:ci@localhost:5432/job_agent true
       - name: Run comprehensive Phase 7 fixture
         run: |
-          set -euo pipefail
+          set -o pipefail
           docker run --rm --network job-agent-phase7 \
             -e NODE_ENV=test \
             -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase7-postgres:5432/job_agent \
@@ -92,12 +92,19 @@ jobs:
             -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
             -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
             -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false \
-            job-agent:phase7-ci npm run phase7:recruiter-outreach-runtime | tee /tmp/phase7-runtime.log
-          grep -q '"status":"ok"' /tmp/phase7-runtime.log
-          grep -q '"prepared":1' /tmp/phase7-runtime.log
-          grep -q '"sent":"0"' /tmp/phase7-runtime.log
-          grep -q '"sendEnabled":false' /tmp/phase7-runtime.log
-          grep -q '"gmailEnabled":false' /tmp/phase7-runtime.log
+            job-agent:phase7-ci npm run phase7:recruiter-outreach-runtime 2>&1 | tee phase7-runtime-output.log
+          grep -q '"status":"ok"' phase7-runtime-output.log
+          grep -q '"prepared":1' phase7-runtime-output.log
+          grep -q '"sent":"0"' phase7-runtime-output.log
+          grep -q '"sendEnabled":false' phase7-runtime-output.log
+          grep -q '"gmailEnabled":false' phase7-runtime-output.log
+      - name: Upload comprehensive fixture output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase7-runtime-output
+          path: phase7-runtime-output.log
+          if-no-files-found: error
       - name: Verify Phase 7 database invariants and relevance freshness
         run: |
           set -euo pipefail
