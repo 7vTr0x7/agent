@@ -7,6 +7,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: phase9-hardening-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -35,6 +39,7 @@ jobs:
           test "false" = "${PROACTIVE_RECRUITER_ENABLED:-false}"
           test "false" = "${PROACTIVE_RECRUITER_SEND_ENABLED:-false}"
           test "false" = "${STALE_SUBMISSION_RECONCILIATION_ENABLED:-false}"
+          test "true" = "${RECRUITER_REQUIRE_VERIFIED_EMAIL:-true}"
           echo 'Phase 9 safety defaults verified.'
       - name: Typecheck
         run: npm run typecheck
@@ -77,7 +82,7 @@ jobs:
       - name: Phase 9 isolated browser/application fixture
         run: |
           set -euo pipefail
-          NODE_ENV=test APPLICATION_DRY_RUN=true GMAIL_ENABLED=false OUTBOUND_ENABLED=false PROACTIVE_RECRUITER_ENABLED=false PROACTIVE_RECRUITER_SEND_ENABLED=false STALE_SUBMISSION_RECONCILIATION_ENABLED=false npx tsx scripts/phase9-application-runtime.ts 2>&1 | tee phase9-application-runtime.log
+          NODE_ENV=test APPLICATION_DRY_RUN=true GMAIL_ENABLED=false OUTBOUND_ENABLED=false PROACTIVE_RECRUITER_ENABLED=false PROACTIVE_RECRUITER_SEND_ENABLED=false STALE_SUBMISSION_RECONCILIATION_ENABLED=false RECRUITER_REQUIRE_VERIFIED_EMAIL=true npx tsx scripts/phase9-application-runtime.ts 2>&1 | tee phase9-application-runtime.log
           grep -q '"status":"ok"' phase9-application-runtime.log
           grep -q '"wouldApply":true' phase9-application-runtime.log
           grep -q '"realApplicationsSubmitted":0' phase9-application-runtime.log
