@@ -18,6 +18,7 @@ import { CandidateProfile } from "../candidates/CandidateProfile";
 import { ApplicationRepository } from "./ApplicationRepository";
 import { ApplicationFlowController } from "./ApplicationFlowController";
 import { SubmissionRequestTracker } from "./SubmissionRequestTracker";
+import { GlobalExternalSideEffectGate } from "../shared/safety/GlobalExternalSideEffectGate";
 
 export interface ApplicationSubmissionRequest { context: ApplicationContext; companyName: string; excludedCompanies: readonly string[]; candidateProfile: CandidateProfile; taskId?: string; workerId?: string; assertTaskOwnership?: () => Promise<boolean>; }
 export interface ApplicationSubmissionOutcome { submitted: boolean; outcome?: "CONFIRMED_SUCCESS" | "DEFINITIVE_FAILURE" | "AMBIGUOUS" | "NOT_SUBMITTED"; safetyAllowed: boolean; reason: string; adapterName: string | null; result: ApplicationSubmissionResult | null; attemptId?: string; }
@@ -50,8 +51,14 @@ export class ApplicationSubmissionService {
     private readonly flowController = new ApplicationFlowController(),
     private readonly navigationTimeoutMs = DEFAULT_NAVIGATION_TIMEOUT_MS,
     private readonly submissionTimeoutMs = DEFAULT_SUBMISSION_TIMEOUT_MS,
-    private readonly applicationLiveEnabled = !dryRun
+    private readonly applicationLiveEnabled = !dryRun,
+    private readonly externalSideEffectGate?: GlobalExternalSideEffectGate
   ) {}
+
+  private async checkExternalSideEffectGate(): Promise<{ allowed: true } | { allowed: false; reason: string }> {
+    if (!this.externalSideEffectGate) return { allowed: true };
+    return this.externalSideEffectGate.evaluate();
+  }
 
   async submit(request: ApplicationSubmissionRequest): Promise<ApplicationSubmissionOutcome> {
     const preflight = validateApplicationNavigationUrl(request.context.url);
@@ -75,6 +82,9 @@ export class ApplicationSubmissionService {
       if (!flow.allowed) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: false, reason: flow.reasons.join(" ") || "Application flow was not allowed to proceed safely.", adapterName: adapter.name, result: null };
       if (this.dryRun || !this.applicationLiveEnabled) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: true, reason: this.dryRun ? "APPLICATION_DRY_RUN is enabled; submission was not attempted." : "APPLICATION_LIVE_ENABLED is false; live application submission was not attempted.", adapterName: adapter.name, result: null };
 
+      const beforeClaim = await this.checkExternalSideEffectGate();
+      if (!beforeClaim.allowed) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: false, reason: beforeClaim.reason, adapterName: adapter.name, result: null };
+
       if (this.applications.beginSubmissionAttempt) reservation = await this.applications.beginSubmissionAttempt(request.context.applicationId, request.taskId ?? null, request.workerId ?? null, target.url);
       else {
         const reserved = await this.applications.beginSubmission(request.context.applicationId);
@@ -86,6 +96,8 @@ export class ApplicationSubmissionService {
       const updatePhase = this.applications.updateSubmissionAttemptPhase;
       const finalize = this.applications.finalizeSubmissionAttempt;
       if (!updatePhase || !finalize) {
+        const beforeLegacySubmit = await this.checkExternalSideEffectGate();
+        if (!beforeLegacySubmit.allowed) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: false, reason: beforeLegacySubmit.reason, adapterName: adapter.name, result: null, attemptId: reservation.attemptId };
         const legacyResult = await adapter.submit(session.page, request.context);
         if (!legacyResult.submitted) return { submitted: false, outcome: legacyResult.outcome ?? "AMBIGUOUS", safetyAllowed: true, reason: `Submission remains in progress because the application provider could not confirm completion. ${legacyResult.reason}`, adapterName: adapter.name, result: legacyResult, attemptId: reservation.attemptId };
         await this.applications.markSubmitted(request.context.applicationId, legacyResult.confirmationUrl, legacyResult.externalApplicationId);
@@ -104,6 +116,13 @@ export class ApplicationSubmissionService {
 
       const startedAt = new Date();
       if (!await updatePhase(reservation.attemptId, "EXECUTING", { submissionStartedAt: startedAt, finalUrl: target.url })) throw new Error("Application submission attempt could not be marked as executing; external submission was not attempted.");
+      const beforeSubmit = await this.checkExternalSideEffectGate();
+      if (!beforeSubmit.allowed) {
+        const notSubmitted: ApplicationSubmissionResult = { submitted: false, outcome: "NOT_SUBMITTED", externalApplicationId: null, confirmationUrl: null, reason: beforeSubmit.reason };
+        const evidence = { requestObserved: false, requestSentAt: null, responseObserved: false, responseReceivedAt: null, responseStatus: null, finalUrl: target.url };
+        await finalize(request.context.applicationId, reservation.attemptId, adapter.name, { ...notSubmitted, evidence });
+        return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: false, reason: beforeSubmit.reason, adapterName: adapter.name, result: notSubmitted, attemptId: reservation.attemptId };
+      }
       tracker = new SubmissionRequestTracker(session.page);
       tracker.start();
       let adapterResult: ApplicationSubmissionResult;
