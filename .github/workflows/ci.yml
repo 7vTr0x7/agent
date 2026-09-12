@@ -179,37 +179,59 @@ jobs:
             sleep 1
           done
           fixture_running="$(docker inspect -f '{{.State.Running}}' "$fixture_name")"
-          test "$fixture_running" = 'false'
+          echo "Proactive fixture running state: $fixture_running"
+          if [ "$fixture_running" != 'false' ]; then
+            echo 'FAIL: proactive fixture did not exit within 30 seconds'
+            docker logs "$fixture_name" || true
+            exit 1
+          fi
           fixture_exit="$(docker inspect -f '{{.State.ExitCode}}' "$fixture_name")"
           echo "Proactive fixture container exit code: $fixture_exit"
           docker logs "$fixture_name" > /tmp/proactive-recruiter-fixture.log 2>&1
           docker_logs_rc=$?
           cat /tmp/proactive-recruiter-fixture.log
           echo "Proactive fixture docker logs exit code: $docker_logs_rc"
-          test "$docker_logs_rc" = '0'
-          test "$fixture_exit" = '0'
-          grep -q '"status":"ok"' /tmp/proactive-recruiter-fixture.log
-          grep -q '"discovered":1' /tmp/proactive-recruiter-fixture.log
-          grep -q '"persisted":1' /tmp/proactive-recruiter-fixture.log
-          grep -q '"prepared":0' /tmp/proactive-recruiter-fixture.log
-          grep -q '"sendEnabled":false' /tmp/proactive-recruiter-fixture.log
+          if [ "$docker_logs_rc" != '0' ]; then
+            echo "FAIL: docker logs returned $docker_logs_rc"
+            exit 1
+          fi
+          if [ "$fixture_exit" != '0' ]; then
+            echo "FAIL: proactive fixture process returned $fixture_exit"
+            exit 1
+          fi
+          for expected in '"status":"ok"' '"discovered":1' '"persisted":1' '"prepared":0' '"sendEnabled":false'; do
+            if ! grep -q "$expected" /tmp/proactive-recruiter-fixture.log; then
+              echo "FAIL: missing proactive runtime assertion: $expected"
+              exit 1
+            fi
+            echo "PASS: proactive runtime assertion: $expected"
+          done
           recruiter_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
+          echo "recruiter_count=$recruiter_count"
           test "$recruiter_count" = '1'
           recruiter_verified="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT verified::int FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
+          echo "recruiter_verified=$recruiter_verified"
           test "$recruiter_verified" = '0'
           recruiter_mailbox_evidence="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT mailbox_evidence::int FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
+          echo "recruiter_mailbox_evidence=$recruiter_mailbox_evidence"
           test "$recruiter_mailbox_evidence" = '0'
           recruiter_email_status="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT UPPER(COALESCE(email_status,'')) FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
+          echo "recruiter_email_status=$recruiter_email_status"
           test "$recruiter_email_status" != 'VERIFIED'
           recruiter_verification_status="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT LOWER(COALESCE(verification_status,'')) FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
+          echo "recruiter_verification_status=$recruiter_verification_status"
           test "$recruiter_verification_status" = 'public-web-unverified'
           proactive_evidence_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_proactive_evidence e JOIN recruiter_contacts c ON c.id=e.recruiter_contact_id WHERE LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com';" | tr -d '[:space:]')"
+          echo "proactive_evidence_count=$proactive_evidence_count"
           test "$proactive_evidence_count" -ge 1
           proactive_sequence_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_sequences s JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE s.campaign_type='PROACTIVE_RECRUITER' AND s.job_opportunity_id IS NULL AND LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com';" | tr -d '[:space:]')"
+          echo "proactive_sequence_count=$proactive_sequence_count"
           test "$proactive_sequence_count" -eq 0
           outbound_message_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com';" | tr -d '[:space:]')"
+          echo "outbound_message_count=$outbound_message_count"
           test "$outbound_message_count" -eq 0
           sent_message_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com' AND UPPER(m.status)='SENT';" | tr -d '[:space:]')"
+          echo "sent_message_count=$sent_message_count"
           test "$sent_message_count" -eq 0
           echo "Proactive no-job safety verification passed: recruiter=$recruiter_count evidence=$proactive_evidence_count sequences=$proactive_sequence_count outbound_messages=$outbound_message_count sent_messages=$sent_message_count verified=$recruiter_verified mailbox_evidence=$recruiter_mailbox_evidence email_status=$recruiter_email_status verification_status=$recruiter_verification_status"
 
