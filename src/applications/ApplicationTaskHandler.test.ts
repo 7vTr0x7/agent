@@ -191,6 +191,7 @@ describe("ApplicationTaskHandler", () => {
         safetyAllowed: true,
         submitted: true,
         reason: "Synthetic submission completed.",
+        failureCode: null,
         confirmationUrl: "https://example.com/confirmation",
         externalApplicationId: "external-1"
       }

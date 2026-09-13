@@ -5,6 +5,8 @@ export interface RecruiterOutreachActivationInput {
   dryRun: boolean;
   liveActivationConfirmed: boolean;
   controlledSendConfirmation?: string;
+  controlledMessageId?: string | null;
+  controlledRecipient?: string | null;
   maxMessagesPerDay: number;
   maxMessagesPerHour: number;
 }
@@ -16,7 +18,7 @@ export interface RecruiterOutreachActivationResult {
 
 export const CONTROLLED_SEND_CONFIRMATION = "SEND_ONE_REAL_EMAIL";
 
-/** Explicit runtime activation boundary. Real delivery requires the separate controlled-send confirmation. */
+/** Explicit runtime activation boundary. Real delivery requires explicit confirmation and a bounded canary target. */
 export function evaluateRecruiterOutreachActivation(input: RecruiterOutreachActivationInput): RecruiterOutreachActivationResult {
   if (input.dryRun) return { allowed: true, reason: "Dry-run mode is active; real delivery is disabled." };
   if (input.activation === "disabled") return { allowed: false, reason: "Recruiter outreach activation is disabled." };
@@ -27,7 +29,10 @@ export function evaluateRecruiterOutreachActivation(input: RecruiterOutreachActi
     if (input.maxMessagesPerDay !== 1 || input.maxMessagesPerHour !== 1) {
       return { allowed: false, reason: "Canary activation requires exactly 1 recruiter message per day and per hour." };
     }
-    return { allowed: true, reason: "One-message recruiter outreach canary is explicitly enabled." };
+    if (!input.controlledMessageId || !input.controlledRecipient) {
+      return { allowed: false, reason: "Canary activation requires an explicit controlled message ID and recipient." };
+    }
+    return { allowed: true, reason: "One-message recruiter outreach canary is explicitly enabled for the selected message and recipient." };
   }
   if (!input.liveActivationConfirmed) {
     return { allowed: false, reason: "Live recruiter outreach requires RECRUITER_LIVE_ACTIVATION_CONFIRMED=true." };

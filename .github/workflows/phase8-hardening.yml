@@ -14,8 +14,10 @@ jobs:
   hardening:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout exact PR head
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -49,16 +51,10 @@ jobs:
           docker run -d --name job-agent-phase8-postgres --network job-agent-phase8 -e POSTGRES_DB=job_agent -e POSTGRES_USER=job_agent -e POSTGRES_PASSWORD=ci postgres:17-alpine
           ready=false
           for i in $(seq 1 60); do
-            if docker exec job-agent-phase8-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1 && docker exec job-agent-phase8-postgres psql -U job_agent -d job_agent -v ON_ERROR_STOP=1 -c 'SELECT 1' >/dev/null 2>&1; then
-              ready=true
-              break
-            fi
+            if docker exec job-agent-phase8-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1 && docker exec job-agent-phase8-postgres psql -U job_agent -d job_agent -v ON_ERROR_STOP=1 -c 'SELECT 1' >/dev/null 2>&1; then ready=true; break; fi
             sleep 1
           done
-          if [ "$ready" != "true" ]; then
-            docker logs job-agent-phase8-postgres
-            exit 1
-          fi
+          if [ "$ready" != "true" ]; then docker logs job-agent-phase8-postgres; exit 1; fi
       - name: Apply migrations
         run: |
           set -euo pipefail
@@ -66,29 +62,18 @@ jobs:
       - name: Phase 7 regression fixture
         run: |
           set -euo pipefail
-          docker run --rm --network job-agent-phase8 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase8-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=false -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase8-ci npm run phase7:recruiter-outreach-runtime 2>&1 | tee phase7-regression-output.log
-          grep -q '"status":"ok"' phase7-regression-output.log
-          grep -q '"prepared":1' phase7-regression-output.log
-          grep -q '"sent":"0"' phase7-regression-output.log
+          docker run --rm --network job-agent-phase8 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase8-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e APPLICATION_LIVE_ENABLED=false -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=false -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase8-ci npm run phase7:recruiter-outreach-runtime 2>&1 | tee phase7-regression-output.log
+          grep -q '"status":"ok"' phase7-regression-output.log; grep -q '"prepared":1' phase7-regression-output.log; grep -q '"sent":"0"' phase7-regression-output.log
       - name: Phase 8 proactive recruiter-first fixture
         run: |
           set -o pipefail
-          docker run --rm --network job-agent-phase8 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase8-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=true -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase8-ci npm run phase8:recruiter-first-runtime 2>&1 | tee phase8-runtime-output.log
-          grep -q '"status":"ok"' phase8-runtime-output.log
-          grep -q '"jobsDiscovered":0' phase8-runtime-output.log
-          grep -q '"campaignType":"PROACTIVE_RECRUITER"' phase8-runtime-output.log
-          grep -q '"jobId":null' phase8-runtime-output.log
-          grep -q '"prepared":true' phase8-runtime-output.log
-          grep -q '"sent":0' phase8-runtime-output.log
-          grep -q '"snovCreditsUsed":0' phase8-runtime-output.log
-          grep -q '"productionDatabase":false' phase8-runtime-output.log
+          docker run --rm --network job-agent-phase8 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase8-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e APPLICATION_LIVE_ENABLED=false -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=true -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase8-ci npm run phase8:recruiter-first-runtime 2>&1 | tee phase8-runtime-output.log
+          grep -q '"status":"ok"' phase8-runtime-output.log; grep -q '"jobsDiscovered":0' phase8-runtime-output.log; grep -q '"campaignType":"PROACTIVE_RECRUITER"' phase8-runtime-output.log; grep -q '"jobId":null' phase8-runtime-output.log; grep -q '"prepared":true' phase8-runtime-output.log; grep -q '"sent":0' phase8-runtime-output.log; grep -q '"snovCreditsUsed":0' phase8-runtime-output.log; grep -q '"productionDatabase":false' phase8-runtime-output.log
       - name: Cross-path dedup fixture
         run: |
           set -o pipefail
-          docker run --rm --network job-agent-phase8 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase8-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=false -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase8-ci npx tsx scripts/phase8-cross-path-runtime.ts 2>&1 | tee phase8-cross-path-output.log
-          grep -q '"status":"ok"' phase8-cross-path-output.log
-          grep -q '"jobFirst":"blocked"' phase8-cross-path-output.log
-          grep -q '"proactiveFirst":"blocked"' phase8-cross-path-output.log
+          docker run --rm --network job-agent-phase8 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase8-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e APPLICATION_LIVE_ENABLED=false -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=false -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase8-ci npx tsx scripts/phase8-cross-path-runtime.ts 2>&1 | tee phase8-cross-path-output.log
+          grep -q '"status":"ok"' phase8-cross-path-output.log; grep -q '"jobFirst":"blocked"' phase8-cross-path-output.log; grep -q '"proactiveFirst":"blocked"' phase8-cross-path-output.log
       - name: Upload Phase 8 runtime output
         if: always()
         uses: actions/upload-artifact@v4
@@ -103,14 +88,10 @@ jobs:
           set -euo pipefail
           grep -q 'proactive-recruiter-discovery' src/index.ts
           grep -q 'proactiveRecruiterDispatcher' src/index.ts
-          migration_count="$(docker exec job-agent-phase8-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM schema_migrations WHERE name='036_phase8_recruiter_campaign_invariants.sql';" | tr -d '[:space:]')"
-          test "$migration_count" = '1'
-          campaign_check="$(docker exec job-agent-phase8-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_constraint WHERE conname='recruiter_outreach_sequences_campaign_job_consistency_check';" | tr -d '[:space:]')"
-          test "$campaign_check" = '1'
-          trigger_check="$(docker exec job-agent-phase8-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_trigger WHERE tgname='trg_recruiter_cross_path_guard';" | tr -d '[:space:]')"
-          test "$trigger_check" = '1'
-          sent_count="$(docker exec job-agent-phase8-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';" | tr -d '[:space:]')"
-          test "$sent_count" = '0'
+          migration_count="$(docker exec job-agent-phase8-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM schema_migrations WHERE name='036_phase8_recruiter_campaign_invariants.sql';" | tr -d '[:space:]')"; test "$migration_count" = '1'
+          campaign_check="$(docker exec job-agent-phase8-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_constraint WHERE conname='recruiter_outreach_sequences_campaign_job_consistency_check';" | tr -d '[:space:]')"; test "$campaign_check" = '1'
+          trigger_check="$(docker exec job-agent-phase8-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_trigger WHERE tgname='trg_recruiter_cross_path_guard';" | tr -d '[:space:]')"; test "$trigger_check" = '1'
+          sent_count="$(docker exec job-agent-phase8-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';" | tr -d '[:space:]')"; test "$sent_count" = '0'
           echo "Phase 8 database gates passed: migration=$migration_count campaign_constraint=$campaign_check cross_path_trigger=$trigger_check sent=$sent_count"
       - name: Static security audit
         run: |

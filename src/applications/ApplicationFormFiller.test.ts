@@ -8,7 +8,7 @@ import { FormFieldDetector } from "./FormFieldDetector";
 import { CandidateProfile } from "../candidates/CandidateProfile";
 
 describe("ApplicationFormFiller", () => {
-  it("fills approved fields, uploads the resume, and leaves unsafe fields untouched", async () => {
+  it("fills approved fields, including canonical experience, uploads the resume, and leaves unsupported fields untouched", async () => {
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -50,7 +50,7 @@ describe("ApplicationFormFiller", () => {
       await expectInputValue(page, '[name="first_name"]', "Salman");
       await expectInputValue(page, '[name="email"]', "salman@example.com");
       await expectInputValue(page, '[name="linkedin"]', "https://linkedin.com/in/example");
-      await expectInputValue(page, '[name="experience"]', "");
+      await expectInputValue(page, '[name="experience"]', "3");
 
       const files = await page.locator('[name="resume"]').evaluate((element) =>
         (element as HTMLInputElement).files?.length ?? 0
@@ -58,8 +58,8 @@ describe("ApplicationFormFiller", () => {
       expect(files).toBe(1);
 
       const filled = result.results.filter((entry) => entry.filled);
-      expect(filled).toHaveLength(4);
-      expect(result.results.find((entry) => entry.mapping.key === "yearsExperience")?.filled).toBe(false);
+      expect(filled).toHaveLength(5);
+      expect(result.results.find((entry) => entry.mapping.key === "yearsExperience")?.filled).toBe(true);
     } finally {
       rmSync(directory, { recursive: true, force: true });
       await context.close();

@@ -33,6 +33,8 @@ const SEARCH_ENDPOINTS = [
   "https://r.jina.ai/https://html.duckduckgo.com/html/?q="
 ];
 const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com", "proton.me", "protonmail.com"]);
+const CURRENT_HIRING_EVIDENCE = /currently|currently hiring|hiring now|actively hiring|we are hiring|open roles|open positions|urgent hiring|hiring for/i;
+const RECENT_HIRING_EVIDENCE = /last week|last month|recently|recent hiring|2026|2025/i;
 
 const DEFAULT_FETCH = async (url: string): Promise<string | null> => {
   const controller = new AbortController();
@@ -103,6 +105,7 @@ export class ProactiveRecruiterDiscoveryService {
         if (recruiterName === "Unknown recruiter") continue;
         const key = url.toLowerCase();
         const evidenceFreshness = classifyEvidenceFreshness(evidence, now);
+        const hiringEvidence = hasHiringEvidence(evidence);
         const candidate: ProactiveRecruiterDiscoveryCandidate = {
           recruiterName,
           recruiterRole: roleMatch.recruiterTerms[0] ?? "Recruiting professional",
@@ -110,12 +113,12 @@ export class ProactiveRecruiterDiscoveryService {
           ...(employer.domain ? { employerDomain: employer.domain } : {}),
           targetRoles: roleMatch.roleTerms,
           roleMatchScore: Math.min(100, roleMatch.score),
-          hiringEvidenceScore: Math.min(100, roleMatch.roleTerms.length * 20 + roleMatch.recruiterTerms.length * 10),
+          hiringEvidenceScore: hiringEvidence ? Math.min(100, roleMatch.roleTerms.length * 20 + 40) : 0,
           overallConfidence: Math.min(100, roleMatch.score),
           discoverySource: "public-web",
           discoveryUrl: url,
           discoveryEvidence: [evidence],
-          evidenceType: evidence.toLowerCase().includes("hiring") || evidence.toLowerCase().includes("recruiting") ? "job_hiring_evidence" : "public_profile",
+          evidenceType: hiringEvidence ? "job_hiring_evidence" : "public_profile",
           evidenceDate: inferEvidenceDate(evidence, now).toISOString(),
           evidenceFreshness,
           email,
@@ -131,6 +134,7 @@ export class ProactiveRecruiterDiscoveryService {
           email: existing.email ?? candidate.email,
           employer: existing.employer === "Unknown employer" ? candidate.employer : existing.employer,
           ...(existing.employerDomain || !candidate.employerDomain ? {} : { employerDomain: candidate.employerDomain }),
+          evidenceType: existing.evidenceType === "job_hiring_evidence" || candidate.evidenceType === "job_hiring_evidence" ? "job_hiring_evidence" : "public_profile",
           evidenceFreshness: freshnessRank(candidate.evidenceFreshness) > freshnessRank(existing.evidenceFreshness) ? candidate.evidenceFreshness : existing.evidenceFreshness,
           evidenceDate: freshnessRank(candidate.evidenceFreshness) > freshnessRank(existing.evidenceFreshness) ? candidate.evidenceDate : existing.evidenceDate
         } : candidate);
@@ -138,6 +142,10 @@ export class ProactiveRecruiterDiscoveryService {
     }
     return [...candidates.values()];
   }
+}
+
+function hasHiringEvidence(evidence: string): boolean {
+  return CURRENT_HIRING_EVIDENCE.test(evidence) || RECENT_HIRING_EVIDENCE.test(evidence) && /hiring|recruiting|recruiter|role|position|opening/i.test(evidence);
 }
 
 function extractRecruiterName(evidence: string): string {
@@ -155,8 +163,8 @@ function extractRecruiterName(evidence: string): string {
 
 function classifyEvidenceFreshness(evidence: string, now: Date): "current" | "recent" | "historical" | "unknown" {
   const lower = evidence.toLowerCase();
-  if (/currently|current(?:ly)?|this week|this month|hiring now|open roles|actively hiring|we are hiring/.test(lower)) return "current";
-  if (/last week|last month|recently|recent|2026|2025/.test(lower)) return "recent";
+  if (CURRENT_HIRING_EVIDENCE.test(lower)) return "current";
+  if (RECENT_HIRING_EVIDENCE.test(lower)) return "recent";
   const years = [...lower.matchAll(/\b(20\d{2})\b/g)].map((match) => Number(match[1])).filter(Number.isFinite);
   if (years.some((year) => now.getFullYear() - year >= 2)) return "historical";
   if (/historical|previously|formerly|past hiring|used to recruit/.test(lower)) return "historical";

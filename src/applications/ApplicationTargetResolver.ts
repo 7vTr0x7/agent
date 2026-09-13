@@ -1,4 +1,5 @@
 import { Page } from "playwright";
+import { validateApplicationNavigationUrl } from "./ApplicationUrlPolicy";
 
 export interface ApplicationTargetResolution {
   resolved: boolean;
@@ -15,29 +16,25 @@ const EXCLUDED_APPLY_NAME = /^(?:privacy|privacy policy|policy|terms|help|suppor
 
 export class ApplicationTargetResolver {
   async resolve(page: Page, sourceUrl: string): Promise<ApplicationTargetResolution> {
-    return this.resolveInternal(page, sourceUrl, false);
+    let sourceHost: string | undefined;
+    try { sourceHost = new URL(sourceUrl).hostname; } catch { /* resolveInternal reports the invalid URL */ }
+    return this.resolveInternal(page, sourceUrl, false, sourceHost);
   }
 
   private async resolveInternal(
     page: Page,
     sourceUrl: string,
-    startedFromJobPage: boolean
+    startedFromJobPage: boolean,
+    expectedHost?: string
   ): Promise<ApplicationTargetResolution> {
     const currentUrl = page.url();
     const effectiveUrl = currentUrl && currentUrl !== "about:blank" ? currentUrl : sourceUrl;
-
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(effectiveUrl);
-    } catch {
-      return {
-        resolved: false,
-        url: effectiveUrl,
-        startedFromJobPage,
-        reason: "Application target URL is invalid; manual review is required."
-      };
+    const urlCheck = validateApplicationNavigationUrl(effectiveUrl, expectedHost);
+    if (!urlCheck.allowed) {
+      return { resolved: false, url: effectiveUrl, startedFromJobPage, reason: urlCheck.reason };
     }
 
+    const parsedUrl = new URL(effectiveUrl);
     if (AUTH_PATH.test(parsedUrl.pathname)) {
       return {
         resolved: false,
@@ -64,12 +61,7 @@ export class ApplicationTargetResolver {
       + await page.getByRole("link", { name: SUBMIT_NAME }).count();
 
     if (formCount > 0 || (fieldCount > 0 && submitCount > 0)) {
-      return {
-        resolved: true,
-        url: effectiveUrl,
-        startedFromJobPage,
-        reason: "Application form is already present on the target page."
-      };
+      return { resolved: true, url: effectiveUrl, startedFromJobPage, reason: "Application form is already present on the target page." };
     }
 
     const candidates = await page.locator('a, button, input[type="submit"], input[type="button"]').evaluateAll((elements) =>
@@ -81,48 +73,21 @@ export class ApplicationTargetResolver {
     );
 
     const applyCandidates = candidates.filter(({ name }) => APPLY_NAME.test(name) && !EXCLUDED_APPLY_NAME.test(name));
-
-    if (applyCandidates.length === 0) {
-      return {
-        resolved: false,
-        url: effectiveUrl,
-        startedFromJobPage,
-        reason: "No unambiguous application entry point was found."
-      };
-    }
-
-    if (applyCandidates.length > 1) {
-      return {
-        resolved: false,
-        url: effectiveUrl,
-        startedFromJobPage,
-        reason: "Multiple application entry points were found; manual review is required."
-      };
-    }
+    if (applyCandidates.length === 0) return { resolved: false, url: effectiveUrl, startedFromJobPage, reason: "No unambiguous application entry point was found." };
+    if (applyCandidates.length > 1) return { resolved: false, url: effectiveUrl, startedFromJobPage, reason: "Multiple application entry points were found; manual review is required." };
 
     const candidate = applyCandidates[0];
-    if (!candidate) {
-      return {
-        resolved: false,
-        url: effectiveUrl,
-        startedFromJobPage,
-        reason: "Application entry point could not be resolved safely; manual review is required."
-      };
-    }
+    if (!candidate) return { resolved: false, url: effectiveUrl, startedFromJobPage, reason: "Application entry point could not be resolved safely; manual review is required." };
 
     const locator = page.locator('a, button, input[type="submit"], input[type="button"]').nth(candidate.index);
 
     if (candidate.href) {
-      if (candidate.href === effectiveUrl) {
-        return {
-          resolved: false,
-          url: effectiveUrl,
-          startedFromJobPage,
-          reason: "The application link points back to the same page; manual review is required."
-        };
-      }
+      if (candidate.href === effectiveUrl) return { resolved: false, url: effectiveUrl, startedFromJobPage, reason: "The application link points back to the same page; manual review is required." };
+      const candidateCheck = validateApplicationNavigationUrl(candidate.href);
+      if (!candidateCheck.allowed) return { resolved: false, url: effectiveUrl, startedFromJobPage, reason: candidateCheck.reason };
+      const candidateHost = new URL(candidate.href).hostname;
       await page.goto(candidate.href, { waitUntil: "domcontentloaded" });
-      return this.resolveInternal(page, candidate.href, true);
+      return this.resolveInternal(page, candidate.href, true, candidateHost);
     }
 
     try {
@@ -132,18 +97,14 @@ export class ApplicationTargetResolver {
       const popup = await popupPromise;
       if (popup) {
         await popup.waitForLoadState("domcontentloaded").catch(() => undefined);
-        return this.resolveInternal(popup, popup.url(), true);
+        const popupHost = new URL(popup.url()).hostname;
+        return this.resolveInternal(popup, popup.url(), true, popupHost);
       }
       await page.waitForLoadState("domcontentloaded").catch(() => undefined);
     } catch (error) {
-      return {
-        resolved: false,
-        url: effectiveUrl,
-        startedFromJobPage,
-        reason: `Application entry point could not be opened safely: ${error instanceof Error ? error.message : String(error)}`
-      };
+      return { resolved: false, url: effectiveUrl, startedFromJobPage, reason: `Application entry point could not be opened safely: ${error instanceof Error ? error.message : String(error)}` };
     }
 
-    return this.resolveInternal(page, effectiveUrl, true);
+    return this.resolveInternal(page, effectiveUrl, true, parsedUrl.hostname);
   }
 }

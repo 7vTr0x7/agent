@@ -25,6 +25,7 @@ class FakeDatabase {
           safety_allowed: true,
           submitted: true,
           reason: "Application submitted.",
+          failure_code: null,
           confirmation_url: "https://example.com/confirmation",
           external_application_id: "external-1",
           attempted_at: new Date("2026-09-06T10:00:00.000Z")
@@ -69,6 +70,7 @@ describe("ApplicationAttemptRepository", () => {
       true,
       true,
       "Application submitted.",
+      null,
       "https://example.com/confirmation",
       "external-1",
       attemptedAt
@@ -87,6 +89,7 @@ describe("ApplicationAttemptRepository", () => {
         safetyAllowed: true,
         submitted: true,
         reason: "Application submitted.",
+        failureCode: null,
         confirmationUrl: "https://example.com/confirmation",
         externalApplicationId: "external-1",
         attemptedAt: new Date("2026-09-06T10:00:00.000Z")

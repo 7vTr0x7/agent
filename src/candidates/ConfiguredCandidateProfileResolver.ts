@@ -14,6 +14,8 @@ export interface CandidateProfileConfig {
   workAuthorization?: string;
   sponsorshipRequired?: boolean;
   noticePeriodDays?: number;
+  currentCompensationLpa?: number;
+  expectedCompensationLpa?: number;
   linkedinUrl?: string;
   githubUrl?: string;
   portfolioUrl?: string;
@@ -49,6 +51,8 @@ export class ConfiguredCandidateProfileResolver {
       workAuthorization: optional(env, "CANDIDATE_WORK_AUTHORIZATION"),
       sponsorshipRequired: optionalBoolean(env, "CANDIDATE_SPONSORSHIP_REQUIRED"),
       noticePeriodDays: optionalNumber(env, "CANDIDATE_NOTICE_PERIOD_DAYS"),
+      currentCompensationLpa: optionalNumber(env, "CANDIDATE_CURRENT_COMPENSATION_LPA"),
+      expectedCompensationLpa: optionalNumber(env, "CANDIDATE_EXPECTED_COMPENSATION_LPA"),
       linkedinUrl: optional(env, "CANDIDATE_LINKEDIN_URL"),
       githubUrl: optional(env, "CANDIDATE_GITHUB_URL"),
       portfolioUrl: optional(env, "CANDIDATE_PORTFOLIO_URL"),
@@ -72,11 +76,7 @@ function optional(env: NodeJS.ProcessEnv, name: string): string | undefined {
 }
 
 function csv(env: NodeJS.ProcessEnv, name: string): readonly string[] {
-  const values = required(env, name)
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-
+  const values = required(env, name).split(",").map((value) => value.trim()).filter(Boolean);
   if (values.length === 0) throw new Error(`${name} must contain at least one value`);
   return values;
 }
@@ -106,23 +106,12 @@ function optionalBoolean(env: NodeJS.ProcessEnv, name: string): boolean | undefi
 function jsonAnswers(env: NodeJS.ProcessEnv): Readonly<Record<string, string | boolean | number>> | undefined {
   const raw = optional(env, "CANDIDATE_STANDARDIZED_ANSWERS_JSON");
   if (!raw) return undefined;
-
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new Error(`CANDIDATE_STANDARDIZED_ANSWERS_JSON must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("CANDIDATE_STANDARDIZED_ANSWERS_JSON must be a JSON object.");
-  }
-
+  try { parsed = JSON.parse(raw); } catch (error) { throw new Error(`CANDIDATE_STANDARDIZED_ANSWERS_JSON must be valid JSON: ${error instanceof Error ? error.message : String(error)}`); }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("CANDIDATE_STANDARDIZED_ANSWERS_JSON must be a JSON object.");
   const result: Record<string, string | boolean | number> = {};
   for (const [key, value] of Object.entries(parsed)) {
-    if (!["string", "boolean", "number"].includes(typeof value)) {
-      throw new Error(`CANDIDATE_STANDARDIZED_ANSWERS_JSON contains unsupported value for '${key}'.`);
-    }
+    if (!["string", "boolean", "number"].includes(typeof value)) throw new Error(`CANDIDATE_STANDARDIZED_ANSWERS_JSON contains unsupported value for '${key}'.`);
     result[key] = value as string | boolean | number;
   }
   return result;

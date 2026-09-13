@@ -1,0 +1,81 @@
+name: CI Exact SHA
+
+on:
+  push:
+    branches: [main, phase9/application-hardening]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-exact-sha-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify checked out SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          expected="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$actual" = "$expected"
+          echo "exact_sha=$actual"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Full tests
+        run: npm test -- --runInBand
+      - name: Docker build
+        run: docker build --tag job-agent:ci-exact-sha .
+      - name: Isolated PostgreSQL readiness and migration gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker network create job-agent-ci-exact
+          docker run -d --name job-agent-ci-exact-postgres --network job-agent-ci-exact -e POSTGRES_DB=job_agent -e POSTGRES_USER=job_agent -e POSTGRES_PASSWORD=ci postgres:17-alpine
+          ready=false
+          for i in $(seq 1 60); do
+            if docker exec job-agent-ci-exact-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1 && docker exec job-agent-ci-exact-postgres psql -U job_agent -d job_agent -v ON_ERROR_STOP=1 -c 'SELECT 1' >/dev/null 2>&1; then ready=true; break; fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker run --rm --network job-agent-ci-exact -e DATABASE_URL=postgres://job_agent:ci@job-agent-ci-exact-postgres:5432/job_agent job-agent:ci-exact-sha node -e "const {Database}=require('./dist/database/Database'); const {MigrationRunner}=require('./dist/database/MigrationRunner'); const db=new Database(process.env.DATABASE_URL); new MigrationRunner(db).run().then(()=>db.close()).catch(e=>{console.error(e);process.exit(1)})"
+          latest="$(docker exec job-agent-ci-exact-postgres psql -U job_agent -d job_agent -tAc 'SELECT name FROM schema_migrations ORDER BY id DESC LIMIT 1' | tr -d '[:space:]')"
+          test "$latest" = '038_phase10_activation_safety.sql'
+          docker exec job-agent-ci-exact-postgres psql -U job_agent -d job_agent -tAc 'SELECT current_database(),current_user,1;'
+      - name: Safe defaults and no real external side effects
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${APPLICATION_DRY_RUN:-true}" = true
+          test "${APPLICATION_LIVE_ENABLED:-false}" = false
+          test "${GMAIL_ENABLED:-false}" = false
+          test "${OUTBOUND_ENABLED:-false}" = false
+          test "${PROACTIVE_RECRUITER_ENABLED:-false}" = false
+          test "${PROACTIVE_RECRUITER_SEND_ENABLED:-false}" = false
+          test "${RECRUITER_REQUIRE_VERIFIED_EMAIL:-true}" = true
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f job-agent-ci-exact-postgres >/dev/null 2>&1 || true
+          docker network rm job-agent-ci-exact >/dev/null 2>&1 || true
