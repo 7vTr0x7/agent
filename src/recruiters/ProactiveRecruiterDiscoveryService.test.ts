@@ -18,12 +18,12 @@ describe("ProactiveRecruiterDiscoveryService", () => {
       skills: ["React", "TypeScript", "Node.js"]
     });
     expect(queries.length).toBeGreaterThanOrEqual(8);
-    expect(queries.some((query) => query.includes("Frontend Engineer"))).toBe(true);
-    expect(queries.some((query) => query.includes("React Developer"))).toBe(true);
-    expect(queries.some((query) => query.includes("Bengaluru"))).toBe(true);
-    expect(queries.some((query) => query.includes("India"))).toBe(true);
+    expect(queries.some((query) => query.includes("frontend engineer"))).toBe(true);
+    expect(queries.some((query) => query.includes("react developer"))).toBe(true);
+    expect(queries.some((query) => query.includes("bengaluru"))).toBe(true);
+    expect(queries.some((query) => query.includes("india"))).toBe(true);
     expect(queries.every((query) => !query.includes(" OR "))).toBe(true);
-    expect(queries.every((query) => !query.includes("\"Node.js\""))).toBe(true);
+    expect(queries.every((query) => !query.includes("node.js"))).toBe(true);
   });
 
   it("parses Name - Recruiter evidence and keeps discovered email unverified", async () => {
