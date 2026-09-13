@@ -1,15 +1,11 @@
 import { ProactiveRecruiterRoleMatcher, CandidateProfileLike } from "./ProactiveRecruiterRoleMatcher";
 import { RecruiterVerificationEvidence } from "./RecruiterDiscovery";
 import { resolveEmployerDomainFromPublicSearch } from "./RecruiterCompanyDomainResolver";
+import { extractSearchResultUrls } from "../jobs/sources/SearchResultUrlExtractor";
 
 export interface ProactiveRecruiterDiscoveryCandidate { recruiterName: string; recruiterRole: string; employer: string; employerDomain?: string; targetRoles: string[]; roleMatchScore: number; hiringEvidenceScore: number; overallConfidence: number; discoverySource: "public-web"; discoveryUrl: string; discoveryEvidence: string[]; evidenceType: "public_profile" | "job_hiring_evidence"; evidenceDate: string; evidenceFreshness: "current" | "recent" | "historical" | "unknown"; email?: string; emailStatus: "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID"; verificationEvidence?: RecruiterVerificationEvidence[]; }
 export interface ProactiveRecruiterDiscoveryOptions { fetchText?: (url: string) => Promise<string | null>; now?: () => Date; maxQueries?: number; resolveEmployerDomain?: (companyName: string) => Promise<string | null>; }
-const SEARCH_ENDPOINTS = [
-  "https://r.jina.ai/https://www.google.com/search?q=",
-  "https://r.jina.ai/https://www.bing.com/search?q=",
-  "https://r.jina.ai/https://html.duckduckgo.com/html/?q=",
-  "https://www.bing.com/search?q="
-];
+const SEARCH_ENDPOINTS = ["https://r.jina.ai/https://www.google.com/search?q=", "https://r.jina.ai/https://www.bing.com/search?q=", "https://r.jina.ai/https://html.duckduckgo.com/html/?q=", "https://www.bing.com/search?q="];
 const CURRENT_HIRING_EVIDENCE = /currently|currently hiring|hiring now|actively hiring|we are hiring|open roles|open positions|urgent hiring|hiring for/i;
 const RECENT_HIRING_EVIDENCE = /last week|last month|recently|recent hiring|2026|2025/i;
 const RECRUITER_CONTEXT = /recruiter|recruiting|talent acquisition|talent partner|technical recruiter|engineering recruiter|technical sourcer|engineering sourcer|hiring manager|people partner|recruitment|staffing|hiring/i;
@@ -18,84 +14,37 @@ const LINKEDIN_PROFILE = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const GENERIC_WORDS = new Set(["linkedin", "profile", "recruiter", "recruiting", "talent", "acquisition", "hiring", "manager", "technical", "engineering", "software", "technology", "people", "human", "resources", "careers", "career", "jobs", "job", "search", "results", "professional", "india", "bengaluru", "bangalore", "remote"]);
 const DEFAULT_FETCH = async (url: string): Promise<string | null> => { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 7000); try { const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,text/plain,*/*;q=0.8", "user-agent": "job-agent-proactive-recruiter/1.0" } }); return response.ok ? await response.text() : null; } catch { return null; } finally { clearTimeout(timer); } };
-const stripHtml = (value: string): string => value
-  .replace(/<a[^>]+href=["'](https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+)[^"']*["'][^>]*>[\s\S]*?<\/a>/gi, " $1 ")
-  .replace(/\[([^\]]+)\]\((https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+)[^)]*\)/gi, " $1 $2 ")
-  .replace(/<((?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[a-z0-9-_%]+)>/gi, "$1")
-  .replace(/<script[\s\S]*?<\/script>/gi, " ")
-  .replace(/<style[\s\S]*?<\/style>/gi, " ")
-  .replace(/<[^>]+>/g, " ")
-  .replace(/&nbsp;/gi, " ")
-  .replace(/&amp;/gi, "&")
-  .replace(/\s+/g, " ")
-  .trim();
+const stripHtml = (value: string): string => value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/\s+/g, " ").trim();
 async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<R[]> { const results: R[] = new Array(items.length); let next = 0; const workers = Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, async () => { while (true) { const index = next++; if (index >= items.length) return; results[index] = await worker(items[index] as T); } }); await Promise.all(workers); return results; }
 function searchUrls(query: string): string[] { const encoded = encodeURIComponent(query); return SEARCH_ENDPOINTS.map((endpoint) => `${endpoint}${encoded}${endpoint.includes("google.com") ? "&gbv=1" : ""}`); }
-async function searchPage(query: string): Promise<{ page: string | null; endpoint: string | null; attempts: number }> {
-  const urls = searchUrls(query);
-  let attempts = 0;
-  for (const url of urls) {
-    attempts += 1;
-    const page = await DEFAULT_FETCH(url);
-    if (!page) continue;
-    const normalized = stripHtml(page);
-    LINKEDIN_PROFILE.lastIndex = 0;
-    if (LINKEDIN_PROFILE.test(normalized)) return { page, endpoint: new URL(url).hostname, attempts };
+function decodeForMatch(value: string): string { let current = value; for (let pass = 0; pass < 3; pass += 1) { try { const next = decodeURIComponent(current); if (next === current) break; current = next; } catch { break; } } return current; }
+function linkedInDestination(href: string): string | null { const decoded = decodeForMatch(href); if (LINKEDIN_PROFILE.test(decoded)) { LINKEDIN_PROFILE.lastIndex = 0; return decoded.match(LINKEDIN_PROFILE)?.[0] ?? null; } LINKEDIN_PROFILE.lastIndex = 0; try { const url = new URL(href, "https://www.bing.com"); for (const key of ["url", "u", "r", "target", "dest", "destination", "uddg"]) { const value = url.searchParams.get(key); if (!value) continue; const candidate = decodeForMatch(value); LINKEDIN_PROFILE.lastIndex = 0; const match = candidate.match(LINKEDIN_PROFILE); if (match) return match[0]; } if (url.pathname === "/ck/a") { const value = url.searchParams.get("u"); if (value) { const base64 = decodeForMatch(value).replace(/-/g, "+").replace(/_/g, "/"); try { const candidate = Buffer.from(base64, "base64").toString("utf8"); LINKEDIN_PROFILE.lastIndex = 0; const match = candidate.match(LINKEDIN_PROFILE); if (match) return match[0]; } catch {} } } } catch {} return null; }
+function extractLinkedInResults(page: string): Array<{ url: string; evidence: string }> {
+  const results: Array<{ url: string; evidence: string }> = [];
+  for (const match of page.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const url = linkedInDestination(match[1] ?? "");
+    if (!url) continue;
+    const anchorText = stripHtml(match[2] ?? "");
+    results.push({ url, evidence: anchorText || url });
   }
-  return { page: null, endpoint: null, attempts };
+  const extracted = extractSearchResultUrls(page).urls.filter((url) => { LINKEDIN_PROFILE.lastIndex = 0; return LINKEDIN_PROFILE.test(url); });
+  const text = stripHtml(page);
+  for (const url of extracted) if (!results.some((result) => result.url.toLowerCase() === url.toLowerCase())) { const index = text.toLowerCase().indexOf(url.toLowerCase()); results.push({ url, evidence: index >= 0 ? text.slice(Math.max(0, index - 650), Math.min(text.length, index + 1100)) : `${url} ${text}` }); }
+  return results;
 }
+async function searchPage(query: string): Promise<{ page: string | null; endpoint: string | null; attempts: number }> { let attempts = 0; for (const url of searchUrls(query)) { attempts += 1; const page = await DEFAULT_FETCH(url); if (!page) continue; if (extractLinkedInResults(page).length) return { page, endpoint: new URL(url).hostname, attempts }; } return { page: null, endpoint: null, attempts }; }
 export class ProactiveRecruiterDiscoveryService {
   private readonly matcher = new ProactiveRecruiterRoleMatcher(); private readonly fetchText: (url: string) => Promise<string | null>; private readonly now: () => Date; private readonly maxQueries: number; private readonly resolveEmployerDomain: (companyName: string) => Promise<string | null>;
   constructor(options: ProactiveRecruiterDiscoveryOptions = {}) { this.fetchText = options.fetchText ?? DEFAULT_FETCH; this.now = options.now ?? (() => new Date()); this.maxQueries = Math.max(1, options.maxQueries ?? 24); this.resolveEmployerDomain = options.resolveEmployerDomain ?? (options.fetchText ? async () => null : resolveEmployerDomainFromPublicSearch); }
   buildQueries(profile: CandidateProfileLike): string[] { const configuredRoles = this.matcher.buildTargetTerms(profile).filter((term) => term.length >= 4).filter((term) => !["react", "typescript", "javascript", "node", "mongodb", "redux", "html", "css"].includes(term)).slice(0, 8); const roles = configuredRoles.length ? configuredRoles : ["React Developer", "React.js Developer", "Frontend Developer", "Frontend Engineer", "React / Next.js Developer", "Next.js Developer", "Full Stack React Developer", "Full Stack Engineer"]; const locationVariants = ["Bengaluru", "Bangalore", "India"]; const queries: string[] = []; for (const role of roles) for (const location of locationVariants) { queries.push(`site:linkedin.com/in "${role}" "recruiter" "${location}"`); if (queries.length >= this.maxQueries) return queries; } return queries; }
   async discover(profile: CandidateProfileLike): Promise<ProactiveRecruiterDiscoveryCandidate[]> {
-    const queries = this.buildQueries(profile);
-    let searchAttempts = 0, pagesWithLinkedIn = 0, profileUrlsSeen = 0, profilesAccepted = 0;
-    const pages = await mapWithConcurrency(queries, 6, async (query) => {
-      if (this.fetchText !== DEFAULT_FETCH) return { query, page: await this.fetchText(query), endpoint: "injected", attempts: 1 };
-      const result = await searchPage(query);
-      searchAttempts += result.attempts;
-      if (result.page) pagesWithLinkedIn += 1;
-      return { query, page: result.page, endpoint: result.endpoint, attempts: result.attempts };
-    });
+    const queries = this.buildQueries(profile); let searchAttempts = 0, pagesWithLinkedIn = 0, profileUrlsSeen = 0, profilesAccepted = 0;
+    const pages = await mapWithConcurrency(queries, 6, async (query) => { if (this.fetchText !== DEFAULT_FETCH) return { query, page: await this.fetchText(query), endpoint: "injected", attempts: 1 }; const result = await searchPage(query); searchAttempts += result.attempts; if (result.page) pagesWithLinkedIn += 1; return { query, page: result.page, endpoint: result.endpoint, attempts: result.attempts }; });
     const candidates = new Map<string, ProactiveRecruiterDiscoveryCandidate>();
-    for (const result of pages) {
-      const raw = result.page;
-      if (!raw) continue;
-      const text = stripHtml(raw);
-      LINKEDIN_PROFILE.lastIndex = 0;
-      const urlsInPage = [...text.matchAll(LINKEDIN_PROFILE)].map((match) => match[0]);
-      profileUrlsSeen += urlsInPage.length;
-      for (const match of text.matchAll(LINKEDIN_PROFILE)) {
-        const url = match[0];
-        const index = match.index ?? 0;
-        const evidence = text.slice(Math.max(0, index - 650), Math.min(text.length, index + 1100));
-        if (NON_RECRUITER_CONTEXT.test(evidence) && !RECRUITER_CONTEXT.test(evidence)) continue;
-        const roleMatch = this.matcher.match(profile, evidence, evidence);
-        if (!roleMatch.score || !roleMatch.recruiterTerms.length) continue;
-        const recruiterName = extractRecruiterName(evidence);
-        if (recruiterName === "Unknown recruiter") continue;
-        const employer = extractEmployer(evidence);
-        if (employer === "Unknown employer") continue;
-        profilesAccepted += 1;
-        const email = evidence.match(EMAIL_PATTERN)?.[0]?.toLowerCase();
-        const now = this.now();
-        const evidenceFreshness = classifyEvidenceFreshness(evidence, now);
-        const hiringEvidence = hasHiringEvidence(evidence);
-        const candidate: ProactiveRecruiterDiscoveryCandidate = { recruiterName, recruiterRole: roleMatch.recruiterTerms[0] ?? "Recruiting professional", employer, targetRoles: roleMatch.roleTerms, roleMatchScore: Math.min(100, roleMatch.score), hiringEvidenceScore: hiringEvidence ? Math.min(100, roleMatch.roleTerms.length * 20 + 40) : 0, overallConfidence: Math.min(100, roleMatch.score), discoverySource: "public-web", discoveryUrl: url, discoveryEvidence: [evidence], evidenceType: hiringEvidence ? "job_hiring_evidence" : "public_profile", evidenceDate: inferEvidenceDate(evidence, now).toISOString(), evidenceFreshness, email, emailStatus: "UNVERIFIED" };
-        const key = url.toLowerCase();
-        const existing = candidates.get(key);
-        candidates.set(key, existing ? { ...existing, roleMatchScore: Math.max(existing.roleMatchScore, candidate.roleMatchScore), hiringEvidenceScore: Math.max(existing.hiringEvidenceScore, candidate.hiringEvidenceScore), overallConfidence: Math.max(existing.overallConfidence, candidate.overallConfidence), discoveryEvidence: [...new Set([...existing.discoveryEvidence, evidence])].slice(0, 5), email: existing.email ?? candidate.email, employer: existing.employer === "Unknown employer" ? candidate.employer : existing.employer, evidenceType: existing.evidenceType === "job_hiring_evidence" || candidate.evidenceType === "job_hiring_evidence" ? "job_hiring_evidence" : "public_profile", evidenceFreshness: freshnessRank(candidate.evidenceFreshness) > freshnessRank(existing.evidenceFreshness) ? candidate.evidenceFreshness : existing.evidenceFreshness, evidenceDate: freshnessRank(candidate.evidenceFreshness) > freshnessRank(existing.evidenceFreshness) ? candidate.evidenceDate : existing.evidenceDate } : candidate);
-      }
-    }
-    const employers = [...new Set([...candidates.values()].map((candidate) => candidate.employer))];
-    const domains = new Map<string, string | null>();
-    await mapWithConcurrency(employers, 4, async (employer) => { const domain = await this.resolveEmployerDomain(employer); domains.set(employer, domain); return domain; });
-    const result = [...candidates.values()].map((candidate) => { const domain = domains.get(candidate.employer); return domain ? { ...candidate, employerDomain: domain } : candidate; });
-    if (process.env.PROACTIVE_RECRUITER_DIAGNOSTICS !== "false") {
-      console.info(JSON.stringify({ event: "proactive_recruiter_discovery_diagnostic", queryCount: queries.length, searchAttempts, pagesWithLinkedIn, profileUrlsSeen, profilesAccepted, discovered: result.length, queries }));
-    }
-    return result;
+    for (const result of pages) { const raw = result.page; if (!raw) continue; const linkedInResults = extractLinkedInResults(raw); profileUrlsSeen += linkedInResults.length; for (const found of linkedInResults) { const url = found.url; const evidence = found.evidence; if (NON_RECRUITER_CONTEXT.test(evidence) && !RECRUITER_CONTEXT.test(evidence)) continue; const roleMatch = this.matcher.match(profile, evidence, evidence); if (!roleMatch.score || !roleMatch.recruiterTerms.length) continue; const recruiterName = extractRecruiterName(evidence); if (recruiterName === "Unknown recruiter") continue; const employer = extractEmployer(evidence); if (employer === "Unknown employer") continue; profilesAccepted += 1; const email = evidence.match(EMAIL_PATTERN)?.[0]?.toLowerCase(); const now = this.now(); const evidenceFreshness = classifyEvidenceFreshness(evidence, now); const hiringEvidence = hasHiringEvidence(evidence); const candidate: ProactiveRecruiterDiscoveryCandidate = { recruiterName, recruiterRole: roleMatch.recruiterTerms[0] ?? "Recruiting professional", employer, targetRoles: roleMatch.roleTerms, roleMatchScore: Math.min(100, roleMatch.score), hiringEvidenceScore: hiringEvidence ? Math.min(100, roleMatch.roleTerms.length * 20 + 40) : 0, overallConfidence: Math.min(100, roleMatch.score), discoverySource: "public-web", discoveryUrl: url, discoveryEvidence: [evidence], evidenceType: hiringEvidence ? "job_hiring_evidence" : "public_profile", evidenceDate: inferEvidenceDate(evidence, now).toISOString(), evidenceFreshness, email, emailStatus: "UNVERIFIED" }; const key = url.toLowerCase(); const existing = candidates.get(key); candidates.set(key, existing ? { ...existing, roleMatchScore: Math.max(existing.roleMatchScore, candidate.roleMatchScore), hiringEvidenceScore: Math.max(existing.hiringEvidenceScore, candidate.hiringEvidenceScore), overallConfidence: Math.max(existing.overallConfidence, candidate.overallConfidence), discoveryEvidence: [...new Set([...existing.discoveryEvidence, evidence])].slice(0, 5), email: existing.email ?? candidate.email, employer: existing.employer === "Unknown employer" ? candidate.employer : existing.employer, evidenceType: existing.evidenceType === "job_hiring_evidence" || candidate.evidenceType === "job_hiring_evidence" ? "job_hiring_evidence" : "public_profile", evidenceFreshness: freshnessRank(candidate.evidenceFreshness) > freshnessRank(existing.evidenceFreshness) ? candidate.evidenceFreshness : existing.evidenceFreshness, evidenceDate: freshnessRank(candidate.evidenceFreshness) > freshnessRank(existing.evidenceFreshness) ? candidate.evidenceDate : existing.evidenceDate } : candidate); } }
+    const employers = [...new Set([...candidates.values()].map((candidate) => candidate.employer))]; const domains = new Map<string, string | null>(); await mapWithConcurrency(employers, 4, async (employer) => { const domain = await this.resolveEmployerDomain(employer); domains.set(employer, domain); return domain; }); const finalResult = [...candidates.values()].map((candidate) => { const domain = domains.get(candidate.employer); return domain ? { ...candidate, employerDomain: domain } : candidate; });
+    if (process.env.PROACTIVE_RECRUITER_DIAGNOSTICS !== "false") console.info(JSON.stringify({ event: "proactive_recruiter_discovery_diagnostic", queryCount: queries.length, searchAttempts, pagesWithLinkedIn, profileUrlsSeen, profilesAccepted, discovered: finalResult.length, queries }));
+    return finalResult;
   }
 }
 function hasHiringEvidence(evidence: string): boolean { return CURRENT_HIRING_EVIDENCE.test(evidence) || (RECENT_HIRING_EVIDENCE.test(evidence) && /hiring|recruiting|recruiter|role|position|opening/i.test(evidence)); }
