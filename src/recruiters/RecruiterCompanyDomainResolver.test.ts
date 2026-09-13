@@ -52,12 +52,8 @@ describe("RecruiterCompanyDomainResolver", () => {
 
   it("resolves a company domain from matching public company email evidence across independent search results", async () => {
     const originalFetch = global.fetch;
-    const responses = [
-      "Acme Corp official website contact hiring@acme.com",
-      "Acme Corp careers https://www.acme.com/jobs recruiter@acme.com",
-      "Acme Corp official company information https://acme.com"
-    ];
-    global.fetch = jest.fn(async () => ({ ok: true, text: async () => responses.shift() ?? "" })) as typeof fetch;
+    const responses = ["Acme Corp official website contact hiring@acme.com", "Acme Corp careers https://www.acme.com/jobs recruiter@acme.com", "Acme Corp official company information https://acme.com"];
+    global.fetch = jest.fn(async () => ({ ok: true, text: async () => responses.shift() ?? "" })) as unknown as typeof fetch;
     try {
       await expect(resolveEmployerDomainFromPublicSearch("Acme Corp")).resolves.toBe("acme.com");
       expect(global.fetch).toHaveBeenCalledTimes(3);
@@ -68,7 +64,7 @@ describe("RecruiterCompanyDomainResolver", () => {
 
   it("does not resolve a generic mailbox provider as the employer domain", async () => {
     const originalFetch = global.fetch;
-    global.fetch = jest.fn(async () => ({ ok: true, text: async () => "Acme Corp recruiter@gmail.com" })) as typeof fetch;
+    global.fetch = jest.fn(async () => ({ ok: true, text: async () => "Acme Corp recruiter@gmail.com" })) as unknown as typeof fetch;
     try {
       await expect(resolveEmployerDomainFromPublicSearch("Acme Corp")).resolves.toBeNull();
     } finally {
