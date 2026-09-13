@@ -3,32 +3,9 @@ import { RecruiterVerificationEvidence } from "./RecruiterDiscovery";
 import { resolveEmployerDomainFromPublicSearch } from "./RecruiterCompanyDomainResolver";
 
 export interface ProactiveRecruiterDiscoveryCandidate {
-  recruiterName: string;
-  recruiterRole: string;
-  employer: string;
-  employerDomain?: string;
-  targetRoles: string[];
-  roleMatchScore: number;
-  hiringEvidenceScore: number;
-  overallConfidence: number;
-  discoverySource: "public-web";
-  discoveryUrl: string;
-  discoveryEvidence: string[];
-  evidenceType: "public_profile" | "job_hiring_evidence";
-  evidenceDate: string;
-  evidenceFreshness: "current" | "recent" | "historical" | "unknown";
-  email?: string;
-  emailStatus: "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID";
-  verificationEvidence?: RecruiterVerificationEvidence[];
+  recruiterName: string; recruiterRole: string; employer: string; employerDomain?: string; targetRoles: string[]; roleMatchScore: number; hiringEvidenceScore: number; overallConfidence: number; discoverySource: "public-web"; discoveryUrl: string; discoveryEvidence: string[]; evidenceType: "public_profile" | "job_hiring_evidence"; evidenceDate: string; evidenceFreshness: "current" | "recent" | "historical" | "unknown"; email?: string; emailStatus: "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID"; verificationEvidence?: RecruiterVerificationEvidence[];
 }
-
-export interface ProactiveRecruiterDiscoveryOptions {
-  fetchText?: (url: string) => Promise<string | null>;
-  now?: () => Date;
-  maxQueries?: number;
-  resolveEmployerDomain?: (companyName: string) => Promise<string | null>;
-}
-
+export interface ProactiveRecruiterDiscoveryOptions { fetchText?: (url: string) => Promise<string | null>; now?: () => Date; maxQueries?: number; resolveEmployerDomain?: (companyName: string) => Promise<string | null>; }
 const SEARCH_ENDPOINTS = ["https://r.jina.ai/https://www.google.com/search?q=", "https://r.jina.ai/https://www.bing.com/search?q=", "https://r.jina.ai/https://html.duckduckgo.com/html/?q="];
 const CURRENT_HIRING_EVIDENCE = /currently|currently hiring|hiring now|actively hiring|we are hiring|open roles|open positions|urgent hiring|hiring for/i;
 const RECENT_HIRING_EVIDENCE = /last week|last month|recently|recent hiring|2026|2025/i;
@@ -37,196 +14,21 @@ const NON_RECRUITER_CONTEXT = /customer support|technical support|sales|billing|
 const LINKEDIN_PROFILE = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const GENERIC_WORDS = new Set(["linkedin", "profile", "recruiter", "recruiting", "talent", "acquisition", "hiring", "manager", "technical", "engineering", "software", "technology", "people", "human", "resources", "careers", "career", "jobs", "job", "search", "results", "professional", "india", "bengaluru", "bangalore", "remote"]);
-
-const DEFAULT_FETCH = async (url: string): Promise<string | null> => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 7000);
-  try {
-    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,text/plain,*/*;q=0.8", "user-agent": "job-agent-proactive-recruiter/1.0" } });
-    return response.ok ? await response.text() : null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-};
-
-const stripHtml = (value: string): string => value
-  .replace(/<((?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[a-z0-9-_%]+)>/gi, "$1")
-  .replace(/<script[\s\S]*?<\/script>/gi, " ")
-  .replace(/<style[\s\S]*?<\/style>/gi, " ")
-  .replace(/<[^>]+>/g, " ")
-  .replace(/&nbsp;/gi, " ")
-  .replace(/&amp;/gi, "&")
-  .replace(/\s+/g, " ")
-  .trim();
-
-async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, async () => {
-    while (true) {
-      const index = next++;
-      if (index >= items.length) return;
-      results[index] = await worker(items[index] as T);
-    }
-  });
-  await Promise.all(workers);
-  return results;
-}
-
-function searchUrls(query: string): string[] {
-  const encoded = encodeURIComponent(query);
-  return SEARCH_ENDPOINTS.map((endpoint) => `${endpoint}${encoded}`);
-}
+const DEFAULT_FETCH = async (url: string): Promise<string | null> => { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 7000); try { const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,text/plain,*/*;q=0.8", "user-agent": "job-agent-proactive-recruiter/1.0" } }); return response.ok ? await response.text() : null; } catch { return null; } finally { clearTimeout(timer); } };
+const stripHtml = (value: string): string => value.replace(/<((?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[a-z0-9-_%]+)>/gi, "$1").replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/\s+/g, " ").trim();
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<R[]> { const results: R[] = new Array(items.length); let next = 0; const workers = Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, async () => { while (true) { const index = next++; if (index >= items.length) return; results[index] = await worker(items[index] as T); } }); await Promise.all(workers); return results; }
+function searchUrls(query: string): string[] { const encoded = encodeURIComponent(query); return SEARCH_ENDPOINTS.map((endpoint) => `${endpoint}${encoded}`); }
 
 export class ProactiveRecruiterDiscoveryService {
-  private readonly matcher = new ProactiveRecruiterRoleMatcher();
-  private readonly fetchText: (url: string) => Promise<string | null>;
-  private readonly now: () => Date;
-  private readonly maxQueries: number;
-  private readonly resolveEmployerDomain: (companyName: string) => Promise<string | null>;
-
-  constructor(options: ProactiveRecruiterDiscoveryOptions = {}) {
-    this.fetchText = options.fetchText ?? DEFAULT_FETCH;
-    this.now = options.now ?? (() => new Date());
-    this.maxQueries = Math.max(1, options.maxQueries ?? 24);
-    this.resolveEmployerDomain = options.resolveEmployerDomain ?? resolveEmployerDomainFromPublicSearch;
-  }
-
-  buildQueries(profile: CandidateProfileLike): string[] {
-    const configuredRoles = this.matcher.buildTargetTerms(profile)
-      .filter((term) => term.length >= 4)
-      .filter((term) => !["react", "typescript", "javascript", "node", "mongodb", "redux", "html", "css"].includes(term))
-      .slice(0, 8);
-    const roles = configuredRoles.length ? configuredRoles : ["React Developer", "React.js Developer", "Frontend Developer", "Frontend Engineer", "React / Next.js Developer", "Next.js Developer", "Full Stack React Developer", "Full Stack Engineer"];
-    const locationVariants = ["Bengaluru", "India", "remote India"];
-    const queries: string[] = [];
-    for (const role of roles) {
-      for (const location of locationVariants) {
-        queries.push(`site:linkedin.com/in "${role}" "recruiter" "${location}"`);
-        if (queries.length >= this.maxQueries) return queries;
-      }
-    }
-    return queries;
-  }
-
-  async discover(profile: CandidateProfileLike): Promise<ProactiveRecruiterDiscoveryCandidate[]> {
-    const queries = this.buildQueries(profile);
-    const pages = await mapWithConcurrency(queries.flatMap((query) => searchUrls(query)), 6, (url) => this.fetchText(url));
-    const candidates = new Map<string, ProactiveRecruiterDiscoveryCandidate>();
-    for (const raw of pages) {
-      if (!raw) continue;
-      const text = stripHtml(raw);
-      for (const match of text.matchAll(LINKEDIN_PROFILE)) {
-        const url = match[0];
-        const index = match.index ?? 0;
-        const evidence = text.slice(Math.max(0, index - 650), Math.min(text.length, index + 1100));
-        if (NON_RECRUITER_CONTEXT.test(evidence) && !RECRUITER_CONTEXT.test(evidence)) continue;
-        const roleMatch = this.matcher.match(profile, evidence, evidence);
-        if (!roleMatch.score || !roleMatch.recruiterTerms.length) continue;
-        const recruiterName = extractRecruiterName(evidence);
-        if (recruiterName === "Unknown recruiter") continue;
-        const employer = extractEmployer(evidence);
-        if (employer === "Unknown employer") continue;
-        const email = evidence.match(EMAIL_PATTERN)?.[0]?.toLowerCase();
-        const now = this.now();
-        const evidenceFreshness = classifyEvidenceFreshness(evidence, now);
-        const hiringEvidence = hasHiringEvidence(evidence);
-        const candidate: ProactiveRecruiterDiscoveryCandidate = {
-          recruiterName,
-          recruiterRole: roleMatch.recruiterTerms[0] ?? "Recruiting professional",
-          employer,
-          targetRoles: roleMatch.roleTerms,
-          roleMatchScore: Math.min(100, roleMatch.score),
-          hiringEvidenceScore: hiringEvidence ? Math.min(100, roleMatch.roleTerms.length * 20 + 40) : 0,
-          overallConfidence: Math.min(100, roleMatch.score),
-          discoverySource: "public-web",
-          discoveryUrl: url,
-          discoveryEvidence: [evidence],
-          evidenceType: hiringEvidence ? "job_hiring_evidence" : "public_profile",
-          evidenceDate: inferEvidenceDate(evidence, now).toISOString(),
-          evidenceFreshness,
-          email,
-          emailStatus: "UNVERIFIED"
-        };
-        const key = url.toLowerCase();
-        const existing = candidates.get(key);
-        candidates.set(key, existing ? {
-          ...existing,
-          roleMatchScore: Math.max(existing.roleMatchScore, candidate.roleMatchScore),
-          hiringEvidenceScore: Math.max(existing.hiringEvidenceScore, candidate.hiringEvidenceScore),
-          overallConfidence: Math.max(existing.overallConfidence, candidate.overallConfidence),
-          discoveryEvidence: [...new Set([...existing.discoveryEvidence, evidence])].slice(0, 5),
-          email: existing.email ?? candidate.email,
-          employer: existing.employer === "Unknown employer" ? candidate.employer : existing.employer,
-          evidenceType: existing.evidenceType === "job_hiring_evidence" || candidate.evidenceType === "job_hiring_evidence" ? "job_hiring_evidence" : "public_profile",
-          evidenceFreshness: freshnessRank(candidate.evidenceFreshness) > freshnessRank(existing.evidenceFreshness) ? candidate.evidenceFreshness : existing.evidenceFreshness,
-          evidenceDate: freshnessRank(candidate.evidenceFreshness) > freshnessRank(existing.evidenceFreshness) ? candidate.evidenceDate : existing.evidenceDate
-        } : candidate);
-      }
-    }
-    const employers = [...new Set([...candidates.values()].map((candidate) => candidate.employer))];
-    const domains = new Map<string, string | null>();
-    await mapWithConcurrency(employers, 4, async (employer) => {
-      const domain = await this.resolveEmployerDomain(employer);
-      domains.set(employer, domain);
-      return domain;
-    });
-    return [...candidates.values()].map((candidate) => {
-      const domain = domains.get(candidate.employer);
-      return domain ? { ...candidate, employerDomain: domain } : candidate;
-    });
-  }
+  private readonly matcher = new ProactiveRecruiterRoleMatcher(); private readonly fetchText: (url: string) => Promise<string | null>; private readonly now: () => Date; private readonly maxQueries: number; private readonly resolveEmployerDomain: (companyName: string) => Promise<string | null>;
+  constructor(options: ProactiveRecruiterDiscoveryOptions = {}) { this.fetchText = options.fetchText ?? DEFAULT_FETCH; this.now = options.now ?? (() => new Date()); this.maxQueries = Math.max(1, options.maxQueries ?? 24); this.resolveEmployerDomain = options.resolveEmployerDomain ?? resolveEmployerDomainFromPublicSearch; }
+  buildQueries(profile: CandidateProfileLike): string[] { const configuredRoles = this.matcher.buildTargetTerms(profile).filter((term) => term.length >= 4).filter((term) => !["react", "typescript", "javascript", "node", "mongodb", "redux", "html", "css"].includes(term)).slice(0, 8); const roles = configuredRoles.length ? configuredRoles : ["React Developer", "React.js Developer", "Frontend Developer", "Frontend Engineer", "React / Next.js Developer", "Next.js Developer", "Full Stack React Developer", "Full Stack Engineer"]; const locationVariants = ["Bengaluru", "India", "remote India"]; const queries: string[] = []; for (const role of roles) for (const location of locationVariants) { queries.push(`site:linkedin.com/in "${role}" "recruiter" "${location}"`); if (queries.length >= this.maxQueries) return queries; } return queries; }
+  async discover(profile: CandidateProfileLike): Promise<ProactiveRecruiterDiscoveryCandidate[]> { const queries = this.buildQueries(profile); const pages = await mapWithConcurrency(queries.flatMap((query) => searchUrls(query)), 6, (url) => this.fetchText(url)); const candidates = new Map<string, ProactiveRecruiterDiscoveryCandidate>(); for (const raw of pages) { if (!raw) continue; const text = stripHtml(raw); for (const match of text.matchAll(LINKEDIN_PROFILE)) { const url = match[0]; const index = match.index ?? 0; const evidence = text.slice(Math.max(0, index - 650), Math.min(text.length, index + 1100)); if (NON_RECRUITER_CONTEXT.test(evidence) && !RECRUITER_CONTEXT.test(evidence)) continue; const roleMatch = this.matcher.match(profile, evidence, evidence); if (!roleMatch.score || !roleMatch.recruiterTerms.length) continue; const recruiterName = extractRecruiterName(evidence); if (recruiterName === "Unknown recruiter") continue; const employer = extractEmployer(evidence); if (employer === "Unknown employer") continue; const email = evidence.match(EMAIL_PATTERN)?.[0]?.toLowerCase(); const now = this.now(); const evidenceFreshness = classifyEvidenceFreshness(evidence, now); const hiringEvidence = hasHiringEvidence(evidence); const candidate: ProactiveRecruiterDiscoveryCandidate = { recruiterName, recruiterRole: roleMatch.recruiterTerms[0] ?? "Recruiting professional", employer, targetRoles: roleMatch.roleTerms, roleMatchScore: Math.min(100, roleMatch.score), hiringEvidenceScore: hiringEvidence ? Math.min(100, roleMatch.roleTerms.length * 20 + 40) : 0, overallConfidence: Math.min(100, roleMatch.score), discoverySource: "public-web", discoveryUrl: url, discoveryEvidence: [evidence], evidenceType: hiringEvidence ? "job_hiring_evidence" : "public_profile", evidenceDate: inferEvidenceDate(evidence, now).toISOString(), evidenceFreshness, email, emailStatus: "UNVERIFIED" }; const key = url.toLowerCase(); const existing = candidates.get(key); candidates.set(key, existing ? { ...existing, roleMatchScore: Math.max(existing.roleMatchScore, candidate.roleMatchScore), hiringEvidenceScore: Math.max(existing.hiringEvidenceScore, candidate.hiringEvidenceScore), overallConfidence: Math.max(existing.overallConfidence, candidate.overallConfidence), discoveryEvidence: [...new Set([...existing.discoveryEvidence, evidence])].slice(0, 5), email: existing.email ?? candidate.email, employer: existing.employer === "Unknown employer" ? candidate.employer : existing.employer, evidenceType: existing.evidenceType === "job_hiring_evidence" || candidate.evidenceType === "job_hiring_evidence" ? "job_hiring_evidence" : "public_profile", evidenceFreshness: freshnessRank(candidate.evidenceFreshness) > freshnessRank(existing.evidenceFreshness) ? candidate.evidenceFreshness : existing.evidenceFreshness, evidenceDate: freshnessRank(candidate.evidenceFreshness) > freshnessRank(existing.evidenceFreshness) ? candidate.evidenceDate : existing.evidenceDate } : candidate); } } const employers = [...new Set([...candidates.values()].map((candidate) => candidate.employer))]; const domains = new Map<string, string | null>(); await mapWithConcurrency(employers, 4, async (employer) => { const domain = await this.resolveEmployerDomain(employer); domains.set(employer, domain); return domain; }); return [...candidates.values()].map((candidate) => { const domain = domains.get(candidate.employer); return domain ? { ...candidate, employerDomain: domain } : candidate; }); }
 }
-
 function hasHiringEvidence(evidence: string): boolean { return CURRENT_HIRING_EVIDENCE.test(evidence) || (RECENT_HIRING_EVIDENCE.test(evidence) && /hiring|recruiting|recruiter|role|position|opening/i.test(evidence)); }
-
-function extractRecruiterName(evidence: string): string {
-  const namePatterns = [
-    /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*\|\s*LinkedIn\b/i,
-    /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|\||•|:)\s*(?:[^|•]{0,80})\s*\|\s*LinkedIn\b/i,
-    /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|\||•|:)\s*(?:technical|it|technology|software|engineering|talent|recruiting|recruiter|sourcer|hiring)\b/i,
-    /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:technical|it|technology|software|engineering|talent|recruiting|recruiter|sourcer|hiring)\b/i
-  ];
-  for (const pattern of namePatterns) {
-    const name = evidence.match(pattern)?.[1]?.trim();
-    if (plausibleName(name)) return name;
-  }
-  return "Unknown recruiter";
-}
-
-function plausibleName(value: string | undefined): value is string {
-  if (!value) return false;
-  const words = value.split(/\s+/).filter(Boolean);
-  if (words.length < 2 || words.length > 5) return false;
-  return words.every((word) => /^[A-Z][A-Za-z.'-]+$/.test(word)) && !words.some((word) => GENERIC_WORDS.has(word.toLowerCase()));
-}
-
-function extractEmployer(evidence: string): string {
-  const atMatch = evidence.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\s+(?:hiring|recruiting|for|at|on|\||-|•|,|$))/i)?.[1]?.trim();
-  if (atMatch && !RECRUITER_CONTEXT.test(atMatch)) return atMatch.replace(/[|•,.-]+$/, "").trim();
-  const linkedinStyle = evidence.match(/\b[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4}\s*(?:-|•|\|)\s*([^|•]{2,80})\s*\|\s*LinkedIn\b/i)?.[1]?.trim();
-  if (linkedinStyle && !RECRUITER_CONTEXT.test(linkedinStyle) && !NON_RECRUITER_CONTEXT.test(linkedinStyle)) return linkedinStyle.replace(/[|•,.-]+$/, "").trim();
-  return "Unknown employer";
-}
-
-function classifyEvidenceFreshness(evidence: string, now: Date): "current" | "recent" | "historical" | "unknown" {
-  const lower = evidence.toLowerCase();
-  if (CURRENT_HIRING_EVIDENCE.test(lower)) return "current";
-  if (RECENT_HIRING_EVIDENCE.test(lower)) return "recent";
-  const years = [...lower.matchAll(/\b(20\d{2})\b/g)].map((match) => Number(match[1])).filter(Number.isFinite);
-  if (years.some((year) => now.getFullYear() - year >= 2)) return "historical";
-  if (/historical|previously|formerly|past hiring|used to recruit/.test(lower)) return "historical";
-  return "unknown";
-}
-
-function inferEvidenceDate(evidence: string, now: Date): Date {
-  const years = [...evidence.matchAll(/\b(20\d{2})\b/g)].map((match) => Number(match[1])).filter(Number.isFinite);
-  const historicalYear = years.find((year) => year <= now.getFullYear());
-  return historicalYear ? new Date(Date.UTC(historicalYear, 0, 1)) : now;
-}
-
-function freshnessRank(value: ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"]): number {
-  return value === "current" ? 4 : value === "recent" ? 3 : value === "historical" ? 2 : 1;
-}
+function extractRecruiterName(evidence: string): string { const namePatterns = [ /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|•)\s*[^|•]{2,80}\s*\|\s*LinkedIn\b/i, /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*\|\s*LinkedIn\b/i, /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|\||•|:)\s*(?:technical|it|technology|software|engineering|talent|recruiting|recruiter|sourcer|hiring)\b/i, /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:technical|it|technology|software|engineering|talent|recruiting|recruiter|sourcer|hiring)\b/i ]; for (const pattern of namePatterns) { const name = evidence.match(pattern)?.[1]?.trim(); if (plausibleName(name)) return name; } return "Unknown recruiter"; }
+function plausibleName(value: string | undefined): value is string { if (!value) return false; const words = value.split(/\s+/).filter(Boolean); if (words.length < 2 || words.length > 5) return false; return words.every((word) => /^[A-Z][A-Za-z.'-]+$/.test(word)) && !words.some((word) => GENERIC_WORDS.has(word.toLowerCase())); }
+function extractEmployer(evidence: string): string { const atMatch = evidence.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\s+(?:technical|engineering|it|technology|software)?\s*(?:recruiter|recruiting|hiring)\b|\s+(?:for|on|at)\b|\s*[|•,-]|$)/i)?.[1]?.trim(); if (atMatch && !RECRUITER_CONTEXT.test(atMatch)) return atMatch.replace(/[|•,.-]+$/, "").trim(); const linkedinStyle = evidence.match(/\b[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4}\s*(?:-|•|\|)\s*([^|•]{2,80})\s*\|\s*LinkedIn\b/i)?.[1]?.trim(); if (linkedinStyle && !RECRUITER_CONTEXT.test(linkedinStyle) && !NON_RECRUITER_CONTEXT.test(linkedinStyle)) return linkedinStyle.replace(/[|•,.-]+$/, "").trim(); return "Unknown employer"; }
+function classifyEvidenceFreshness(evidence: string, now: Date): "current" | "recent" | "historical" | "unknown" { const lower = evidence.toLowerCase(); if (CURRENT_HIRING_EVIDENCE.test(lower)) return "current"; if (RECENT_HIRING_EVIDENCE.test(lower)) return "recent"; const years = [...lower.matchAll(/\b(20\d{2})\b/g)].map((match) => Number(match[1])).filter(Number.isFinite); if (years.some((year) => now.getFullYear() - year >= 2)) return "historical"; if (/historical|previously|formerly|past hiring|used to recruit/.test(lower)) return "historical"; return "unknown"; }
+function inferEvidenceDate(evidence: string, now: Date): Date { const years = [...evidence.matchAll(/\b(20\d{2})\b/g)].map((match) => Number(match[1])).filter(Number.isFinite); const historicalYear = years.find((year) => year <= now.getFullYear()); return historicalYear ? new Date(Date.UTC(historicalYear, 0, 1)) : now; }
+function freshnessRank(value: ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"]): number { return value === "current" ? 4 : value === "recent" ? 3 : value === "historical" ? 2 : 1; }
