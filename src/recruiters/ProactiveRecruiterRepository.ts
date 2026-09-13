@@ -41,18 +41,18 @@ export class ProactiveRecruiterRepository {
     const result = existing.rows[0]?.id
       ? await this.database.query<{ id: string }>(
           `UPDATE recruiter_contacts
-           SET company_name=$1, company_domain=$2, email=COALESCE($3,email), full_name=COALESCE($4,full_name), title=COALESCE($5,title),
+           SET company_name=$1, company_domain=$2, email=COALESCE($3::text,email), full_name=COALESCE($4::text,full_name), title=COALESCE($5::text,title),
                confidence=GREATEST(COALESCE(confidence,0),COALESCE($6,0)), verified=$7, verification_status=$8,
                provider='proactive-public-web', discovery_source=$9, email_status=$10, domain_status='VALID', mx_status=$11,
-               mailbox_evidence=$12, verification_evidence=$13, relevance_status=$14, linkedin_profile_url=COALESCE($15,linkedin_profile_url),
-               identity_key=COALESCE(identity_key,$16), email_discovery_status=CASE WHEN COALESCE($3,email) IS NULL THEN 'PENDING' ELSE 'FOUND' END,
+               mailbox_evidence=$12, verification_evidence=$13, relevance_status=$14, linkedin_profile_url=COALESCE($15::text,linkedin_profile_url),
+               identity_key=COALESCE(identity_key,$16::text), email_discovery_status=CASE WHEN COALESCE($3::text,email) IS NULL THEN 'PENDING' ELSE 'FOUND' END,
                last_seen_at=NOW(), updated_at=NOW()
            WHERE id=$17 RETURNING id`,
           [candidate.employer, domain, email, candidate.recruiterName, candidate.recruiterRole, Math.round(candidate.overallConfidence), verified, verificationStatus, candidate.discoverySource, persistedEmailStatus, mxStatus, mailboxEvidence, JSON.stringify(verificationEvidence), relevanceStatus, candidate.discoveryUrl, identityKey, existing.rows[0].id]
         )
       : await this.database.query<{ id: string }>(
           `INSERT INTO recruiter_contacts (company_name, company_domain, email, full_name, title, confidence, verified, verification_status, provider, discovery_source, email_status, domain_status, mx_status, mailbox_evidence, verification_evidence, relevance_status, linkedin_profile_url, identity_key, email_discovery_status, last_seen_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'proactive-public-web',$9,$10,'VALID',$11,$12,$13,$14,$15,$16,CASE WHEN $3 IS NULL THEN 'PENDING' ELSE 'FOUND' END,NOW(),NOW())
+           VALUES ($1,$2,$3::text,$4,$5,$6,$7,$8,'proactive-public-web',$9,$10,'VALID',$11,$12,$13,$14,$15,$16,CASE WHEN $3::text IS NULL THEN 'PENDING' ELSE 'FOUND' END,NOW(),NOW())
            RETURNING id`,
           [candidate.employer, domain, email, candidate.recruiterName, candidate.recruiterRole, Math.round(candidate.overallConfidence), verified, verificationStatus, candidate.discoverySource, persistedEmailStatus, mxStatus, mailboxEvidence, JSON.stringify(verificationEvidence), relevanceStatus, candidate.discoveryUrl, identityKey]
         );
