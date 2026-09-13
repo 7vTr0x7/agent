@@ -184,6 +184,7 @@ function hasHiringEvidence(evidence: string): boolean { return CURRENT_HIRING_EV
 
 function extractRecruiterName(evidence: string): string {
   const namePatterns = [
+    /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*\|\s*LinkedIn\b/i,
     /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|\||•|:)\s*(?:[^|•]{0,80})\s*\|\s*LinkedIn\b/i,
     /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|\||•|:)\s*(?:technical|it|technology|software|engineering|talent|recruiting|recruiter|sourcer|hiring)\b/i,
     /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:technical|it|technology|software|engineering|talent|recruiting|recruiter|sourcer|hiring)\b/i
