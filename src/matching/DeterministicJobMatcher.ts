@@ -1,174 +1,83 @@
 import { JobOpportunity } from "../jobs/domain/JobOpportunity";
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { JobDecision } from "../shared/types/job";
+import { PERMANENTLY_EXCLUDED_COMPANIES } from "../applications/ApplicationPolicy";
+
+export type MatchGeography = "BENGALURU" | "INDIA_OTHER" | "REMOTE_INDIA_ELIGIBLE" | "REMOTE_WORLDWIDE" | "REMOTE_RESTRICTED" | "FOREIGN_ONSITE" | "FOREIGN_HYBRID" | "UNKNOWN";
+export type MatchFreshness = "VERY_RECENT" | "RECENT" | "MODERATELY_OLD" | "STALE" | "HISTORICAL" | "UNKNOWN";
+export type MatchSeniority = "JUNIOR_ASSOCIATE" | "MID" | "SENIOR_COMPATIBLE" | "SENIOR_HIGH" | "LEAD" | "STAFF" | "PRINCIPAL" | "MANAGER" | "UNKNOWN";
+export type TechnicalOrientation = "REACT_WEB" | "FRONTEND" | "FULL_STACK" | "REACT_NATIVE" | "BACKEND_FOCUSED" | "UNRELATED" | "UNKNOWN";
 
 export interface MatchEvidence {
-  type: "SKILL_MATCH" | "SKILL_GAP" | "TITLE_MATCH" | "EXPERIENCE" | "HARD_BLOCKER" | "ROLE_FIT" | "LOCATION";
+  type: "SKILL_MATCH" | "SKILL_GAP" | "TITLE_MATCH" | "EXPERIENCE" | "HARD_BLOCKER" | "ROLE_FIT" | "LOCATION" | "SENIORITY" | "FRESHNESS" | "SALARY";
   detail: string;
 }
-
 export interface DeterministicMatchResult {
-  matchScore: number;
-  decision: JobDecision;
-  matchedSkills: string[];
-  missingSkills: string[];
-  evidence: MatchEvidence[];
-  reason: string;
+  matchScore: number; decision: JobDecision; matchedSkills: string[]; missingSkills: string[]; evidence: MatchEvidence[]; reason: string;
+  geography: MatchGeography; freshness: MatchFreshness; seniority: MatchSeniority; technicalOrientation: TechnicalOrientation;
 }
-
-export interface DeterministicMatcherOptions {
-  applyThreshold?: number;
-  reviewThreshold?: number;
-}
+export interface DeterministicMatcherOptions { applyThreshold?: number; reviewThreshold?: number; now?: Date; }
 
 const SKILL_ALIASES: Record<string, string[]> = {
-  "react.js": ["react", "reactjs", "react.js"],
-  react: ["react", "reactjs", "react.js"],
-  "next.js": ["next", "nextjs", "next.js", "next js"],
-  nextjs: ["next", "nextjs", "next.js", "next js"],
-  "node.js": ["node", "nodejs", "node.js", "node js"],
-  node: ["node", "nodejs", "node.js", "node js"],
-  "express.js": ["express", "expressjs", "express.js", "express js"],
-  express: ["express", "expressjs", "express.js", "express js"],
-  javascript: ["javascript", "js", "ecmascript"],
-  js: ["javascript", "js", "ecmascript"],
-  typescript: ["typescript", "ts"],
-  ts: ["typescript", "ts"],
-  "react testing library": ["react testing library", "rtl"],
-  rtl: ["react testing library", "rtl"],
-  "redux toolkit": ["redux toolkit", "@reduxjs/toolkit"],
-  "tailwind css": ["tailwind css", "tailwind"],
-  mongodb: ["mongodb", "mongo db", "mongo"],
-  postgresql: ["postgresql", "postgres", "postgre sql"],
-  postgres: ["postgresql", "postgres", "postgre sql"]
+  "react.js": ["react", "reactjs", "react.js"], react: ["react", "reactjs", "react.js"], "next.js": ["next", "nextjs", "next.js", "next js"], nextjs: ["next", "nextjs", "next.js", "next js"],
+  "node.js": ["node", "nodejs", "node.js", "node js"], node: ["node", "nodejs", "node.js", "node js"], "express.js": ["express", "expressjs", "express.js", "express js"], express: ["express", "expressjs", "express.js", "express js"],
+  javascript: ["javascript", "js", "ecmascript"], js: ["javascript", "js", "ecmascript"], typescript: ["typescript", "ts"], ts: ["typescript", "ts"], "react testing library": ["react testing library", "rtl"], rtl: ["react testing library", "rtl"],
+  "redux toolkit": ["redux toolkit", "@reduxjs/toolkit"], "tailwind css": ["tailwind css", "tailwind"], mongodb: ["mongodb", "mongo db", "mongo"], postgresql: ["postgresql", "postgres", "postgre sql"], postgres: ["postgresql", "postgres", "postgre sql"]
 };
-
-const FRONTEND_ROLE_SIGNAL = /\b(frontend|front-end|front end|ui developer|ui engineer|web developer|web engineer|react developer|react engineer|next\.js developer|nextjs developer|full[- ]stack|fullstack|software engineer)\b/i;
-const STRONG_FRONTEND_SIGNAL = /\b(react|reactjs|react\.js|next\.js|nextjs|redux|frontend|front-end|front end|ui developer|ui engineer)\b/i;
-const EXCLUDED_ROLE_TITLE = /\b(product marketing|marketing|sales|account executive|business development|finance|accounting|legal|procurement|recruiter|talent acquisition|customer support|technical support|qa engineer|quality assurance|devops|site reliability|\bsre\b|network engineer|data analyst|data scientist|machine learning engineer|ml engineer|ai engineer)\b/i;
-const BACKEND_ONLY_TITLE = /\b(backend|back-end|back end|java developer|python developer|\.net developer|golang developer|database administrator|dba)\b/i;
+const FRONTEND_TITLE = /\b(frontend|front-end|front end|ui developer|ui engineer|web developer|web engineer|react developer|react engineer|next\.js developer|nextjs developer)\b/i;
+const FULL_STACK_TITLE = /\b(full[- ]stack|fullstack|product engineer)\b/i;
+const SOFTWARE_ENGINEER_TITLE = /\bsoftware engineer\b/i;
+const EXCLUDED_ROLE_TITLE = /\b(product marketing|marketing|sales|account executive|business development|finance|accounting|legal|procurement|recruiter|talent acquisition|customer support|technical support|qa engineer|quality assurance|devops|site reliability|\bsre\b|network engineer|data analyst|data scientist|machine learning engineer|ml engineer|ai engineer|security engineer)\b/i;
+const BACKEND_TITLE = /\b(backend|back-end|back end|java developer|python developer|\.net developer|golang developer|database administrator|dba|platform engineer|infrastructure engineer)\b/i;
+const MOBILE_TITLE = /\b(react native|mobile developer|mobile engineer|android developer|ios developer|expo)\b/i;
+const PRINCIPAL_TITLE = /\bprincipal\b/i; const STAFF_TITLE = /\bstaff\b/i; const LEAD_TITLE = /\blead\b/i; const MANAGER_TITLE = /\b(manager|head of engineering|engineering manager)\b/i;
 
 export class DeterministicJobMatcher {
-  private readonly applyThreshold: number;
-  private readonly reviewThreshold: number;
-
-  constructor(options: DeterministicMatcherOptions = {}) {
-    this.applyThreshold = options.applyThreshold ?? 30;
-    this.reviewThreshold = options.reviewThreshold ?? 20;
-  }
-
+  private readonly applyThreshold: number; private readonly reviewThreshold: number; private readonly now: () => Date;
+  constructor(options: DeterministicMatcherOptions = {}) { this.applyThreshold = options.applyThreshold ?? 60; this.reviewThreshold = options.reviewThreshold ?? 42; const now = options.now; this.now = now ? () => new Date(now) : () => new Date(); }
   evaluate(job: JobOpportunity, profile: CandidateProfile): DeterministicMatchResult {
-    const normalizedText = normalize(`${job.title}\n${job.description}`);
-    const normalizedTitle = normalize(job.title);
-    const evidence: MatchEvidence[] = [];
-
-    const matchedSkills = profile.skills.filter((skill) => containsSkill(normalizedText, skill));
-    const missingSkills = profile.skills.filter((skill) => !containsSkill(normalizedText, skill));
-
-    for (const skill of matchedSkills) {
-      evidence.push({ type: "SKILL_MATCH", detail: `Candidate skill is relevant to the job and appears in the posting: ${skill}` });
-    }
-    for (const skill of missingSkills) {
-      evidence.push({ type: "SKILL_GAP", detail: `Candidate skill is not mentioned in the posting: ${skill}` });
-    }
-
-    const titleMatch = profile.targetTitles.some((title) => containsPhrase(normalizedTitle, normalize(title)));
-    if (titleMatch) evidence.push({ type: "TITLE_MATCH", detail: "Job title matches a candidate target title." });
-
-    const roleFit = assessRoleFit(normalizedTitle, normalizedText);
-    if (!roleFit.allowed) {
-      evidence.push({ type: "HARD_BLOCKER", detail: roleFit.reason });
-      return { matchScore: 0, decision: "REJECT", matchedSkills, missingSkills, evidence, reason: roleFit.reason };
-    }
-    evidence.push({ type: "ROLE_FIT", detail: roleFit.reason });
-
-    const requiredYears = extractRequiredYears(normalizedText);
-    if (requiredYears !== null) {
-      if (requiredYears > profile.yearsExperience) {
-        evidence.push({ type: "HARD_BLOCKER", detail: `Job explicitly requires approximately ${requiredYears}+ years; candidate has ${profile.yearsExperience}.` });
-        return { matchScore: 0, decision: "REJECT", matchedSkills, missingSkills, evidence, reason: "Deterministic hard blocker: explicit minimum experience exceeds candidate experience." };
-      }
-      evidence.push({ type: "EXPERIENCE", detail: `Candidate meets the explicit ${requiredYears}+ year requirement.` });
-    }
-
-    const skillScore = Math.min(70, matchedSkills.length * 14);
-    const titleBonus = titleMatch ? 20 : 0;
-    const roleBonus = roleFit.frontendSignal ? 10 : 0;
-    const experienceBonus = requiredYears !== null && requiredYears <= profile.yearsExperience ? 10 : 0;
-    const locationBonus = preferredLocation(job.location, job.country) ? 5 : 0;
-    if (locationBonus > 0) evidence.push({ type: "LOCATION", detail: "Job location is aligned with Bengaluru/India/remote preferences." });
-
-    const matchScore = Math.min(100, skillScore + titleBonus + roleBonus + experienceBonus + locationBonus);
-    let decision: JobDecision = matchScore >= this.applyThreshold ? "APPLY" : matchScore >= this.reviewThreshold ? "REVIEW" : "REJECT";
-
-    if (decision === "REJECT" && hasPreferredExperience(normalizedText) && (titleMatch || matchedSkills.length > 0)) decision = "REVIEW";
-
-    return {
-      matchScore,
-      decision,
-      matchedSkills,
-      missingSkills,
-      evidence,
-      reason: `${matchedSkills.length} candidate skills appear in the job posting; ${titleMatch ? "target title matched" : "target title not matched"}; ${roleFit.reason}.`
-    };
+    const normalizedText = normalize(`${job.title}\n${job.description}`); const normalizedTitle = normalize(job.title); const evidence: MatchEvidence[] = [];
+    const matchedSkills = profile.skills.filter((skill) => containsSkill(normalizedText, skill)); const missingSkills = profile.skills.filter((skill) => !containsSkill(normalizedText, skill));
+    for (const skill of matchedSkills) evidence.push({ type: "SKILL_MATCH", detail: `Candidate skill appears in the posting: ${skill}` });
+    for (const skill of missingSkills) evidence.push({ type: "SKILL_GAP", detail: `Candidate skill is not mentioned in the posting: ${skill}` });
+    const titleMatch = profile.targetTitles.some((title) => containsPhrase(normalizedTitle, normalize(title))); if (titleMatch) evidence.push({ type: "TITLE_MATCH", detail: "Job title matches a candidate target title." });
+    const role = assessRoleFit(normalizedTitle, normalizedText); const geography = classifyGeography(job); const freshness = classifyFreshness(job.postedAt, this.now()); const seniority = classifySeniority(normalizedTitle, normalizedText, profile.yearsExperience); const technicalOrientation = classifyTechnicalOrientation(normalizedTitle, normalizedText);
+    if (!role.allowed) return blocked(role.reason, matchedSkills, missingSkills, evidence, geography, freshness, seniority, technicalOrientation);
+    if (isExcludedCompany(job.companyName)) return blocked("Company is permanently excluded by application policy.", matchedSkills, missingSkills, evidence, geography, freshness, seniority, technicalOrientation);
+    if (geography === "FOREIGN_ONSITE" || geography === "FOREIGN_HYBRID") return blocked("Foreign onsite/hybrid role is outside the candidate's configured geography target.", matchedSkills, missingSkills, evidence, geography, freshness, seniority, technicalOrientation);
+    if (geography === "REMOTE_RESTRICTED") return blocked("Remote posting explicitly restricts eligibility outside India.", matchedSkills, missingSkills, evidence, geography, freshness, seniority, technicalOrientation);
+    if (freshness === "HISTORICAL") return blocked("Posting is historical and lacks evidence that it remains current.", matchedSkills, missingSkills, evidence, geography, freshness, seniority, technicalOrientation);
+    if (seniority === "MANAGER" || seniority === "PRINCIPAL") return blocked(`Role seniority (${seniority}) is materially above the candidate's approximately ${profile.yearsExperience} years of experience.`, matchedSkills, missingSkills, evidence, geography, freshness, seniority, technicalOrientation);
+    const requiredYears = extractRequiredYears(normalizedText); if (seniority === "SENIOR_HIGH" && requiredYears !== null && requiredYears >= 7) return blocked("Explicit experience requirement is materially above the candidate's experience.", matchedSkills, missingSkills, evidence, geography, freshness, seniority, technicalOrientation);
+    if (technicalOrientation === "REACT_NATIVE") return blocked("React Native/mobile is the primary technical orientation and is not equivalent to React web experience.", matchedSkills, missingSkills, evidence, geography, freshness, seniority, technicalOrientation);
+    if (technicalOrientation === "UNRELATED") return blocked("Posting is not meaningfully aligned with the candidate's frontend/full-stack React target.", matchedSkills, missingSkills, evidence, geography, freshness, seniority, technicalOrientation);
+    const range = extractExperienceRange(normalizedText);
+    if (requiredYears !== null || range !== null) { const requirement = range ? `${range.min}-${range.max}` : `${requiredYears}+`; const minimum = range?.min ?? requiredYears ?? 0; evidence.push({ type: "EXPERIENCE", detail: minimum <= profile.yearsExperience ? `Candidate meets the explicit ${requirement} year requirement.` : `Candidate does not meet the explicit ${requirement} year requirement.` }); }
+    if (seniority !== "UNKNOWN") evidence.push({ type: "SENIORITY", detail: `Detected seniority: ${seniority}.` }); evidence.push({ type: "LOCATION", detail: `Detected geography: ${geography}.` }); evidence.push({ type: "FRESHNESS", detail: `Detected freshness: ${freshness}.` });
+    const roleScore = role.score; const skillScore = Math.min(30, Math.round((matchedSkills.length / Math.max(1, Math.min(profile.skills.length, 8))) * 30)); const seniorityScore = seniorityScoreFor(seniority, requiredYears, profile.yearsExperience); const geographyScore = geographyScoreFor(geography); const freshnessScore = freshnessScoreFor(freshness); const salaryScore = salaryFitScore(normalizedText, profile);
+    if (salaryScore !== null) evidence.push({ type: "SALARY", detail: salaryScore >= 0 ? "Salary evidence is compatible or not materially adverse." : "Explicit salary evidence appears materially below the candidate's configured compensation." });
+    let score = roleScore + skillScore + seniorityScore + geographyScore + freshnessScore + (salaryScore ?? 0);
+    if (technicalOrientation === "BACKEND_FOCUSED") score -= 20; if (FULL_STACK_TITLE.test(normalizedTitle) && !hasMeaningfulFrontendEvidence(normalizedTitle, normalizedText)) score -= 15; if (geography === "REMOTE_WORLDWIDE") score -= 8; if (geography === "UNKNOWN") score -= 12; if (freshness === "STALE") score -= 25; if (freshness === "MODERATELY_OLD") score -= 10; if (seniority === "SENIOR_HIGH" || seniority === "LEAD" || seniority === "STAFF") score -= 18; if (seniority === "SENIOR_COMPATIBLE") score -= 4;
+    score = Math.max(0, Math.min(100, Math.round(score))); let decision: JobDecision = score >= this.applyThreshold ? "APPLY" : score >= this.reviewThreshold ? "REVIEW" : "REJECT";
+    if (geography === "REMOTE_WORLDWIDE" || geography === "UNKNOWN" || seniority === "SENIOR_HIGH" || seniority === "LEAD" || seniority === "STAFF" || technicalOrientation === "BACKEND_FOCUSED") { if (decision === "APPLY") decision = "REVIEW"; } if (freshness === "STALE") decision = "REVIEW";
+    return { matchScore: score, decision, matchedSkills, missingSkills, evidence, reason: `${matchedSkills.length} skills matched; role=${technicalOrientation}; geography=${geography}; seniority=${seniority}; freshness=${freshness}.`, geography, freshness, seniority, technicalOrientation };
   }
 }
-
-function assessRoleFit(title: string, text: string): { allowed: boolean; frontendSignal: boolean; reason: string } {
-  if (EXCLUDED_ROLE_TITLE.test(title)) {
-    return { allowed: false, frontendSignal: false, reason: "Role title is outside the candidate's frontend/full-stack target." };
-  }
-
-  const frontendSignal = FRONTEND_ROLE_SIGNAL.test(title) || STRONG_FRONTEND_SIGNAL.test(text);
-  if (BACKEND_ONLY_TITLE.test(title) && !/\breact|next\.js|nextjs|frontend|front-end|front end\b/i.test(text)) {
-    return { allowed: false, frontendSignal: false, reason: "Backend-only role has no meaningful React/Next.js/frontend signal." };
-  }
-
-  if (!frontendSignal) {
-    return { allowed: false, frontendSignal: false, reason: "Posting does not contain a meaningful frontend/React/full-stack signal." };
-  }
-
-  return { allowed: true, frontendSignal: true, reason: "Posting contains a meaningful frontend/React/full-stack signal." };
-}
-
-function normalize(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9+#.]+/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function compact(value: string): string {
-  return value.replace(/[^a-z0-9]+/g, "");
-}
-
-function containsPhrase(text: string, term: string): boolean {
-  if (!term) return false;
-  return (` ${text} `).includes(` ${term} `);
-}
-
-function containsSkill(text: string, skill: string): boolean {
-  const normalizedSkill = normalize(skill);
-  const aliases = SKILL_ALIASES[normalizedSkill] ?? [normalizedSkill];
-  const compactText = compact(text);
-  return aliases.some((alias) => {
-    const normalizedAlias = normalize(alias);
-    return containsPhrase(text, normalizedAlias) || compactText.includes(compact(normalizedAlias));
-  });
-}
-
-function preferredLocation(location: string | null, country: string | null): boolean {
-  const value = normalize(`${location ?? ""} ${country ?? ""}`);
-  return /\bbengaluru\b|\bbangalore\b|\bindia\b|\bremote\b/.test(value);
-}
-
-function hasPreferredExperience(text: string): boolean {
-  return /\d+(?:\.\d+)?\s*\+?\s*years?(?:\s+of)?\s+experience\s+(?:preferred|desired|nice\s+to\s+have)/.test(text);
-}
-
-function extractRequiredYears(text: string): number | null {
-  const matches = [
-    ...text.matchAll(/(?:minimum|at least|required|must have)\s+(\d+(?:\.\d+)?)\s*\+?\s*years?(?:\s+of)?\s+experience/g),
-    ...text.matchAll(/(\d+(?:\.\d+)?)\s*\+\s*years?\s+(?:of\s+)?experience\s+(?:required|mandatory|minimum)/g),
-    ...text.matchAll(/(?:experience|exp)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*\+\s*years?/g)
-  ];
-  const years = matches.map((match) => Number(match[1])).filter((value) => Number.isFinite(value));
-  return years.length > 0 ? Math.max(...years) : null;
-}
+function blocked(reason: string, matchedSkills: string[], missingSkills: string[], evidence: MatchEvidence[], geography: MatchGeography, freshness: MatchFreshness, seniority: MatchSeniority, technicalOrientation: TechnicalOrientation): DeterministicMatchResult { return { matchScore: 0, decision: "REJECT", matchedSkills, missingSkills, evidence: [...evidence, { type: "HARD_BLOCKER", detail: reason }], reason, geography, freshness, seniority, technicalOrientation }; }
+function assessRoleFit(title: string, text: string): { allowed: boolean; score: number; reason: string } { if (EXCLUDED_ROLE_TITLE.test(title)) return { allowed: false, score: 0, reason: "Role title is outside the candidate's frontend/full-stack target." }; if (MANAGER_TITLE.test(title)) return { allowed: false, score: 0, reason: "Engineering management role is outside the candidate's target." }; if (BACKEND_TITLE.test(title) && !hasMeaningfulFrontendEvidence(title, text)) return { allowed: false, score: 0, reason: "Backend-oriented title has no meaningful React/Next.js/frontend signal." }; const frontendSignal = hasMeaningfulFrontendEvidence(title, text); if (!frontendSignal && !FULL_STACK_TITLE.test(title) && !SOFTWARE_ENGINEER_TITLE.test(title)) return { allowed: false, score: 0, reason: "Posting does not contain a meaningful frontend/React/full-stack signal." }; if (!frontendSignal && SOFTWARE_ENGINEER_TITLE.test(title)) return { allowed: false, score: 0, reason: "Generic software-engineering role lacks substantial frontend evidence." }; return { allowed: true, score: FRONTEND_TITLE.test(title) ? 32 : FULL_STACK_TITLE.test(title) ? 27 : 20, reason: frontendSignal ? "Posting contains meaningful frontend/React/full-stack evidence." : "Generic software-engineering role has target technical evidence." }; }
+function hasMeaningfulFrontendEvidence(title: string, text: string): boolean { const titleWeb = /\b(react|reactjs|react\.js|next\.js|nextjs|frontend|front-end|front end|web|ui)\b/i.test(title); const textWeb = /\b(react|reactjs|react\.js|next\.js|nextjs|frontend|front-end|front end|web ui|user interface)\b/i.test(text); const native = /\breact native\b|\bexpo\b|\bandroid\b|\bios\b|\bmobile app\b/i.test(text); return titleWeb || (textWeb && !native) || (FULL_STACK_TITLE.test(title) && /\breact\b.*\b(frontend|web|ui|next\.js|nextjs)\b|\b(frontend|web|ui|next\.js|nextjs)\b.*\breact\b/i.test(text)); }
+function classifyTechnicalOrientation(title: string, text: string): TechnicalOrientation { const native = MOBILE_TITLE.test(title) || /\breact native\b.*\b(?:primary|mobile)\b/i.test(text); const web = /\breact(?:\.js|js)?\b|\bnext(?:\.js|js)?\b|\bfrontend\b|\bfront-end\b|\bweb ui\b|\bweb application\b/i.test(title); const backend = /\bbackend-focused\b|\bbackend-heavy\b|\bprimarily backend\b|\bbackend architecture\b|\bapi platform\b|\bmicroservices\b|\bdistributed systems\b|\bnode\.js backend\b|\bbackend engineer\b/i.test(text) || BACKEND_TITLE.test(title); if (native && !web) return "REACT_NATIVE"; if (backend && !hasMeaningfulFrontendEvidence(title, text)) return "BACKEND_FOCUSED"; if (web && FULL_STACK_TITLE.test(title)) return "FULL_STACK"; if (web) return "REACT_WEB"; if (FULL_STACK_TITLE.test(title) && /\breact\b/i.test(text)) return "FULL_STACK"; if (backend) return "BACKEND_FOCUSED"; if (hasMeaningfulFrontendEvidence(title, text)) return "FRONTEND"; return "UNRELATED"; }
+function classifyGeography(job: JobOpportunity): MatchGeography { const location = normalize(`${job.location ?? ""} ${job.country ?? ""}`); const text = normalize(job.description); const remote = job.workplaceType === "remote" || /\bremote\b|\bwork from home\b/i.test(location); const india = /\bindia\b|\bindian\b/i.test(location) || /\bremote (?:in|from|within) india\b|\bindia[- ]eligible\b|\bindia based\b/i.test(text); const bengaluru = /\bbengaluru\b|\bbangalore\b/i.test(location); const restrictedForeign = /\b(?:usa|us|united states|uk|united kingdom|canada|australia|germany|berlin|france|paris|poland|ukraine|philippines|brazil|europe|eastern europe)\b/i.test(location); if (bengaluru) return "BENGALURU"; if (remote && india) return "REMOTE_INDIA_ELIGIBLE"; if (remote && restrictedForeign) return "REMOTE_RESTRICTED"; if (remote && /\bworldwide\b|\bglobal\b|\banywhere\b/i.test(location)) return "REMOTE_WORLDWIDE"; if (remote) return "REMOTE_WORLDWIDE"; if (india) return "INDIA_OTHER"; if (job.workplaceType === "onsite" && restrictedForeign) return "FOREIGN_ONSITE"; if (job.workplaceType === "hybrid" && restrictedForeign) return "FOREIGN_HYBRID"; return "UNKNOWN"; }
+function classifyFreshness(postedAt: Date | null, now: Date): MatchFreshness { if (!postedAt) return "UNKNOWN"; const ageDays = Math.max(0, (now.getTime() - postedAt.getTime()) / 86_400_000); if (ageDays <= 7) return "VERY_RECENT"; if (ageDays <= 30) return "RECENT"; if (ageDays <= 90) return "MODERATELY_OLD"; if (ageDays <= 365) return "STALE"; return "HISTORICAL"; }
+function classifySeniority(title: string, text: string, years: number): MatchSeniority { if (MANAGER_TITLE.test(title)) return "MANAGER"; if (PRINCIPAL_TITLE.test(title)) return "PRINCIPAL"; if (STAFF_TITLE.test(title)) return "STAFF"; if (LEAD_TITLE.test(title)) return "LEAD"; const range = extractExperienceRange(text); const required = extractRequiredYears(text); const explicit = range?.max ?? required; if (explicit !== null && explicit !== undefined) { if (explicit >= 4) return "SENIOR_HIGH"; if (explicit >= 2) return "MID"; } if (/\b(junior|jr\.?|associate|entry[- ]level)\b/i.test(title)) return "JUNIOR_ASSOCIATE"; if (/\bsenior\b/i.test(title)) return years >= 2 && years <= 4 ? "SENIOR_COMPATIBLE" : "SENIOR_HIGH"; if (/\b(mid|middle|intermediate)\b/i.test(title)) return "MID"; return "UNKNOWN"; }
+function seniorityScoreFor(s: MatchSeniority, requiredYears: number | null, profileYears: number): number { if (s === "JUNIOR_ASSOCIATE" || s === "MID") return 15; if (s === "SENIOR_COMPATIBLE") return 12; if (s === "SENIOR_HIGH") return requiredYears !== null && requiredYears <= profileYears ? 8 : 3; if (s === "LEAD" || s === "STAFF") return 2; return s === "UNKNOWN" ? 8 : 0; }
+function geographyScoreFor(g: MatchGeography): number { if (g === "BENGALURU") return 15; if (g === "INDIA_OTHER") return 13; if (g === "REMOTE_INDIA_ELIGIBLE") return 12; if (g === "REMOTE_WORLDWIDE") return 6; return 0; }
+function freshnessScoreFor(f: MatchFreshness): number { if (f === "VERY_RECENT") return 10; if (f === "RECENT") return 8; if (f === "MODERATELY_OLD") return 4; return 0; }
+function salaryFitScore(text: string, profile: CandidateProfile): number | null { const target = profile.expectedCompensationLpa ?? profile.currentCompensationLpa; if (target === undefined) return null; const matches = [...text.matchAll(/(?:₹|rs\.?|inr)\s*(\d+(?:\.\d+)?)\s*(?:-|to)\s*(\d+(?:\.\d+)?)\s*lpa/g)]; if (!matches.length) return null; const max = Math.max(...matches.map((m) => Number(m[2]))); return Number.isFinite(max) ? (max >= target * 0.9 ? 3 : -8) : null; }
+function normalize(value: string): string { return value.toLowerCase().replace(/[^a-z0-9+#.]+/g, " ").replace(/\s+/g, " ").trim(); }
+function compact(value: string): string { return value.replace(/[^a-z0-9]+/g, ""); }
+function containsPhrase(text: string, term: string): boolean { return Boolean(term) && (` ${text} `).includes(` ${term} `); }
+function containsSkill(text: string, skill: string): boolean { const normalizedSkill = normalize(skill); const aliases = SKILL_ALIASES[normalizedSkill] ?? [normalizedSkill]; const compactText = compact(text); return aliases.some((alias) => { const a = normalize(alias); return containsPhrase(text, a) || compactText.includes(compact(a)); }); }
+function isExcludedCompany(companyName: string): boolean { return PERMANENTLY_EXCLUDED_COMPANIES.some((name) => name.toLowerCase() === companyName.trim().toLowerCase()); }
+function extractRequiredYears(text: string): number | null { const matches = [...text.matchAll(/(?:minimum|at least|required|must have)\s+(\d+(?:\.\d+)?)\s*\+?\s*years?(?:\s+of)?\s+experience/g), ...text.matchAll(/(\d+(?:\.\d+)?)\s*\+\s*years?\s+(?:of\s+)?experience\s+(?:required|mandatory|minimum)/g), ...text.matchAll(/(?:experience|exp)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*\+\s*years?/g)]; const years = matches.map((m) => Number(m[1])).filter(Number.isFinite); return years.length ? Math.max(...years) : null; }
+function extractExperienceRange(text: string): { min: number; max: number } | null { const matches = [...text.matchAll(/(\d+(?:\.\d+)?)\s*(?:-|to)\s*(\d+(?:\.\d+)?)\s*years?(?:\s+of)?\s+experience/g)]; const values = matches.map((m) => ({ min: Number(m[1]), max: Number(m[2]) })).filter((v) => Number.isFinite(v.min) && Number.isFinite(v.max)); return values.length ? values.reduce((a, b) => b.max > a.max ? b : a) : null; }
