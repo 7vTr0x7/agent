@@ -30,11 +30,12 @@ jobs:
           set -euo pipefail
           docker network create proactive-recruiter-validation
           docker run -d --name proactive-recruiter-postgres --network proactive-recruiter-validation -e POSTGRES_DB=job_agent -e POSTGRES_USER=job_agent -e POSTGRES_PASSWORD=ci postgres:17-alpine
+          ready=false
           for i in $(seq 1 60); do
-            if docker exec proactive-recruiter-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then break; fi
+            if docker exec proactive-recruiter-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1 && [ "$(docker exec proactive-recruiter-postgres psql -U job_agent -d job_agent -tAc 'SELECT 1' 2>/dev/null | tr -d '[:space:]')" = 1 ]; then ready=true; break; fi
             sleep 1
           done
-          test "$(docker exec proactive-recruiter-postgres psql -U job_agent -d job_agent -tAc 'SELECT 1' | tr -d '[:space:]')" = 1
+          test "$ready" = true
       - name: Migrate isolated database
         run: |
           set -euo pipefail
