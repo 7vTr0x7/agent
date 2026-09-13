@@ -25,7 +25,7 @@ export class ProactiveRecruiterRepository {
       relevanceStatus,
       suppressed: false
     }) && email.split("@")[1]?.toLowerCase() === domain;
-    const persistedEmailStatus = mailboxEvidence ? "VERIFIED" : candidate.emailStatus === "LIKELY" ? "LIKELY" : candidate.emailStatus === "INVALID" ? "INVALID" : email ? "UNVERIFIED" : "UNVERIFIED";
+    const persistedEmailStatus = mailboxEvidence ? "VERIFIED" : candidate.emailStatus === "LIKELY" ? "LIKELY" : candidate.emailStatus === "INVALID" ? "INVALID" : "UNVERIFIED";
     const mxStatus = persistedEmailStatus === "LIKELY" || persistedEmailStatus === "VERIFIED" ? "EXISTS" : persistedEmailStatus === "INVALID" ? "MISSING" : "UNKNOWN";
     const verificationStatus = mailboxEvidence ? "mailbox_verified" : persistedEmailStatus === "LIKELY" ? "domain_mx_verified" : persistedEmailStatus === "INVALID" ? "INVALID" : "public-web-unverified";
     const verified = mailboxEvidence;
@@ -59,20 +59,12 @@ export class ProactiveRecruiterRepository {
 
     const id = result.rows[0]?.id;
     if (!id) return null;
-    await this.persistEvidence(id, candidateProfileId, candidate);
+    await this.persistEvidence(id, candidate);
     return id;
   }
 
-  async enrichCandidateEmail(input: {
-    recruiterContactId: string;
-    email: string;
-    emailStatus: "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID";
-    verificationEvidence?: RecruiterVerificationEvidence[];
-  }): Promise<void> {
-    const contact = await this.database.query<{ company_domain: string; relevance_status: string }>(
-      `SELECT company_domain,relevance_status FROM recruiter_contacts WHERE id=$1`,
-      [input.recruiterContactId]
-    );
+  async enrichCandidateEmail(input: { recruiterContactId: string; email: string; emailStatus: "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID"; verificationEvidence?: RecruiterVerificationEvidence[]; }): Promise<void> {
+    const contact = await this.database.query<{ company_domain: string; relevance_status: string }>(`SELECT company_domain,relevance_status FROM recruiter_contacts WHERE id=$1`, [input.recruiterContactId]);
     const row = contact.rows[0];
     if (!row) return;
     const email = input.email.trim().toLowerCase();
@@ -99,17 +91,12 @@ export class ProactiveRecruiterRepository {
     );
   }
 
-  private async persistEvidence(id: string, candidateProfileId: string, candidate: ProactiveRecruiterDiscoveryCandidate): Promise<void> {
+  private async persistEvidence(id: string, candidate: ProactiveRecruiterDiscoveryCandidate): Promise<void> {
     await this.database.query(
-      `INSERT INTO recruiter_proactive_evidence (recruiter_contact_id,candidate_profile_id,target_roles,role_match_score,hiring_evidence_score,overall_confidence,evidence_type,evidence_freshness,evidence_date,discovery_source,discovery_url,discovery_evidence)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-       ON CONFLICT (recruiter_contact_id,candidate_profile_id,discovery_url) DO UPDATE SET
-         target_roles=EXCLUDED.target_roles,role_match_score=GREATEST(recruiter_proactive_evidence.role_match_score,EXCLUDED.role_match_score),
-         hiring_evidence_score=GREATEST(recruiter_proactive_evidence.hiring_evidence_score,EXCLUDED.hiring_evidence_score),
-         overall_confidence=GREATEST(recruiter_proactive_evidence.overall_confidence,EXCLUDED.overall_confidence),
-         evidence_freshness=EXCLUDED.evidence_freshness,evidence_date=EXCLUDED.evidence_date,
-         discovery_evidence=EXCLUDED.discovery_evidence,updated_at=NOW()`,
-      [id, candidateProfileId, JSON.stringify(candidate.targetRoles), Math.round(candidate.roleMatchScore), Math.round(candidate.hiringEvidenceScore), Math.round(candidate.overallConfidence), candidate.evidenceType, candidate.evidenceFreshness, new Date(candidate.evidenceDate), candidate.discoverySource, candidate.discoveryUrl, JSON.stringify(candidate.discoveryEvidence)]
+      `INSERT INTO recruiter_contact_sources (recruiter_contact_id,provider,source_url,source_type,confidence)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (recruiter_contact_id,provider,source_url) DO UPDATE SET confidence=GREATEST(COALESCE(recruiter_contact_sources.confidence,0),COALESCE(EXCLUDED.confidence,0)),observed_at=NOW()`,
+      [id, candidate.discoverySource, candidate.discoveryUrl, candidate.evidenceType, Math.round(candidate.overallConfidence)]
     );
   }
 
