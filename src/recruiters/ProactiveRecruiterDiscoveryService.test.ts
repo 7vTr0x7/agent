@@ -30,26 +30,30 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(normalized.every((query) => !query.includes("node.js"))).toBe(true);
   });
 
-  it("falls back to the deterministic LinkedIn site query when the primary provider response has no LinkedIn result", async () => {
-    const fetchMock = mockPublicFetch(["<html>no matching public profile</html>", recruiterHtml()]);
+  it("falls back to the deterministic LinkedIn site query when every primary endpoint lacks a LinkedIn result", async () => {
+    const responses: unknown[] = Array.from({ length: 14 }, () => "<html>no matching public profile</html>");
+    responses[7] = recruiterHtml();
+    const fetchMock = mockPublicFetch(responses);
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, resolveEmployerDomain: domainResolver });
     const results = await service.discover(profile);
     expect(results).toHaveLength(1);
     expect(results[0]?.recruiterName).toBe("Jane Doe");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock).toHaveBeenNthCalledWith(2, expect.stringContaining("site%3Alinkedin.com%2Fin"));
+    expect(fetchMock).toHaveBeenCalledTimes(8);
+    expect(fetchMock).toHaveBeenNthCalledWith(8, expect.stringContaining("site%3Alinkedin.com%2Fin"), expect.any(Object));
   });
 
-  it("retries through the deterministic alternate query after a transient provider failure", async () => {
-    const fetchMock = mockPublicFetch([new Error("temporary provider failure"), recruiterHtml("Aisha Khan", "Bright Labs")]);
+  it("uses the deterministic alternate query after a transient first-provider failure", async () => {
+    const responses: unknown[] = [new Error("temporary provider failure"), ...Array.from({ length: 6 }, () => "<html>empty provider response</html>"), recruiterHtml("Aisha Khan", "Bright Labs")];
+    const fetchMock = mockPublicFetch(responses);
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, resolveEmployerDomain: domainResolver });
     const results = await service.discover(profile);
     expect(results).toHaveLength(1);
     expect(results[0]?.recruiterName).toBe("Aisha Khan");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
+    expect(fetchMock).toHaveBeenNthCalledWith(8, expect.stringContaining("site%3Alinkedin.com%2Fin"), expect.any(Object));
   });
 
-  it("continues to the next search endpoint after an empty primary and fallback response", async () => {
+  it("continues to the next search endpoint after empty primary and alternate responses", async () => {
     const empty: unknown[] = Array.from({ length: 14 }, () => "<html>empty provider response</html>");
     empty[2] = recruiterHtml("Rahul Mehta", "NicheSolv");
     const fetchMock = mockPublicFetch(empty);
