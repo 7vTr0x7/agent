@@ -37,7 +37,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(results).toHaveLength(1);
     expect(results[0]?.recruiterName).toBe("Jane Doe");
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("site%3Alinkedin.com%2Fin");
+    expect(fetchMock).toHaveBeenNthCalledWith(2, expect.stringContaining("site%3Alinkedin.com%2Fin"));
   });
 
   it("retries through the deterministic alternate query after a transient provider failure", async () => {
