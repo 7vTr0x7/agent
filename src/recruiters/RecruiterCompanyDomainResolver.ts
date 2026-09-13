@@ -63,12 +63,6 @@ export function resolveEmployerDomainFromJobData(
   canonicalUrl: string | null | undefined,
   _jobDescription: string | null | undefined
 ): string | null {
-  // Only explicit employer-domain data and the canonical job URL are trusted
-  // as deterministic evidence. Domains mentioned in descriptions are not
-  // authoritative: job postings routinely contain ATS, vendor, partner,
-  // analytics, portfolio, and unrelated contact domains. When these primary
-  // signals are unavailable, callers must use public employer-search
-  // resolution rather than guessing from description links or emails.
   const explicitDomain = resolveEmployerDomainFromJobUrl(companyDomain);
   if (explicitDomain) return explicitDomain;
   return resolveEmployerDomainFromJobUrl(canonicalUrl);
@@ -117,6 +111,10 @@ function domainsFromSearchText(text: string, companyName: string): string[] {
       // Ignore malformed search-result URLs.
     }
   }
+  for (const rawEmail of text.match(EMAIL_PATTERN) ?? []) {
+    const emailDomain = normalizeEmployerHost(rawEmail.split("@")[1] ?? "");
+    if (emailDomain && domainMatchesCompany(emailDomain, companyName)) found.add(emailDomain);
+  }
   return [...found];
 }
 
@@ -124,7 +122,8 @@ function domainsFromSearchText(text: string, companyName: string): string[] {
  * Last-resort employer resolution for feeds that provide only a company name.
  * The resolver is intentionally conservative: a domain must be a plausible
  * company domain and appear in at least two independent public search-engine
- * result pages. It never falls back to a guessed domain or a job-board host.
+ * result pages. Public company-domain email addresses in those pages count as
+ * independent employer evidence; generic mailbox providers never do.
  */
 export async function resolveEmployerDomainFromPublicSearch(companyName: string): Promise<string | null> {
   const name = companyName.trim();
