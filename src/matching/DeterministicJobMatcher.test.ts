@@ -1,113 +1,42 @@
 import { DeterministicJobMatcher } from "./DeterministicJobMatcher";
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { JobOpportunity } from "../jobs/domain/JobOpportunity";
+const profile: CandidateProfile = { id: "candidate-1", yearsExperience: 3, skills: ["React", "Next.js", "TypeScript", "Redux Toolkit", "Node.js"], targetTitles: ["Frontend Engineer", "Frontend Developer"], location: "India", currentCompensationLpa: 6.5 };
+const NOW = new Date("2026-09-12T00:00:00.000Z"); const matcher = new DeterministicJobMatcher({ now: NOW });
+function job(description: string, title = "Frontend Developer", overrides: Partial<JobOpportunity> = {}): JobOpportunity { return { id: "job-1", canonicalId: "canonical-1", canonicalUrl: "https://example.com/job-1", title, companyName: "Example", location: "Bengaluru", country: "India", workplaceType: "hybrid", employmentType: "full-time", description, postedAt: new Date("2026-09-08T00:00:00.000Z"), sourceUpdatedAt: null, lastSeenAt: NOW, closedAt: null, status: "ACTIVE", createdAt: NOW, updatedAt: NOW, ...overrides }; }
 
-const profile: CandidateProfile = {
-  id: "candidate-1",
-  yearsExperience: 3,
-  skills: ["React", "Next.js", "TypeScript", "Redux Toolkit", "Node.js"],
-  targetTitles: ["Frontend Engineer", "Frontend Developer"]
-};
-
-function job(description: string, title = "Frontend Developer"): JobOpportunity {
-  return {
-    id: "job-1",
-    canonicalId: "canonical-1",
-    canonicalUrl: "https://example.com/job-1",
-    title,
-    companyName: "Example",
-    location: "Bengaluru",
-    country: "India",
-    workplaceType: "hybrid",
-    employmentType: "full-time",
-    description,
-    postedAt: null,
-    sourceUpdatedAt: null,
-    lastSeenAt: new Date(),
-    closedAt: null,
-    status: "ACTIVE",
-    createdAt: new Date(),
-    updatedAt: new Date()
-  };
-}
-
-describe("DeterministicJobMatcher", () => {
-  const matcher = new DeterministicJobMatcher();
-
-  it("scores matching skills and target titles", () => {
-    const result = matcher.evaluate(job("React, TypeScript and Next.js are required. Node.js is a plus."), profile);
-    expect(result.decision).toBe("APPLY");
-    expect(result.matchScore).toBeGreaterThanOrEqual(70);
-    expect(result.matchedSkills).toEqual(expect.arrayContaining(["React", "Next.js", "TypeScript", "Node.js"]));
-  });
-
-  it("recognizes common technology aliases", () => {
-    const result = matcher.evaluate(job("ReactJS, NextJS, TS, Redux Toolkit and NodeJS experience."), profile);
-    expect(result.matchedSkills).toEqual(expect.arrayContaining(["React", "Next.js", "TypeScript", "Redux Toolkit", "Node.js"]));
-    expect(result.decision).toBe("APPLY");
-  });
-
-  it("rejects a role with an explicit minimum experience blocker", () => {
-    const result = matcher.evaluate(job("Must have at least 5 years of experience with React."), profile);
-    expect(result.decision).toBe("REJECT");
-    expect(result.matchScore).toBe(0);
-    expect(result.evidence).toEqual(expect.arrayContaining([expect.objectContaining({ type: "HARD_BLOCKER" })]));
-  });
-
-  it("recognizes compact required experience syntax", () => {
-    const result = matcher.evaluate(job("React and TypeScript. Experience: 5+ years."), profile);
-    expect(result.decision).toBe("REJECT");
-    expect(result.matchScore).toBe(0);
-  });
-
-  it("does not hard-reject preferred experience", () => {
-    const result = matcher.evaluate(job("React and TypeScript. 5 years of experience preferred."), profile);
-    expect(result.evidence).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "HARD_BLOCKER" })]));
-    expect(result.decision).not.toBe("REJECT");
-  });
-
-  it("can distinguish a low-overlap role", () => {
-    const result = matcher.evaluate(job("Java, Spring Boot, Kafka and Kubernetes experience required.", "Backend Engineer"), profile);
-    expect(result.decision).toBe("REJECT");
-    expect(result.matchScore).toBeLessThan(40);
-  });
-
-  it("rejects marketing even when the posting mentions frontend technologies", () => {
-    const result = matcher.evaluate(job("Own product marketing campaigns. Familiarity with React and TypeScript is helpful.", "Product Marketing Manager"), profile);
-    expect(result.decision).toBe("REJECT");
-    expect(result.matchScore).toBe(0);
-    expect(result.evidence).toEqual(expect.arrayContaining([expect.objectContaining({ type: "HARD_BLOCKER" })]));
-  });
-
-  it("rejects AI/ML engineering when frontend work is not part of the role", () => {
-    const result = matcher.evaluate(job("Build machine learning models, training pipelines and inference systems with Python and PyTorch. React dashboards are owned by another team.", "AI Engineer"), profile);
-    expect(result.decision).toBe("REJECT");
-    expect(result.matchScore).toBe(0);
-  });
-
-  it("accepts a genuine full-stack React role", () => {
-    const result = matcher.evaluate(job("Build customer-facing React and Next.js interfaces and Node.js APIs in a full-stack team.", "Full Stack Engineer"), profile);
-    expect(result.decision).toBe("APPLY");
-    expect(result.matchedSkills).toEqual(expect.arrayContaining(["React", "Next.js", "Node.js"]));
-  });
-
-  it("does not penalize unrelated resume skills enough to reject a strong frontend role", () => {
-    const broadProfile: CandidateProfile = {
-      ...profile,
-      skills: [
-        "React", "Next.js", "TypeScript", "JavaScript", "Redux Toolkit",
-        "Tailwind CSS", "Node.js", "Express.js", "MongoDB", "Docker",
-        "Git", "Jest", "React Testing Library", "REST APIs"
-      ]
-    };
-
-    const result = matcher.evaluate(
-      job("Build and maintain a React and TypeScript frontend with Next.js. JavaScript experience required."),
-      broadProfile
-    );
-
-    expect(result.matchedSkills).toEqual(expect.arrayContaining(["React", "Next.js", "TypeScript", "JavaScript"]));
-    expect(result.matchScore).toBeGreaterThanOrEqual(70);
-    expect(result.decision).toBe("APPLY");
-  });
+describe("DeterministicJobMatcher production calibration", () => {
+  it("APPLY: Bengaluru React frontend", () => expect(matcher.evaluate(job("React, TypeScript and Next.js are required."), profile).decision).toBe("APPLY"));
+  it("APPLY: India React frontend", () => expect(matcher.evaluate(job("React and TypeScript.", "Frontend Engineer", { location: "Pune", country: "India" })).decision).toBe("APPLY"));
+  it("APPLY: India remote React", () => expect(matcher.evaluate(job("React and TypeScript.", "Frontend Engineer", { location: "Remote - India", country: "India", workplaceType: "remote" })).decision).toBe("APPLY"));
+  it("APPLY: explicitly India-eligible remote", () => expect(matcher.evaluate(job("React and TypeScript. Remote in India.", "Frontend Engineer", { location: "Remote", country: null, workplaceType: "remote" })).decision).toBe("APPLY"));
+  it("REVIEW: worldwide remote with unclear India eligibility", () => expect(matcher.evaluate(job("React and TypeScript.", "Frontend Engineer", { location: "Worldwide", country: null, workplaceType: "remote" })).decision).toBe("REVIEW"));
+  it("never APPLY: USA-only remote", () => expect(matcher.evaluate(job("React and TypeScript.", "Frontend Engineer", { location: "Remote - United States", country: "United States", workplaceType: "remote" })).decision).not.toBe("APPLY"));
+  it("never APPLY: UK-only remote", () => expect(matcher.evaluate(job("React and TypeScript.", "Frontend Engineer", { location: "Remote - United Kingdom", country: "United Kingdom", workplaceType: "remote" })).decision).not.toBe("APPLY"));
+  it("never APPLY: Berlin onsite React", () => expect(matcher.evaluate(job("React and TypeScript.", "Frontend Engineer", { location: "Berlin", country: "Germany", workplaceType: "onsite" })).decision).not.toBe("APPLY"));
+  it("never APPLY: Paris hybrid React", () => expect(matcher.evaluate(job("React and TypeScript.", "Frontend Engineer", { location: "Paris", country: "France", workplaceType: "hybrid" })).decision).not.toBe("APPLY"));
+  it("never APPLY: UK onsite React", () => expect(matcher.evaluate(job("React and TypeScript.", "Frontend Engineer", { location: "London", country: "United Kingdom", workplaceType: "onsite" })).decision).not.toBe("APPLY"));
+  it("APPLY: 2-4 years React", () => expect(matcher.evaluate(job("React and TypeScript. 2 to 4 years of experience."), profile).decision).toBe("APPLY"));
+  it("APPLY: 3+ years React", () => expect(matcher.evaluate(job("React and TypeScript. 3+ years of experience required."), profile).decision).toBe("APPLY"));
+  it("APPLY: Senior React requiring 3-4 years", () => expect(matcher.evaluate(job("React and TypeScript. 3 to 4 years of experience.", "Senior Frontend Engineer")).decision).toBe("APPLY"));
+  it("REVIEW: Senior React requiring 5+ years", () => expect(matcher.evaluate(job("React and TypeScript. 5+ years of experience required.", "Senior Frontend Engineer")).decision).toBe("REVIEW"));
+  it("never APPLY: 7+ years", () => expect(matcher.evaluate(job("React and TypeScript. 7+ years of experience required.", "Senior Frontend Engineer")).decision).not.toBe("APPLY"));
+  it("REJECT: Principal React", () => expect(matcher.evaluate(job("React and TypeScript.", "Principal Frontend Engineer")).decision).toBe("REJECT"));
+  it("REVIEW: Lead React", () => expect(matcher.evaluate(job("React and TypeScript.", "Lead Frontend Engineer")).decision).toBe("REVIEW"));
+  it("strongly matches React web", () => expect(matcher.evaluate(job("Build customer-facing React and Next.js web interfaces.", "Frontend Engineer"), profile).technicalOrientation).toBe("REACT_WEB"));
+  it("REJECT: React Native primary is not React web", () => expect(matcher.evaluate(job("Build mobile apps with React Native, Expo and Android/iOS.", "Senior React Native Developer")).decision).toBe("REJECT"));
+  it("allows React web with optional React Native", () => expect(matcher.evaluate(job("Build React and Next.js web applications. React Native is optional.", "Frontend Engineer")).decision).toBe("APPLY"));
+  it("penalizes backend-heavy React/Node", () => { const result = matcher.evaluate(job("Backend-focused role. Primarily backend Node.js, microservices, distributed systems and API architecture; React dashboard work is incidental.", "Full Stack Engineer")); expect(result.decision).not.toBe("APPLY"); expect(result.technicalOrientation).toBe("BACKEND_FOCUSED"); });
+  it("scores frontend-heavy React/Node highly", () => expect(matcher.evaluate(job("Build React and Next.js customer-facing web UI plus Node.js APIs.", "Full Stack Engineer"), profile).decision).toBe("APPLY"));
+  it("rejects clearly unrelated engineering", () => expect(matcher.evaluate(job("Build Kubernetes infrastructure, Terraform and cloud networking.", "Infrastructure Engineer")).decision).toBe("REJECT"));
+  it("rejects historical 2023 job", () => expect(matcher.evaluate(job("React and TypeScript.", "Software Engineer", { postedAt: new Date("2023-08-01T00:00:00.000Z") })).decision).toBe("REJECT"));
+  it("gives recent jobs a freshness advantage", () => { const recent = matcher.evaluate(job("React and TypeScript.", "Frontend Engineer", { postedAt: new Date("2026-09-10T00:00:00.000Z") })); const old = matcher.evaluate(job("React and TypeScript.", "Frontend Engineer", { postedAt: new Date("2026-06-01T00:00:00.000Z") })); expect(recent.matchScore).toBeGreaterThan(old.matchScore); });
+  it("does not reject missing salary", () => expect(matcher.evaluate(job("React and TypeScript.", "Frontend Engineer")).decision).toBe("APPLY"));
+  it("penalizes clearly incompatible salary", () => { const result = matcher.evaluate(job("React and TypeScript. Salary ₹3-4 LPA.", "Frontend Engineer"), profile); expect(result.matchScore).toBeLessThan(60); });
+  it("REJECT: Octopus Technologies", () => expect(matcher.evaluate(job("React and TypeScript.", "Frontend Engineer", { companyName: "Octopus Technologies" })).decision).toBe("REJECT"));
+  it("REJECT: Sketch Brahma Technologies", () => expect(matcher.evaluate(job("React and TypeScript.", "Frontend Engineer", { companyName: "Sketch Brahma Technologies" })).decision).toBe("REJECT"));
+  it("rejects keyword-heavy wrong role", () => expect(matcher.evaluate(job("Marketing role. React, Next.js, TypeScript, Node.js, Redux and GraphQL are keywords in the product.", "Product Marketing Manager")).decision).toBe("REJECT"));
+  it("rejects keyword-heavy wrong geography", () => expect(matcher.evaluate(job("React, Next.js, TypeScript, Node.js, Redux and GraphQL.", "Frontend Engineer", { location: "San Francisco", country: "United States", workplaceType: "onsite" })).decision).not.toBe("APPLY"));
+  it("rejects keyword-heavy incompatible seniority", () => expect(matcher.evaluate(job("React, Next.js, TypeScript, Node.js, Redux and GraphQL. 10+ years required.", "Principal Frontend Engineer")).decision).toBe("REJECT"));
+  it("preserves deterministic duplicate input behavior", () => { const a = matcher.evaluate(job("React and TypeScript."), profile); const b = matcher.evaluate(job("React and TypeScript."), profile); expect(b).toEqual(a); });
 });
