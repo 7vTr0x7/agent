@@ -8,9 +8,7 @@ const SEARCH_ENDPOINTS = [
   "https://r.jina.ai/https://www.google.com/search?q=",
   "https://r.jina.ai/https://www.bing.com/search?q=",
   "https://r.jina.ai/https://html.duckduckgo.com/html/?q=",
-  "https://www.google.com/search?q=",
-  "https://www.bing.com/search?q=",
-  "https://html.duckduckgo.com/html/?q="
+  "https://www.bing.com/search?q="
 ];
 const CURRENT_HIRING_EVIDENCE = /currently|currently hiring|hiring now|actively hiring|we are hiring|open roles|open positions|urgent hiring|hiring for/i;
 const RECENT_HIRING_EVIDENCE = /last week|last month|recently|recent hiring|2026|2025/i;
@@ -94,16 +92,16 @@ export class ProactiveRecruiterDiscoveryService {
     const domains = new Map<string, string | null>();
     await mapWithConcurrency(employers, 4, async (employer) => { const domain = await this.resolveEmployerDomain(employer); domains.set(employer, domain); return domain; });
     const result = [...candidates.values()].map((candidate) => { const domain = domains.get(candidate.employer); return domain ? { ...candidate, employerDomain: domain } : candidate; });
-    if (process.env.PROACTIVE_RECRUITER_DIAGNOSTICS === "true") {
+    if (process.env.PROACTIVE_RECRUITER_DIAGNOSTICS !== "false") {
       console.info(JSON.stringify({ event: "proactive_recruiter_discovery_diagnostic", queryCount: queries.length, searchAttempts, pagesWithLinkedIn, profileUrlsSeen, profilesAccepted, discovered: result.length, queries }));
     }
     return result;
   }
 }
 function hasHiringEvidence(evidence: string): boolean { return CURRENT_HIRING_EVIDENCE.test(evidence) || (RECENT_HIRING_EVIDENCE.test(evidence) && /hiring|recruiting|recruiter|role|position|opening/i.test(evidence)); }
-function extractRecruiterName(evidence: string): string { const namePatterns = [/\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|•)\s*[^|•]{2,80}\s*\|\s*LinkedIn\b/i,/\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*\|\s*LinkedIn\b/i,/\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|\||•|:)\s*(?:technical|it|technology|software|engineering|talent|recruiting|recruiter|sourcer|hiring)\b/i,/\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:technical|it|technology|software|engineering|talent|recruiting|recruiter|sourcer|hiring)\b/i]; for (const pattern of namePatterns) { const name = evidence.match(pattern)?.[1]?.trim(); if (plausibleName(name)) return name; } return "Unknown recruiter"; }
-function plausibleName(value: string | undefined): value is string { if (!value) return false; const words = value.split(/\s+/).filter(Boolean); if (words.length < 2 || words.length > 5) return false; return words.every((word) => /^[A-Z][A-Za-z.'-]+$/.test(word)) && !words.some((word) => GENERIC_WORDS.has(word.toLowerCase())); }
-function extractEmployer(evidence: string): string { const atMatch = evidence.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\s+(?:technical|engineering|it|technology|software)?\s*(?:recruiter|recruiting|hiring)\b|\s+(?:for|on|at)\b|\s*[|•,-]|$)/i)?.[1]?.trim(); if (atMatch && !RECRUITER_CONTEXT.test(atMatch)) return atMatch.replace(/[|•,.-]+$/, "").trim(); const linkedinStyle = evidence.match(/\b[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4}\s*(?:-|•|\|)\s*([^|•]{2,80})\s*\|\s*LinkedIn\b/i)?.[1]?.trim(); if (linkedinStyle && !RECRUITER_CONTEXT.test(linkedinStyle) && !NON_RECRUITER_CONTEXT.test(linkedinStyle)) return linkedinStyle.replace(/[|•,.-]+$/, "").trim(); return "Unknown employer"; }
+function extractRecruiterName(evidence: string): string { const namePatterns = [/\b([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){1,4})\s*(?:-|•)\s*[^|•]{2,80}\s*\|\s*LinkedIn\b/i,/\b([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){1,4})\s*\|\s*LinkedIn\b/i,/\b([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){1,4})\s*(?:-|\||•|:)\s*(?:technical|it|technology|software|engineering|talent|recruiting|recruiter|sourcer|hiring)\b/i,/\b([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){1,4})\s+(?:technical|it|technology|software|engineering|talent|recruiting|recruiter|sourcer|hiring)\b/i]; for (const pattern of namePatterns) { const name = evidence.match(pattern)?.[1]?.trim(); if (plausibleName(name)) return name; } return "Unknown recruiter"; }
+function plausibleName(value: string | undefined): value is string { if (!value) return false; const words = value.split(/\s+/).filter(Boolean); if (words.length < 2 || words.length > 5) return false; return words.every((word) => /^[A-Za-z][A-Za-z.'-]+$/.test(word)) && !words.some((word) => GENERIC_WORDS.has(word.toLowerCase())); }
+function extractEmployer(evidence: string): string { const atMatch = evidence.match(/\bat\s+([A-Za-z0-9][A-Za-z0-9&.' -]{2,80}?)(?=\s+(?:technical|engineering|it|technology|software)?\s*(?:recruiter|recruiting|hiring)\b|\s+(?:for|on|at)\b|\s*[|•,-]|$)/i)?.[1]?.trim(); if (atMatch && !RECRUITER_CONTEXT.test(atMatch)) return atMatch.replace(/[|•,.-]+$/, "").trim(); const linkedinStyle = evidence.match(/\b[A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){1,4}\s*(?:-|•|\|)\s*([^|•]{2,80})\s*\|\s*LinkedIn\b/i)?.[1]?.trim(); if (linkedinStyle && !RECRUITER_CONTEXT.test(linkedinStyle) && !NON_RECRUITER_CONTEXT.test(linkedinStyle)) return linkedinStyle.replace(/[|•,.-]+$/, "").trim(); return "Unknown employer"; }
 function classifyEvidenceFreshness(evidence: string, now: Date): "current" | "recent" | "historical" | "unknown" { const lower = evidence.toLowerCase(); if (CURRENT_HIRING_EVIDENCE.test(lower)) return "current"; if (RECENT_HIRING_EVIDENCE.test(lower)) return "recent"; const years = [...lower.matchAll(/\b(20\d{2})\b/g)].map((match) => Number(match[1])).filter(Number.isFinite); if (years.some((year) => now.getFullYear() - year >= 2)) return "historical"; if (/historical|previously|formerly|past hiring|used to recruit/.test(lower)) return "historical"; return "unknown"; }
 function inferEvidenceDate(evidence: string, now: Date): Date { const years = [...evidence.matchAll(/\b(20\d{2})\b/g)].map((match) => Number(match[1])).filter(Number.isFinite); const historicalYear = years.find((year) => year <= now.getFullYear()); return historicalYear ? new Date(Date.UTC(historicalYear, 0, 1)) : now; }
 function freshnessRank(value: ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"]): number { return value === "current" ? 4 : value === "recent" ? 3 : value === "historical" ? 2 : 1; }
