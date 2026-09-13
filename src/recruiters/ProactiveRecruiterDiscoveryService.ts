@@ -29,11 +29,7 @@ export interface ProactiveRecruiterDiscoveryOptions {
   resolveEmployerDomain?: (companyName: string) => Promise<string | null>;
 }
 
-const SEARCH_ENDPOINTS = [
-  "https://r.jina.ai/https://www.google.com/search?q=",
-  "https://r.jina.ai/https://www.bing.com/search?q=",
-  "https://r.jina.ai/https://html.duckduckgo.com/html/?q="
-];
+const SEARCH_ENDPOINTS = ["https://r.jina.ai/https://www.google.com/search?q=", "https://r.jina.ai/https://www.bing.com/search?q=", "https://r.jina.ai/https://html.duckduckgo.com/html/?q="];
 const CURRENT_HIRING_EVIDENCE = /currently|currently hiring|hiring now|actively hiring|we are hiring|open roles|open positions|urgent hiring|hiring for/i;
 const RECENT_HIRING_EVIDENCE = /last week|last month|recently|recent hiring|2026|2025/i;
 const RECRUITER_CONTEXT = /recruiter|recruiting|talent acquisition|talent partner|technical recruiter|engineering recruiter|technical sourcer|engineering sourcer|hiring manager|people partner|recruitment|staffing|hiring/i;
@@ -103,17 +99,12 @@ export class ProactiveRecruiterDiscoveryService {
       .filter((term) => term.length >= 4)
       .filter((term) => !["react", "typescript", "javascript", "node", "mongodb", "redux", "html", "css"].includes(term))
       .slice(0, 8);
-    const roles = configuredRoles.length ? configuredRoles : [
-      "React Developer", "React.js Developer", "Frontend Developer", "Frontend Engineer",
-      "React / Next.js Developer", "Next.js Developer", "Full Stack React Developer", "Full Stack Engineer"
-    ];
+    const roles = configuredRoles.length ? configuredRoles : ["React Developer", "React.js Developer", "Frontend Developer", "Frontend Engineer", "React / Next.js Developer", "Next.js Developer", "Full Stack React Developer", "Full Stack Engineer"];
     const locationVariants = ["Bengaluru", "India", "remote India"];
-    const recruiterVariants = ["recruiter", "technical recruiter", "talent acquisition"];
     const queries: string[] = [];
     for (const role of roles) {
       for (const location of locationVariants) {
-        const recruiter = recruiterVariants[0];
-        queries.push(`site:linkedin.com/in "${role}" "${recruiter}" "${location}"`);
+        queries.push(`site:linkedin.com/in "${role}" "recruiter" "${location}"`);
         if (queries.length >= this.maxQueries) return queries;
       }
     }
@@ -124,7 +115,6 @@ export class ProactiveRecruiterDiscoveryService {
     const queries = this.buildQueries(profile);
     const pages = await mapWithConcurrency(queries.flatMap((query) => searchUrls(query)), 6, (url) => this.fetchText(url));
     const candidates = new Map<string, ProactiveRecruiterDiscoveryCandidate>();
-
     for (const raw of pages) {
       if (!raw) continue;
       const text = stripHtml(raw);
@@ -176,7 +166,6 @@ export class ProactiveRecruiterDiscoveryService {
         } : candidate);
       }
     }
-
     const employers = [...new Set([...candidates.values()].map((candidate) => candidate.employer))];
     const domains = new Map<string, string | null>();
     await mapWithConcurrency(employers, 4, async (employer) => {
@@ -184,16 +173,14 @@ export class ProactiveRecruiterDiscoveryService {
       domains.set(employer, domain);
       return domain;
     });
-    return [...candidates.values()].map((candidate) => ({
-      ...candidate,
-      ...(domains.get(candidate.employer) ? { employerDomain: domains.get(candidate.employer) as string } : {})
-    }));
+    return [...candidates.values()].map((candidate) => {
+      const domain = domains.get(candidate.employer);
+      return domain ? { ...candidate, employerDomain: domain } : candidate;
+    });
   }
 }
 
-function hasHiringEvidence(evidence: string): boolean {
-  return CURRENT_HIRING_EVIDENCE.test(evidence) || (RECENT_HIRING_EVIDENCE.test(evidence) && /hiring|recruiting|recruiter|role|position|opening/i.test(evidence));
-}
+function hasHiringEvidence(evidence: string): boolean { return CURRENT_HIRING_EVIDENCE.test(evidence) || (RECENT_HIRING_EVIDENCE.test(evidence) && /hiring|recruiting|recruiter|role|position|opening/i.test(evidence)); }
 
 function extractRecruiterName(evidence: string): string {
   const namePatterns = [
@@ -208,7 +195,7 @@ function extractRecruiterName(evidence: string): string {
   return "Unknown recruiter";
 }
 
-function plausibleName(value: string | undefined): boolean {
+function plausibleName(value: string | undefined): value is string {
   if (!value) return false;
   const words = value.split(/\s+/).filter(Boolean);
   if (words.length < 2 || words.length > 5) return false;
