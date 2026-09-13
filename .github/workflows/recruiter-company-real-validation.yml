@@ -1,0 +1,44 @@
+name: Recruiter Company Real Validation
+
+on:
+  push:
+    branches: [matcher/calibration]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v4
+        with:
+          ref: matcher/calibration
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Real company recruiter discovery and email discovery dry run
+        env:
+          RECRUITER_TEST_COMPANY_NAME: Meraki Labs
+          RECRUITER_TEST_COMPANY_DOMAIN: merakilabs.com
+          RECRUITER_TEST_JOB_TITLE: Frontend Engineer / React Developer
+          RECRUITER_TEST_JOB_DESCRIPTION: Candidate has approximately 3 years of React, Next.js, TypeScript, JavaScript, Redux Toolkit, Tailwind, Node.js, Express, REST APIs and MongoDB experience; target Bengaluru first, India second, India-eligible remote.
+        run: |
+          set -euo pipefail
+          npm run dry-run:recruiters | tee recruiter-company-real.log
+          grep -q '"dryRun": true' recruiter-company-real.log
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recruiter-company-real-validation
+          path: recruiter-company-real.log
+          if-no-files-found: warn
