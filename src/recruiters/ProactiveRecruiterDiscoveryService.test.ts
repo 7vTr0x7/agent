@@ -7,13 +7,14 @@ describe("ProactiveRecruiterDiscoveryService", () => {
   it("builds deterministic role-specific location-aware recruiter searches without a giant OR expression", () => {
     const service = new ProactiveRecruiterDiscoveryService({ fetchText: async () => null });
     const queries = service.buildQueries({ targetRoles: ["Frontend Engineer", "React Developer", "Next.js Developer"], skills: ["React", "TypeScript", "Node.js"] });
+    const normalized = queries.map((query) => query.toLowerCase());
     expect(queries.length).toBeGreaterThanOrEqual(8);
-    expect(queries.some((query) => query.includes("frontend engineer"))).toBe(true);
-    expect(queries.some((query) => query.includes("react developer"))).toBe(true);
-    expect(queries.some((query) => query.includes("bengaluru"))).toBe(true);
-    expect(queries.some((query) => query.includes("india"))).toBe(true);
+    expect(normalized.some((query) => query.includes("frontend engineer"))).toBe(true);
+    expect(normalized.some((query) => query.includes("react developer"))).toBe(true);
+    expect(normalized.some((query) => query.includes("bengaluru"))).toBe(true);
+    expect(normalized.some((query) => query.includes("india"))).toBe(true);
     expect(queries.every((query) => !query.includes(" OR "))).toBe(true);
-    expect(queries.every((query) => !query.includes("node.js"))).toBe(true);
+    expect(normalized.every((query) => !query.includes("node.js"))).toBe(true);
   });
   it("parses Name - Recruiter evidence and keeps discovered email unverified", async () => {
     const service = serviceWithHtml(`Jane Doe - Technical Recruiter at Acme hiring React engineers | LinkedIn <https://linkedin.com/in/jane-doe> jane@acme.com`);
@@ -37,11 +38,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
   });
   it("classifies current, recent, and historical hiring evidence without treating history as current", async () => {
     const now = new Date("2026-09-11T00:00:00Z");
-    const pages = [
-      "Alice Johnson - Acme | LinkedIn technical recruiter actively hiring React engineers <https://linkedin.com/in/alice-johnson>",
-      "Robert Smith - Beta | LinkedIn technical recruiter 2026 recruiting frontend engineers <https://linkedin.com/in/robert-smith>",
-      "Emily Davis - Gamma | LinkedIn technical recruiter 2023 previously recruited frontend engineers <https://linkedin.com/in/emily-davis>"
-    ];
+    const pages = ["Alice Johnson - Acme | LinkedIn technical recruiter actively hiring React engineers <https://linkedin.com/in/alice-johnson>", "Robert Smith - Beta | LinkedIn technical recruiter 2026 recruiting frontend engineers <https://linkedin.com/in/robert-smith>", "Emily Davis - Gamma | LinkedIn technical recruiter 2023 previously recruited frontend engineers <https://linkedin.com/in/emily-davis>"];
     let index = 0;
     const service = new ProactiveRecruiterDiscoveryService({ fetchText: async () => pages[index++ % pages.length] ?? null, now: () => now, resolveEmployerDomain: domainResolver });
     const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
