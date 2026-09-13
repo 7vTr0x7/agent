@@ -21,7 +21,9 @@ async function main() {
     if (!profile) throw new Error("Configured candidate profile could not be resolved.");
     const taskQueue = new TaskQueue(database);
     const fixturePage = "Jane Doe - Technical Recruiter at Acme Corp actively hiring React frontend engineers <https://linkedin.com/in/jane-doe> jane@acme.com";
-    const discovery = new ProactiveRecruiterDiscoveryService(fixtureMode ? { fetchText: async () => fixturePage } : {});
+    const discovery = new ProactiveRecruiterDiscoveryService(fixtureMode
+      ? { fetchText: async () => fixturePage, resolveEmployerDomain: async (companyName) => companyName === "Acme Corp" ? "acme.com" : null }
+      : {});
     const safeFixtureVerifier = fixtureMode
       ? async () => ({ status: "UNVERIFIED", confidence: 0, verificationEvidence: [] })
       : undefined;
