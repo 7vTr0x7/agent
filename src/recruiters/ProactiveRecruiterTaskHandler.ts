@@ -9,13 +9,10 @@ import { ProactiveRecruiterRepository } from "./ProactiveRecruiterRepository";
 import { PublicRecruiterSearchProvider } from "./PublicRecruiterSearchProvider";
 import { createRecruiterDiscoveryProvider } from "./createRecruiterDiscoveryProvider";
 import { ProactiveRecruiterDiscoveryPayload, ProactiveRecruiterOutreachPayload, PROACTIVE_RECRUITER_DISCOVERY_TASK, PROACTIVE_RECRUITER_OUTREACH_TASK } from "./ProactiveRecruiterTask";
-
 export interface ProactiveRecruiterTaskHandlerOptions { enabled: boolean; sendEnabled: boolean; maxCandidatesPerRun: number; requireVerifiedEmail: boolean; verifyEmail?: (email: string) => Promise<{ status: "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID" | string; confidence: number; verificationEvidence?: RecruiterVerificationEvidence[] }>; }
-
 export class ProactiveRecruiterTaskHandler {
   constructor(private readonly discovery: ProactiveRecruiterDiscoveryService, private readonly repository: ProactiveRecruiterRepository, private readonly sendDispatcher: RecruiterOutreachSendTaskDispatcher, private readonly options: ProactiveRecruiterTaskHandlerOptions, private readonly logger: { info: (payload: unknown, message: string) => void; error: (payload: unknown, message: string) => void }) {}
   async handle(task: ClaimedTask): Promise<void> { if (task.taskType === PROACTIVE_RECRUITER_DISCOVERY_TASK) { await this.handleDiscovery(assertDiscoveryPayload(task.payload)); return; } if (task.taskType === PROACTIVE_RECRUITER_OUTREACH_TASK) { await this.handleOutreach(assertOutreachPayload(task.payload)); return; } throw new Error(`Unsupported proactive recruiter task type: ${task.taskType}`); }
-
   async handleDiscovery(payload: ProactiveRecruiterDiscoveryPayload): Promise<void> {
     if (!this.options.enabled) return;
     const preferredLocations = payload.preferredLocations?.length ? [...payload.preferredLocations] : ["Bengaluru", "Bangalore", "India", "Remote"];
@@ -28,6 +25,7 @@ export class ProactiveRecruiterTaskHandler {
     let persisted = 0, emailCandidates = 0, verifiedEmails = 0, prepared = 0;
     for (const rankedCandidate of ranked.slice(0, Math.max(1, Math.min(payload.maxCandidates, this.options.maxCandidatesPerRun)))) {
       const candidate = byId.get(rankedCandidate.id);
+      if (process.env.PROACTIVE_RECRUITER_DIAGNOSTICS !== "false" && candidate) this.logger.info({ event: "proactive_recruiter_candidate_persistence_diagnostic", recruiterName: candidate.recruiterName, linkedinProfileUrl: candidate.discoveryUrl, employer: candidate.employer, employerDomain: candidate.employerDomain ?? null, reachesPersistenceLoop: Boolean(candidate.employerDomain) }, "Proactive recruiter candidate persistence trace");
       if (!candidate || !candidate.employerDomain) continue;
       const identityCandidate = { ...candidate, email: undefined, emailStatus: "UNVERIFIED" as const, verificationEvidence: undefined };
       const recruiterContactId = await this.repository.persistCandidate(payload.candidateProfileId, identityCandidate);
@@ -67,10 +65,8 @@ export class ProactiveRecruiterTaskHandler {
     }
     this.logger.info({ discovered: discovered.length, persisted, emailCandidates, verifiedEmails, prepared, campaignType: prepared > 0 ? "PROACTIVE_RECRUITER" : null, jobId: prepared > 0 ? null : null, sendEnabled: this.options.sendEnabled }, "Proactive recruiter discovery completed");
   }
-
   async handleOutreach(payload: ProactiveRecruiterOutreachPayload): Promise<void> { if (!this.options.sendEnabled) return; await this.sendDispatcher.enqueue({ messageId: payload.messageId, companyDomain: payload.companyDomain }); }
 }
-
 function assertDiscoveryPayload(payload: Record<string, unknown>): ProactiveRecruiterDiscoveryPayload { if (typeof payload.candidateProfileId !== "string" || typeof payload.yearsExperience !== "number" || !Array.isArray(payload.skills) || !payload.skills.every((value): value is string => typeof value === "string") || !Array.isArray(payload.targetRoles) || !payload.targetRoles.every((value): value is string => typeof value === "string") || typeof payload.maxCandidates !== "number") throw new Error("Invalid proactive recruiter discovery task payload"); if (payload.candidateName !== undefined && typeof payload.candidateName !== "string") throw new Error("Invalid proactive recruiter candidate name"); if (payload.location !== undefined && typeof payload.location !== "string") throw new Error("Invalid proactive recruiter location"); if (payload.preferredLocations !== undefined && (!Array.isArray(payload.preferredLocations) || !payload.preferredLocations.every((value): value is string => typeof value === "string"))) throw new Error("Invalid proactive recruiter preferred locations"); if (payload.remoteEligible !== undefined && typeof payload.remoteEligible !== "boolean") throw new Error("Invalid proactive recruiter remote eligibility"); return { candidateProfileId: payload.candidateProfileId, candidateName: payload.candidateName, yearsExperience: payload.yearsExperience, skills: payload.skills, targetRoles: payload.targetRoles, location: payload.location, preferredLocations: payload.preferredLocations, remoteEligible: payload.remoteEligible, maxCandidates: payload.maxCandidates }; }
 function assertOutreachPayload(payload: Record<string, unknown>): ProactiveRecruiterOutreachPayload { if (typeof payload.messageId !== "string" || typeof payload.companyDomain !== "string" || typeof payload.candidateProfileId !== "string") throw new Error("Invalid proactive recruiter outreach task payload"); return { messageId: payload.messageId, companyDomain: payload.companyDomain, candidateProfileId: payload.candidateProfileId }; }
 function normalizeEmailStatus(value: string, evidence: RecruiterVerificationEvidence[] = []): "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID" { const normalized = value.trim().toLowerCase(); const hasMailboxEvidence = evidence.some((item) => item.mailboxLevel === true && item.provider.trim().length > 0 && item.status.trim().length > 0); if ((normalized === "mailbox_verified" || normalized === "valid") && hasMailboxEvidence) return "VERIFIED"; switch (normalized) { case "verified": return "VERIFIED"; case "likely": case "domain_mx_verified": case "domain_mx_verified_doh": return "LIKELY"; case "invalid": case "invalid_email_format": case "no_mx_record": case "missing_email_domain": case "not_valid": return "INVALID"; case "unverified": return "UNVERIFIED"; default: return "UNVERIFIED"; } }
