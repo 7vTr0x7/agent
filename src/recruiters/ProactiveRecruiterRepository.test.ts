@@ -16,36 +16,69 @@ const candidate = (overrides: Partial<ProactiveRecruiterDiscoveryCandidate> = {}
   evidenceType: "public_profile",
   evidenceDate: new Date().toISOString(),
   evidenceFreshness: "current",
-  email: "jane@acme.example",
-  emailStatus: "VERIFIED",
+  emailStatus: "UNVERIFIED",
   ...overrides
 });
 
 describe("ProactiveRecruiterRepository", () => {
-  it("does not derive mailbox evidence from VERIFIED status alone", async () => {
-    const database = { query: jest.fn().mockResolvedValue({ rows: [{ id: "contact-1" }] }) };
+  it("persists recruiter identity and employer without requiring an email", async () => {
+    const database = { query: jest.fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: "contact-1" }] })
+      .mockResolvedValueOnce({ rows: [] }) };
     const repository = new ProactiveRecruiterRepository(database as never);
 
-    await repository.persistCandidate("candidate-1", candidate());
+    const result = await repository.persistCandidate("candidate-1", candidate());
 
-    const params = database.query.mock.calls[0]?.[1] as unknown[];
+    expect(result).toBe("contact-1");
+    const insertParams = database.query.mock.calls[1]?.[1] as unknown[];
+    expect(insertParams?.[2]).toBeNull();
+    expect(insertParams?.[15]).toBe("https://linkedin.com/in/jane-doe");
+    expect(insertParams?.[16]).toBe("profile:https://linkedin.com/in/jane-doe");
+  });
+
+  it("does not derive mailbox evidence from VERIFIED status alone", async () => {
+    const database = { query: jest.fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: "contact-1" }] })
+      .mockResolvedValueOnce({ rows: [] }) };
+    const repository = new ProactiveRecruiterRepository(database as never);
+
+    await repository.persistCandidate("candidate-1", candidate({ email: "jane@acme.example", emailStatus: "VERIFIED" }));
+
+    const params = database.query.mock.calls[1]?.[1] as unknown[];
     expect(params?.[6]).toBe(false);
-    expect(params?.[12]).toBe(false);
-    expect(params?.[13]).toBe("[]");
+    expect(params?.[11]).toBe(false);
+    expect(params?.[12]).toBe("[]");
   });
 
   it("persists mailbox evidence only for explicit mailbox-level verification", async () => {
-    const database = { query: jest.fn().mockResolvedValue({ rows: [{ id: "contact-1" }] }) };
+    const database = { query: jest.fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: "contact-1" }] })
+      .mockResolvedValueOnce({ rows: [] }) };
     const repository = new ProactiveRecruiterRepository(database as never);
     const evidence = [{ provider: "snov", status: "valid", mailboxLevel: true, source: "snov" }];
 
-    await repository.persistCandidate("candidate-1", candidate({ verificationEvidence: evidence }));
+    await repository.persistCandidate("candidate-1", candidate({ email: "jane@acme.example", emailStatus: "VERIFIED", verificationEvidence: evidence }));
 
-    const params = database.query.mock.calls[0]?.[1] as unknown[];
+    const params = database.query.mock.calls[1]?.[1] as unknown[];
     expect(params?.[6]).toBe(true);
     expect(params?.[7]).toBe("mailbox_verified");
-    expect(params?.[12]).toBe(true);
-    expect(params?.[13]).toBe(JSON.stringify(evidence));
+    expect(params?.[11]).toBe(true);
+    expect(params?.[12]).toBe(JSON.stringify(evidence));
+  });
+
+  it("enriches an existing recruiter identity with email without changing identity ownership", async () => {
+    const database = { query: jest.fn()
+      .mockResolvedValueOnce({ rows: [{ company_domain: "acme.example", relevance_status: "CURRENT" }] })
+      .mockResolvedValueOnce({ rows: [] }) };
+    const repository = new ProactiveRecruiterRepository(database as never);
+
+    await repository.enrichCandidateEmail({ recruiterContactId: "contact-1", email: "jane@acme.example", emailStatus: "LIKELY" });
+
+    expect(database.query).toHaveBeenCalledTimes(2);
+    expect(database.query.mock.calls[1]?.[0]).toContain("email_discovery_status");
   });
 
   it("uses the canonical database eligibility predicate before proactive campaign creation", async () => {
