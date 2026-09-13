@@ -50,7 +50,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
   });
 
   it("continues to the next search endpoint after an empty primary and fallback response", async () => {
-    const empty = Array.from({ length: 14 }, () => "<html>empty provider response</html>");
+    const empty: unknown[] = Array.from({ length: 14 }, () => "<html>empty provider response</html>");
     empty[2] = recruiterHtml("Rahul Mehta", "NicheSolv");
     const fetchMock = mockPublicFetch(empty);
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, resolveEmployerDomain: domainResolver });
