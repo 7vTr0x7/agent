@@ -21,29 +21,11 @@ async function main(): Promise<void> {
     if (!profile) throw new Error("Configured candidate profile could not be resolved.");
     const taskQueue = new TaskQueue(database);
     const fixturePage = `Jane Doe - Technical Recruiter at Acme Corp actively hiring React frontend engineers <https://linkedin.com/in/jane-doe> jane@acme.com`;
-    const discovery = new ProactiveRecruiterDiscoveryService(fixtureMode ? { fetchText: async () => fixturePage } : {});
-    const handler = new ProactiveRecruiterTaskHandler(
-      discovery,
-      new ProactiveRecruiterRepository(database),
-      new RecruiterOutreachSendTaskDispatcher(taskQueue),
-      { enabled: true, sendEnabled: false, maxCandidatesPerRun: config.proactiveRecruiter.maxCandidatesPerRun, requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail },
-      logger
-    );
-    await handler.handleDiscovery({
-      candidateProfileId: profile.id,
-      candidateName: profile.fullName ?? ([profile.firstName, profile.lastName].filter(Boolean).join(" ") || undefined),
-      yearsExperience: profile.yearsExperience,
-      skills: [...profile.skills],
-      targetRoles: [...profile.targetTitles],
-      location: profile.location,
-      preferredLocations: (process.env.CANDIDATE_PREFERRED_LOCATIONS ?? "Bengaluru,Bangalore,India,Remote").split(",").map((value) => value.trim()).filter(Boolean),
-      remoteEligible: process.env.CANDIDATE_REMOTE_ELIGIBLE !== "false",
-      maxCandidates: config.proactiveRecruiter.maxCandidatesPerRun
-    });
+    const discovery = new ProactiveRecruiterDiscoveryService(fixtureMode ? { fetchText: async () => fixturePage, resolveEmployerDomain: async (company) => company.toLowerCase().replace(/\s+/g, "") === "acmecorp" ? "acme.com" : null } : {});
+    const handler = new ProactiveRecruiterTaskHandler(discovery, new ProactiveRecruiterRepository(database), new RecruiterOutreachSendTaskDispatcher(taskQueue), { enabled: true, sendEnabled: false, maxCandidatesPerRun: config.proactiveRecruiter.maxCandidatesPerRun, requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail }, logger);
+    await handler.handleDiscovery({ candidateProfileId: profile.id, candidateName: profile.fullName ?? ([profile.firstName, profile.lastName].filter(Boolean).join(" ") || undefined), yearsExperience: profile.yearsExperience, skills: [...profile.skills], targetRoles: [...profile.targetTitles], location: profile.location, preferredLocations: (process.env.CANDIDATE_PREFERRED_LOCATIONS ?? "Bengaluru,Bangalore,India,Remote").split(",").map((value) => value.trim()).filter(Boolean), remoteEligible: process.env.CANDIDATE_REMOTE_ELIGIBLE !== "false", maxCandidates: config.proactiveRecruiter.maxCandidatesPerRun });
     console.log(JSON.stringify({ status: "ok", mode: "isolated-proactive-recruiter", sendEnabled: false, gmailEnabled: false, outboundEnabled: false }));
-  } finally {
-    await database.close();
-  }
+  } finally { await database.close(); }
 }
 
 main().then(() => process.exit(0)).catch((error: unknown) => { console.error(error instanceof Error ? error.stack ?? error.message : String(error)); process.exit(1); });
