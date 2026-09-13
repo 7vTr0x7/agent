@@ -30,7 +30,10 @@ export interface ProactiveRecruiterDiscoveryOptions {
 const SEARCH_ENDPOINTS = [
   "https://r.jina.ai/https://www.google.com/search?q=",
   "https://r.jina.ai/https://www.bing.com/search?q=",
-  "https://r.jina.ai/https://html.duckduckgo.com/html/?q="
+  "https://r.jina.ai/https://html.duckduckgo.com/html/?q=",
+  "https://www.bing.com/search?format=rss&q=",
+  "https://html.duckduckgo.com/html/?q=",
+  "https://www.google.com/search?q="
 ];
 const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com", "proton.me", "protonmail.com"]);
 const CURRENT_HIRING_EVIDENCE = /currently|currently hiring|hiring now|actively hiring|we are hiring|open roles|open positions|urgent hiring|hiring for/i;
@@ -40,7 +43,7 @@ const DEFAULT_FETCH = async (url: string): Promise<string | null> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 7000);
   try {
-    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,text/plain,*/*;q=0.8", "user-agent": "job-agent-proactive-recruiter/1.0" } });
+    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,application/rss+xml,text/plain,*/*;q=0.8", "user-agent": "job-agent-proactive-recruiter/1.0" } });
     return response.ok ? await response.text() : null;
   } catch {
     return null;
@@ -56,6 +59,8 @@ const stripHtml = (value: string): string => value
   .replace(/<[^>]+>/g, " ")
   .replace(/&nbsp;/gi, " ")
   .replace(/&amp;/gi, "&")
+  .replace(/&#x2F;|&#47;/gi, "/")
+  .replace(/&quot;/gi, '"')
   .replace(/\s+/g, " ")
   .trim();
 const linkedinProfile = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
