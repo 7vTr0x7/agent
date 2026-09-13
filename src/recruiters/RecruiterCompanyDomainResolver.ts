@@ -15,7 +15,6 @@ const CAREERS_SUBDOMAINS = /^(careers?|jobs?|job|hire|hiring|talent|recruiting|r
 const COMMON_TWO_PART_PUBLIC_SUFFIXES = new Set(["co.uk", "org.uk", "ac.uk", "com.au", "net.au", "org.au", "co.au", "org.au", "co.in", "firm.in", "net.in", "org.in", "gen.in", "ind.in"]);
 const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com", "yahoo.co.in", "icloud.com", "proton.me", "protonmail.com"]);
 const EMAIL_PATTERN = /[A-Z0-9._+\-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
-const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
 const SEARCH_URL_PATTERN = /https?:\/\/[^\s<>"'()]+/gi;
 
 function normalizeHost(value: string): string {
@@ -99,23 +98,41 @@ async function fetchSearchResult(query: string, engine: "google" | "bing" | "duc
   }
 }
 
-function domainsFromSearchText(text: string, companyName: string): string[] {
+type DomainRejectionReason = "invalid_host" | "blocked_host" | "generic_mailbox_provider" | "company_mismatch";
+interface DomainEvidence { domain: string; source: "url" | "email"; accepted: boolean; reason?: DomainRejectionReason; }
+interface ResolverEngineDiagnostic { engine: "google" | "bing" | "duckduckgo"; resultAvailable: boolean; evidence: DomainEvidence[]; }
+export interface EmployerDomainResolutionDiagnostic { employer: string; query: string; engines: ResolverEngineDiagnostic[]; acceptedCandidates: Array<{ domain: string; independentEngineCount: number }>; finalEmployerDomain: string | null; }
+
+function inspectHost(rawHost: string, companyName: string): { domain: string | null; reason?: DomainRejectionReason } {
+  const normalized = normalizeHost(rawHost).replace(/\/$/, "");
+  if (!normalized || normalized === "localhost" || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) return { domain: null, reason: "invalid_host" };
+  if (BLOCKED_HOSTS.has(normalized) || BLOCKED_HOSTS.has(registrableDomain(normalized))) return { domain: null, reason: "blocked_host" };
+  const domain = normalizeEmployerHost(normalized);
+  if (!domain) return { domain: null, reason: GENERIC_EMAIL_DOMAINS.has(registrableDomain(normalized)) ? "generic_mailbox_provider" : "invalid_host" };
+  if (!domainMatchesCompany(domain, companyName)) return { domain, reason: "company_mismatch" };
+  return { domain };
+}
+
+function domainsFromSearchText(text: string, companyName: string): { domains: string[]; evidence: DomainEvidence[] } {
   const found = new Set<string>();
+  const evidence: DomainEvidence[] = [];
   for (const rawUrl of text.match(SEARCH_URL_PATTERN) ?? []) {
     try {
       const url = new URL(rawUrl);
-      const domain = normalizeEmployerHost(url.hostname);
-      if (!domain || !domainMatchesCompany(domain, companyName)) continue;
-      found.add(domain);
+      const inspected = inspectHost(url.hostname, companyName);
+      if (inspected.domain && !inspected.reason) found.add(inspected.domain);
+      evidence.push({ domain: inspected.domain ?? registrableDomain(normalizeHost(url.hostname)), source: "url", accepted: Boolean(inspected.domain && !inspected.reason), ...(inspected.reason ? { reason: inspected.reason } : {}) });
     } catch {
-      // Ignore malformed search-result URLs.
+      evidence.push({ domain: "invalid", source: "url", accepted: false, reason: "invalid_host" });
     }
   }
   for (const rawEmail of text.match(EMAIL_PATTERN) ?? []) {
-    const emailDomain = normalizeEmployerHost(rawEmail.split("@")[1] ?? "");
-    if (emailDomain && domainMatchesCompany(emailDomain, companyName)) found.add(emailDomain);
+    const emailDomain = normalizeHost(rawEmail.split("@")[1] ?? "");
+    const inspected = inspectHost(emailDomain, companyName);
+    if (inspected.domain && !inspected.reason) found.add(inspected.domain);
+    evidence.push({ domain: inspected.domain ?? registrableDomain(emailDomain), source: "email", accepted: Boolean(inspected.domain && !inspected.reason), ...(inspected.reason ? { reason: inspected.reason } : {}) });
   }
-  return [...found];
+  return { domains: [...found], evidence };
 }
 
 /**
@@ -125,22 +142,23 @@ function domainsFromSearchText(text: string, companyName: string): string[] {
  * result pages. Public company-domain email addresses in those pages count as
  * independent employer evidence; generic mailbox providers never do.
  */
-export async function resolveEmployerDomainFromPublicSearch(companyName: string): Promise<string | null> {
+export async function resolveEmployerDomainFromPublicSearch(companyName: string, onDiagnostics?: (diagnostic: EmployerDomainResolutionDiagnostic) => void): Promise<string | null> {
   const name = companyName.trim();
   if (!name || name.length < 2) return null;
 
   const query = `"${name}" official website`;
-  const results = await Promise.all([
-    fetchSearchResult(query, "google"),
-    fetchSearchResult(query, "bing"),
-    fetchSearchResult(query, "duckduckgo")
-  ]);
+  const engines: Array<"google" | "bing" | "duckduckgo"> = ["google", "bing", "duckduckgo"];
+  const engineDiagnostics: ResolverEngineDiagnostic[] = [];
+  const results = await Promise.all(engines.map(async (engine) => ({ engine, result: await fetchSearchResult(query, engine) })));
   const counts = new Map<string, number>();
-  for (const result of results) {
-    if (!result) continue;
-    for (const domain of domainsFromSearchText(result, name)) counts.set(domain, (counts.get(domain) ?? 0) + 1);
+  for (const { engine, result } of results) {
+    const inspected = result ? domainsFromSearchText(result, name) : { domains: [], evidence: [] };
+    if (result) for (const domain of inspected.domains) counts.set(domain, (counts.get(domain) ?? 0) + 1);
+    engineDiagnostics.push({ engine, resultAvailable: Boolean(result), evidence: inspected.evidence });
   }
 
   const ranked = [...counts.entries()].filter(([, count]) => count >= 2).sort((a, b) => b[1] - a[1]);
-  return ranked[0]?.[0] ?? null;
+  const finalEmployerDomain = ranked[0]?.[0] ?? null;
+  onDiagnostics?.({ employer: name, query, engines: engineDiagnostics, acceptedCandidates: [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([domain, independentEngineCount]) => ({ domain, independentEngineCount })), finalEmployerDomain });
+  return finalEmployerDomain;
 }
