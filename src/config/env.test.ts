@@ -48,8 +48,8 @@ describe("loadConfig runtime loop intervals", () => {
     expect(config.applicationCompanyRateLimitPerDay).toBe(20);
     expect(config.recruiterOutreach.enabled).toBe(false);
     expect(config.recruiterOutreach.activation).toBe("disabled");
-    expect(config.recruiterOutreach.maxMessagesPerDay).toBe(200);
-    expect(config.recruiterOutreach.maxMessagesPerHour).toBe(9);
+    expect(config.recruiterOutreach.maxMessagesPerDay).toBe(400);
+    expect(config.recruiterOutreach.maxMessagesPerHour).toBe(400);
   });
 
   it("accepts explicit automation enablement", async () => {
