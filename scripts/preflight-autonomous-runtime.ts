@@ -55,8 +55,8 @@ function main(): void {
   add("gmail", config.gmail.enabled && Boolean(config.gmail.clientId && config.gmail.clientSecret && config.gmail.refreshToken && config.gmail.userEmail), "Gmail OAuth configuration must be complete for recruiter email delivery.");
   add("recruiter-enabled", config.recruiterOutreach.enabled, "RECRUITER_OUTREACH_ENABLED=true is required for recruiter outreach.");
   add("recruiter-live", !config.recruiterOutreach.dryRun && config.recruiterOutreach.activation === "live" && config.recruiterOutreach.liveActivationConfirmed, "Recruiter outreach must be live, non-dry-run, and explicitly confirmed.");
-  add("recruiter-daily-limit", config.recruiterOutreach.maxMessagesPerDay === 200, `Recruiter daily limit is ${config.recruiterOutreach.maxMessagesPerDay}; expected 200.`);
-  add("recruiter-hourly-limit", config.recruiterOutreach.maxMessagesPerHour === 9, `Recruiter hourly limit is ${config.recruiterOutreach.maxMessagesPerHour}; expected 9.`);
+  add("recruiter-daily-limit", config.recruiterOutreach.maxMessagesPerDay === 400, `Shared recruiter daily limit is ${config.recruiterOutreach.maxMessagesPerDay}; expected 400.`);
+  add("recruiter-hourly-limit", config.recruiterOutreach.maxMessagesPerHour === 400, `Shared recruiter hourly limit is ${config.recruiterOutreach.maxMessagesPerHour}; expected 400.`);
   add("recruiter-verification", config.recruiterOutreach.requireVerifiedEmail && config.recruiterOutreach.minConfidence >= 80, "Recruiter sending requires verified email and confidence >= 80.");
   add("recruiter-contact-cap", config.recruiterOutreach.maxContactsPerApplication <= 3, `Recruiter contacts per application is ${config.recruiterOutreach.maxContactsPerApplication}; maximum is 3.`);
   add("recruiter-followups", config.recruiterOutreach.followUpEnabled && config.recruiterOutreach.followUpDayOffsets.length > 0, "Recruiter follow-ups must have at least one configured offset.");
