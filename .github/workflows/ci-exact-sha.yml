@@ -77,5 +77,5 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker rm -f job-agent-ci-exact-sha-postgres >/dev/null 2>&1 || true
+          docker rm -f job-agent-ci-exact-postgres >/dev/null 2>&1 || true
           docker network rm job-agent-ci-exact >/dev/null 2>&1 || true
