@@ -62,6 +62,16 @@ describe("ProactiveRecruiterRepository", () => {
     expect(database.query.mock.calls[1]?.[0]).toContain("email_discovery_status");
   });
 
+  it("explicitly types email status parameter $3 in every PostgreSQL context", async () => {
+    const database = { query: jest.fn().mockResolvedValueOnce({ rows: [{ company_domain: "acme.example", relevance_status: "CURRENT" }] }).mockResolvedValueOnce({ rows: [] }) };
+    const repository = new ProactiveRecruiterRepository(database as never);
+    await repository.enrichCandidateEmail({ recruiterContactId: "contact-1", email: "jane@acme.example", emailStatus: "UNVERIFIED" });
+    const sql = database.query.mock.calls[1]?.[0] as string;
+    expect(sql).toContain("email_status=$3::text");
+    expect(sql).toContain("$3::text IN ('LIKELY','VERIFIED')");
+    expect(sql).toContain("$3::text='INVALID'");
+  });
+
   it("uses the canonical database eligibility predicate before proactive campaign creation", async () => {
     const database = { query: jest.fn().mockResolvedValueOnce({ rows: [{ id: "contact-1" }] }).mockResolvedValueOnce({ rows: [{ email: "jane@acme.example" }] }).mockResolvedValueOnce({ rows: [{ exists: false }] }).mockResolvedValueOnce({ rows: [] }) };
     const repository = new ProactiveRecruiterRepository(database as never);
