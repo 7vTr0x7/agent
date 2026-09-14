@@ -83,9 +83,9 @@ export class ProactiveRecruiterRepository {
     const verificationStatus = mailboxEvidence ? "mailbox_verified" : persistedEmailStatus === "LIKELY" ? "domain_mx_verified" : persistedEmailStatus === "INVALID" ? "INVALID" : "public-web-unverified";
     await this.database.query(
       `UPDATE recruiter_contacts
-       SET email=$2,email_status=$3,verification_status=$4,verified=$5,mailbox_evidence=$6,verification_evidence=$7,
-           mx_status=CASE WHEN $3 IN ('LIKELY','VERIFIED') THEN 'EXISTS' WHEN $3='INVALID' THEN 'MISSING' ELSE 'UNKNOWN' END,
-           email_discovery_status=CASE WHEN $3='INVALID' THEN 'INVALID' ELSE 'FOUND' END,email_discovery_attempted_at=NOW(),updated_at=NOW()
+       SET email=$2,email_status=$3::text,verification_status=$4,verified=$5,mailbox_evidence=$6,verification_evidence=$7,
+           mx_status=CASE WHEN $3::text IN ('LIKELY','VERIFIED') THEN 'EXISTS' WHEN $3::text='INVALID' THEN 'MISSING' ELSE 'UNKNOWN' END,
+           email_discovery_status=CASE WHEN $3::text='INVALID' THEN 'INVALID' ELSE 'FOUND' END,email_discovery_attempted_at=NOW(),updated_at=NOW()
        WHERE id=$1`,
       [input.recruiterContactId, email, persistedEmailStatus, verificationStatus, mailboxEvidence, mailboxEvidence, JSON.stringify(verificationEvidence)]
     );
