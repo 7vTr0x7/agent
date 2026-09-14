@@ -12,8 +12,8 @@ const candidate = (overrides: Partial<ProactiveRecruiterDiscoveryCandidate> = {}
   overallConfidence: 95,
   discoverySource: "public-web",
   discoveryUrl: "https://linkedin.com/in/jane-doe",
-  discoveryEvidence: ["Technical recruiter"],
-  evidenceType: "public_profile",
+  discoveryEvidence: ["Technical recruiter actively hiring React frontend engineers"],
+  evidenceType: "job_hiring_evidence",
   evidenceDate: new Date().toISOString(),
   evidenceFreshness: "current",
   emailStatus: "UNVERIFIED",
@@ -22,7 +22,7 @@ const candidate = (overrides: Partial<ProactiveRecruiterDiscoveryCandidate> = {}
 
 describe("ProactiveRecruiterRepository", () => {
   it("persists recruiter identity and employer without requiring an email", async () => {
-    const database = { query: jest.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: "contact-1" }] }).mockResolvedValueOnce({ rows: [] }) };
+    const database = { query: jest.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: "contact-1" }] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }) };
     const repository = new ProactiveRecruiterRepository(database as never);
     const result = await repository.persistCandidate("candidate-1", candidate());
     expect(result).toBe("contact-1");
@@ -32,8 +32,29 @@ describe("ProactiveRecruiterRepository", () => {
     expect(insertParams?.[15]).toBe("profile:https://linkedin.com/in/jane-doe");
   });
 
+  it("persists the discovered proactive evidence while keeping mailbox verification separate", async () => {
+    const database = { query: jest.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: "contact-1" }] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }) };
+    const repository = new ProactiveRecruiterRepository(database as never);
+    const result = await repository.persistCandidate("candidate-1", candidate());
+    expect(result).toBe("contact-1");
+    expect(database.query).toHaveBeenCalledTimes(4);
+    const evidenceSql = database.query.mock.calls[3]?.[0] as string;
+    const evidenceParams = database.query.mock.calls[3]?.[1] as unknown[];
+    expect(evidenceSql).toContain("INSERT INTO recruiter_proactive_evidence");
+    expect(evidenceSql).toContain("ON CONFLICT (recruiter_contact_id,candidate_profile_id,discovery_url)");
+    expect(evidenceParams?.[0]).toBe("contact-1");
+    expect(evidenceParams?.[1]).toBe("candidate-1");
+    expect(evidenceParams?.[6]).toBe("job_hiring_evidence");
+    expect(evidenceParams?.[7]).toBe("current");
+    expect(evidenceParams?.[10]).toBe("https://linkedin.com/in/jane-doe");
+    expect(evidenceParams?.[11]).toContain("Technical recruiter actively hiring React frontend engineers");
+    expect((database.query.mock.calls[1]?.[1] as unknown[])?.[6]).toBe(false);
+    expect((database.query.mock.calls[1]?.[1] as unknown[])?.[11]).toBe(false);
+    expect((database.query.mock.calls[1]?.[1] as unknown[])?.[12]).toBe("[]");
+  });
+
   it("does not derive mailbox evidence from VERIFIED status alone", async () => {
-    const database = { query: jest.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: "contact-1" }] }).mockResolvedValueOnce({ rows: [] }) };
+    const database = { query: jest.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: "contact-1" }] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }) };
     const repository = new ProactiveRecruiterRepository(database as never);
     await repository.persistCandidate("candidate-1", candidate({ email: "jane@acme.example", emailStatus: "VERIFIED" }));
     const params = database.query.mock.calls[1]?.[1] as unknown[];
@@ -43,7 +64,7 @@ describe("ProactiveRecruiterRepository", () => {
   });
 
   it("persists mailbox evidence only for explicit mailbox-level verification", async () => {
-    const database = { query: jest.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: "contact-1" }] }).mockResolvedValueOnce({ rows: [] }) };
+    const database = { query: jest.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: "contact-1" }] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }) };
     const repository = new ProactiveRecruiterRepository(database as never);
     const evidence = [{ provider: "snov", status: "valid", mailboxLevel: true, source: "snov" }];
     await repository.persistCandidate("candidate-1", candidate({ email: "jane@acme.example", emailStatus: "VERIFIED", verificationEvidence: evidence }));
