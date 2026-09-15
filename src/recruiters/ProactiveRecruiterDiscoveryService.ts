@@ -22,9 +22,10 @@ export interface ProactiveRecruiterDiscoveryCandidate {
 }
 
 export interface ProactiveRecruiterDiscoveryOptions {
-  fetchText?: (url: string) => Promise<string | null>;
+  fetchText?: (url: string, signal?: AbortSignal) => Promise<string | null>;
   now?: () => Date;
   maxQueries?: number;
+  signal?: AbortSignal;
 }
 
 const SEARCH_ENDPOINTS = [
@@ -32,13 +33,16 @@ const SEARCH_ENDPOINTS = [
   "https://r.jina.ai/https://www.bing.com/search?q=",
   "https://r.jina.ai/https://html.duckduckgo.com/html/?q="
 ];
+const SEARCH_CONCURRENCY = 4;
 const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com", "proton.me", "protonmail.com"]);
 const CURRENT_HIRING_EVIDENCE = /currently|currently hiring|hiring now|actively hiring|we are hiring|open roles|open positions|urgent hiring|hiring for/i;
 const RECENT_HIRING_EVIDENCE = /last week|last month|recently|recent hiring|2026|2025/i;
 
-const DEFAULT_FETCH = async (url: string): Promise<string | null> => {
+const DEFAULT_FETCH = async (url: string, signal?: AbortSignal): Promise<string | null> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 7000);
+  const onAbort = (): void => controller.abort();
+  signal?.addEventListener("abort", onAbort, { once: true });
   try {
     const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,text/plain,*/*;q=0.8", "user-agent": "job-agent-proactive-recruiter/1.0" } });
     return response.ok ? await response.text() : null;
@@ -46,6 +50,7 @@ const DEFAULT_FETCH = async (url: string): Promise<string | null> => {
     return null;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
   }
 };
 
@@ -61,16 +66,32 @@ const stripHtml = (value: string): string => value
 const linkedinProfile = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
 const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, async () => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      results[index] = await worker(items[index] as T);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 export class ProactiveRecruiterDiscoveryService {
   private readonly matcher = new ProactiveRecruiterRoleMatcher();
-  private readonly fetchText: (url: string) => Promise<string | null>;
+  private readonly fetchText: (url: string, signal?: AbortSignal) => Promise<string | null>;
   private readonly now: () => Date;
   private readonly maxQueries: number;
+  private readonly signal?: AbortSignal;
 
   constructor(options: ProactiveRecruiterDiscoveryOptions = {}) {
     this.fetchText = options.fetchText ?? DEFAULT_FETCH;
     this.now = options.now ?? (() => new Date());
     this.maxQueries = Math.max(1, options.maxQueries ?? 12);
+    this.signal = options.signal;
   }
 
   buildQueries(profile: CandidateProfileLike): string[] {
@@ -87,9 +108,10 @@ export class ProactiveRecruiterDiscoveryService {
   }
 
   async discover(profile: CandidateProfileLike): Promise<ProactiveRecruiterDiscoveryCandidate[]> {
-    const pages = await Promise.all(this.buildQueries(profile).flatMap((query) => SEARCH_ENDPOINTS.map((endpoint) => this.fetchText(`${endpoint}${encodeURIComponent(query)}`))));
+    const requests = this.buildQueries(profile).flatMap((query) => SEARCH_ENDPOINTS.map((endpoint) => `${endpoint}${encodeURIComponent(query)}`));
+    const searchPages = (await mapWithConcurrency(requests, SEARCH_CONCURRENCY, async (url) => this.fetchText(url, this.signal))).filter((page): page is string => Boolean(page));
     const candidates = new Map<string, ProactiveRecruiterDiscoveryCandidate>();
-    for (const raw of pages) {
+    for (const raw of searchPages) {
       if (!raw) continue;
       const text = stripHtml(raw);
       for (const match of text.matchAll(linkedinProfile)) {

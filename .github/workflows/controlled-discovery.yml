@@ -64,11 +64,35 @@ jobs:
           for i in $(seq 1 4800); do
             completed="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs WHERE status <> 'RUNNING';" 2>/dev/null | tr -d '[:space:]' || true)"
             if [ -n "$completed" ] && [ "$completed" -ge "$expected_sources" ]; then docker logs job-agent-discovery-app; exit 0; fi
-            if ! docker inspect -f '{{.State.Running}}' job-agent-discovery-app 2>/dev/null | grep -q true; then docker logs job-agent-discovery-app; exit 1; fi
+            if ! docker inspect -f '{{.State.Running}}' job-agent-discovery-app 2>/dev/null | grep -q true; then docker logs job-agent-discovery-app || true; exit 1; fi
             sleep 1
           done
           docker logs job-agent-discovery-app
           exit 1
+      - name: Run real public proactive recruiter discovery in isolated database
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-discovery \
+            -e NODE_ENV=test \
+            -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-discovery-postgres:5432/job_agent \
+            -e CANDIDATE_PROFILE_ID=runtime-discovery-candidate \
+            -e CANDIDATE_PREFERRED_LOCATIONS='Bengaluru,Bangalore,India,Remote' \
+            -e CANDIDATE_REMOTE_ELIGIBLE=true \
+            -e PROACTIVE_RECRUITER_ENABLED=true \
+            -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
+            -e RECRUITER_OUTREACH_ENABLED=false \
+            -e RECRUITER_OUTREACH_DRY_RUN=true \
+            -e RECRUITER_OUTREACH_ACTIVATION=disabled \
+            -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false \
+            -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
+            -e GMAIL_ENABLED=false \
+            -e OUTBOUND_ENABLED=false \
+            -e AUTOMATION_ENABLED=false \
+            -e APPLICATION_DRY_RUN=true \
+            job-agent:controlled-discovery npm run proactive-recruiter:once 2>&1 | tee controlled-proactive-recruiter.log
+          ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' controlled-proactive-recruiter.log
+          grep -q '"status":"ok"' controlled-proactive-recruiter.log
       - name: Verify discovery database output and safety
         shell: bash
         run: |
@@ -115,6 +139,7 @@ jobs:
           path: |
             controlled-discovery-app.log
             controlled-discovery-postgres.log
+            controlled-proactive-recruiter.log
       - name: Cleanup
         if: always()
         run: |

@@ -42,6 +42,22 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(results.map((result) => result.evidenceFreshness).sort()).toEqual(["current", "historical", "recent"].sort());
   });
 
+  it("bounds public recruiter discovery concurrency at four requests", async () => {
+    let active = 0;
+    let peak = 0;
+    const html = `Jane Doe - Technical Recruiter hiring React and frontend engineers <https://linkedin.com/in/jane-doe> jane@example.com`;
+    const fetchText = async (): Promise<string> => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return html;
+    };
+    const service = new ProactiveRecruiterDiscoveryService({ fetchText });
+    await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
+    expect(peak).toBeLessThanOrEqual(4);
+  });
+
   it("does not discover generic recruiters without target-role evidence", async () => {
     const html = `Jane Doe - Recruiter <https://linkedin.com/in/jane-doe>`;
     const service = new ProactiveRecruiterDiscoveryService({ fetchText: async () => html });
