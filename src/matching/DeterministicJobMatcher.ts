@@ -7,6 +7,9 @@ export interface MatchEvidence {
   detail: string;
 }
 
+export type MatchGeography = "BENGALURU" | "INDIA" | "REMOTE_INDIA_ELIGIBLE" | "REMOTE_RESTRICTED" | "REMOTE_WORLDWIDE" | "OTHER";
+export type TechnicalOrientation = "FRONTEND" | "FULL_STACK" | "BACKEND_FOCUSED" | "OTHER";
+
 export interface DeterministicMatchResult {
   matchScore: number;
   decision: JobDecision;
@@ -14,161 +17,183 @@ export interface DeterministicMatchResult {
   missingSkills: string[];
   evidence: MatchEvidence[];
   reason: string;
+  geography: MatchGeography;
+  technicalOrientation: TechnicalOrientation;
 }
 
 export interface DeterministicMatcherOptions {
   applyThreshold?: number;
   reviewThreshold?: number;
+  now?: Date;
 }
 
 const SKILL_ALIASES: Record<string, string[]> = {
-  "react.js": ["react", "reactjs", "react.js"],
-  react: ["react", "reactjs", "react.js"],
-  "next.js": ["next", "nextjs", "next.js", "next js"],
-  nextjs: ["next", "nextjs", "next.js", "next js"],
-  "node.js": ["node", "nodejs", "node.js", "node js"],
-  node: ["node", "nodejs", "node.js", "node js"],
-  "express.js": ["express", "expressjs", "express.js", "express js"],
-  express: ["express", "expressjs", "express.js", "express js"],
-  javascript: ["javascript", "js", "ecmascript"],
-  js: ["javascript", "js", "ecmascript"],
-  typescript: ["typescript", "ts"],
-  ts: ["typescript", "ts"],
-  "react testing library": ["react testing library", "rtl"],
-  rtl: ["react testing library", "rtl"],
-  "redux toolkit": ["redux toolkit", "@reduxjs/toolkit"],
-  "tailwind css": ["tailwind css", "tailwind"],
-  mongodb: ["mongodb", "mongo db", "mongo"],
-  postgresql: ["postgresql", "postgres", "postgre sql"],
-  postgres: ["postgresql", "postgres", "postgre sql"]
+  "react.js": ["react", "reactjs", "react.js"], react: ["react", "reactjs", "react.js"],
+  "next.js": ["next", "nextjs", "next.js", "next js"], nextjs: ["next", "nextjs", "next.js", "next js"],
+  "node.js": ["node", "nodejs", "node.js", "node js"], node: ["node", "nodejs", "node.js", "node js"],
+  "express.js": ["express", "expressjs", "express.js", "express js"], express: ["express", "expressjs", "express.js", "express js"],
+  javascript: ["javascript", "js", "ecmascript"], js: ["javascript", "js", "ecmascript"],
+  typescript: ["typescript", "ts"], ts: ["typescript", "ts"],
+  "react testing library": ["react testing library", "rtl"], rtl: ["react testing library", "rtl"],
+  "redux toolkit": ["redux toolkit", "@reduxjs/toolkit"], "tailwind css": ["tailwind css", "tailwind"],
+  mongodb: ["mongodb", "mongo db", "mongo"], postgresql: ["postgresql", "postgres", "postgre sql"], postgres: ["postgresql", "postgres", "postgre sql"]
 };
 
-const FRONTEND_ROLE_SIGNAL = /\b(frontend|front-end|front end|ui developer|ui engineer|web developer|web engineer|react developer|react engineer|next\.js developer|nextjs developer|full[- ]stack|fullstack|software engineer)\b/i;
-const STRONG_FRONTEND_SIGNAL = /\b(react|reactjs|react\.js|next\.js|nextjs|redux|frontend|front-end|front end|ui developer|ui engineer)\b/i;
-const EXCLUDED_ROLE_TITLE = /\b(product marketing|marketing|sales|account executive|business development|finance|accounting|legal|procurement|recruiter|talent acquisition|customer support|technical support|qa engineer|quality assurance|devops|site reliability|\bsre\b|network engineer|data analyst|data scientist|machine learning engineer|ml engineer|ai engineer)\b/i;
-const BACKEND_ONLY_TITLE = /\b(backend|back-end|back end|java developer|python developer|\.net developer|golang developer|database administrator|dba)\b/i;
+const EXCLUDED_ROLE_TITLE = /\b(product marketing|marketing|sales|account executive|business development|finance|accounting|legal|procurement|recruiter|talent acquisition|customer support|technical support|qa engineer|quality assurance|devops|site reliability|sre|network engineer|data analyst|data scientist|machine learning engineer|ml engineer|ai engineer|manager|principal)\b/i;
+const FRONTEND_TITLE = /\b(frontend|front-end|front end|ui developer|ui engineer|web developer|web engineer|react developer|react engineer|next\.js developer|nextjs developer)\b/i;
+const FULL_STACK_TITLE = /\b(full[- ]stack|fullstack)\b/i;
+const BACKEND_TITLE = /\b(backend|back-end|back end|java developer|python developer|\.net developer|golang developer|database administrator|dba|backend integrations?)\b/i;
+const MOBILE_TITLE = /\b(react native|mobile developer|mobile engineer|ios developer|android developer)\b/i;
+const PRIMARY_FRONTEND_FRAMEWORK = /\b(vue(?:\.js)?|angular(?:\.js)?|svelte)\b/i;
+const PRIMARY_REACT_NATIVE = /\breact native\b|\bexpo\b|\bandroid\b|\bios\b/i;
+const REACT_WEB = /\breact(?:\.js|js)?\b|\bnext(?:\.js|js)?\b/i;
+const INDIA = /\b(india|indian|bengaluru|bangalore|mumbai|pune|hyderabad|delhi|gurgaon|gurugram|noida|chennai|kolkata)\b/i;
+const RESTRICTED_REMOTE = /\b(remote|work from home|wfh)\b[^.\n]{0,100}\b(usa|u\.s\.|united states|america|uk|u\.k\.|united kingdom|canada|australia)\b|\b(usa|u\.s\.|united states|america|uk|u\.k\.|united kingdom)\b[^.\n]{0,100}\b(remote|work from home|wfh)\b/i;
+const WORLDWIDE_REMOTE = /\b(worldwide|global|anywhere in the world)\b[^.\n]{0,80}\bremote\b|\bremote\b[^.\n]{0,80}\b(worldwide|global|anywhere in the world)\b/i;
 
 export class DeterministicJobMatcher {
   private readonly applyThreshold: number;
   private readonly reviewThreshold: number;
+  private readonly now: Date;
 
   constructor(options: DeterministicMatcherOptions = {}) {
     this.applyThreshold = options.applyThreshold ?? 30;
     this.reviewThreshold = options.reviewThreshold ?? 20;
+    this.now = options.now ?? new Date();
   }
 
   evaluate(job: JobOpportunity, profile: CandidateProfile): DeterministicMatchResult {
-    const normalizedText = normalize(`${job.title}\n${job.description}`);
-    const normalizedTitle = normalize(job.title);
+    const text = normalize(`${job.title}\n${job.description}`);
+    const title = normalize(job.title);
     const evidence: MatchEvidence[] = [];
+    const matchedSkills = profile.skills.filter((skill) => containsSkill(text, skill));
+    const missingSkills = profile.skills.filter((skill) => !containsSkill(text, skill));
+    const geography = classifyGeography(job, text);
+    const technicalOrientation = classifyTechnicalOrientation(title, text);
 
-    const matchedSkills = profile.skills.filter((skill) => containsSkill(normalizedText, skill));
-    const missingSkills = profile.skills.filter((skill) => !containsSkill(normalizedText, skill));
-
-    for (const skill of matchedSkills) {
-      evidence.push({ type: "SKILL_MATCH", detail: `Candidate skill is relevant to the job and appears in the posting: ${skill}` });
-    }
-    for (const skill of missingSkills) {
-      evidence.push({ type: "SKILL_GAP", detail: `Candidate skill is not mentioned in the posting: ${skill}` });
-    }
-
-    const titleMatch = profile.targetTitles.some((title) => containsPhrase(normalizedTitle, normalize(title)));
+    for (const skill of matchedSkills) evidence.push({ type: "SKILL_MATCH", detail: `Candidate skill is relevant to the job and appears in the posting: ${skill}` });
+    for (const skill of missingSkills) evidence.push({ type: "SKILL_GAP", detail: `Candidate skill is not mentioned in the posting: ${skill}` });
+    const titleMatch = profile.targetTitles.some((target) => containsPhrase(title, normalize(target)));
     if (titleMatch) evidence.push({ type: "TITLE_MATCH", detail: "Job title matches a candidate target title." });
 
-    const roleFit = assessRoleFit(normalizedTitle, normalizedText);
-    if (!roleFit.allowed) {
-      evidence.push({ type: "HARD_BLOCKER", detail: roleFit.reason });
-      return { matchScore: 0, decision: "REJECT", matchedSkills, missingSkills, evidence, reason: roleFit.reason };
-    }
-    evidence.push({ type: "ROLE_FIT", detail: roleFit.reason });
-
-    const requiredYears = extractRequiredYears(normalizedText);
-    if (requiredYears !== null) {
-      if (requiredYears > profile.yearsExperience) {
-        evidence.push({ type: "HARD_BLOCKER", detail: `Job explicitly requires approximately ${requiredYears}+ years; candidate has ${profile.yearsExperience}.` });
-        return { matchScore: 0, decision: "REJECT", matchedSkills, missingSkills, evidence, reason: "Deterministic hard blocker: explicit minimum experience exceeds candidate experience." };
-      }
-      evidence.push({ type: "EXPERIENCE", detail: `Candidate meets the explicit ${requiredYears}+ year requirement.` });
+    const blocker = hardBlocker(job, title, text, geography, technicalOrientation, profile.yearsExperience, this.now);
+    if (blocker) {
+      evidence.push({ type: "HARD_BLOCKER", detail: blocker });
+      return result(0, "REJECT", matchedSkills, missingSkills, evidence, blocker, geography, technicalOrientation);
     }
 
-    const skillScore = Math.min(70, matchedSkills.length * 14);
-    const titleBonus = titleMatch ? 20 : 0;
-    const roleBonus = roleFit.frontendSignal ? 10 : 0;
-    const experienceBonus = requiredYears !== null && requiredYears <= profile.yearsExperience ? 10 : 0;
-    const locationBonus = preferredLocation(job.location, job.country) ? 5 : 0;
-    if (locationBonus > 0) evidence.push({ type: "LOCATION", detail: "Job location is aligned with Bengaluru/India/remote preferences." });
+    const experience = extractExperienceRequirement(text);
+    if (experience !== null) {
+      evidence.push({ type: "EXPERIENCE", detail: `Posting indicates approximately ${experience.min}+ years of experience.` });
+    }
+    evidence.push({ type: "ROLE_FIT", detail: technicalOrientation === "FULL_STACK" ? "Posting is a frontend-capable full-stack role." : technicalOrientation === "FRONTEND" ? "Posting has a meaningful frontend/React signal." : "Posting has a technical signal compatible with review." });
+    if (geography !== "OTHER") evidence.push({ type: "LOCATION", detail: `Geography classified as ${geography}.` });
 
-    const matchScore = Math.min(100, skillScore + titleBonus + roleBonus + experienceBonus + locationBonus);
-    let decision: JobDecision = matchScore >= this.applyThreshold ? "APPLY" : matchScore >= this.reviewThreshold ? "REVIEW" : "REJECT";
+    let score = 0;
+    score += Math.min(70, matchedSkills.length * 14);
+    score += titleMatch ? 20 : 0;
+    score += technicalOrientation === "FRONTEND" || technicalOrientation === "FULL_STACK" ? 10 : 0;
+    score += preferredLocationBonus(geography);
+    score = Math.min(100, score);
 
-    if (decision === "REJECT" && hasPreferredExperience(normalizedText) && (titleMatch || matchedSkills.length > 0)) decision = "REVIEW";
+    let decision: JobDecision = score >= this.applyThreshold ? "APPLY" : score >= this.reviewThreshold ? "REVIEW" : "REJECT";
+    if (experience && experience.min > profile.yearsExperience && experience.min <= profile.yearsExperience + 1) decision = "REVIEW";
+    if (hasPreferredExperience(text) && decision === "REJECT") decision = "REVIEW";
+    if (geography === "REMOTE_WORLDWIDE" && decision === "APPLY") decision = "REVIEW";
+    if (technicalOrientation === "BACKEND_FOCUSED" && decision === "APPLY") decision = "REVIEW";
 
-    return {
-      matchScore,
-      decision,
-      matchedSkills,
-      missingSkills,
-      evidence,
-      reason: `${matchedSkills.length} candidate skills appear in the job posting; ${titleMatch ? "target title matched" : "target title not matched"}; ${roleFit.reason}.`
-    };
+    return result(score, decision, matchedSkills, missingSkills, evidence, `${matchedSkills.length} candidate skills appear in the posting; ${technicalOrientation}; ${geography}.`, geography, technicalOrientation);
   }
 }
 
-function assessRoleFit(title: string, text: string): { allowed: boolean; frontendSignal: boolean; reason: string } {
-  if (EXCLUDED_ROLE_TITLE.test(title)) {
-    return { allowed: false, frontendSignal: false, reason: "Role title is outside the candidate's frontend/full-stack target." };
-  }
+function result(matchScore: number, decision: JobDecision, matchedSkills: string[], missingSkills: string[], evidence: MatchEvidence[], reason: string, geography: MatchGeography, technicalOrientation: TechnicalOrientation): DeterministicMatchResult {
+  return { matchScore, decision, matchedSkills, missingSkills, evidence, reason, geography, technicalOrientation };
+}
 
-  const frontendSignal = FRONTEND_ROLE_SIGNAL.test(title) || STRONG_FRONTEND_SIGNAL.test(text);
-  if (BACKEND_ONLY_TITLE.test(title) && !/\breact|next\.js|nextjs|frontend|front-end|front end\b/i.test(text)) {
-    return { allowed: false, frontendSignal: false, reason: "Backend-only role has no meaningful React/Next.js/frontend signal." };
-  }
+function hardBlocker(job: JobOpportunity, title: string, text: string, geography: MatchGeography, orientation: TechnicalOrientation, candidateYears: number, now: Date): string | null {
+  if (/octopus technologies|sketch brahma technologies/i.test(job.companyName)) return "Company is explicitly excluded from applications.";
+  if (EXCLUDED_ROLE_TITLE.test(title)) return "Role title is outside the candidate's frontend/full-stack target.";
+  if (MOBILE_TITLE.test(title) || (/react native/.test(text) && !REACT_WEB.test(text))) return "Role is primarily React Native/mobile rather than React web.";
+  if (PRIMARY_FRONTEND_FRAMEWORK.test(title) || (PRIMARY_FRONTEND_FRAMEWORK.test(text) && !REACT_WEB.test(text))) return "Posting is primarily Vue, Angular or Svelte rather than React/Next.js.";
+  if (orientation === "BACKEND_FOCUSED" && !REACT_WEB.test(text)) return "Backend-focused role has no meaningful React/Next.js frontend signal.";
+  if (geography === "REMOTE_RESTRICTED") return "Remote geography is explicitly restricted to a country outside the candidate's India eligibility.";
+  if (job.workplaceType !== "remote" && isClearlyForeignOnsite(job.location, job.country)) return "Onsite/hybrid geography is outside the candidate's India/Bengaluru eligibility.";
+  const experience = extractExperienceRequirement(text);
+  if (experience && experience.min > candidateYears + 1) return `Posting requires approximately ${experience.min}+ years; candidate has ${candidateYears}.`;
+  if (job.postedAt && now.getTime() - job.postedAt.getTime() > 180 * 24 * 60 * 60 * 1000) return "Posting is clearly historical and outside the active-job window.";
+  return null;
+}
 
-  if (!frontendSignal) {
-    return { allowed: false, frontendSignal: false, reason: "Posting does not contain a meaningful frontend/React/full-stack signal." };
-  }
+function classifyTechnicalOrientation(title: string, text: string): TechnicalOrientation {
+  const react = REACT_WEB.test(text);
+  const frontend = FRONTEND_TITLE.test(title) || /\b(frontend|front-end|front end|ui|user interface|web application)\b/i.test(text);
+  const fullStack = FULL_STACK_TITLE.test(title) || /\b(full[- ]stack|fullstack)\b/i.test(text);
+  const backend = BACKEND_TITLE.test(title) || /\b(backend|back-end|back end|apis?|queues|microservices|integrations?)\b/i.test(text);
+  if (fullStack && (react || frontend)) return "FULL_STACK";
+  if (frontend || react) return "FRONTEND";
+  if (backend) return "BACKEND_FOCUSED";
+  return "OTHER";
+}
 
-  return { allowed: true, frontendSignal: true, reason: "Posting contains a meaningful frontend/React/full-stack signal." };
+function classifyGeography(job: JobOpportunity, text: string): MatchGeography {
+  const value = normalize(`${job.location ?? ""} ${job.country ?? ""} ${text}`);
+  if (job.workplaceType === "remote" && RESTRICTED_REMOTE.test(value) && !INDIA.test(value)) return "REMOTE_RESTRICTED";
+  if (/\bbengaluru\b|\bbangalore\b/i.test(value)) return "BENGALURU";
+  if (INDIA.test(value)) return "INDIA";
+  if (job.workplaceType === "remote" && WORLDWIDE_REMOTE.test(value)) return "REMOTE_WORLDWIDE";
+  if (job.workplaceType === "remote") return "REMOTE_INDIA_ELIGIBLE";
+  return "OTHER";
+}
+
+function isClearlyForeignOnsite(location: string | null, country: string | null): boolean {
+  const value = normalize(`${location ?? ""} ${country ?? ""}`);
+  if (!value) return false;
+  return /\b(usa|u\.s\.|united states|uk|u\.k\.|united kingdom|canada|australia|germany|france|singapore|japan|dubai|uae)\b/i.test(value) && !INDIA.test(value);
+}
+
+function preferredLocationBonus(geography: MatchGeography): number {
+  return geography === "BENGALURU" ? 5 : geography === "INDIA" || geography === "REMOTE_INDIA_ELIGIBLE" ? 3 : 0;
 }
 
 function normalize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9+#.]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function compact(value: string): string {
-  return value.replace(/[^a-z0-9]+/g, "");
-}
-
-function containsPhrase(text: string, term: string): boolean {
-  if (!term) return false;
-  return (` ${text} `).includes(` ${term} `);
-}
-
+function compact(value: string): string { return value.replace(/[^a-z0-9]+/g, ""); }
+function containsPhrase(text: string, term: string): boolean { return !!term && (` ${text} `).includes(` ${term} `); }
 function containsSkill(text: string, skill: string): boolean {
   const normalizedSkill = normalize(skill);
   const aliases = SKILL_ALIASES[normalizedSkill] ?? [normalizedSkill];
   const compactText = compact(text);
-  return aliases.some((alias) => {
-    const normalizedAlias = normalize(alias);
-    return containsPhrase(text, normalizedAlias) || compactText.includes(compact(normalizedAlias));
-  });
+  return aliases.some((alias) => containsPhrase(text, normalize(alias)) || compactText.includes(compact(normalize(alias))));
 }
 
-function preferredLocation(location: string | null, country: string | null): boolean {
-  const value = normalize(`${location ?? ""} ${country ?? ""}`);
-  return /\bbengaluru\b|\bbangalore\b|\bindia\b|\bremote\b/.test(value);
+function extractExperienceRequirement(text: string): { min: number } | null {
+  const values: number[] = [];
+  const patterns = [
+    /(?:minimum|at least|required|must have)\s+(\d+(?:\.\d+)?)\s*\+?\s*years?(?:\s+of)?(?:\s+[a-z-]+){0,3}\s+experience/g,
+    /(\d+(?:\.\d+)?)\s*\+\s*years?(?:\s*[-–]\s*(\d+(?:\.\d+)?)\s*\+?)?\s*(?:years?)?(?:\s+[a-z-]+){0,4}\s+(?:experience|exp)/g,
+    /experience\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*\+\s*years?/g
+  ];
+  for (const pattern of patterns) for (const match of text.matchAll(pattern)) {
+    const min = Number(match[1]);
+    if (Number.isFinite(min)) values.push(min);
+  }
+  return values.length ? { min: Math.max(...values) } : null;
 }
 
 function hasPreferredExperience(text: string): boolean {
-  return /\d+(?:\.\d+)?\s*\+?\s*years?(?:\s+of)?\s+experience\s+(?:preferred|desired|nice\s+to\s+have)/.test(text);
+  return /\d+(?:\.\d+)?\s*\+?\s*years?(?:\s+of)?\s+experience\s+(?:preferred|desired|nice\s+to\s+have)/i.test(text);
 }
 
-function extractRequiredYears(text: string): number | null {
-  const matches = [
-    ...text.matchAll(/(?:minimum|at least|required|must have)\s+(\d+(?:\.\d+)?)\s*\+?\s*years?(?:\s+of)?\s+experience/g),
-    ...text.matchAll(/(\d+(?:\.\d+)?)\s*\+\s*years?\s+(?:of\s+)?experience\s+(?:required|mandatory|minimum)/g),
-    ...text.matchAll(/(?:experience|exp)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*\+\s*years?/g)
-  ];
-  const years = matches.map((match) => Number(match[1])).filter((value) => Number.isFinite(value));
-  return years.length > 0 ? Math.max(...years) : null;
-}
+const SKILL_ALIASES: Record<string, string[]> = {
+  "react.js": ["react", "reactjs", "react.js"], react: ["react", "reactjs", "react.js"],
+  "next.js": ["next", "nextjs", "next.js", "next js"], nextjs: ["next", "nextjs", "next.js", "next js"],
+  "node.js": ["node", "nodejs", "node.js", "node js"], node: ["node", "nodejs", "node.js", "node js"],
+  "express.js": ["express", "expressjs", "express.js", "express js"], express: ["express", "expressjs", "express.js", "express js"],
+  javascript: ["javascript", "js", "ecmascript"], js: ["javascript", "js", "ecmascript"],
+  typescript: ["typescript", "ts"], ts: ["typescript", "ts"],
+  "react testing library": ["react testing library", "rtl"], rtl: ["react testing library", "rtl"],
+  "redux toolkit": ["redux toolkit", "@reduxjs/toolkit"], "tailwind css": ["tailwind css", "tailwind"],
+  mongodb: ["mongodb", "mongo db", "mongo"], postgresql: ["postgresql", "postgres", "postgre sql"], postgres: ["postgresql", "postgres", "postgre sql"]
+};
