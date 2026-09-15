@@ -235,7 +235,7 @@ describe("RssJobSource", () => {
     jest.mocked(global.fetch)
       .mockResolvedValueOnce(response(rssXml(RSS_DESCRIPTION)))
       .mockImplementationOnce((_url, init) => {
-        detailSignal = init?.signal;
+        detailSignal = init?.signal ?? undefined;
         return new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
         });
