@@ -30,6 +30,7 @@ const COMPETING_FRAMEWORK = /\b(vue(?:\.js)?|angular(?:\.js)?|svelte(?:\.js)?|em
 const COMPETING_PRIMARY = /\b(?:deep knowledge of|deep expertise in|expert(?:ise)? in|primary (?:frontend )?framework(?: is|:)?|must have|must be proficient in|strong experience with|extensive experience with)\s+(?:vue(?:\.js)?|angular(?:\.js)?|svelte(?:\.js)?|ember(?:\.js)?|solid(?:\.js)?)\b/i;
 const RESTRICTED_REMOTE = /\b(?:remote|work from home|wfh)\s*(?:[-,:()]\s*)?(?:in|from|within)?\s*(?:the\s+)?(?:usa|u\.s\.a?\.?|united states(?: of america)?|uk|u\.k\.?|united kingdom|canada|australia)\b|\b(?:usa|united states|uk|united kingdom|canada|australia)\s+(?:only|based|based only)\b|\b(?:only|must be based in|based in)\s+(?:the\s+)?(?:usa|united states|uk|united kingdom|canada|australia)\b|\bremote\s+within\s+(?:the\s+)?(?:eu|european union)\b/i;
 const FOREIGN_LOCATION = /\b(?:usa|u\.s\.a?\.?|united states|uk|u\.k\.?|united kingdom|canada|australia|germany|berlin|france|paris|poland|ukraine|philippines|brazil|europe|eastern europe)\b/i;
+const WORLDWIDE_REMOTE = /\b(?:worldwide|global|anywhere in the world|work from anywhere)\s+remote\b|\bremote\s+(?:worldwide|globally|anywhere)\b/i;
 
 export class DeterministicJobMatcher {
   private readonly applyThreshold: number; private readonly reviewThreshold: number; private readonly now: () => Date;
@@ -65,7 +66,6 @@ export class DeterministicJobMatcher {
     return { matchScore: score, decision, matchedSkills, missingSkills, evidence, reason: `${matchedSkills.length} skills matched; role=${technicalOrientation}; geography=${geography}; seniority=${seniority}; freshness=${freshness}.`, geography, freshness, seniority, technicalOrientation };
   }
 }
-
 function normalize(value: string): string { return value.toLowerCase().replace(/[–—]/g, "-").replace(/[^a-z0-9+#.\-]+/g, " ").replace(/\s+/g, " ").trim(); }
 function compact(value: string): string { return normalize(value).replace(/[^a-z0-9]+/g, ""); }
 function containsPhrase(text: string, term: string): boolean { return Boolean(term) && (` ${text} `).includes(` ${term} `); }
@@ -79,9 +79,9 @@ function classifyTechnicalOrientation(title: string, text: string): TechnicalOri
 }
 function competingFrameworkIsPrimary(text: string): boolean { if (!COMPETING_FRAMEWORK.test(text)) return false; const react = (text.match(/\breact(?:\.js|js)?\b/gi) ?? []).length; const next = (text.match(/\bnext(?:\.js|js)?\b/gi) ?? []).length; return react + next === 0 || (COMPETING_PRIMARY.test(text) && react + next <= 2); }
 function classifyGeography(job: JobOpportunity): MatchGeography {
-  const location = normalize(`${job.location ?? ""} ${job.country ?? ""}`); const description = normalize(job.description); const all = `${location} ${normalize(job.title)} ${description}`;
+  const location = normalize(`${job.location ?? ""} ${job.country ?? ""}`); const description = normalize(job.description); const title = normalize(job.title); const all = `${location} ${title} ${description}`;
   const remote = job.workplaceType === "remote" || /\bremote\b|\bwork from home\b|\bwfh\b/i.test(all); const india = /\bindia\b|\bindian\b/i.test(location) || /\bremote (?:in|from|within) india\b|\bindia[- ]eligible\b|\bindia based\b/i.test(description); const bengaluru = /\bbengaluru\b|\bbangalore\b/i.test(location); const restricted = RESTRICTED_REMOTE.test(all); const foreign = FOREIGN_LOCATION.test(location);
-  if (bengaluru) return "BENGALURU"; if (remote && india && !restricted) return "REMOTE_INDIA_ELIGIBLE"; if (remote && restricted && !india) return "REMOTE_RESTRICTED"; if (remote) return "REMOTE_WORLDWIDE"; if (india) return "INDIA_OTHER"; if (job.workplaceType === "onsite" && foreign) return "FOREIGN_ONSITE"; if (job.workplaceType === "hybrid" && foreign) return "FOREIGN_HYBRID"; return "UNKNOWN";
+  if (bengaluru) return "BENGALURU"; if (remote && india && !restricted) return "REMOTE_INDIA_ELIGIBLE"; if (remote && restricted && !india) return "REMOTE_RESTRICTED"; if (remote && WORLDWIDE_REMOTE.test(all)) return "REMOTE_WORLDWIDE"; if (remote) return "UNKNOWN"; if (india) return "INDIA_OTHER"; if (job.workplaceType === "onsite" && foreign) return "FOREIGN_ONSITE"; if (job.workplaceType === "hybrid" && foreign) return "FOREIGN_HYBRID"; return "UNKNOWN";
 }
 function classifyFreshness(postedAt: Date | null, now: Date): MatchFreshness { if (!postedAt) return "UNKNOWN"; const days = Math.max(0, (now.getTime() - postedAt.getTime()) / 86_400_000); if (days <= 7) return "VERY_RECENT"; if (days <= 30) return "RECENT"; if (days <= 90) return "MODERATELY_OLD"; if (days <= 365) return "STALE"; return "HISTORICAL"; }
 function classifySeniority(title: string, text: string, years: number): MatchSeniority { if (MANAGER_TITLE.test(title)) return "MANAGER"; if (PRINCIPAL_TITLE.test(title)) return "PRINCIPAL"; if (STAFF_TITLE.test(title)) return "STAFF"; if (LEAD_TITLE.test(title)) return "LEAD"; const range = extractExperienceRange(text); const required = extractRequiredYears(text); if (range) return range.max <= 4 && range.min <= years ? "SENIOR_COMPATIBLE" : "SENIOR_HIGH"; if (required !== null) return required >= 4 ? "SENIOR_HIGH" : "MID"; if (/\b(junior|jr\.?|associate|entry[- ]level)\b/i.test(title)) return "JUNIOR_ASSOCIATE"; if (/\bsenior\b/i.test(title)) return years >= 2 && years <= 4 ? "SENIOR_COMPATIBLE" : "SENIOR_HIGH"; if (/\b(mid|middle|intermediate)\b/i.test(title)) return "MID"; return "UNKNOWN"; }
