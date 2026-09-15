@@ -1,5 +1,6 @@
 import { Job } from "../domain/Job";
 import { JobSource } from "./JobSource";
+import { JobDetailEnricher } from "./JobDetailEnricher";
 import { RssJobSource } from "./RssJobSource";
 
 export interface FreePublicJobFeed { readonly id: string; readonly url: string; readonly defaultCompanyName?: string; }
@@ -55,6 +56,7 @@ export const FREE_PUBLIC_JOB_FEEDS: readonly FreePublicJobFeed[] = [
 ];
 
 const FEED_CONCURRENCY = 4;
+const DETAIL_ENRICHER = new JobDetailEnricher({ concurrency: 4 });
 
 export class FreePublicJobFeedBundleSource implements JobSource {
   readonly name = "free-public-job-feeds";
@@ -63,7 +65,7 @@ export class FreePublicJobFeedBundleSource implements JobSource {
     const results = await mapWithConcurrency(this.feeds, FEED_CONCURRENCY, async (feed) => {
       if (signal?.aborted) return [];
       try {
-        return await new RssJobSource({ name: feed.id, feedUrl: feed.url, defaultCompanyName: feed.defaultCompanyName }).fetchJobs(signal);
+        return await new RssJobSource({ name: feed.id, feedUrl: feed.url, defaultCompanyName: feed.defaultCompanyName, detailEnricher: DETAIL_ENRICHER }).fetchJobs(signal);
       } catch {
         return [];
       }

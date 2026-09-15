@@ -2,22 +2,28 @@ import { createHash } from "node:crypto";
 import { AppError } from "../../shared/errors/AppError";
 import { Job } from "../domain/Job";
 import { JobSource } from "./JobSource";
+import { JobDetailEnricher } from "./JobDetailEnricher";
 
-export interface RssJobSourceOptions { name: string; feedUrl: string; defaultCompanyName?: string; }
+export interface RssJobSourceOptions { name: string; feedUrl: string; defaultCompanyName?: string; detailEnricher?: JobDetailEnricher; }
 interface RssItem { id: string; title: string; link: string; description: string; companyName: string | null; publishedAt: Date | null; location: string | null; }
 
 export class RssJobSource implements JobSource {
   readonly name: string;
-  constructor(private readonly options: RssJobSourceOptions) { this.name = options.name; }
+  private readonly detailEnricher: JobDetailEnricher;
+  constructor(private readonly options: RssJobSourceOptions) {
+    this.name = options.name;
+    this.detailEnricher = options.detailEnricher ?? new JobDetailEnricher();
+  }
   async fetchJobs(signal?: AbortSignal): Promise<Job[]> {
     const response = await fetch(this.options.feedUrl, { signal, headers: { accept: "application/rss+xml, application/atom+xml, application/xml, text/xml", "user-agent": "Mozilla/5.0 (compatible; JobAgent/0.1; +https://github.com/7vTr0x7/agent)" } });
     if (!response.ok) throw new AppError(`RSS request failed: ${response.status}`, { code: "JOB_SOURCE_REQUEST_FAILED", statusCode: response.status });
     const items = parseRssItems(await response.text());
-    return items.map(item => this.normalize(item));
+    const jobs = items.map(item => this.normalize(item));
+    return this.detailEnricher.enrichJobs(jobs, signal);
   }
   private normalize(item: RssItem): Job {
     const description = stripHtml(item.description);
-    if (!item.id || !item.title || !item.link || !description) throw new AppError("RSS feed returned an incomplete job posting", { code: "JOB_SOURCE_INVALID_DATA", statusCode: 502 });
+    if (!item.id || !item.title || !item.link) throw new AppError("RSS feed returned an incomplete job posting", { code: "JOB_SOURCE_INVALID_DATA", statusCode: 502 });
     const location = item.location?.trim() || null;
     const companyName = item.companyName?.trim() || extractEmployerName(item.title, description) || this.options.defaultCompanyName?.trim() || "Unknown";
     const contentHash = createHash("sha256").update([this.name, item.id, item.title, item.link, description].join("|")).digest("hex");
@@ -36,7 +42,7 @@ function parseRssItems(xml: string): RssItem[] {
     const publishedRaw = readTag(block, "pubDate") ?? readTag(block, "published") ?? readTag(block, "updated");
     const publishedAt = publishedRaw ? new Date(decodeXml(publishedRaw).trim()) : null;
     const location = decodeXml(readTag(block, "location") ?? "").trim() || null;
-    if (!title || !description || !link) return [];
+    if (!title || !link) return [];
     return [{ id: guid || `${index}:${link}`, title, link, description, companyName: creator, publishedAt: publishedAt && !Number.isNaN(publishedAt.getTime()) ? publishedAt : null, location }];
   });
 }
