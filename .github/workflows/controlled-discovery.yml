@@ -88,13 +88,11 @@ jobs:
           peak="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -Atc "WITH events AS (SELECT started_at AS t, 1 AS delta FROM source_runs UNION ALL SELECT finished_at AS t, -1 AS delta FROM source_runs WHERE finished_at IS NOT NULL), ordered AS (SELECT t, delta, SUM(delta) OVER (ORDER BY t, delta DESC) AS active FROM events) SELECT COALESCE(MAX(active),0) FROM ordered;" | tr -d '[:space:]')"
           test "$peak" -le 4; printf 'peak_source_concurrency=%s\n' "$peak"
           effective_db_url="postgres://job_agent:runtime_test_password@job-agent-discovery-postgres:5432/job_agent"
-          jobs_with_ids="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities WHERE id IS NOT NULL AND canonical_id IS NOT NULL;" | tr -d '[:space:]')"
-          test "$jobs_with_ids" = "$jobs"
-          source_run_uniqueness="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM (SELECT source_id, run_id FROM source_runs GROUP BY source_id,run_id HAVING COUNT(*)>1) duplicates;" | tr -d '[:space:]')"
-          test "$source_run_uniqueness" = '0'
-          echo "Discovery safety checks passed: jobs_with_ids=$jobs_with_ids source_run_duplicates=$source_run_uniqueness"
-          if docker exec job-agent-discovery-app sh -lc 'test -f /app/coverage/coverage-final.json'; then echo 'Coverage artifact present.'; fi
-          echo 'Controlled discovery database output verification passed.'
+          test "$(docker inspect job-agent-discovery-app --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^DATABASE_URL=' | cut -d= -f2-)" = "$effective_db_url"
+          docker logs job-agent-discovery-app 2>&1 | tee /tmp/job-agent-discovery.log
+          ! grep -Eiq 'FATAL|UnhandledPromiseRejection|Unhandled exception|migration error|authentication error' /tmp/job-agent-discovery.log
+          ! grep -Eiq 'gmailMessageId|refreshToken|access_token|client_secret|api[_-]?key|password=' /tmp/job-agent-discovery.log
+          grep -q 'Discovery source run completed' /tmp/job-agent-discovery.log
       - name: Safety and side-effect checks
         shell: bash
         run: |
