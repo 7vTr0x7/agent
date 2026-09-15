@@ -18,7 +18,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(results[0]?.email).toBe("jane@example.com");
     expect(results[0]?.emailStatus).toBe("UNVERIFIED");
     expect(results[0]?.discoverySource).toBe("public-web");
-    expect(results[0]?.evidenceFreshness).toBe("unknown");
+    expect(results[0]?.evidenceFreshness).toBe("current");
   });
 
   it("corroborates employer domain only when employer text and public email domain agree", async () => {
