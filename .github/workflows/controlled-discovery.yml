@@ -59,7 +59,7 @@ jobs:
           if [ "$migrations_ready" -ne 1 ]; then docker logs job-agent-discovery-app || true; docker logs job-agent-discovery-postgres || true; exit 1; fi
           latest_migration="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc 'SELECT name FROM schema_migrations ORDER BY id DESC LIMIT 1;' | tr -d '[:space:]')"
           echo "latest_migration=$latest_migration"
-          test "$latest_migration" = '038_phase10_activation_safety.sql'
+          test "$latest_migration" = '039_recruiter_hiring_evidence_relevance.sql'
           expected_sources=14
           for i in $(seq 1 4800); do
             completed="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(DISTINCT source_id) FROM source_runs WHERE status <> 'RUNNING';" 2>/dev/null | tr -d '[:space:]' || true)"
@@ -93,8 +93,31 @@ jobs:
           ! grep -Eiq 'FATAL|UnhandledPromiseRejection|Unhandled exception|migration error|authentication error' /tmp/job-agent-discovery.log
           ! grep -Eiq 'gmailMessageId|refreshToken|access_token|client_secret|api[_-]?key|password=' /tmp/job-agent-discovery.log
           grep -q 'Discovery source run completed' /tmp/job-agent-discovery.log
+      - name: Safety and side-effect checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          sent="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';" | tr -d '[:space:]')"
+          submitted="$(docker exec job-agent-discovery-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications WHERE status IN ('SUBMITTED','IN_PROGRESS');" | tr -d '[:space:]')"
+          test "$sent" = '0'
+          test "$submitted" = '0'
+          echo "Side-effect safety passed: sent=$sent submitted=$submitted"
+      - name: Save runtime logs
+        if: always()
+        run: |
+          docker logs job-agent-discovery-app > controlled-discovery-app.log 2>&1 || true
+          docker logs job-agent-discovery-postgres > controlled-discovery-postgres.log 2>&1 || true
+      - name: Upload runtime logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: controlled-discovery-logs
+          path: |
+            controlled-discovery-app.log
+            controlled-discovery-postgres.log
       - name: Cleanup
         if: always()
         run: |
-          docker rm -f job-agent-discovery-app job-agent-discovery-postgres >/dev/null 2>&1 || true
+          docker rm -f job-agent-discovery-app >/dev/null 2>&1 || true
+          docker rm -f job-agent-discovery-postgres >/dev/null 2>&1 || true
           docker network rm job-agent-discovery >/dev/null 2>&1 || true
