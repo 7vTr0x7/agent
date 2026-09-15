@@ -269,7 +269,8 @@ describe("RssJobSource", () => {
     expect(after.matchScore).toBeGreaterThan(before.matchScore);
     expect(after.matchedSkills.length).toBeGreaterThan(before.matchedSkills.length);
     expect(after.matchedSkills).toEqual(expect.arrayContaining(["React", "Next.js", "TypeScript"]));
-    expect(after.evidence.length).toBeGreaterThan(before.evidence.length);
+    expect(before.evidence.some((entry) => entry.type === "SKILL_GAP")).toBe(true);
+    expect(after.evidence.some((entry) => entry.type === "SKILL_MATCH" && entry.detail.includes("React"))).toBe(true);
     expect(after.decision).toBe("APPLY");
   });
 });
