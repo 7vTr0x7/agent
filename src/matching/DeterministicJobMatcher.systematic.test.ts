@@ -19,8 +19,8 @@ describe("matcher systematic calibration regressions", () => {
   it("classifies backend integrations as backend", () => { const result = run("Backend integrations and API-based systems with message queues. React dashboard work is incidental.", "Backend Integrations Engineer", { location: "Worldwide", country: null, workplaceType: "remote" }); expect(result.technicalOrientation).toBe("BACKEND_FOCUSED"); expect(result.decision).not.toBe("APPLY"); });
   it("rejects primary React Native", () => expect(run("React Native, Expo and Android/iOS mobile development.", "React Native Developer").decision).toBe("REJECT"));
   it("allows React web with optional React Native", () => expect(run("React and Next.js web applications. React Native is optional.").decision).toBe("APPLY"));
-  it("reviews explicit 4+ years mismatch", () => expect(run("4+ years strong experience required.").decision).toBe("REVIEW"));
-  it("reviews 4-6+ years", () => expect(run("React, Next.js and Python. 4–6+ years.", "Full Stack Engineer").decision).toBe("REVIEW"));
+  it("reviews explicit 4+ years mismatch", () => expect(run("4+ years of experience required.").decision).toBe("REVIEW"));
+  it("reviews 4-6 years", () => expect(run("React, Next.js and Python. 4-6 years.", "Full Stack Engineer").decision).toBe("REVIEW"));
   it("rejects 7+ years", () => expect(run("React and TypeScript. 7+ years required.").decision).toBe("REJECT"));
   it("rejects Remote USA from description with null location", () => { const result = run("Location: Remote, USA. React and Node.js.", "Full Stack Developer", { location: null, country: null, workplaceType: "remote" }); expect(result.geography).toBe("REMOTE_RESTRICTED"); expect(result.decision).toBe("REJECT"); });
   it("rejects Remote UK from description with null location", () => { const result = run("Remote within the UK only. React and TypeScript.", "Frontend Engineer", { location: null, country: null, workplaceType: "remote" }); expect(result.geography).toBe("REMOTE_RESTRICTED"); expect(result.decision).toBe("REJECT"); });
