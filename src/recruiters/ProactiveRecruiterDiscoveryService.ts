@@ -2,187 +2,52 @@ import { ProactiveRecruiterRoleMatcher, CandidateProfileLike } from "./Proactive
 import { RecruiterVerificationEvidence } from "./RecruiterDiscovery";
 
 export interface ProactiveRecruiterDiscoveryCandidate {
-  recruiterName: string;
-  recruiterRole: string;
-  employer: string;
-  employerDomain?: string;
-  targetRoles: string[];
-  roleMatchScore: number;
-  hiringEvidenceScore: number;
-  overallConfidence: number;
-  discoverySource: "public-web";
-  discoveryUrl: string;
-  discoveryEvidence: string[];
-  evidenceType: "public_profile" | "job_hiring_evidence";
-  evidenceDate: string;
-  evidenceFreshness: "current" | "recent" | "historical" | "unknown";
-  email?: string;
-  emailStatus: "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID";
-  verificationEvidence?: RecruiterVerificationEvidence[];
+  recruiterName: string; recruiterRole: string; employer: string; employerDomain?: string; targetRoles: string[]; roleMatchScore: number; hiringEvidenceScore: number; overallConfidence: number;
+  discoverySource: "public-web"; discoveryUrl: string; discoveryEvidence: string[]; evidenceType: "public_profile" | "job_hiring_evidence"; evidenceDate: string;
+  evidenceFreshness: "current" | "recent" | "historical" | "unknown"; email?: string; emailStatus: "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID"; verificationEvidence?: RecruiterVerificationEvidence[];
 }
-
 export interface ProactiveRecruiterDiscoveryMetrics {
-  queriesGenerated:number; queriesExecuted:number; queriesSucceeded:number; queriesFailed:number; responsesEmpty:number;
-  rawSearchResults:number; urlsExtracted:number; linkedinUrlsExtracted:number; publicProfileUrlsExtracted:number;
-  profileFetchAttempts:number; profilesFetched:number; profilesFetchFailures:number; profilesParsed:number; profilesParseFailures:number;
-  profileFetchFailureReasons:Record<string,number>; profileParseFailureReasons:Record<string,number>;
-  recruiterRoleMatches:number; recruiterEvidenceMatches:number; companyValidated:number; identityValidated:number;
-  relevanceAccepted:number; hiringEvidenceAccepted:number; hiringCurrent:number; hiringRecent:number; hiringHistorical:number; hiringUnknown:number;
+  queriesGenerated:number; queriesExecuted:number; queriesSucceeded:number; queriesFailed:number; responsesEmpty:number; rawSearchResults:number; urlsExtracted:number; linkedinUrlsExtracted:number; publicProfileUrlsExtracted:number;
+  profileFetchAttempts:number; profilesFetched:number; profilesFetchFailures:number; profilesParsed:number; profilesParseFailures:number; profileFetchFailureReasons:Record<string,number>; profileParseFailureReasons:Record<string,number>;
+  recruiterRoleMatches:number; recruiterEvidenceMatches:number; companyValidated:number; identityValidated:number; relevanceAccepted:number; hiringEvidenceAccepted:number; hiringCurrent:number; hiringRecent:number; hiringHistorical:number; hiringUnknown:number;
   duplicates:number; finalDiscovered:number; rejectionReasons:Record<string,number>;
   sourceStats:Record<string,{attempted:number;succeeded:number;empty:number;timeouts:number;http403:number;http429:number;http5xx:number;otherHttpErrors:number;rawResults:number;urls:number;candidates:number;duplicates:number}>;
 }
-
-export interface ProactiveRecruiterDiscoveryOptions {
-  fetchText?: (url:string,signal?:AbortSignal,headers?:Record<string,string>)=>Promise<string|null>;
-  now?:()=>Date; maxQueries?:number; targetCandidates?:number; signal?:AbortSignal;
-}
-
+export interface ProactiveRecruiterDiscoveryOptions { fetchText?: (url:string,signal?:AbortSignal,headers?:Record<string,string>)=>Promise<string|null>; now?:()=>Date; maxQueries?:number; targetCandidates?:number; signal?:AbortSignal; }
 type SourceId="google-jina"|"bing-jina"|"duckduckgo-jina"|"startpage-jina"|"ecosia-jina"|"jina-search"|"brave-api"|"mojeek-api"|"brave-direct"|"mojeek-direct"|"qwant-direct"|"yahoo-direct";
-interface Source{id:SourceId;url:string;headers?:Record<string,string>}
-interface FetchResult{text:string|null;status?:number;timedOut?:boolean}
-
-const SEARCH_CONCURRENCY=4, PROFILE_CONCURRENCY=4, TIMEOUT=8000, RETRIES=2, JINA_READER_GAP_MS=3100, DEFAULT_MAX_QUERIES=18, DEFAULT_TARGET_CANDIDATES=8;
+interface Source{id:SourceId;url:string;headers?:Record<string,string>} interface FetchResult{text:string|null;status?:number;timedOut?:boolean}
+const SEARCH_CONCURRENCY=4,PROFILE_CONCURRENCY=4,TIMEOUT=8000,RETRIES=2,JINA_READER_GAP_MS=3100,DEFAULT_MAX_QUERIES=18,DEFAULT_TARGET_CANDIDATES=8;
 const GENERIC_EMAIL_DOMAINS=new Set(["gmail.com","outlook.com","hotmail.com","yahoo.com","icloud.com","proton.me","protonmail.com"]);
 const CURRENT_HIRING_EVIDENCE=/currently hiring|actively hiring|hiring now|we(?:'re| are) hiring|open roles|open positions|urgent hiring|immediate hiring|hiring for|looking for .* (?:engineers?|developers?|talent)/i;
 const RECENT_HIRING_EVIDENCE=/last week|last month|recently|recent hiring|2026|2025|\b\d+\s*(?:days?|weeks?|months?)\s*ago/i;
 const RECRUITING=/(recruiter|recruiting|talent acquisition|talent partner|talent sourcer|technical sourcer|hiring manager|human resources|\bhr\b|staffing|hiring|recruitment)/i;
 const NON_RECRUITING=/(customer support|technical support|sales|billing|privacy|legal|security|press|media|partnerships?|helpdesk|procurement|accounting|finance|customer success|marketing)/i;
 const LI_PROFILE=/https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+(?:[/?#][^\s<>)]*)?/gi;
-const URL_PATTERN=/https?:\/\/[^\s<>\]\[()"']+/gi, EMAIL_PATTERN=/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+const URL_PATTERN=/https?:\/\/[^\s<>\]\[()"']+/gi,EMAIL_PATTERN=/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const PROFILE_PATH=/\/(?:in|talent|people|person|profile|profiles|team|staff|experts?|consultants?|recruiters?)\//i;
 const SEARCH_HOSTS=new Set(["google.com","www.google.com","bing.com","www.bing.com","duckduckgo.com","html.duckduckgo.com","startpage.com","www.startpage.com","ecosia.org","www.ecosia.org","qwant.com","www.qwant.com","search.yahoo.com","search.brave.com","www.mojeek.com"]);
 const INFRASTRUCTURE_PAGE=/(?:^|\b)(?:forbidden markdown content|access denied|too many requests|rate limit exceeded|request blocked|robot check|verify you are human|captcha required|unusual traffic|automated queries|enable javascript|just a moment|checking your browser)(?:\b|$)/i;
 let jinaReaderNextAt=0;
-
-const emptyMetrics=():ProactiveRecruiterDiscoveryMetrics=>({
-  queriesGenerated:0,queriesExecuted:0,queriesSucceeded:0,queriesFailed:0,responsesEmpty:0,rawSearchResults:0,urlsExtracted:0,linkedinUrlsExtracted:0,publicProfileUrlsExtracted:0,
-  profileFetchAttempts:0,profilesFetched:0,profilesFetchFailures:0,profilesParsed:0,profilesParseFailures:0,profileFetchFailureReasons:{},profileParseFailureReasons:{},
-  recruiterRoleMatches:0,recruiterEvidenceMatches:0,companyValidated:0,identityValidated:0,relevanceAccepted:0,hiringEvidenceAccepted:0,hiringCurrent:0,hiringRecent:0,hiringHistorical:0,hiringUnknown:0,
-  duplicates:0,finalDiscovered:0,rejectionReasons:{},sourceStats:{}
-});
-
-const DEFAULT_FETCH=async(url:string,signal?:AbortSignal,headers?:Record<string,string>):Promise<FetchResult>=>{
-  const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),TIMEOUT); const onAbort=():void=>controller.abort(); signal?.addEventListener("abort",onAbort,{once:true});
-  try {
-    const response=await fetch(url,{signal:controller.signal,redirect:"follow",headers:{accept:"application/json,text/plain,text/html,application/xhtml+xml,*/*;q=0.8","user-agent":"Mozilla/5.0 (compatible; job-agent-proactive-recruiter/9.0)",...(headers??{})}});
-    return {text:response.ok?await response.text():null,status:response.status};
-  } catch(error) { return {text:null,timedOut:error instanceof Error&&error.name==="AbortError"}; }
-  finally { clearTimeout(timer); signal?.removeEventListener("abort",onAbort); }
-};
-
-const stripHtml=(value:string):string=>value
-  .replace(/<((?:https?:\/\/)[^>]+)>/gi," $1 ")
-  .replace(/<script[\s\S]*?<\/script>/gi," ").replace(/<style[\s\S]*?<\/style>/gi," ").replace(/<noscript[\s\S]*?<\/noscript>/gi," ")
-  .replace(/<[^>]+>/g," ").replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/&quot;/gi,'"').replace(/&#64;|&#x40;/gi,"@").replace(/&#46;|&#x2e;/gi,".")
-  .replace(/\s+/g," ").trim();
-
+const emptyMetrics=():ProactiveRecruiterDiscoveryMetrics=>({queriesGenerated:0,queriesExecuted:0,queriesSucceeded:0,queriesFailed:0,responsesEmpty:0,rawSearchResults:0,urlsExtracted:0,linkedinUrlsExtracted:0,publicProfileUrlsExtracted:0,profileFetchAttempts:0,profilesFetched:0,profilesFetchFailures:0,profilesParsed:0,profilesParseFailures:0,profileFetchFailureReasons:{},profileParseFailureReasons:{},recruiterRoleMatches:0,recruiterEvidenceMatches:0,companyValidated:0,identityValidated:0,relevanceAccepted:0,hiringEvidenceAccepted:0,hiringCurrent:0,hiringRecent:0,hiringHistorical:0,hiringUnknown:0,duplicates:0,finalDiscovered:0,rejectionReasons:{},sourceStats:{}});
+const DEFAULT_FETCH=async(url:string,signal?:AbortSignal,headers?:Record<string,string>):Promise<FetchResult>=>{const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),TIMEOUT);const onAbort=():void=>controller.abort();signal?.addEventListener("abort",onAbort,{once:true});try{const response=await fetch(url,{signal:controller.signal,redirect:"follow",headers:{accept:"application/json,text/plain,text/html,application/xhtml+xml,*/*;q=0.8","user-agent":"Mozilla/5.0 (compatible; job-agent-proactive-recruiter/9.0)",...(headers??{})}});return{text:response.ok?await response.text():null,status:response.status};}catch(error){return{text:null,timedOut:error instanceof Error&&error.name==="AbortError"};}finally{clearTimeout(timer);signal?.removeEventListener("abort",onAbort);}};
+const stripHtml=(value:string):string=>value.replace(/<((?:https?:\/\/)[^>]+)>/gi," $1 ").replace(/<script[\s\S]*?<\/script>/gi," ").replace(/<style[\s\S]*?<\/style>/gi," ").replace(/<noscript[\s\S]*?<\/noscript>/gi," ").replace(/<[^>]+>/g," ").replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/&quot;/gi,'"').replace(/&#64;|&#x40;/gi,"@").replace(/&#46;|&#x2e;/gi,".").replace(/\s+/g," ").trim();
 const canonicalUrl=(value:string):string=>{try{const url=new URL(value);url.hash="";["utm_source","utm_medium","utm_campaign","utm_term","utm_content","trk","trackingId","refId","lipi"].forEach(k=>url.searchParams.delete(k));return url.toString().replace(/\/$/,"");}catch{return value.replace(/\/+$/ ,"");}};
 const canonicalLinkedIn=(value:string):string=>{try{const url=new URL(value);const profile=url.pathname.match(/^\/in\/([^/?#]+)/i)?.[1];return profile?`https://www.linkedin.com/in/${profile.toLowerCase()}`:canonicalUrl(value);}catch{return value.toLowerCase().replace(/\/+$/,"");}};
-
-const sourceList=(query:string):Source[]=>{const q=encodeURIComponent(query);const sources:Source[]=[
-  {id:"google-jina",url:`https://r.jina.ai/https://www.google.com/search?q=${q}&gbv=1`},{id:"bing-jina",url:`https://r.jina.ai/https://www.bing.com/search?q=${q}`},
-  {id:"duckduckgo-jina",url:`https://r.jina.ai/https://html.duckduckgo.com/html/?q=${q}`},{id:"startpage-jina",url:`https://r.jina.ai/https://www.startpage.com/sp/search?query=${q}`},
-  {id:"ecosia-jina",url:`https://r.jina.ai/https://www.ecosia.org/search?q=${q}`},{id:"brave-direct",url:`https://search.brave.com/search?q=${q}&source=web`},
-  {id:"mojeek-direct",url:`https://www.mojeek.com/search?q=${q}`},{id:"qwant-direct",url:`https://www.qwant.com/?q=${q}&t=web`},{id:"yahoo-direct",url:`https://search.yahoo.com/search?p=${q}`}
-];
-  if(process.env.JINA_API_KEY?.trim())sources.push({id:"jina-search",url:`https://s.jina.ai/${q}`,headers:{authorization:`Bearer ${process.env.JINA_API_KEY.trim()}`}});
-  if(process.env.BRAVE_SEARCH_API_KEY?.trim())sources.push({id:"brave-api",url:`https://api.search.brave.com/res/v1/web/search?q=${q}&count=20&extra_snippets=true`,headers:{"x-subscription-token":process.env.BRAVE_SEARCH_API_KEY.trim(),accept:"application/json"}});
-  if(process.env.MOJEEK_API_KEY?.trim())sources.push({id:"mojeek-api",url:`https://api.mojeek.com/search?q=${q}&api_key=${encodeURIComponent(process.env.MOJEEK_API_KEY.trim())}&fmt=json&t=20`,headers:{accept:"application/json"}});
-  return sources;};
+const sourceList=(query:string):Source[]=>{const q=encodeURIComponent(query);const sources:Source[]=[{id:"google-jina",url:`https://r.jina.ai/https://www.google.com/search?q=${q}&gbv=1`},{id:"bing-jina",url:`https://r.jina.ai/https://www.bing.com/search?q=${q}`},{id:"duckduckgo-jina",url:`https://r.jina.ai/https://html.duckduckgo.com/html/?q=${q}`},{id:"startpage-jina",url:`https://r.jina.ai/https://www.startpage.com/sp/search?query=${q}`},{id:"ecosia-jina",url:`https://r.jina.ai/https://www.ecosia.org/search?q=${q}`},{id:"brave-direct",url:`https://search.brave.com/search?q=${q}&source=web`},{id:"mojeek-direct",url:`https://www.mojeek.com/search?q=${q}`},{id:"qwant-direct",url:`https://www.qwant.com/?q=${q}&t=web`},{id:"yahoo-direct",url:`https://search.yahoo.com/search?p=${q}`}];if(process.env.JINA_API_KEY?.trim())sources.push({id:"jina-search",url:`https://s.jina.ai/${q}`,headers:{authorization:`Bearer ${process.env.JINA_API_KEY.trim()}`}});if(process.env.BRAVE_SEARCH_API_KEY?.trim())sources.push({id:"brave-api",url:`https://api.search.brave.com/res/v1/web/search?q=${q}&count=20&extra_snippets=true`,headers:{"x-subscription-token":process.env.BRAVE_SEARCH_API_KEY.trim(),accept:"application/json"}});if(process.env.MOJEEK_API_KEY?.trim())sources.push({id:"mojeek-api",url:`https://api.mojeek.com/search?q=${q}&api_key=${encodeURIComponent(process.env.MOJEEK_API_KEY.trim())}&fmt=json&t=20`,headers:{accept:"application/json"}});return sources;};
 const isJinaReader=(id:SourceId):boolean=>["google-jina","bing-jina","duckduckgo-jina","startpage-jina","ecosia-jina"].includes(id);
 const statFor=(m:ProactiveRecruiterDiscoveryMetrics,id:SourceId)=>m.sourceStats[id]??(m.sourceStats[id]={attempted:0,succeeded:0,empty:0,timeouts:0,http403:0,http429:0,http5xx:0,otherHttpErrors:0,rawResults:0,urls:0,candidates:0,duplicates:0});
 const reject=(m:ProactiveRecruiterDiscoveryMetrics,r:string):void=>{m.rejectionReasons[r]=(m.rejectionReasons[r]??0)+1;};
 const incrementReason=(map:Record<string,number>,reason:string):void=>{map[reason]=(map[reason]??0)+1;};
-
-async function fetchSource(source:Source,fetcher:ProactiveRecruiterDiscoveryOptions["fetchText"],signal:AbortSignal|undefined,m:ProactiveRecruiterDiscoveryMetrics):Promise<string|null>{
-  const stats=statFor(m,source.id);stats.attempted++;m.queriesExecuted++;let empty=false;
-  for(let attempt=0;attempt<=RETRIES;attempt++){
-    if(signal?.aborted)return null;
-    if(!fetcher&&isJinaReader(source.id)&&!process.env.JINA_API_KEY?.trim()){const wait=Math.max(0,jinaReaderNextAt-Date.now());if(wait)await new Promise(r=>setTimeout(r,wait));jinaReaderNextAt=Date.now()+JINA_READER_GAP_MS;}
-    const result=fetcher?{text:await fetcher(source.url,signal,source.headers),status:200}:await DEFAULT_FETCH(source.url,signal,source.headers);
-    if(result.text){stats.succeeded++;m.queriesSucceeded++;return result.text;}
-    if(result.status===undefined||(result.status>=200&&result.status<300))empty=true;
-    if(result.timedOut)stats.timeouts++; if(result.status===403)stats.http403++;else if(result.status===429)stats.http429++;else if((result.status??0)>=500)stats.http5xx++;else if((result.status??0)>=400)stats.otherHttpErrors++;
-    if(attempt===RETRIES||(!result.timedOut&&result.status!==undefined&&![408,425,429].includes(result.status)&&result.status<500))break;
-    await new Promise(r=>setTimeout(r,Math.min(5000,250*(2**attempt)+Math.floor(Math.random()*200))));
-  }
-  if(empty){stats.empty++;m.responsesEmpty++;}m.queriesFailed++;return null;
-}
-
+async function fetchSource(source:Source,fetcher:ProactiveRecruiterDiscoveryOptions["fetchText"],signal:AbortSignal|undefined,m:ProactiveRecruiterDiscoveryMetrics):Promise<string|null>{const stats=statFor(m,source.id);stats.attempted++;m.queriesExecuted++;let empty=false;for(let attempt=0;attempt<=RETRIES;attempt++){if(signal?.aborted)return null;if(!fetcher&&isJinaReader(source.id)&&!process.env.JINA_API_KEY?.trim()){const wait=Math.max(0,jinaReaderNextAt-Date.now());if(wait)await new Promise(r=>setTimeout(r,wait));jinaReaderNextAt=Date.now()+JINA_READER_GAP_MS;}const result=fetcher?{text:await fetcher(source.url,signal,source.headers),status:200}:await DEFAULT_FETCH(source.url,signal,source.headers);if(result.text){stats.succeeded++;m.queriesSucceeded++;return result.text;}if(result.status===undefined||(result.status>=200&&result.status<300))empty=true;if(result.timedOut)stats.timeouts++;if(result.status===403)stats.http403++;else if(result.status===429)stats.http429++;else if((result.status??0)>=500)stats.http5xx++;else if((result.status??0)>=400)stats.otherHttpErrors++;if(attempt===RETRIES||(!result.timedOut&&result.status!==undefined&&![408,425,429].includes(result.status)&&result.status<500))break;await new Promise(r=>setTimeout(r,Math.min(5000,250*(2**attempt)+Math.floor(Math.random()*200))));}if(empty){stats.empty++;m.responsesEmpty++;}m.queriesFailed++;return null;}
 async function mapWithConcurrency<T,R>(items:T[],concurrency:number,worker:(item:T)=>Promise<R>):Promise<R[]>{const results:R[]=new Array(items.length);let next=0;const workers=Array.from({length:Math.min(Math.max(1,concurrency),items.length)},async()=>{while(true){const index=next++;if(index>=items.length)return;results[index]=await worker(items[index] as T);}});await Promise.all(workers);return results;}
-
-export class ProactiveRecruiterDiscoveryService {
-  private readonly matcher=new ProactiveRecruiterRoleMatcher(); private readonly fetchText?:ProactiveRecruiterDiscoveryOptions["fetchText"]; private readonly now:()=>Date; private readonly maxQueries:number; private readonly targetCandidates:number; private readonly signal?:AbortSignal; private lastMetrics=emptyMetrics();
-  constructor(options:ProactiveRecruiterDiscoveryOptions={}){this.fetchText=options.fetchText;this.now=options.now??(()=>new Date());this.maxQueries=Math.max(1,options.maxQueries??(Number(process.env.PROACTIVE_RECRUITER_MAX_QUERIES)||DEFAULT_MAX_QUERIES));this.targetCandidates=Math.max(1,options.targetCandidates??(Number(process.env.PROACTIVE_RECRUITER_TARGET_CANDIDATES)||DEFAULT_TARGET_CANDIDATES));this.signal=options.signal;}
-  getLastRunMetrics(){return this.lastMetrics;}
-  buildQueries(profile:CandidateProfileLike){profile=normalizeProfile(profile);const roles=this.matcher.buildTargetTerms(profile).filter(t=>t.length>=4);const explicit=profile.targetRoles?.find(t=>t.trim().length>=4)?.trim();const role=explicit??roles.find(t=>/frontend|react|next|javascript|typescript|full stack|web/.test(t))??roles[0]??"frontend developer";const locations=[...new Set((profile.preferredLocations??[]).map(v=>v.trim()).filter(Boolean))];const loc=locations.length?locations.slice(0,3):["India"];const tech=[...new Set((profile.skills??[]).map(v=>v.trim()).filter(Boolean))].slice(0,4);const techTerms=tech.length?tech.slice(0,2).map(v=>`"${v}"`).join(" "):`"${role}"`;const queries=[
-    `site:linkedin.com/in "technical recruiter" "${role}" "${loc[0]}"`,`site:linkedin.com/in "talent acquisition" "${role}" "${loc[0]}"`,`site:linkedin.com/in "engineering recruiter" "${role}" "${loc[0]}"`,`site:linkedin.com/in recruiter "${role}" "${loc[0]}"`,`site:linkedin.com/in recruiter ${techTerms} "${loc[0]}"`,`site:linkedin.com/posts recruiter ${techTerms} hiring "${loc[0]}"`,`site:linkedin.com/jobs "${role}" recruiter "${loc[0]}"`,`site:hirist.tech/r "technical recruiter" ${techTerms} "${loc[0]}"`,`site:stackforce.co/talent "technical recruiter" ${techTerms} "${loc[0]}"`,`"technical recruiter" ${techTerms} "${loc[0]}" email`,`"talent acquisition" ${techTerms} "${loc[0]}" email`,`"engineering recruiter" "${role}" India email`,`"recruiter" "${role}" "${loc[0]}" hiring email`,`"technical recruiter" React Bengaluru hiring`,`"technical recruiter" React Bangalore hiring`,`"frontend engineer" recruiter India hiring`,`"Next.js" recruiter India hiring`,`"React" "talent partner" India hiring`];for(const location of loc.slice(1))queries.push(`"${role}" recruiter "${location}"`,`"technical recruiter" ${techTerms} "${location}"`);return[...new Set(queries)].slice(0,this.maxQueries);}
-
-  async discover(profile:CandidateProfileLike){
-    profile=normalizeProfile(profile);const m=emptyMetrics();this.lastMetrics=m;const queries=this.buildQueries(profile);m.queriesGenerated=queries.length;const candidates=new Map<string,ProactiveRecruiterDiscoveryCandidate>();
-    for(const query of queries){
-      if(this.signal?.aborted||candidates.size>=this.targetCandidates)break;
-      const sources=sourceList(query);const pages=(await mapWithConcurrency(sources,SEARCH_CONCURRENCY,async source=>({source,text:await fetchSource(source,this.fetchText,this.signal,m)}))).filter((item):item is {source:Source;text:string}=>Boolean(item.text));
-      for(const {source,text:raw} of pages){
-        if(this.signal?.aborted||candidates.size>=this.targetCandidates)break;
-        const normalized=stripHtml(raw),stats=statFor(m,source.id);
-        if(isInfrastructurePage(normalized,source.id)){reject(m,"SEARCH_PROVIDER_ERROR_PAGE");continue;}
-        const urls=[...new Set((normalized.match(URL_PATTERN)??[]).map(u=>/linkedin\.com\/in\//i.test(u)?canonicalLinkedIn(u):canonicalUrl(u)))];
-        const linkedin=[...new Set((normalized.match(LI_PROFILE)??[]).map(canonicalLinkedIn))];
-        const count=countSearchResults(raw,normalized,urls);m.rawSearchResults+=count;stats.rawResults+=count;m.urlsExtracted+=urls.length;stats.urls+=urls.length;m.linkedinUrlsExtracted+=linkedin.length;m.publicProfileUrlsExtracted+=urls.filter(isPublicProfileUrl).length;
-        const candidateUrls=[...new Set([...linkedin,...urls.filter(isPublicProfileUrl)])];
-        if(!candidateUrls.length){const c=this.buildCandidateFromPage(profile,removeQueryEcho(normalized,query),source.id,undefined,m);if(c)this.mergeCandidate(candidates,c,stats,m);continue;}
-        const searchEvidence=candidateUrls.map(u=>buildEvidence(removeQueryEcho(normalized,query),u)).filter(Boolean).join(" ").slice(0,5000);
-        const fetched=await mapWithConcurrency(candidateUrls,PROFILE_CONCURRENCY,async url=>{
-          m.profileFetchAttempts++;let page:string|null=null;let reason="unknown";
-          try { if(this.fetchText) page=await this.fetchText(url,this.signal); else {const result=await DEFAULT_FETCH(url,this.signal);page=result.text;reason=classifyFetchFailure(result);} } catch(error){reason=classifyThrownFetchError(error);}
-          if(page){m.profilesFetched++;}else{m.profilesFetchFailures++;incrementReason(m.profileFetchFailureReasons,reason);}
-          return{url,page};
-        });
-        for(const {url,page} of fetched){
-          if(this.signal?.aborted||candidates.size>=this.targetCandidates)break;if(!page)continue;
-          const profileEvidence=extractProfileEvidence(page,url);if(!profileEvidence){m.profilesParseFailures++;incrementReason(m.profileParseFailureReasons,"UNUSABLE_PROFILE_CONTENT");reject(m,"PROFILE_PARSE_FAILED");continue;}
-          m.profilesParsed++;const roleEvidence=profileEvidence,combined=[`[PROFILE_PAGE_EVIDENCE] ${profileEvidence}`,searchEvidence?`[SEARCH_RESULT_EVIDENCE] ${searchEvidence}`:""].filter(Boolean).join(" ").slice(0,7000);const c=this.buildCandidate(profile,url,roleEvidence,combined,source.id,m);if(c)this.mergeCandidate(candidates,c,stats,m);
-        }
-        if(candidates.size<this.targetCandidates){const c=this.buildCandidateFromPage(profile,removeQueryEcho(normalized,query),source.id,candidateUrls[0],m);if(c)this.mergeCandidate(candidates,c,stats,m);}
-      }
-    }
-    m.finalDiscovered=candidates.size;return[...candidates.values()];
-  }
-
+export class ProactiveRecruiterDiscoveryService{private readonly matcher=new ProactiveRecruiterRoleMatcher();private readonly fetchText?:ProactiveRecruiterDiscoveryOptions["fetchText"];private readonly now:()=>Date;private readonly maxQueries:number;private readonly targetCandidates:number;private readonly signal?:AbortSignal;private lastMetrics=emptyMetrics();constructor(options:ProactiveRecruiterDiscoveryOptions={}){this.fetchText=options.fetchText;this.now=options.now??(()=>new Date());this.maxQueries=Math.max(1,options.maxQueries??(Number(process.env.PROACTIVE_RECRUITER_MAX_QUERIES)||DEFAULT_MAX_QUERIES));this.targetCandidates=Math.max(1,options.targetCandidates??(Number(process.env.PROACTIVE_RECRUITER_TARGET_CANDIDATES)||DEFAULT_TARGET_CANDIDATES));this.signal=options.signal;}getLastRunMetrics(){return this.lastMetrics;}
+  buildQueries(profile:CandidateProfileLike){profile=normalizeProfile(profile);const roles=this.matcher.buildTargetTerms(profile).filter(t=>t.length>=4);const explicit=profile.targetRoles?.find(t=>t.trim().length>=4)?.trim();const role=explicit??roles.find(t=>/frontend|react|next|javascript|typescript|full stack|web/.test(t))??roles[0]??"frontend developer";const locations=[...new Set((profile.preferredLocations??[]).map(v=>v.trim()).filter(Boolean))];const loc=locations.length?locations.slice(0,3):["India"];const tech=[...new Set((profile.skills??[]).map(v=>v.trim()).filter(Boolean))].slice(0,4);const techTerms=tech.length?tech.slice(0,2).map(v=>`"${v}"`).join(" "):`"${role}"`;const queries=[`site:linkedin.com/in "technical recruiter" "${role}" "${loc[0]}"`,`site:linkedin.com/in "talent acquisition" "${role}" "${loc[0]}"`,`site:linkedin.com/in "engineering recruiter" "${role}" "${loc[0]}"`,`site:linkedin.com/in recruiter "${role}" "${loc[0]}"`,`site:linkedin.com/in recruiter ${techTerms} "${loc[0]}"`,`site:linkedin.com/posts recruiter ${techTerms} hiring "${loc[0]}"`,`site:linkedin.com/jobs "${role}" recruiter "${loc[0]}"`,`site:hirist.tech/r "technical recruiter" ${techTerms} "${loc[0]}"`,`site:stackforce.co/talent "technical recruiter" ${techTerms} "${loc[0]}"`,`"technical recruiter" ${techTerms} "${loc[0]}" email`,`"talent acquisition" ${techTerms} "${loc[0]}" email`,`"engineering recruiter" "${role}" India email`,`"recruiter" "${role}" "${loc[0]}" hiring email`,`"technical recruiter" React Bengaluru hiring`,`"technical recruiter" React Bangalore hiring`,`"frontend engineer" recruiter India hiring`,`"Next.js" recruiter India hiring`,`"React" "talent partner" India hiring`];for(const location of loc.slice(1))queries.push(`"${role}" recruiter "${location}"`,`"technical recruiter" ${techTerms} "${location}"`);return[...new Set(queries)].slice(0,this.maxQueries);}
+  async discover(profile:CandidateProfileLike){profile=normalizeProfile(profile);const m=emptyMetrics();this.lastMetrics=m;const queries=this.buildQueries(profile);m.queriesGenerated=queries.length;const candidates=new Map<string,ProactiveRecruiterDiscoveryCandidate>();for(const query of queries){if(this.signal?.aborted||candidates.size>=this.targetCandidates)break;const sources=sourceList(query);const pages=(await mapWithConcurrency(sources,SEARCH_CONCURRENCY,async source=>({source,text:await fetchSource(source,this.fetchText,this.signal,m)}))).filter((item):item is {source:Source;text:string}=>Boolean(item.text));for(const {source,text:raw} of pages){if(this.signal?.aborted||candidates.size>=this.targetCandidates)break;const normalized=stripHtml(raw),stats=statFor(m,source.id);if(isInfrastructurePage(normalized,source.id)){reject(m,"SEARCH_PROVIDER_ERROR_PAGE");continue;}const urls=[...new Set((normalized.match(URL_PATTERN)??[]).map(u=>/linkedin\.com\/in\//i.test(u)?canonicalLinkedIn(u):canonicalUrl(u)))];const linkedin=[...new Set((normalized.match(LI_PROFILE)??[]).map(canonicalLinkedIn))];const count=countSearchResults(raw,normalized,urls);m.rawSearchResults+=count;stats.rawResults+=count;m.urlsExtracted+=urls.length;stats.urls+=urls.length;m.linkedinUrlsExtracted+=linkedin.length;m.publicProfileUrlsExtracted+=urls.filter(isPublicProfileUrl).length;const candidateUrls=[...new Set([...linkedin,...urls.filter(isPublicProfileUrl)])];if(!candidateUrls.length){const c=this.buildCandidateFromPage(profile,removeQueryEcho(normalized,query),source.id,undefined,m);if(c)this.mergeCandidate(candidates,c,stats,m);continue;}const searchEvidence=candidateUrls.map(u=>buildEvidence(removeQueryEcho(normalized,query),u)).filter(Boolean).join(" ").slice(0,5000);const fetched=await mapWithConcurrency(candidateUrls,PROFILE_CONCURRENCY,async url=>{m.profileFetchAttempts++;let page:string|null=null;let reason="unknown";try{if(this.fetchText)page=await this.fetchText(url,this.signal);else{const result=await DEFAULT_FETCH(url,this.signal);page=result.text;reason=classifyFetchFailure(result);}}catch(error){reason=classifyThrownFetchError(error);}if(page)m.profilesFetched++;else{m.profilesFetchFailures++;incrementReason(m.profileFetchFailureReasons,reason);}return{url,page};});for(const {url,page} of fetched){if(this.signal?.aborted||candidates.size>=this.targetCandidates)break;if(!page)continue;const profileEvidence=extractProfileEvidence(page,url);if(!profileEvidence){m.profilesParseFailures++;incrementReason(m.profileParseFailureReasons,"UNUSABLE_PROFILE_CONTENT");reject(m,"PROFILE_PARSE_FAILED");continue;}m.profilesParsed++;const roleEvidence=profileEvidence,combined=[`[PROFILE_PAGE_EVIDENCE] ${profileEvidence}`,searchEvidence?`[SEARCH_RESULT_EVIDENCE] ${searchEvidence}`:""].filter(Boolean).join(" ").slice(0,7000);const c=this.buildCandidate(profile,url,roleEvidence,combined,source.id,m);if(c)this.mergeCandidate(candidates,c,stats,m);}if(candidates.size<this.targetCandidates){const c=this.buildCandidateFromPage(profile,removeQueryEcho(normalized,query),source.id,candidateUrls[0],m);if(c)this.mergeCandidate(candidates,c,stats,m);}}}m.finalDiscovered=candidates.size;return[...candidates.values()];}
   private mergeCandidate(candidates:Map<string,ProactiveRecruiterDiscoveryCandidate>,result:ProactiveRecruiterDiscoveryCandidate,stats:ProactiveRecruiterDiscoveryMetrics["sourceStats"][string],m:ProactiveRecruiterDiscoveryMetrics){const key=identityKey(result),existing=candidates.get(key);if(existing){m.duplicates++;stats.duplicates++;candidates.set(key,mergeCandidates(existing,result));return;}stats.candidates++;candidates.set(key,result);}
-
-  private buildCandidate(profile:CandidateProfileLike,url:string,roleEvidence:string,evidence:string,source:SourceId,m:ProactiveRecruiterDiscoveryMetrics){
-    const roleMatch=this.matcher.match(profile,roleEvidence,"");
-    if(!roleMatch.score){reject(m,"ROLE_IRRELEVANT");return null;}
-    if(!RECRUITING.test(roleEvidence)){reject(m,"NOT_RECRUITER");return null;}
-    if(NON_RECRUITING.test(evidence)&&!RECRUITING.test(evidence.replace(NON_RECRUITING,""))){reject(m,"NOT_RECRUITER");return null;}
-    const name=extractRecruiterName(roleEvidence);if(!name){reject(m,"IDENTITY_AMBIGUOUS");return null;}
-    const email=extractRecruiterEmail(evidence,profile),employer=extractEmployer(evidence,email,url);
-    if(employer.name==="Unknown employer"){reject(m,"COMPANY_UNKNOWN");return null;}
-    m.identityValidated++;m.companyValidated++;m.recruiterEvidenceMatches++;m.recruiterRoleMatches++;m.relevanceAccepted++;
-    const now=this.now(),freshness=classifyEvidenceFreshness(evidence,now),hiring=hasHiringEvidence(evidence);if(hiring){m.hiringEvidenceAccepted++;incrementHiringFreshness(m,freshness);}else m.hiringUnknown++;
-    return makeCandidate(name,roleMatch,employer,url,evidence,freshness,hiring,email,source,now);
-  }
-
-  private buildCandidateFromPage(profile:CandidateProfileLike,page:string,source:Source,discoveryUrl:string|undefined,m:ProactiveRecruiterDiscoveryMetrics){
-    if(isInfrastructurePage(page,source)){reject(m,"SEARCH_PROVIDER_ERROR_PAGE");return null;}
-    const roleMatch=this.matcher.match(profile,page,"");if(!roleMatch.score){reject(m,"ROLE_IRRELEVANT");return null;}
-    if(!RECRUITING.test(page)){reject(m,"NOT_RECRUITER");return null;}
-    if(NON_RECRUITING.test(page)&&!RECRUITING.test(page.replace(NON_RECRUITING,""))){reject(m,"NOT_RECRUITER");return null;}
-    const name=extractRecruiterName(page);if(!name){reject(m,"IDENTITY_AMBIGUOUS");return null;}
-    const email=extractRecruiterEmail(page,profile),employer=extractEmployer(page,email,discoveryUrl);
-    if(employer.name==="Unknown employer"){reject(m,"COMPANY_UNKNOWN");return null;}
-    m.recruiterRoleMatches++;m.recruiterEvidenceMatches++;m.identityValidated++;m.companyValidated++;m.relevanceAccepted++;
-    const now=this.now(),freshness=classifyEvidenceFreshness(page,now),hiring=hasHiringEvidence(page);if(hiring){m.hiringEvidenceAccepted++;incrementHiringFreshness(m,freshness);}else m.hiringUnknown++;
-    return makeCandidate(name,roleMatch,employer,discoveryUrl??`public-search:${source}:${hashKey(page)}`,`[SEARCH_RESULT_EVIDENCE] ${page.slice(0,3000)}`,freshness,hiring,email,source,now);
-  }
+  private buildCandidate(profile:CandidateProfileLike,url:string,roleEvidence:string,evidence:string,source:SourceId,m:ProactiveRecruiterDiscoveryMetrics){const roleMatch=this.matcher.match(profile,roleEvidence,"");if(!roleMatch.score){reject(m,"ROLE_IRRELEVANT");return null;}if(!RECRUITING.test(roleEvidence)){reject(m,"NOT_RECRUITER");return null;}if(NON_RECRUITING.test(evidence)&&!RECRUITING.test(evidence.replace(NON_RECRUITING,""))){reject(m,"NOT_RECRUITER");return null;}const name=extractRecruiterName(roleEvidence);if(!name){reject(m,"IDENTITY_AMBIGUOUS");return null;}const email=extractRecruiterEmail(evidence,profile),employer=extractEmployer(evidence,email,url);if(employer.name==="Unknown employer"){reject(m,"COMPANY_UNKNOWN");return null;}m.identityValidated++;m.companyValidated++;m.recruiterEvidenceMatches++;m.recruiterRoleMatches++;m.relevanceAccepted++;const now=this.now(),freshness=classifyEvidenceFreshness(evidence,now),hiring=hasHiringEvidence(evidence);if(hiring){m.hiringEvidenceAccepted++;incrementHiringFreshness(m,freshness);}else m.hiringUnknown++;return makeCandidate(name,roleMatch,employer,url,evidence,freshness,hiring,email,source,now);}
+  private buildCandidateFromPage(profile:CandidateProfileLike,page:string,source:SourceId,discoveryUrl:string|undefined,m:ProactiveRecruiterDiscoveryMetrics){if(isInfrastructurePage(page,source)){reject(m,"SEARCH_PROVIDER_ERROR_PAGE");return null;}const roleMatch=this.matcher.match(profile,page,"");if(!roleMatch.score){reject(m,"ROLE_IRRELEVANT");return null;}if(!RECRUITING.test(page)){reject(m,"NOT_RECRUITER");return null;}if(NON_RECRUITING.test(page)&&!RECRUITING.test(page.replace(NON_RECRUITING,""))){reject(m,"NOT_RECRUITER");return null;}const name=extractRecruiterName(page);if(!name){reject(m,"IDENTITY_AMBIGUOUS");return null;}const email=extractRecruiterEmail(page,profile),employer=extractEmployer(page,email,discoveryUrl);if(employer.name==="Unknown employer"){reject(m,"COMPANY_UNKNOWN");return null;}m.recruiterRoleMatches++;m.recruiterEvidenceMatches++;m.identityValidated++;m.companyValidated++;m.relevanceAccepted++;const now=this.now(),freshness=classifyEvidenceFreshness(page,now),hiring=hasHiringEvidence(page);if(hiring){m.hiringEvidenceAccepted++;incrementHiringFreshness(m,freshness);}else m.hiringUnknown++;return makeCandidate(name,roleMatch,employer,discoveryUrl??`public-search:${source}:${hashKey(page)}`,`[SEARCH_RESULT_EVIDENCE] ${page.slice(0,3000)}`,freshness,hiring,email,source,now);}
 }
-
-function makeCandidate(name:string,match:ReturnType<ProactiveRecruiterRoleMatcher["match"]>,employer:{name:string;domain?:string},url:string,evidence:string,freshness:ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"],hiring:boolean,email:string|undefined,source:SourceId,now:Date):ProactiveRecruiterDiscoveryCandidate{return{
-  recruiterName:name,recruiterRole:match.recruiterTerms[0]??"Recruiting professional",employer:employer.name,...(employer.domain?{employerDomain:employer.domain}:{}),targetRoles:match.roleTerms,roleMatchScore:Math.min(100,match.score),hiringEvidenceScore:hiring?Math.min(100,match.roleTerms.length*20+40):0,overallConfidence:Math.min(100,match.score+(employer.domain?5:0)),discoverySource:"public-web",discoveryUrl:url,discoveryEvidence:[evidence],evidenceType:hiring?"job_hiring_evidence":"public_profile",evidenceDate:inferEvidenceDate(evidence,now).toISOString(),evidenceFreshness:freshness,...(email?{email}:{}),emailStatus:"UNVERIFIED"
-};}
-
+function makeCandidate(name:string,match:ReturnType<ProactiveRecruiterRoleMatcher["match"]>,employer:{name:string;domain?:string},url:string,evidence:string,freshness:ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"],hiring:boolean,email:string|undefined,source:SourceId,now:Date):ProactiveRecruiterDiscoveryCandidate{return{recruiterName:name,recruiterRole:match.recruiterTerms[0]??"Recruiting professional",employer:employer.name,...(employer.domain?{employerDomain:employer.domain}:{}),targetRoles:match.roleTerms,roleMatchScore:Math.min(100,match.score),hiringEvidenceScore:hiring?Math.min(100,match.roleTerms.length*20+40):0,overallConfidence:Math.min(100,match.score+(employer.domain?5:0)),discoverySource:"public-web",discoveryUrl:url,discoveryEvidence:[evidence],evidenceType:hiring?"job_hiring_evidence":"public_profile",evidenceDate:inferEvidenceDate(evidence,now).toISOString(),evidenceFreshness:freshness,...(email?{email}:{}),emailStatus:"UNVERIFIED"};}
 function extractProfileEvidence(page:string,url:string){const raw=page.slice(0,16000),title=raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]??"",descriptions=[...raw.matchAll(/<meta[^>]+(?:name|property)=["']([^"']+)["'][^>]+content=["']([^"']*)["']/gi)].filter(m=>/description|og:title|og:description/i.test(m[1]??"")).map(m=>m[2]??""),canonical=raw.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)?.[1]??url,jsonLd=[...raw.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)].map(m=>m[1]??"").join(" "),headings=[...raw.matchAll(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi)].map(m=>stripHtml(m[1]??"")).join(" "),visible=stripHtml(raw),combined=[title,...descriptions,canonical,jsonLd,headings,visible].filter(Boolean).join(" ").replace(/\s+/g," ").trim();if(!combined||combined.length<40)return"";if(/(?:verify you are human|captcha|access denied|unusual traffic|just a moment|robot check|enable javascript)/i.test(combined)&&!RECRUITING.test(combined))return"";return combined.slice(0,7000);}
 function buildEvidence(text:string,url:string){const i=text.toLowerCase().indexOf(url.toLowerCase());return(i>=0?text.slice(Math.max(0,i-1400),Math.min(text.length,i+1800)):text.slice(0,2600)).slice(0,3600);}
 function removeQueryEcho(text:string,query:string){const variants=[query,query.replace(/"/g,""),decodeURIComponent(query)],without=text.replace(/(?:search query|query)\s*:\s*[^\n]+/gi," ");return variants.reduce((v,x)=>v.split(x).join(" "),without);}
@@ -193,28 +58,9 @@ function mergeCandidates(a:ProactiveRecruiterDiscoveryCandidate,b:ProactiveRecru
 function extractRecruiterName(e:string){const patterns=[/\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|—|\||•|:)\s*(?:Senior\s+|Lead\s+|Principal\s+|Executive\s+|Technical\s+|IT\s+|Engineering\s+|Talent\s+)?(?:Recruiter|Recruiting|Talent Acquisition|Talent Partner|Talent Sourcer|Technical Sourcer|Hiring Manager)\b/i,/\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:is\s+)?(?:a\s+)?(?:Senior\s+|Lead\s+|Principal\s+|Technical\s+|IT\s+|Engineering\s+)?(?:Recruiter|Recruiting|Talent Acquisition|Talent Partner|Talent Sourcer|Technical Sourcer|Hiring Manager)\b/i,/\b(?:Recruiter|Talent Acquisition|Talent Partner|Technical Sourcer|Hiring Manager)\s+(?:at|@)\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})/i];for(const pattern of patterns){const match=e.match(pattern)?.[1]?.trim();if(match&&isLikelyPersonName(match))return match;}const email=e.match(EMAIL_PATTERN)?.[0];if(email){const index=e.toLowerCase().indexOf(email.toLowerCase()),before=index>=0?e.slice(Math.max(0,index-220),index):e,candidates=before.match(/\b[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,3}\b/g)??[],last=candidates.at(-1);if(last&&isLikelyPersonName(last))return last.trim();}return undefined;}
 function isLikelyPersonName(v:string){const n=v.trim().replace(/\s+/g," ");if(n.length<4||n.length>80)return false;if(/^(Technical|Senior|Lead|Principal|Talent|Human|Resource|Hiring|Recruiter|Recruiting|Manager|India|Bangalore|Bengaluru|React|Frontend|Software|Engineering|Acme|Stackforce|Forbidden|Markdown|Content)\b/i.test(n))return false;const words=n.split(" ");return words.length>=2&&words.length<=5&&words.every(w=>/^[A-Z][A-Za-z.'-]+$/.test(w));}
 function extractRecruiterEmail(e:string,p:CandidateProfileLike){const emails=[...new Set((e.match(EMAIL_PATTERN)??[]).map(x=>x.toLowerCase()))],terms=[...(p.skills??[]),...(p.targetRoles??[])].map(x=>x.toLowerCase());return emails.find(email=>{const domain=email.split("@")[1]??"",index=e.toLowerCase().indexOf(email),context=index>=0?e.slice(Math.max(0,index-500),Math.min(e.length,index+700)):e;return domain&&!GENERIC_EMAIL_DOMAINS.has(domain)&&!NON_RECRUITING.test(context)&&(RECRUITING.test(context)||terms.some(t=>context.toLowerCase().includes(t)));});}
-function extractEmployer(e:string,email?:string,sourceUrl?:string){
-  const emailDomain=email?.split("@")[1]?.toLowerCase();
-  const atMatch=e.match(/\b(?:at|@)\s+([A-Z][A-Za-z0-9&' -]{1,80}?)(?=\s+(?:currently|actively|hiring|recruiting|for|on|the|in||\||-|•|,|\.|$))/i);
-  const titleMatch=e.match(/\b(?:Recruiter|Recruiting|Talent Acquisition|Talent Partner|Technical Sourcer)\s+(?:at|@)\s+([A-Z][A-Za-z0-9&' -]{1,80})/i);
-  let name=(atMatch?.[1]??titleMatch?.[1])?.trim().replace(/[|•,.-]+$/," ").trim();
-  const domains=[...new Set((e.match(URL_PATTERN)??[]).map(canonicalUrl).map(v=>{try{return new URL(v).hostname.toLowerCase().replace(/^www\./,"");}catch{return"";}}).filter(d=>d&&!SEARCH_HOSTS.has(d)&&!d.endsWith("linkedin.com")))];
-  const sourceDomain=sourceUrl?domainFromUrl(sourceUrl):undefined;
-  if(!name&&sourceDomain)name=domainToCompany(sourceDomain);
-  if(name&&emailDomain&&!GENERIC_EMAIL_DOMAINS.has(emailDomain)){
-    const nn=name.toLowerCase().replace(/[^a-z0-9]/g,""),root=emailDomain.split(".")[0]?.replace(/[^a-z0-9]/g,"")??"";
-    if(nn&&root&&(nn.includes(root)||root.includes(nn)))return{name,domain:emailDomain};
-    if(sourceDomain&&sameRegistrableDomain(sourceDomain,emailDomain))return{name,domain:emailDomain};
-    if(name)return{name,domain:sourceDomain};
-  }
-  if(name){const matching=domains.find(d=>domainNameMatches(name,d))??(sourceDomain&&domainNameMatches(name,sourceDomain)?sourceDomain:undefined);return{name,...(matching?{domain:matching}:{})};}
-  if(emailDomain&&!GENERIC_EMAIL_DOMAINS.has(emailDomain))return{name:domainToCompany(emailDomain),domain:emailDomain};
-  if(sourceDomain)return{name:domainToCompany(sourceDomain),domain:sourceDomain};
-  const matching=domains.find(d=>domainNameMatches(name??"",d));if(matching)return{name:domainToCompany(matching),domain:matching};
-  return{name:"Unknown employer"};
-}
+function extractEmployer(e:string,email?:string,sourceUrl?:string){const emailDomain=email?.split("@")[1]?.toLowerCase();const atMatch=e.match(/\b(?:at|@)\s+([A-Z][A-Za-z0-9&' -]{1,80}?)(?=\s+(?:currently|actively|hiring|recruiting|for|on|the|in|\||-|•|,|\.|$))/i);const titleMatch=e.match(/\b(?:Recruiter|Recruiting|Talent Acquisition|Talent Partner|Technical Sourcer)\s+(?:at|@)\s+([A-Z][A-Za-z0-9&' -]{1,80})/i);let name=(atMatch?.[1]??titleMatch?.[1])?.trim().replace(/[|•,.-]+$/," ").trim();const domains=[...new Set((e.match(URL_PATTERN)??[]).map(canonicalUrl).map(v=>{try{return new URL(v).hostname.toLowerCase().replace(/^www\./,"");}catch{return"";}}).filter(d=>d&&!SEARCH_HOSTS.has(d)&&!d.endsWith("linkedin.com")))];const sourceDomain=sourceUrl?domainFromUrl(sourceUrl):undefined;if(!name&&sourceDomain)name=domainToCompany(sourceDomain);if(name&&emailDomain&&!GENERIC_EMAIL_DOMAINS.has(emailDomain)){const nn=name.toLowerCase().replace(/[^a-z0-9]/g,""),root=emailDomain.split(".")[0]?.replace(/[^a-z0-9]/g,"")??"";if(nn&&root&&(nn.includes(root)||root.includes(nn)))return{name,domain:emailDomain};if(sourceDomain&&sameRegistrableDomain(sourceDomain,emailDomain))return{name,domain:emailDomain};if(name)return{name,domain:sourceDomain};}if(name){const matching=domains.find(d=>domainNameMatches(name,d))??(sourceDomain&&domainNameMatches(name,sourceDomain)?sourceDomain:undefined);return{name,...(matching?{domain:matching}:{})};}if(emailDomain&&!GENERIC_EMAIL_DOMAINS.has(emailDomain))return{name:domainToCompany(emailDomain),domain:emailDomain};if(sourceDomain)return{name:domainToCompany(sourceDomain),domain:sourceDomain};return{name:"Unknown employer"};}
 function domainFromUrl(value:string){try{const host=new URL(value).hostname.toLowerCase().replace(/^www\./,"");return host&&!SEARCH_HOSTS.has(host)&&!host.endsWith("linkedin.com")?host:undefined;}catch{return undefined;}}
-function sameRegistrableDomain(a:string,b:string){const x=a.split(".").slice(-2).join("."),y=b.split(".").slice(-2).join(".");return x===y;}
+function sameRegistrableDomain(a:string,b:string){return a.split(".").slice(-2).join(".")===b.split(".").slice(-2).join(".");}
 function domainNameMatches(name:string,domain:string){const root=domain.split(".")[0]?.replace(/[^a-z0-9]/g,"")??"",nn=name.toLowerCase().replace(/[^a-z0-9]/g,"");return root.length>=3&&nn.length>=3&&(nn.includes(root)||root.includes(nn));}
 function normalizeProfile(p:CandidateProfileLike):CandidateProfileLike{const x=p as CandidateProfileLike&{targetTitles?:string[]};return{...p,targetRoles:p.targetRoles?.length?p.targetRoles:(x.targetTitles??[])}}
 function domainToCompany(d:string){const root=d.split(".")[0]?.replace(/[-_]+/g," ").trim()??d;return root.replace(/\b\w/g,c=>c.toUpperCase());}
@@ -224,6 +70,6 @@ function inferEvidenceDate(e:string,now:Date){const years=[...e.matchAll(/\b(20\
 function incrementHiringFreshness(m:ProactiveRecruiterDiscoveryMetrics,f:ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"]){if(f==="current")m.hiringCurrent++;else if(f==="recent")m.hiringRecent++;else if(f==="historical")m.hiringHistorical++;else m.hiringUnknown++;}
 function freshnessRank(v:ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"]){return v==="current"?4:v==="recent"?3:v==="historical"?2:1;}
 function hashKey(v:string){let h=2166136261;for(let i=0;i<v.length;i++)h=Math.imul(h^v.charCodeAt(i),16777619);return Math.abs(h>>>0).toString(16);}
-function isInfrastructurePage(text:string,source:SourceId){if(INFRASTRUCTURE_PAGE.test(text))return true;const lower=text.toLowerCase();if(source.endsWith("-jina")&&/forbidden|access denied|rate limit|blocked|captcha/.test(lower)&&text.length<5000)return true;return false;}
+function isInfrastructurePage(text:string,source:SourceId){if(INFRASTRUCTURE_PAGE.test(text))return true;const lower=text.toLowerCase();return source.endsWith("-jina")&&/forbidden|access denied|rate limit|blocked|captcha/.test(lower)&&text.length<5000;}
 function classifyFetchFailure(result:FetchResult){if(result.timedOut)return"timeout";if(result.status===403)return"http_403";if(result.status===429)return"http_429";if((result.status??0)>=500)return"http_5xx";if((result.status??0)>=400)return"http_error";if(result.status===undefined)return"network_or_empty";return"empty_response";}
 function classifyThrownFetchError(error:unknown){const message=error instanceof Error?error.message.toLowerCase():String(error).toLowerCase();if(/dns|getaddrinfo|enotfound/.test(message))return"dns";if(/tls|certificate|ssl/.test(message))return"tls";if(/timeout|timed out|abort/.test(message))return"timeout";if(/connect|socket|econn/.test(message))return"connection";return"other";}
