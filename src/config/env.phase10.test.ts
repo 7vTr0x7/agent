@@ -1,3 +1,5 @@
+jest.mock("dotenv/config", () => ({}));
+
 describe("Phase 10 activation defaults", () => {
   const original = process.env;
 
