@@ -89,11 +89,20 @@ export class ProactiveRecruiterRepository {
     }
     if (!id) return null;
 
+    const sourceType = candidate.evidenceType !== "job_hiring_evidence"
+      ? "public_profile"
+      : candidate.evidenceFreshness === "current"
+        ? "current_job_posting"
+        : candidate.evidenceFreshness === "recent"
+          ? "recent_job_posting"
+          : candidate.evidenceFreshness === "historical"
+            ? "historical_job_posting"
+            : "public_profile";
     await this.database.query(
       `INSERT INTO recruiter_contact_sources (recruiter_contact_id,provider,source_url,source_type,confidence,observed_at)
        VALUES ($1,'proactive-public-web',$2,$3,$4,NOW())
        ON CONFLICT (recruiter_contact_id,provider,source_url) DO UPDATE SET confidence=GREATEST(COALESCE(recruiter_contact_sources.confidence,0),EXCLUDED.confidence),observed_at=NOW()`,
-      [id, candidate.discoveryUrl, candidate.evidenceType === "job_hiring_evidence" ? (candidate.evidenceFreshness === "current" ? "current_job_posting" : candidate.evidenceFreshness === "recent" ? "recent_job_posting" : "historical_job_posting") : "public_profile", Math.round(candidate.overallConfidence)]
+      [id, candidate.discoveryUrl, sourceType, Math.round(candidate.overallConfidence)]
     );
 
     await this.database.query(
@@ -136,8 +145,10 @@ export class ProactiveRecruiterRepository {
 
 function buildIdentityKey(candidate: ProactiveRecruiterDiscoveryCandidate, domain: string): string {
   if (isLinkedInProfile(candidate.discoveryUrl)) return `linkedin:${canonicalLinkedIn(candidate.discoveryUrl)}`;
+  if (/^https?:\/\//i.test(candidate.discoveryUrl) && candidate.discoveryUrl.startsWith("public-search:") === false) return `profile:${canonicalUrl(candidate.discoveryUrl)}`;
   return `person:${candidate.recruiterName.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}|${domain}`;
 }
 function isLinkedInProfile(value: string): boolean { try { const url = new URL(value); return url.hostname.toLowerCase().endsWith("linkedin.com") && /^\/in\/[^/]+/i.test(url.pathname); } catch { return false; } }
 function canonicalLinkedIn(value: string): string { try { const url = new URL(value); const profile = url.pathname.match(/^\/in\/([^/?#]+)/i)?.[1]; return profile ? `https://www.linkedin.com/in/${profile.toLowerCase()}` : value.toLowerCase().replace(/\/+$/, ""); } catch { return value.toLowerCase().replace(/\/+$/, ""); } }
+function canonicalUrl(value: string): string { try { const url = new URL(value); url.hash = ""; ["utm_source","utm_medium","utm_campaign","utm_term","utm_content","trk","trackingId","refId","lipi"].forEach((key) => url.searchParams.delete(key)); return url.toString().replace(/\/$/, ""); } catch { return value.toLowerCase().replace(/\/+$/, ""); } }
 function normalizeDomain(value: string): string { return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? ""; }
