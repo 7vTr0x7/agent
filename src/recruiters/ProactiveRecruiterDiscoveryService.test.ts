@@ -74,7 +74,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
   });
 
   it("counts actual profile fetches and parses only returned profile evidence", async () => {
-    const searchPage = `Search query: Frontend Engineer recruiter Bengaluru\nJane Doe - Recruiter <https://linkedin.com/in/jane-doe>`;
+    const searchPage = `Search query: site:linkedin.com/in "technical recruiter" "Frontend Engineer" "Bengaluru"\nJane Doe - Recruiter <https://linkedin.com/in/jane-doe>`;
     const profilePage = `<html><head><title>Jane Doe | Technical Recruiter at Acme</title><meta name="description" content="Technical Recruiter at Acme hiring frontend engineers in Bengaluru"></head><body><h1>Jane Doe</h1><p>Technical Recruiter at Acme. Hiring React and frontend engineers.</p></body></html>`;
     const calls: string[] = [];
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async (url) => {
@@ -91,7 +91,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
   });
 
   it("does not use query text as role evidence when the fetched profile is generic", async () => {
-    const searchPage = `Search query: Frontend Engineer recruiter Bengaluru\nJane Doe - Recruiter <https://linkedin.com/in/jane-doe>`;
+    const searchPage = `Search query: site:linkedin.com/in "technical recruiter" "Frontend Engineer" "Bengaluru"\nJane Doe - Recruiter <https://linkedin.com/in/jane-doe>`;
     const profilePage = `<html><head><title>Jane Doe | Recruiter</title></head><body><h1>Jane Doe</h1><p>Recruiter at Acme Corp.</p></body></html>`;
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async (url) => url.includes("linkedin.com/in/") ? profilePage : searchPage });
     const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
