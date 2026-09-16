@@ -501,7 +501,8 @@ function buildEvidence(text: string, url: string): string {
 
 function removeQueryEcho(text: string, query: string): string {
   const variants = [query, query.replace(/"/g, ""), decodeURIComponent(query)];
-  return variants.reduce((value, variant) => value.split(variant).join(" "), text);
+  const withoutQueryLine = text.replace(/(?:search query|query)\s*:\s*[^\n]+/gi, " ");
+  return variants.reduce((value, variant) => value.split(variant).join(" "), withoutQueryLine);
 }
 
 function countSearchResults(raw: string, normalized: string, urls: string[]): number {
