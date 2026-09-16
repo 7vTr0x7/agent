@@ -1,0 +1,41 @@
+name: temp-pr18-remediation8
+on:
+  push:
+    branches: [fix/extreme-public-recruiter-discovery]
+    paths: [.github/workflows/pr18-remediation8.yml]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: fix/extreme-public-recruiter-discovery}
+      - name: Apply patch and correct initial-bearing names
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+          wf=Path('.github/workflows/pr18-remediation.yml').read_text()
+          a=wf.index("python3 - <<'PY'")+len("python3 - <<'PY'")
+          b=wf.index("\n          PY",a)
+          exec(compile(textwrap.dedent(wf[a:b]),'embedded-remediation.py','exec'),{})
+          PY
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/recruiters/ProactiveRecruiterDiscoveryService.ts')
+          s=p.read_text()
+          s=s.replace("[A-Z][A-Za-z.'-]+(?:\\s+[A-Z][A-Za-z.'-]+)", "[A-Z][A-Za-z.'-]*(?:\\s+[A-Z][A-Za-z.'-]*)", 2)
+          s=s.replace("[A-Z][A-Za-z.'-]+(?:\\s+[A-Z][A-Za-z.'-]+){1,3}", "[A-Z][A-Za-z.'-]*(?:\\s+[A-Z][A-Za-z.'-]*){1,3}", 1)
+          p.write_text(s)
+          PY
+          git diff --check
+          npm ci
+          npm run typecheck
+          npm test -- --runInBand src/recruiters/ProactiveRecruiterDiscoveryService.test.ts src/recruiters/ProactiveRecruiterDiscoveryService.phase10.test.ts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/recruiters/ProactiveRecruiterDiscoveryService.ts
+          git commit -m "fix: preserve recruiter names with initials"
+          git push origin HEAD:fix/extreme-public-recruiter-discovery
