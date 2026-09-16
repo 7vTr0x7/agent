@@ -40,7 +40,13 @@ async function main(): Promise<void> {
       remoteEligible: process.env.CANDIDATE_REMOTE_ELIGIBLE !== "false",
       maxCandidates: config.proactiveRecruiter.maxCandidatesPerRun
     });
-    console.log(JSON.stringify({ status: "ok", mode: "isolated-proactive-recruiter", sendEnabled: false, gmailEnabled: false, outboundEnabled: false }));
+    const metrics = discovery.getLastRunMetrics();
+    const operationalStatus = "SUCCESS";
+    const discoveryStatus = metrics.finalDiscovered > 0 ? "CANDIDATES_DISCOVERED" : "NO_CANDIDATES";
+    const qualityStatus = metrics.identityValidated > 0 && metrics.companyValidated > 0 && metrics.recruiterEvidenceMatches > 0 && metrics.finalDiscovered > 0
+      ? "QUALITY_EVIDENCE_PRESENT"
+      : "NO_QUALITY_CANDIDATES";
+    console.log(JSON.stringify({ status: "ok", operationalStatus, discoveryStatus, qualityStatus, discovered: metrics.finalDiscovered, persisted: metrics.finalDiscovered > 0 ? "see handler output" : 0, metrics, mode: "isolated-proactive-recruiter", sendEnabled: false, gmailEnabled: false, outboundEnabled: false }));
   } finally {
     await database.close();
   }
