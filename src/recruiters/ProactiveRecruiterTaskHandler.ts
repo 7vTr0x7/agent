@@ -40,9 +40,7 @@ export class ProactiveRecruiterTaskHandler {
 
   async handleDiscovery(payload: ProactiveRecruiterDiscoveryPayload): Promise<void> {
     if (!this.options.enabled) return;
-    const preferredLocations = payload.preferredLocations?.length
-      ? [...payload.preferredLocations]
-      : ["Bengaluru", "Bangalore", "India", "Remote"];
+    const preferredLocations = payload.preferredLocations?.length ? [...payload.preferredLocations] : ["Bengaluru", "Bangalore", "India", "Remote"];
     const profile: CandidateProfile = {
       id: payload.candidateProfileId,
       yearsExperience: payload.yearsExperience,
@@ -59,7 +57,9 @@ export class ProactiveRecruiterTaskHandler {
       preferredLocations,
       remoteEligible: payload.remoteEligible
     });
-    const metrics = this.discovery.getLastRunMetrics();
+    const metrics = typeof (this.discovery as unknown as { getLastRunMetrics?: () => unknown }).getLastRunMetrics === "function"
+      ? (this.discovery as unknown as { getLastRunMetrics: () => unknown }).getLastRunMetrics()
+      : undefined;
     const ranked = rankProactiveRecruiters(discovered.map((candidate, index) => ({
       id: candidate.discoveryUrl || `${candidate.recruiterName}:${index}`,
       roleMatchScore: candidate.roleMatchScore,
@@ -100,13 +100,7 @@ export class ProactiveRecruiterTaskHandler {
         verificationEvidence: candidate.verificationEvidence ?? [],
         emailStatus: mailboxEvidence ? "VERIFIED" : candidate.emailStatus,
         verificationStatus: mailboxEvidence ? "mailbox_verified" : candidate.emailStatus === "LIKELY" ? "domain_mx_verified" : "public-web-unverified",
-        relevanceStatus: candidate.evidenceFreshness === "current"
-          ? "CURRENT"
-          : candidate.evidenceFreshness === "recent"
-            ? "RECENT"
-            : candidate.evidenceFreshness === "historical"
-              ? "HISTORICAL"
-              : "UNKNOWN",
+        relevanceStatus: candidate.evidenceFreshness === "current" ? "CURRENT" : candidate.evidenceFreshness === "recent" ? "RECENT" : candidate.evidenceFreshness === "historical" ? "HISTORICAL" : "UNKNOWN",
         suppressed: false
       });
       if (!canonicalEligible) continue;
@@ -124,11 +118,9 @@ export class ProactiveRecruiterTaskHandler {
       });
       if (!campaign) continue;
       prepared += 1;
-      if (this.options.sendEnabled) {
-        await this.sendDispatcher.enqueue({ messageId: campaign.messageId, companyDomain: candidate.employerDomain });
-      }
+      if (this.options.sendEnabled) await this.sendDispatcher.enqueue({ messageId: campaign.messageId, companyDomain: candidate.employerDomain });
     }
-    this.logger.info({ discovered: discovered.length, persisted, prepared, sendEnabled: this.options.sendEnabled, metrics }, "Proactive recruiter discovery completed");
+    this.logger.info({ discovered: discovered.length, persisted, prepared, sendEnabled: this.options.sendEnabled, ...(metrics !== undefined ? { metrics } : {}) }, "Proactive recruiter discovery completed");
   }
 
   async handleOutreach(payload: ProactiveRecruiterOutreachPayload): Promise<void> {
@@ -138,38 +130,16 @@ export class ProactiveRecruiterTaskHandler {
 }
 
 function assertDiscoveryPayload(payload: Record<string, unknown>): ProactiveRecruiterDiscoveryPayload {
-  if (
-    typeof payload.candidateProfileId !== "string" ||
-    typeof payload.yearsExperience !== "number" ||
-    !Array.isArray(payload.skills) || !payload.skills.every((value): value is string => typeof value === "string") ||
-    !Array.isArray(payload.targetRoles) || !payload.targetRoles.every((value): value is string => typeof value === "string") ||
-    typeof payload.maxCandidates !== "number"
-  ) {
-    throw new Error("Invalid proactive recruiter discovery task payload");
-  }
+  if (typeof payload.candidateProfileId !== "string" || typeof payload.yearsExperience !== "number" || !Array.isArray(payload.skills) || !payload.skills.every((value): value is string => typeof value === "string") || !Array.isArray(payload.targetRoles) || !payload.targetRoles.every((value): value is string => typeof value === "string") || typeof payload.maxCandidates !== "number") throw new Error("Invalid proactive recruiter discovery task payload");
   if (payload.candidateName !== undefined && typeof payload.candidateName !== "string") throw new Error("Invalid proactive recruiter candidate name");
   if (payload.location !== undefined && typeof payload.location !== "string") throw new Error("Invalid proactive recruiter location");
-  if (payload.preferredLocations !== undefined && (!Array.isArray(payload.preferredLocations) || !payload.preferredLocations.every((value): value is string => typeof value === "string"))) {
-    throw new Error("Invalid proactive recruiter preferred locations");
-  }
+  if (payload.preferredLocations !== undefined && (!Array.isArray(payload.preferredLocations) || !payload.preferredLocations.every((value): value is string => typeof value === "string"))) throw new Error("Invalid proactive recruiter preferred locations");
   if (payload.remoteEligible !== undefined && typeof payload.remoteEligible !== "boolean") throw new Error("Invalid proactive recruiter remote eligibility");
-  return {
-    candidateProfileId: payload.candidateProfileId,
-    candidateName: payload.candidateName,
-    yearsExperience: payload.yearsExperience,
-    skills: payload.skills,
-    targetRoles: payload.targetRoles,
-    location: payload.location,
-    preferredLocations: payload.preferredLocations,
-    remoteEligible: payload.remoteEligible,
-    maxCandidates: payload.maxCandidates
-  };
+  return { candidateProfileId: payload.candidateProfileId, candidateName: payload.candidateName, yearsExperience: payload.yearsExperience, skills: payload.skills, targetRoles: payload.targetRoles, location: payload.location, preferredLocations: payload.preferredLocations, remoteEligible: payload.remoteEligible, maxCandidates: payload.maxCandidates };
 }
 
 function assertOutreachPayload(payload: Record<string, unknown>): ProactiveRecruiterOutreachPayload {
-  if (typeof payload.messageId !== "string" || typeof payload.companyDomain !== "string" || typeof payload.candidateProfileId !== "string") {
-    throw new Error("Invalid proactive recruiter outreach task payload");
-  }
+  if (typeof payload.messageId !== "string" || typeof payload.companyDomain !== "string" || typeof payload.candidateProfileId !== "string") throw new Error("Invalid proactive recruiter outreach task payload");
   return { messageId: payload.messageId, companyDomain: payload.companyDomain, candidateProfileId: payload.candidateProfileId };
 }
 
@@ -197,23 +167,8 @@ function buildProactiveMessage(profile: CandidateProfile, candidate: { recruiter
   const roles = profile.targetTitles.length ? profile.targetTitles.slice(0, 3).join(" / ") : "Frontend / React / Next.js";
   const skills = profile.skills.slice(0, 5).join(", ");
   const location = profile.location ? ` I’m currently based in ${profile.location}.` : "";
-  const evidenceLine = candidate.evidenceFreshness === "current"
-    ? "Your public recruiting information appears relevant to these kinds of roles."
-    : candidate.evidenceFreshness === "recent"
-      ? "Your recent public recruiting information appears relevant to these kinds of roles."
-      : "Your public recruiting background appears relevant to these kinds of roles.";
-  return [
-    `Hi ${candidate.recruiterName.split(" ")[0] || "there"},`,
-    "",
-    `I’m ${name}, and I’m exploring ${roles} opportunities.${location}`,
-    `I have ${profile.yearsExperience} years of experience with ${skills}.`,
-    evidenceLine,
-    "",
-    "I’m reaching out proactively rather than assuming there is a specific opening. If you recruit for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.",
-    "",
-    "Thank you,",
-    name
-  ].join("\n");
+  const evidenceLine = candidate.evidenceFreshness === "current" ? "Your public recruiting information appears relevant to these kinds of roles." : candidate.evidenceFreshness === "recent" ? "Your recent public recruiting information appears relevant to these kinds of roles." : "Your public recruiting background appears relevant to these kinds of roles.";
+  return [`Hi ${candidate.recruiterName.split(" ")[0] || "there"},`, "", `I’m ${name}, and I’m exploring ${roles} opportunities.${location}`, `I have ${profile.yearsExperience} years of experience with ${skills}.`, evidenceLine, "", "I’m reaching out proactively rather than assuming there is a specific opening. If you recruit for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.", "", "Thank you,", name].join("\n");
 }
 
 function freshnessScore(value: string): number { return value === "current" ? 100 : value === "recent" ? 75 : value === "historical" ? 40 : 10; }
