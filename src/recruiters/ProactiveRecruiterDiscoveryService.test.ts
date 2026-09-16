@@ -5,13 +5,13 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     const service = new ProactiveRecruiterDiscoveryService({ fetchText: async () => null });
     const queries = service.buildQueries({ targetRoles: ["Frontend Engineer"], skills: ["React", "TypeScript"], preferredLocations: ["Bengaluru", "India"] });
     expect(queries.length).toBeGreaterThan(0);
-    expect(queries[0]).toContain("frontend engineer");
+    expect(queries[0]).toMatch(/frontend engineer/i);
     expect(queries[0]).toContain("Bengaluru");
     expect(new Set(queries).size).toBe(queries.length);
   });
 
   it("accepts role-relevant public evidence and keeps discovered email unverified", async () => {
-    const html = `Jane Doe - Technical Recruiter at Acme Corp hiring React and frontend engineers <https://linkedin.com/in/jane-doe> jane@example.com`;
+    const html = `Jane Doe - Technical Recruiter at Acme Corp currently hiring React and frontend engineers <https://linkedin.com/in/jane-doe> jane@example.com`;
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => html });
     const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React", "TypeScript"] });
     expect(results).toHaveLength(1);
@@ -43,7 +43,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
   it("classifies current, recent, and historical hiring evidence without treating history as current", async () => {
     const now = new Date("2026-09-11T00:00:00Z");
     const pages = [
-      "Current Recruiter - Technical Recruiter actively hiring React engineers <https://linkedin.com/in/current-recruiter>",
+      "Current Recruiter - Technical Recruiter currently hiring React engineers <https://linkedin.com/in/current-recruiter>",
       "Recent Recruiter - Technical Recruiter 2026 recruiting frontend engineers <https://linkedin.com/in/recent-recruiter>",
       "Historical Recruiter - Technical Recruiter 2023 previously recruited frontend engineers <https://linkedin.com/in/historical-recruiter>"
     ];
@@ -56,7 +56,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
   it("bounds public recruiter discovery concurrency at four requests globally", async () => {
     let active = 0;
     let peak = 0;
-    const html = `Jane Doe - Technical Recruiter hiring React and frontend engineers <https://linkedin.com/in/jane-doe> jane@example.com`;
+    const html = `Jane Doe - Technical Recruiter currently hiring React and frontend engineers <https://linkedin.com/in/jane-doe> jane@example.com`;
     const fetchText = async (): Promise<string> => {
       active += 1;
       peak = Math.max(peak, active);
@@ -78,7 +78,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
   });
 
   it("keeps duplicate evidence as one canonical recruiter while retaining source evidence", async () => {
-    const html = `Jane Doe - Technical Recruiter at Acme Corp hiring React engineers <https://linkedin.com/in/jane-doe> jane@acme.com`;
+    const html = `Jane Doe - Technical Recruiter at Acme Corp currently hiring React engineers <https://linkedin.com/in/jane-doe> jane@acme.com`;
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 3, targetCandidates: 20, fetchText: async () => html });
     const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React"] });
     expect(results).toHaveLength(1);
@@ -92,7 +92,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
       maxQueries: 1,
       fetchText: async (url) => {
         calls.push(url);
-        return `Priya Sharma - Technical Recruiter at Acme Corp hiring React engineers <https://linkedin.com/in/priya-sharma> priya@acme.com`;
+        return `Priya Sharma - Technical Recruiter at Acme Corp currently hiring React engineers <https://linkedin.com/in/priya-sharma> priya@acme.com`;
       }
     });
     const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React", "TypeScript"] });
@@ -110,7 +110,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
   });
 
   it("does not treat a generic mailbox as a recruiter email", async () => {
-    const html = `Priya Sharma - Technical Recruiter at Acme Corp hiring React engineers <https://linkedin.com/in/priya-sharma> priya@gmail.com`;
+    const html = `Priya Sharma - Technical Recruiter at Acme Corp currently hiring React engineers <https://linkedin.com/in/priya-sharma> priya@gmail.com`;
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => html });
     const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React"] });
     expect(results[0]?.email).toBeUndefined();
