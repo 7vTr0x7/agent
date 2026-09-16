@@ -1,0 +1,28 @@
+name: temp-pr18-diagnose5
+on:
+  push:
+    branches: [fix/extreme-public-recruiter-discovery]
+    paths: [.github/workflows/pr18-diagnose5.yml]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: fix/extreme-public-recruiter-discovery}
+      - name: Show generated source around compiler line
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+          wf=Path('.github/workflows/pr18-remediation.yml').read_text()
+          a=wf.index("python3 - <<'PY'")+len("python3 - <<'PY'")
+          b=wf.index("\n          PY",a)
+          exec(compile(textwrap.dedent(wf[a:b]),'embedded-remediation.py','exec'),{})
+          p=Path('src/recruiters/ProactiveRecruiterDiscoveryService.ts')
+          for n,line in enumerate(p.read_text().splitlines(),1):
+            if 40<=n<=50: print(f'{n}: {line}')
+          PY
+          true
