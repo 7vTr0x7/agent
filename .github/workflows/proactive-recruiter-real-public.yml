@@ -101,9 +101,15 @@ jobs:
           set -euo pipefail
           sent="$(docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';" | tr -d '[:space:]')"
           submitted="$(docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications WHERE status IN ('SUBMITTED','IN_PROGRESS');" | tr -d '[:space:]')"
+          persisted="$(docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts WHERE provider='proactive-public-web';" | tr -d '[:space:]')"
+          evidence="$(docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_proactive_evidence;" | tr -d '[:space:]')"
           test "$sent" = '0'
           test "$submitted" = '0'
-          echo "REAL_PUBLIC_SAFETY sent=$sent submitted=$submitted"
+          echo "REAL_PUBLIC_SAFETY sent=$sent submitted=$submitted persisted=$persisted evidence=$evidence"
+          echo 'REAL_PUBLIC_PERSISTED_RECRUITERS'
+          docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -P pager=off -c "SELECT c.full_name, c.title, c.company_name, c.company_domain, c.linkedin_profile_url, c.identity_key, c.email_discovery_status, c.relevance_status, e.evidence_freshness, e.discovery_source, e.discovery_url FROM recruiter_contacts c LEFT JOIN recruiter_proactive_evidence e ON e.recruiter_contact_id=c.id WHERE c.provider='proactive-public-web' ORDER BY c.updated_at DESC, e.updated_at DESC;"
+          echo 'REAL_PUBLIC_RECRUITER_EVIDENCE'
+          docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -P pager=off -c "SELECT c.full_name, c.company_name, e.evidence_type, e.evidence_freshness, e.role_match_score, e.hiring_evidence_score, e.overall_confidence, e.discovery_source, e.discovery_url FROM recruiter_proactive_evidence e JOIN recruiter_contacts c ON c.id=e.recruiter_contact_id ORDER BY e.updated_at DESC;"
           cat real-public-proactive-recruiter.log
 
       - name: Upload real-public runtime log
