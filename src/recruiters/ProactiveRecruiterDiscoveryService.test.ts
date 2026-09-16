@@ -20,6 +20,26 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(results[0]?.emailStatus).toBe("UNVERIFIED");
     expect(results[0]?.discoverySource).toBe("public-web");
     expect(results[0]?.evidenceFreshness).toBe("current");
+    expect(service.getLastRunMetrics().profilesFetched).toBeGreaterThan(0);
+    expect(service.getLastRunMetrics().profilesParsed).toBeGreaterThan(0);
+  });
+
+  it("parses public profile metadata instead of depending on LinkedIn HTML", async () => {
+    const search = `Maya Singh — Technical Recruiter at Acme Corp <https://acme.example/talent/maya-singh>`;
+    const profile = `<html><head><title>Maya Singh | Technical Recruiter | Acme Corp</title><meta name="description" content="Technical Recruiter hiring React and frontend engineers in Bengaluru"><meta property="og:description" content="Recruiting frontend and React engineers"></head><body><h1>Maya Singh</h1><p>Technical Recruiter at Acme Corp. Hiring React engineers in Bengaluru.</p></body></html>`;
+    let calls = 0;
+    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async (url) => {
+      calls += 1;
+      return url.includes("acme.example/talent") ? profile : search;
+    }});
+    const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
+    expect(results).toHaveLength(1);
+    expect(results[0]?.recruiterName).toBe("Maya Singh");
+    expect(results[0]?.employer).toBe("Acme Corp");
+    expect(results[0]?.employerDomain).toBe("acme.example");
+    expect(service.getLastRunMetrics().profilesFetched).toBeGreaterThan(0);
+    expect(service.getLastRunMetrics().profilesParsed).toBeGreaterThan(0);
+    expect(calls).toBeGreaterThan(9);
   });
 
   it("accepts public recruiter evidence without requiring LinkedIn", async () => {
@@ -53,6 +73,48 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(results.map((result) => result.evidenceFreshness).sort()).toEqual(["current", "historical", "recent"].sort());
   });
 
+  it("counts actual profile fetches and parses only returned profile evidence", async () => {
+    const searchPage = `Search query: Frontend Engineer recruiter Bengaluru\nJane Doe - Recruiter <https://linkedin.com/in/jane-doe>`;
+    const profilePage = `<html><head><title>Jane Doe | Technical Recruiter at Acme</title><meta name="description" content="Technical Recruiter at Acme hiring frontend engineers in Bengaluru"></head><body><h1>Jane Doe</h1><p>Technical Recruiter at Acme. Hiring React and frontend engineers.</p></body></html>`;
+    const calls: string[] = [];
+    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async (url) => {
+      calls.push(url);
+      return url.includes("linkedin.com/in/") ? profilePage : searchPage;
+    } });
+    const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
+    const metrics = service.getLastRunMetrics();
+    expect(calls.some((url) => url.includes("linkedin.com/in/jane-doe"))).toBe(true);
+    expect(metrics.profileFetchAttempts).toBeGreaterThan(0);
+    expect(metrics.profilesFetched).toBe(metrics.profileFetchAttempts);
+    expect(metrics.profilesParsed).toBeGreaterThan(0);
+    expect(results[0]?.recruiterName).toBe("Jane Doe");
+  });
+
+  it("does not use query text as role evidence when the fetched profile is generic", async () => {
+    const searchPage = `Search query: Frontend Engineer recruiter Bengaluru\nJane Doe - Recruiter <https://linkedin.com/in/jane-doe>`;
+    const profilePage = `<html><head><title>Jane Doe | Recruiter</title></head><body><h1>Jane Doe</h1><p>Recruiter at Acme Corp.</p></body></html>`;
+    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async (url) => url.includes("linkedin.com/in/") ? profilePage : searchPage });
+    const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
+    expect(results).toEqual([]);
+    expect(service.getLastRunMetrics().rejectionReasons.ROLE_IRRELEVANT).toBeGreaterThan(0);
+  });
+
+  it("records profile fetch failures separately from successful profile fetches", async () => {
+    const searchPage = `Jane Doe - Recruiter <https://linkedin.com/in/jane-doe>`;
+    let profile = false;
+    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async (url) => {
+      if (url.includes("linkedin.com/in/")) { profile = true; return null; }
+      return searchPage;
+    } });
+    await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
+    const metrics = service.getLastRunMetrics();
+    expect(profile).toBe(true);
+    expect(metrics.profileFetchAttempts).toBeGreaterThan(0);
+    expect(metrics.profilesFetched).toBe(0);
+    expect(metrics.profilesFetchFailures).toBe(metrics.profileFetchAttempts);
+    expect(metrics.profilesParsed).toBe(0);
+  });
+
   it("bounds public recruiter discovery concurrency at four requests globally", async () => {
     let active = 0;
     let peak = 0;
@@ -74,7 +136,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => html });
     const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
     expect(results).toEqual([]);
-    expect(service.getLastRunMetrics().rejectionReasons.REJECT_ROLE_MISMATCH).toBeGreaterThan(0);
+    expect(service.getLastRunMetrics().rejectionReasons.ROLE_IRRELEVANT).toBeGreaterThan(0);
   });
 
   it("keeps duplicate evidence as one canonical recruiter while retaining source evidence", async () => {
@@ -96,7 +158,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
       }
     });
     const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React", "TypeScript"] });
-    expect(calls.length).toBeGreaterThanOrEqual(9);
+    expect(calls.length).toBeGreaterThanOrEqual(10);
     expect(calls.some((url) => url.includes("google.com"))).toBe(true);
     expect(calls.some((url) => url.includes("bing.com"))).toBe(true);
     expect(calls.some((url) => url.includes("duckduckgo.com"))).toBe(true);
