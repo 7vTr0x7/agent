@@ -16,14 +16,15 @@ jobs:
         run: |
           set +e
           npm ci > /tmp/npm-ci.log 2>&1
+          npm test -- --runInBand src/recruiters/PublicProfileFetchBoundary.integration.test.ts > /tmp/focused.log 2>&1; FOCUSED=$?
           npm run typecheck > /tmp/typecheck.log 2>&1; TYPECHECK=$?
           npm run build > /tmp/build.log 2>&1; BUILD=$?
           npm test -- --runInBand > /tmp/jest.log 2>&1; JEST=$?
-          printf 'TYPECHECK=%s\nBUILD=%s\nJEST=%s\n' "$TYPECHECK" "$BUILD" "$JEST" > /tmp/status.txt
+          printf 'FOCUSED=%s\nTYPECHECK=%s\nBUILD=%s\nJEST=%s\n' "$FOCUSED" "$TYPECHECK" "$BUILD" "$JEST" > /tmp/status.txt
           exit 0
       - name: Upload exact validation logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pr18-exact-regression-logs
-          path: /tmp/{status.txt,npm-ci.log,typecheck.log,build.log,jest.log}
+          path: /tmp/{status.txt,npm-ci.log,focused.log,typecheck.log,build.log,jest.log}
