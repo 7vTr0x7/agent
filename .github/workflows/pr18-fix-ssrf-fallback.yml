@@ -11,23 +11,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: fix/extreme-public-recruiter-discovery
-      - name: Patch production fallback security boundary
+      - name: Restore known-good service and preserve SSRF fix
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('src/recruiters/ProactiveRecruiterDiscoveryService.ts')
-          s=p.read_text()
-          old='''if(candidates.size<this.targetCandidates){const c=this.buildCandidateFromPage(profile,removeQueryEcho(normalized,query),source.id,candidateUrls[0],m);if(c)this.mergeCandidate(candidates,c,stats,m);}}}m.finalDiscovered=candidates.size;return[...candidates.values()];'''
-          new='''if(candidates.size<this.targetCandidates){const safeFallbackUrls=(await Promise.all(candidateUrls.map(async url=>({url,check:await validatePublicFetchUrl(url)})))).filter((item):item is {url:string;check:{url:URL}}=>!("reason" in item.check));const fallbackUrl=safeFallbackUrls[0]?.url;if(fallbackUrl){const c=this.buildCandidateFromPage(profile,removeQueryEcho(normalized,query),source.id,fallbackUrl,m);if(c)this.mergeCandidate(candidates,c,stats,m);}}}m.finalDiscovered=candidates.size;return[...candidates.values()];'''
-          if old not in s:
-            raise SystemExit('target fallback block not found')
-          p.write_text(s.replace(old,new,1))
-          PY
+          git show 451ee7673fae1bc6d13b0b8c242e360684728a38:src/recruiters/ProactiveRecruiterDiscoveryService.ts > src/recruiters/ProactiveRecruiterDiscoveryService.ts
           git diff --check
-          git diff -- src/recruiters/ProactiveRecruiterDiscoveryService.ts
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/recruiters/ProactiveRecruiterDiscoveryService.ts
-          git commit -m 'fix: enforce public URL validation before recruiter fallback' || exit 0
+          git commit -m 'fix: restore validated recruiter discovery implementation' || exit 0
           git push origin HEAD:fix/extreme-public-recruiter-discovery
