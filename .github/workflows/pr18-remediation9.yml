@@ -4,37 +4,17 @@ on:
     branches: [fix/extreme-public-recruiter-discovery]
     paths: [.github/workflows/pr18-remediation9.yml]
 permissions:
-  contents: write
+  contents: read
 jobs:
-  patch:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with: {ref: fix/extreme-public-recruiter-discovery}
-      - name: Enforce textual company evidence
+      - name: Run full regression validation
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('src/recruiters/ProactiveRecruiterDiscoveryService.ts')
-          s=p.read_text()
-          old='if(!name&&sourceDomain){const root=sourceDomain.split(".")[0]?.replace(/[-_]+/g," ")??"";if(root&&new RegExp(`\\\\b${root.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\$&")}\\\\b`,"i").test(e))name=domainToCompany(sourceDomain);}'
-          new='if(!name&&sourceDomain){const root=sourceDomain.split(".")[0]?.replace(/[-_]+/g," ")??"";const withoutUrls=e.replace(URL_PATTERN," ");if(root&&new RegExp(`\\\\b${root.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\$&")}\\\\b`,"i").test(withoutUrls))name=domainToCompany(sourceDomain);}'
-          if old not in s: raise SystemExit("company-evidence target missing")
-          s=s.replace(old,new,1)
-          # Never accept a bare source/email domain as an employer when no textual employer exists.
-          old='if(emailDomain&&!GENERIC_EMAIL_DOMAINS.has(emailDomain))return{name:domainToCompany(emailDomain),domain:emailDomain};if(sourceDomain)return{name:domainToCompany(sourceDomain),domain:sourceDomain};return{name:"Unknown employer"};}'
-          new='if(emailDomain&&!GENERIC_EMAIL_DOMAINS.has(emailDomain))return{name:"Unknown employer"};if(sourceDomain)return{name:"Unknown employer"};return{name:"Unknown employer"};}'
-          if old not in s: raise SystemExit("domain-only fallback target missing")
-          s=s.replace(old,new,1)
-          p.write_text(s)
-          PY
-          git diff --check
           npm ci
           npm run typecheck
-          npm test -- --runInBand src/recruiters/ProactiveRecruiterDiscoveryService.test.ts src/recruiters/ProactiveRecruiterDiscoveryService.phase10.test.ts
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/recruiters/ProactiveRecruiterDiscoveryService.ts
-          git commit -m "fix: require textual company association evidence"
-          git push origin HEAD:fix/extreme-public-recruiter-discovery
+          npm run build
+          npm test -- --runInBand
