@@ -2,12 +2,10 @@ name: PR18 SSRF fallback fix
 on:
   push:
     branches: [fix/extreme-public-recruiter-discovery]
-    paths: [.github/workflows/pr18-fix-ssrf-fallback.yml]
 permissions:
   contents: write
 jobs:
   patch:
-    if: github.event.head_commit.author.username == 'github-actions[bot]' || github.event.head_commit.author.name == 'github-actions[bot]' || github.event.head_commit.author.email == '41898282+github-actions[bot]@users.noreply.github.com'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
