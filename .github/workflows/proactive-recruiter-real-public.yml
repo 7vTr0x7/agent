@@ -33,7 +33,11 @@ jobs:
             -e POSTGRES_PASSWORD=runtime_test_password \
             postgres:17-alpine
           for i in $(seq 1 90); do
-            if docker exec job-agent-proactive-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then break; fi
+            if docker exec job-agent-proactive-postgres pg_isready -U job_agent -d postgres >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          for i in $(seq 1 30); do
+            if docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc 'SELECT 1;' 2>/dev/null | grep -qx '1'; then break; fi
             sleep 1
           done
           docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc 'SELECT 1;' | grep -qx '1'
