@@ -22,7 +22,7 @@ export interface ProactiveRecruiterDiscoveryCandidate {
 }
 
 export interface ProactiveRecruiterDiscoveryOptions {
-  fetchText?: (url: string, signal?: AbortSignal) => Promise<string | null>;
+  fetchText?: (url: string, signal?: AbortSignal, headers?: Record<string, string>) => Promise<string | null>;
   now?: () => Date;
   maxQueries?: number;
   signal?: AbortSignal;
@@ -45,13 +45,13 @@ const LINKEDIN_PROFILE = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 let jinaReaderNextAt = 0;
 
-const DEFAULT_FETCH = async (url: string, signal?: AbortSignal): Promise<string | null> => {
+const DEFAULT_FETCH = async (url: string, signal?: AbortSignal, headers?: Record<string, string>): Promise<string | null> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT);
   const onAbort = (): void => controller.abort();
   signal?.addEventListener("abort", onAbort, { once: true });
   try {
-    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "application/json,text/plain,text/html,*/*;q=0.8", "user-agent": "job-agent-proactive-recruiter/7.0" } });
+    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "application/json,text/plain,text/html,*/*;q=0.8", "user-agent": "job-agent-proactive-recruiter/7.0", ...(headers ?? {}) } });
     return response.ok ? await response.text() : null;
   } catch {
     return null;
@@ -105,12 +105,12 @@ async function fetchSource(source: Source, fetcher: ProactiveRecruiterDiscoveryO
   stats.attempted += 1;
   for (let attempt = 0; attempt <= RETRIES; attempt += 1) {
     if (signal?.aborted) return null;
-    if (isJinaReader(source.id) && !process.env.JINA_API_KEY?.trim()) {
+    if (!fetcher && isJinaReader(source.id) && !process.env.JINA_API_KEY?.trim()) {
       const wait = Math.max(0, jinaReaderNextAt - Date.now());
       if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
       jinaReaderNextAt = Date.now() + JINA_READER_GAP_MS;
     }
-    const text = fetcher ? await fetcher(source.url, signal) : await DEFAULT_FETCH(source.url, signal);
+    const text = fetcher ? await fetcher(source.url, signal, source.headers) : await DEFAULT_FETCH(source.url, signal, source.headers);
     if (text) {
       stats.succeeded += 1;
       return text;
@@ -138,7 +138,7 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker:
 
 export class ProactiveRecruiterDiscoveryService {
   private readonly matcher = new ProactiveRecruiterRoleMatcher();
-  private readonly fetchText: (url: string, signal?: AbortSignal) => Promise<string | null>;
+  private readonly fetchText: (url: string, signal?: AbortSignal, headers?: Record<string, string>) => Promise<string | null>;
   private readonly now: () => Date;
   private readonly maxQueries: number;
   private readonly signal?: AbortSignal;
