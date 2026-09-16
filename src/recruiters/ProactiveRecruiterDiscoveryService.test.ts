@@ -63,9 +63,9 @@ describe("ProactiveRecruiterDiscoveryService", () => {
   it("classifies current, recent, and historical hiring evidence without treating history as current", async () => {
     const now = new Date("2026-09-11T00:00:00Z");
     const pages = [
-      "Current Recruiter - Technical Recruiter currently hiring React engineers <https://linkedin.com/in/current-recruiter>",
-      "Recent Recruiter - Technical Recruiter 2026 recruiting frontend engineers <https://linkedin.com/in/recent-recruiter>",
-      "Historical Recruiter - Technical Recruiter 2023 previously recruited frontend engineers <https://linkedin.com/in/historical-recruiter>"
+      "Current Recruiter - Technical Recruiter at Example Corp currently hiring React engineers <https://linkedin.com/in/current-recruiter>",
+      "Recent Recruiter - Technical Recruiter at Example Corp 2026 recruiting frontend engineers <https://linkedin.com/in/recent-recruiter>",
+      "Historical Recruiter - Technical Recruiter at Example Corp 2023 previously recruited frontend engineers <https://linkedin.com/in/historical-recruiter>"
     ];
     let index = 0;
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => pages[index++ % pages.length] ?? null, now: () => now });
