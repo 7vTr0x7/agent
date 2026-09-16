@@ -60,7 +60,7 @@ async function main(): Promise<void> {
       const migration = await db.query<{ name: string }>("SELECT name FROM schema_migrations ORDER BY id DESC LIMIT 1");
       const kill = await db.query<{ kill_switch_active: boolean; reason: string | null }>("SELECT kill_switch_active, reason FROM runtime_safety_controls WHERE id=TRUE");
       const tables = await db.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('recruiter_contacts','recruiter_outreach_sequences','recruiter_outreach_messages','recruiter_suppressions','runtime_safety_controls')");
-      add(checks, "Migrations", migration.rows[0]?.name === "038_phase10_activation_safety.sql" ? "READY" : "BLOCKED", migration.rows[0]?.name ? `Latest migration: ${migration.rows[0].name}.` : "No migration history found.");
+      add(checks, "Migrations", migration.rows[0]?.name === "039_recruiter_hiring_evidence_relevance.sql" ? "READY" : "BLOCKED", migration.rows[0]?.name ? `Latest migration: ${migration.rows[0].name}.` : "No migration history found.");
       add(checks, "Kill Switch State", kill.rows[0] ? (kill.rows[0].kill_switch_active ? "BLOCKED" : "ARMED") : "BLOCKED", kill.rows[0] ? (kill.rows[0].kill_switch_active ? "Global emergency stop is ACTIVE; live external side effects are blocked." : "Global emergency stop is inactive; individual activation gates still apply.") : "Global emergency stop row is missing.");
       add(checks, "Recruiter Schema", tables.rows[0]?.count === "5" ? "READY" : "BLOCKED", `Required recruiter/activation tables present: ${tables.rows[0]?.count ?? "0"}/5.`);
     } finally { await db.close(); }

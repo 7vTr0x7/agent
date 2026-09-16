@@ -34,7 +34,7 @@ async function main(): Promise<void> {
   const database = new Database(databaseUrl);
   try {
     const migrations = await database.query<{ name: string }>("SELECT name FROM schema_migrations ORDER BY id DESC LIMIT 1");
-    if (migrations.rows[0]?.name !== "038_phase10_activation_safety.sql") throw new Error("Phase 10 activation migration is not applied.");
+    if (migrations.rows[0]?.name !== "039_recruiter_hiring_evidence_relevance.sql") throw new Error("Phase 10 activation migration is not applied.");
     const safety = new GlobalExternalSideEffectGate(database);
     const gate = await safety.evaluate();
     if (!gate.allowed) throw new Error(`Global emergency stop blocks live test: ${gate.reason}`);
