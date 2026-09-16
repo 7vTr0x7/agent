@@ -3,6 +3,7 @@ name: Controlled Discovery Runtime
 on:
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: controlled-discovery-${{ github.event.pull_request.number || github.ref }}
