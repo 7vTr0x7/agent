@@ -1,6 +1,5 @@
 import { JobPostingRecruiterDiscoveryProvider } from "./JobPostingRecruiterDiscoveryProvider";
 import { PublicRecruiterSearchProvider } from "./PublicRecruiterSearchProvider";
-import { PublicRecruiterIdentitySearchProvider } from "./PublicRecruiterIdentitySearchProvider";
 import { SnovRecruiterDiscoveryProvider } from "./SnovRecruiterDiscoveryProvider";
 import {
   RecruiterContactCandidate,
@@ -72,40 +71,28 @@ function mergeContacts(contacts: RecruiterDiscoveryContact[]): RecruiterDiscover
 /**
  * Free-first layered recruiter discovery.
  *
- * Identity discovery is deliberately independent from email discovery. A
- * recruiter profile remains a first-class result even when no public email is
- * available. Existing public email providers remain the email-enrichment layer.
+ * Public web acquisition is centralized in PublicRecruiterSearchProvider so
+ * identity and email discovery share the same bounded search-source pool.
+ * First-party job-posting evidence remains an independent acquisition layer.
  */
 class LayeredPublicRecruiterDiscoveryProvider implements RecruiterDiscoveryProvider {
   readonly name = "public-web";
 
   constructor(
     private readonly firstParty = new JobPostingRecruiterDiscoveryProvider(),
-    private readonly publicSearch = new PublicRecruiterSearchProvider(),
-    private readonly identitySearch = new PublicRecruiterIdentitySearchProvider()
+    private readonly publicSearch = new PublicRecruiterSearchProvider()
   ) {}
 
   async discover(input: RecruiterDiscoveryInput): Promise<RecruiterDiscoveryResult> {
-    const [identityResult, firstPartyResult, publicSearchResult] = await Promise.all([
-      this.identitySearch.discover(input),
+    const [firstPartyResult, publicSearchResult] = await Promise.all([
       this.firstParty.discover(input),
       this.publicSearch.discover(input)
     ]);
-
-    const identityContacts: RecruiterIdentityCandidate[] = identityResult.map((contact) => ({
-      ...contact,
-      provider: this.name,
-      companyDomain: input.companyDomain,
-      sources: contact.sources ?? []
-    }));
     return {
       provider: this.name,
-      contacts: mergeContacts([
-        ...identityContacts,
-        ...firstPartyResult.contacts,
-        ...publicSearchResult.contacts
-      ]),
-      discoveredAt: new Date()
+      contacts: mergeContacts([...firstPartyResult.contacts, ...publicSearchResult.contacts]),
+      discoveredAt: new Date(),
+      metrics: publicSearchResult.metrics
     };
   }
 
@@ -120,7 +107,8 @@ class LayeredPublicRecruiterDiscoveryProvider implements RecruiterDiscoveryProvi
         ...firstPartyResult.contacts.filter(hasEmail),
         ...publicSearchResult.contacts.filter(hasEmail)
       ]),
-      discoveredAt: new Date()
+      discoveredAt: new Date(),
+      metrics: publicSearchResult.metrics
     };
   }
 

@@ -49,10 +49,40 @@ export interface RecruiterContactCandidate extends RecruiterIdentityCandidate {
 
 export type RecruiterDiscoveryContact = RecruiterContactCandidate | RecruiterIdentityCandidate;
 
+/** Aggregate, truthful observability for one recruiter discovery cycle. */
+export interface RecruiterDiscoveryMetrics {
+  queriesGenerated?: number;
+  queriesExecuted?: number;
+  queriesSkipped?: number;
+  rawPages?: number;
+  uniqueUrls?: number;
+  linkedinUrls?: number;
+  recruiterCandidates?: number;
+  duplicateCandidates?: number;
+  rejectedCandidates?: number;
+  sourceStats?: Record<string, {
+    attempted: number;
+    succeeded: number;
+    empty: number;
+    timeouts: number;
+    http403: number;
+    http429: number;
+    http5xx: number;
+    otherHttpErrors: number;
+    parseablePages: number;
+    usefulPages: number;
+    candidates: number;
+    duplicateCandidates: number;
+    lastError?: string;
+  }>;
+  circuitOpenSources?: string[];
+}
+
 export interface RecruiterDiscoveryResult {
   provider: string;
   contacts: RecruiterDiscoveryContact[];
   discoveredAt: Date;
+  metrics?: RecruiterDiscoveryMetrics;
 }
 
 export interface RecruiterVerificationResult {
