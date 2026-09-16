@@ -64,4 +64,31 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
     expect(results).toEqual([]);
   });
+
+  it("fans proactive discovery across the same expanded public source families", async () => {
+    const calls: string[] = [];
+    const service = new ProactiveRecruiterDiscoveryService({
+      maxQueries: 1,
+      fetchText: async (url) => {
+        calls.push(url);
+        return `Priya Sharma - Technical Recruiter hiring React engineers <https://linkedin.com/in/priya-sharma>`;
+      }
+    });
+    const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React", "TypeScript"] });
+    expect(calls).toHaveLength(5);
+    expect(calls.some((url) => url.includes("google.com"))).toBe(true);
+    expect(calls.some((url) => url.includes("bing.com"))).toBe(true);
+    expect(calls.some((url) => url.includes("duckduckgo.com"))).toBe(true);
+    expect(calls.some((url) => url.includes("startpage.com"))).toBe(true);
+    expect(calls.some((url) => url.includes("ecosia.org"))).toBe(true);
+    expect(results).toHaveLength(1);
+  });
+
+  it("does not treat a generic mailbox as a recruiter email", async () => {
+    const html = `Priya Sharma - Technical Recruiter hiring React engineers <https://linkedin.com/in/priya-sharma> priya@gmail.com`;
+    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => html });
+    const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React"] });
+    expect(results[0]?.email).toBeUndefined();
+    expect(results[0]?.emailStatus).toBe("UNVERIFIED");
+  });
 });
