@@ -1,0 +1,112 @@
+name: temp-pr18-remediation10
+on:
+  push:
+    branches: [fix/extreme-public-recruiter-discovery]
+    paths: [.github/workflows/pr18-remediation10.yml]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: fix/extreme-public-recruiter-discovery}
+      - name: Add fetch-boundary regression coverage
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/recruiters/ProactiveRecruiterDiscoveryService.ts')
+          s=p.read_text().replace('const DEFAULT_FETCH=async(', 'export const DEFAULT_FETCH=async(', 1)
+          p.write_text(s)
+          PY
+          cat > src/recruiters/PublicProfileFetchBoundary.test.ts <<'EOF'
+import { DEFAULT_FETCH } from "./ProactiveRecruiterDiscoveryService";
+
+describe("public profile fetch boundary", () => {
+  const publicIp = "https://93.184.216.34/profile";
+  const response = (status: number, body = "<html><body>Jane Doe Technical Recruiter at Acme Corp</body></html>", headers: Record<string,string> = { "content-type": "text/html" }) => ({ status, ok: status >= 200 && status < 300, headers: new Headers(headers), body: null, text: async () => body });
+  afterEach(() => jest.restoreAllMocks());
+
+  it("rejects invalid and unsupported URLs before fetch", async () => {
+    await expect(DEFAULT_FETCH("not-a-url")).resolves.toMatchObject({ text: null, reason: "INVALID_URL" });
+    await expect(DEFAULT_FETCH("file:///etc/passwd")).resolves.toMatchObject({ text: null, reason: "UNSUPPORTED_PROTOCOL" });
+  });
+
+  it.each(["http://127.0.0.1/profile", "http://10.0.0.1/profile", "http://192.168.1.1/profile", "http://[::1]/profile", "http://[::ffff:127.0.0.1]/profile"])("blocks SSRF target %s", async (url) => {
+    await expect(DEFAULT_FETCH(url)).resolves.toMatchObject({ text: null, reason: "SSRF_BLOCKED" });
+  });
+
+  it("classifies DNS failures", async () => {
+    await expect(DEFAULT_FETCH("https://this-host-should-not-exist.invalid/profile")).resolves.toMatchObject({ text: null, reason: "DNS_FAILURE" });
+  });
+
+  it.each([[403, "HTTP_403"], [404, "HTTP_404"], [429, "HTTP_429"], [500, "HTTP_5XX"], [502, "HTTP_5XX"], [503, "HTTP_5XX"]] as const)("classifies HTTP %s", async (status, reason) => {
+    jest.spyOn(global, "fetch").mockResolvedValue(response(status) as unknown as Response);
+    await expect(DEFAULT_FETCH(publicIp)).resolves.toMatchObject({ text: null, status, reason });
+  });
+
+  it("classifies connection and TLS failures without leaking the error", async () => {
+    const connection = Object.assign(new Error("socket reset"), { code: "ECONNRESET" });
+    jest.spyOn(global, "fetch").mockRejectedValueOnce(connection);
+    await expect(DEFAULT_FETCH(publicIp)).resolves.toMatchObject({ text: null, reason: "CONNECTION_FAILURE" });
+    const tls = Object.assign(new Error("certificate verify failed"), { code: "CERT_HAS_EXPIRED" });
+    jest.spyOn(global, "fetch").mockRejectedValueOnce(tls);
+    await expect(DEFAULT_FETCH(publicIp)).resolves.toMatchObject({ text: null, reason: "TLS_FAILURE" });
+  });
+
+  it("classifies caller cancellation as timeout", async () => {
+    const controller = new AbortController(); controller.abort();
+    await expect(DEFAULT_FETCH(publicIp, controller.signal)).resolves.toMatchObject({ text: null, reason: "TIMEOUT" });
+  });
+
+  it("blocks redirects to private addresses and enforces redirect limits", async () => {
+    jest.spyOn(global, "fetch").mockResolvedValueOnce(response(302, "", { location: "http://127.0.0.1/internal", "content-type": "text/html" }) as unknown as Response);
+    await expect(DEFAULT_FETCH(publicIp)).resolves.toMatchObject({ text: null, reason: "REDIRECT_BLOCKED" });
+    const fetchMock = jest.spyOn(global, "fetch");
+    for (let i = 0; i < 6; i++) fetchMock.mockResolvedValueOnce(response(302, "", { location: publicIp + `?r=${i}`, "content-type": "text/html" }) as unknown as Response);
+    await expect(DEFAULT_FETCH(publicIp)).resolves.toMatchObject({ text: null, reason: "REDIRECT_LIMIT" });
+  });
+
+  it("rejects binary content types before consuming the body", async () => {
+    const body = jest.fn(async () => "binary");
+    jest.spyOn(global, "fetch").mockResolvedValue({ status: 200, ok: true, headers: new Headers({ "content-type": "application/pdf" }), body: null, text: body } as unknown as Response);
+    await expect(DEFAULT_FETCH(publicIp)).resolves.toMatchObject({ text: null, reason: "CONTENT_TYPE_REJECTED" });
+    expect(body).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized responses using Content-Length", async () => {
+    const body = jest.fn(async () => "too large");
+    jest.spyOn(global, "fetch").mockResolvedValue({ status: 200, ok: true, headers: new Headers({ "content-type": "text/html", "content-length": "2000001" }), body: null, text: body } as unknown as Response);
+    await expect(DEFAULT_FETCH(publicIp)).resolves.toMatchObject({ text: null, reason: "RESPONSE_TOO_LARGE" });
+    expect(body).not.toHaveBeenCalled();
+  });
+
+  it("rejects anti-bot/interstitial content", async () => {
+    jest.spyOn(global, "fetch").mockResolvedValue(response(200, "<html><title>Access denied</title><body>Verify you are human. Checking your browser. Enable JavaScript.</body></html>") as unknown as Response);
+    await expect(DEFAULT_FETCH(publicIp)).resolves.toMatchObject({ text: null, reason: "ANTI_BOT" });
+  });
+
+  it("accepts bounded HTML profile content", async () => {
+    jest.spyOn(global, "fetch").mockResolvedValue(response(200) as unknown as Response);
+    await expect(DEFAULT_FETCH(publicIp)).resolves.toMatchObject({ reason: "SUCCESS", status: 200, text: expect.stringContaining("Jane Doe") });
+  });
+
+  it("enforces response-size limits for chunked bodies", async () => {
+    const oversized = new Uint8Array(2_000_001);
+    const reader = { read: jest.fn().mockResolvedValue({ done: false, value: oversized }), cancel: jest.fn().mockResolvedValue(undefined), releaseLock: jest.fn() };
+    jest.spyOn(global, "fetch").mockResolvedValue({ status: 200, ok: true, headers: new Headers({ "content-type": "text/html" }), body: { getReader: () => reader } } as unknown as Response);
+    await expect(DEFAULT_FETCH(publicIp)).resolves.toMatchObject({ text: null, reason: "RESPONSE_TOO_LARGE" });
+    expect(reader.cancel).toHaveBeenCalled();
+  });
+});
+EOF
+          git diff --check
+          npm ci
+          npm run typecheck
+          npm test -- --runInBand src/recruiters/ProactiveRecruiterDiscoveryService.test.ts src/recruiters/ProactiveRecruiterDiscoveryService.phase10.test.ts src/recruiters/PublicProfileFetchBoundary.test.ts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/recruiters/ProactiveRecruiterDiscoveryService.ts src/recruiters/PublicProfileFetchBoundary.test.ts
+          git commit -m "test: cover public profile fetch security boundary"
+          git push origin HEAD:fix/extreme-public-recruiter-discovery
