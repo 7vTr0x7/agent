@@ -4,17 +4,32 @@ on:
     branches: [fix/extreme-public-recruiter-discovery]
     paths: [.github/workflows/pr18-remediation9.yml]
 permissions:
-  contents: read
+  contents: write
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with: {ref: fix/extreme-public-recruiter-discovery}
-      - name: Run full regression validation
+      - name: Capture exact regression result
         shell: bash
         run: |
-          npm ci
-          npm run typecheck
-          npm run build
-          npm test -- --runInBand
+          set +e
+          npm ci > /tmp/npm-ci.log 2>&1
+          npm run typecheck > /tmp/typecheck.log 2>&1; TYPECHECK=$?
+          npm run build > /tmp/build.log 2>&1; BUILD=$?
+          npm test -- --runInBand > /tmp/jest.log 2>&1; JEST=$?
+          {
+            echo "TYPECHECK=$TYPECHECK"
+            tail -n 80 /tmp/typecheck.log
+            echo "BUILD=$BUILD"
+            tail -n 80 /tmp/build.log
+            echo "JEST=$JEST"
+            tail -n 200 /tmp/jest.log
+          } > .tmp-pr18-validation.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .tmp-pr18-validation.log
+          git commit -m "chore: capture PR18 validation output" || true
+          git push origin HEAD:fix/extreme-public-recruiter-discovery
+          exit $((TYPECHECK || BUILD || JEST))
