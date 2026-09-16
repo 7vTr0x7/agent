@@ -437,6 +437,7 @@ export class ProactiveRecruiterDiscoveryService {
     const name = extractRecruiterName(page);
     const email = extractRecruiterEmail(page, profile);
     if (!name) { reject(metrics, "IDENTITY_AMBIGUOUS"); return null; }
+    if (!email) { reject(metrics, "IDENTITY_AMBIGUOUS"); return null; }
     const employer = extractEmployer(page, email);
     if (employer.name === "Unknown employer") { reject(metrics, "COMPANY_UNKNOWN"); return null; }
     metrics.recruiterRoleMatches += 1;
@@ -524,8 +525,9 @@ function isPublicProfileUrl(value: string): boolean {
 }
 
 function identityKey(candidate: ProactiveRecruiterDiscoveryCandidate): string {
-  if (candidate.discoveryUrl.startsWith("https://www.linkedin.com/in/")) return `linkedin:${candidate.discoveryUrl}`;
   if (candidate.email) return `email:${candidate.email.toLowerCase()}`;
+  if (candidate.discoveryUrl.startsWith("https://www.linkedin.com/in/")) return `linkedin:${candidate.discoveryUrl}`;
+  if (isPublicProfileUrl(candidate.discoveryUrl)) return `profile:${canonicalUrl(candidate.discoveryUrl)}`;
   return `person:${candidate.recruiterName.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}|${candidate.employerDomain ?? candidate.employer.toLowerCase().replace(/[^a-z0-9]+/g, "")}`;
 }
 
