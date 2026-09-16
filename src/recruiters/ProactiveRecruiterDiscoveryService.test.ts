@@ -48,7 +48,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
       "Historical Recruiter - Technical Recruiter 2023 previously recruited frontend engineers <https://linkedin.com/in/historical-recruiter>"
     ];
     let index = 0;
-    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => pages[index++ % pages.length] ?? null, now });
+    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => pages[index++ % pages.length] ?? null, now: () => now });
     const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
     expect(results.map((result) => result.evidenceFreshness).sort()).toEqual(["current", "historical", "recent"].sort());
   });
