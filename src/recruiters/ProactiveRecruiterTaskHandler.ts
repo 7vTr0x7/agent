@@ -59,6 +59,7 @@ export class ProactiveRecruiterTaskHandler {
       preferredLocations,
       remoteEligible: payload.remoteEligible
     });
+    const metrics = this.discovery.getLastRunMetrics();
     const ranked = rankProactiveRecruiters(discovered.map((candidate, index) => ({
       id: candidate.discoveryUrl || `${candidate.recruiterName}:${index}`,
       roleMatchScore: candidate.roleMatchScore,
@@ -127,7 +128,7 @@ export class ProactiveRecruiterTaskHandler {
         await this.sendDispatcher.enqueue({ messageId: campaign.messageId, companyDomain: candidate.employerDomain });
       }
     }
-    this.logger.info({ discovered: discovered.length, persisted, prepared, sendEnabled: this.options.sendEnabled }, "Proactive recruiter discovery completed");
+    this.logger.info({ discovered: discovered.length, persisted, prepared, sendEnabled: this.options.sendEnabled, metrics }, "Proactive recruiter discovery completed");
   }
 
   async handleOutreach(payload: ProactiveRecruiterOutreachPayload): Promise<void> {
@@ -169,11 +170,7 @@ function assertOutreachPayload(payload: Record<string, unknown>): ProactiveRecru
   if (typeof payload.messageId !== "string" || typeof payload.companyDomain !== "string" || typeof payload.candidateProfileId !== "string") {
     throw new Error("Invalid proactive recruiter outreach task payload");
   }
-  return {
-    messageId: payload.messageId,
-    companyDomain: payload.companyDomain,
-    candidateProfileId: payload.candidateProfileId
-  };
+  return { messageId: payload.messageId, companyDomain: payload.companyDomain, candidateProfileId: payload.candidateProfileId };
 }
 
 function normalizeEmailStatus(value: string, evidence: RecruiterVerificationEvidence[] = []): "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID" {
@@ -181,22 +178,17 @@ function normalizeEmailStatus(value: string, evidence: RecruiterVerificationEvid
   const hasMailboxEvidence = evidence.some((item) => item.mailboxLevel === true && item.provider.trim().length > 0 && item.status.trim().length > 0);
   if ((normalized === "mailbox_verified" || normalized === "valid") && hasMailboxEvidence) return "VERIFIED";
   switch (normalized) {
-    case "verified":
-      return "VERIFIED";
+    case "verified": return "VERIFIED";
     case "likely":
     case "domain_mx_verified":
-    case "domain_mx_verified_doh":
-      return "LIKELY";
+    case "domain_mx_verified_doh": return "LIKELY";
     case "invalid":
     case "invalid_email_format":
     case "no_mx_record":
     case "missing_email_domain":
-    case "not_valid":
-      return "INVALID";
-    case "unverified":
-      return "UNVERIFIED";
-    default:
-      return "UNVERIFIED";
+    case "not_valid": return "INVALID";
+    case "unverified": return "UNVERIFIED";
+    default: return "UNVERIFIED";
   }
 }
 
@@ -224,21 +216,7 @@ function buildProactiveMessage(profile: CandidateProfile, candidate: { recruiter
   ].join("\n");
 }
 
-function freshnessScore(value: string): number {
-  return value === "current" ? 100 : value === "recent" ? 75 : value === "historical" ? 40 : 10;
-}
-
-function emailScore(value: string): number {
-  return value === "VERIFIED" ? 100 : value === "LIKELY" ? 60 : value === "UNVERIFIED" ? 20 : 0;
-}
-
-function employerRelevance(employer: string, preferredLocations: string[], remoteEligible: boolean): number {
-  if (employer === "Unknown employer") return 20;
-  return preferredLocations.length || remoteEligible ? 60 : 50;
-}
-
-function locationScore(evidence: string, preferredLocations: string[], remoteEligible: boolean): number {
-  const haystack = evidence.toLowerCase();
-  if (preferredLocations.some((location) => haystack.includes(location.toLowerCase()))) return 100;
-  return remoteEligible && /remote|india|bengaluru|bangalore/i.test(haystack) ? 80 : 30;
-}
+function freshnessScore(value: string): number { return value === "current" ? 100 : value === "recent" ? 75 : value === "historical" ? 40 : 10; }
+function emailScore(value: string): number { return value === "VERIFIED" ? 100 : value === "LIKELY" ? 60 : value === "UNVERIFIED" ? 20 : 0; }
+function employerRelevance(employer: string, preferredLocations: string[], remoteEligible: boolean): number { if (employer === "Unknown employer") return 20; return preferredLocations.length || remoteEligible ? 60 : 50; }
+function locationScore(evidence: string, preferredLocations: string[], remoteEligible: boolean): number { const haystack = evidence.toLowerCase(); if (preferredLocations.some((location) => haystack.includes(location.toLowerCase()))) return 100; return remoteEligible && /remote|india|bengaluru|bangalore/i.test(haystack) ? 80 : 30; }
