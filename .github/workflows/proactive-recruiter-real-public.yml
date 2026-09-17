@@ -1,0 +1,140 @@
+name: Proactive Recruiter Real Public Runtime
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: proactive-recruiter-real-public-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Build Docker image
+        run: docker build --tag job-agent:proactive-recruiter-real .
+
+      - name: Start isolated PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker network create job-agent-proactive
+          docker run -d --name job-agent-proactive-postgres --network job-agent-proactive \
+            -e POSTGRES_DB=job_agent \
+            -e POSTGRES_USER=job_agent \
+            -e POSTGRES_PASSWORD=runtime_test_password \
+            postgres:17-alpine
+          for i in $(seq 1 90); do
+            if docker exec job-agent-proactive-postgres pg_isready -U job_agent -d postgres >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          for i in $(seq 1 30); do
+            if docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc 'SELECT 1;' 2>/dev/null | grep -qx '1'; then break; fi
+            sleep 1
+          done
+          docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc 'SELECT 1;' | grep -qx '1'
+
+      - name: Run migrations in isolated app
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name job-agent-proactive-app --network job-agent-proactive \
+            -e NODE_ENV=test \
+            -e LOG_LEVEL=info \
+            -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-proactive-postgres:5432/job_agent \
+            -e AUTOMATION_ENABLED=false \
+            -e JOB_DISCOVERY_ENABLED=false \
+            -e GMAIL_ENABLED=false \
+            -e OUTBOUND_ENABLED=false \
+            -e APPLICATION_DRY_RUN=true \
+            -e RECRUITER_OUTREACH_ENABLED=false \
+            -e RECRUITER_OUTREACH_DRY_RUN=true \
+            -e RECRUITER_OUTREACH_ACTIVATION=disabled \
+            -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false \
+            -e PROACTIVE_RECRUITER_ENABLED=false \
+            -e PROACTIVE_RECRUITER_FIXTURE=false \
+            job-agent:proactive-recruiter-real
+          for i in $(seq 1 90); do
+            ready="$(docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc "SELECT to_regclass('public.schema_migrations') IS NOT NULL AND EXISTS (SELECT 1 FROM schema_migrations);" 2>/dev/null | tr -d '[:space:]' || true)"
+            if [ "$ready" = 't' ]; then break; fi
+            if ! docker inspect -f '{{.State.Running}}' job-agent-proactive-app | grep -q true; then docker logs job-agent-proactive-app; exit 1; fi
+            sleep 1
+          done
+          test "$(docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM schema_migrations;' | tr -d '[:space:]')" -gt 0
+
+      - name: Run real public proactive recruiter discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-proactive \
+            -e NODE_ENV=test \
+            -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-proactive-postgres:5432/job_agent \
+            -e CANDIDATE_PROFILE_ID=runtime-proactive-candidate \
+            -e CANDIDATE_YEARS_EXPERIENCE=3 \
+            -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,HTML,CSS,Tailwind,Bootstrap' \
+            -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Frontend Developer,React Developer,UI Developer,Full Stack Developer,Full Stack Engineer' \
+            -e CANDIDATE_PREFERRED_LOCATIONS='Bengaluru,Bangalore,India,Remote' \
+            -e CANDIDATE_REMOTE_ELIGIBLE=true \
+            -e PROACTIVE_RECRUITER_ENABLED=true \
+            -e PROACTIVE_RECRUITER_FIXTURE=false \
+            -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
+            -e PROACTIVE_RECRUITER_MAX_QUERIES=18 \
+            -e PROACTIVE_RECRUITER_TARGET_CANDIDATES=8 \
+            -e RECRUITER_OUTREACH_ENABLED=false \
+            -e RECRUITER_OUTREACH_DRY_RUN=true \
+            -e RECRUITER_OUTREACH_ACTIVATION=disabled \
+            -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false \
+            -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
+            -e GMAIL_ENABLED=false \
+            -e OUTBOUND_ENABLED=false \
+            -e AUTOMATION_ENABLED=false \
+            -e APPLICATION_DRY_RUN=true \
+            job-agent:proactive-recruiter-real npm run proactive-recruiter:once 2>&1 | tee real-public-proactive-recruiter.log
+          ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' real-public-proactive-recruiter.log
+          grep -q '"status":"ok"' real-public-proactive-recruiter.log
+          grep -q '"operationalStatus":"SUCCESS"' real-public-proactive-recruiter.log
+
+      - name: Validate real-public safety and evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          sent="$(docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';" | tr -d '[:space:]')"
+          submitted="$(docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications WHERE status IN ('SUBMITTED','IN_PROGRESS');" | tr -d '[:space:]')"
+          persisted="$(docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts WHERE provider='proactive-public-web';" | tr -d '[:space:]')"
+          evidence="$(docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_proactive_evidence;" | tr -d '[:space:]')"
+          invalid="$(docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts WHERE provider='proactive-public-web' AND (NULLIF(TRIM(full_name),'') IS NULL OR NULLIF(TRIM(company_name),'') IS NULL OR LOWER(TRIM(company_name))='unknown employer' OR NULLIF(TRIM(identity_key),'') IS NULL);" | tr -d '[:space:]')"
+          missing_evidence="$(docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts c WHERE c.provider='proactive-public-web' AND NOT EXISTS (SELECT 1 FROM recruiter_proactive_evidence e WHERE e.recruiter_contact_id=c.id);" | tr -d '[:space:]')"
+          suspicious="$(docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts WHERE provider='proactive-public-web' AND LOWER(COALESCE(full_name,'')) ~ '(forbidden|markdown|access denied|captcha|bot check|too many requests)';" | tr -d '[:space:]')"
+          test "$sent" = '0'
+          test "$submitted" = '0'
+          test "$invalid" = '0'
+          test "$missing_evidence" = '0'
+          test "$suspicious" = '0'
+          echo "REAL_PUBLIC_SAFETY sent=$sent submitted=$submitted persisted=$persisted evidence=$evidence invalid=$invalid missing_evidence=$missing_evidence suspicious=$suspicious"
+          echo 'REAL_PUBLIC_PERSISTED_RECRUITERS'
+          docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -P pager=off -c "SELECT c.full_name, c.title, c.company_name, c.company_domain, c.linkedin_profile_url, c.identity_key, c.email_discovery_status, c.relevance_status, e.evidence_freshness, e.discovery_source, e.discovery_url FROM recruiter_contacts c LEFT JOIN recruiter_proactive_evidence e ON e.recruiter_contact_id=c.id WHERE c.provider='proactive-public-web' ORDER BY c.updated_at DESC, e.updated_at DESC;"
+          echo 'REAL_PUBLIC_RECRUITER_EVIDENCE'
+          docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -P pager=off -c "SELECT c.full_name, c.company_name, e.evidence_type, e.evidence_freshness, e.role_match_score, e.hiring_evidence_score, e.overall_confidence, e.discovery_source, e.discovery_url FROM recruiter_proactive_evidence e JOIN recruiter_contacts c ON c.id=e.recruiter_contact_id ORDER BY e.updated_at DESC;"
+          cat real-public-proactive-recruiter.log
+
+      - name: Upload real-public runtime log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proactive-recruiter-real-public-log
+          path: real-public-proactive-recruiter.log
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f job-agent-proactive-app >/dev/null 2>&1 || true
+          docker rm -f job-agent-proactive-postgres >/dev/null 2>&1 || true
+          docker network rm job-agent-proactive >/dev/null 2>&1 || true
