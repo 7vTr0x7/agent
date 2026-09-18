@@ -30,7 +30,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     let calls = 0;
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async (url) => {
       calls += 1;
-      return url.includes("acme.example/talent") ? profile : search;
+      return url.includes("example.com/talent") ? profile : search;
     }});
     const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
     expect(results).toHaveLength(1);
