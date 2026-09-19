@@ -214,6 +214,22 @@ function expandIpv6(address: string): number[] | null {
   return expanded.map((part) => parseInt(part, 16));
 }
 
+async function fetchViaJinaReader(url: string, signal: AbortSignal): Promise<string> {
+  const response = await fetch(`https://r.jina.ai/${url}`, {
+    signal,
+    headers: {
+      accept: "text/plain,text/html;q=0.9,*/*;q=0.8",
+      "user-agent": "Mozilla/5.0 (compatible; JobAgent/0.1; +https://github.com/7vTr0x7/agent)"
+    }
+  });
+  if (!response.ok) throw new Error(`Detail page reader request failed: ${response.status}`);
+  return await response.text();
+}
+
+function containsExplicitExperience(value: string): boolean {
+  return /(?:minimum|at least|required|must have)\\s+(?:\\d+(?:\\.\\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\\s*\\+?\\s*years?\\b|\\b\\d+(?:\\.\\d+)?\\s*\\+\\s*years?\\b|\\b\\d+(?:\\.\\d+)?\\s*years?\\s+(?:minimum|required)\\b/i.test(value);
+}
+
 function extractJobPostingDescription(html: string): string | null {
   let bestDescription: string | null = null;
   const scripts = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
