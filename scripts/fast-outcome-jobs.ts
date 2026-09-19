@@ -58,7 +58,7 @@ async function main(): Promise<void> {
 
     const queue = new TaskQueue(database);
     const baseConfig = loadConfig();
-    const fastSourceIds = (process.env.FAST_JOB_SOURCE_IDS ?? "remoteok:json,himalayas:json").split(",").map((value) => value.trim()).filter(Boolean);
+    const fastSourceIds = (process.env.FAST_JOB_SOURCE_IDS ?? "remoteok:json,himalayas:react:india:json,himalayas:nextjs:india:json,himalayas:frontend:india:json,remotefirstjobs:react:rss,remotefirstjobs:software:rss,weworkremotely:rss,realworkfromanywhere:frontend:rss,realworkfromanywhere:fullstack:rss").split(",").map((value) => value.trim()).filter(Boolean);
     const configuredSources = JSON.parse(baseConfig.jobSources) as Array<{ id?: string }>;
     const selectedSources = configuredSources.filter((source) => source.id && fastSourceIds.includes(source.id));
     if (selectedSources.length === 0) throw new Error(`FAST_JOB_SOURCE_IDS selected no configured sources: ${fastSourceIds.join(",")}`);
