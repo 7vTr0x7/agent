@@ -74,12 +74,7 @@ export class JobDetailEnricher {
           }
           throw new Error(`Detail page request failed: ${response.status}`);
         }
-        const body = await response.text();
-        if (!containsExplicitExperience(body) && redirects === 0) {
-          const fallback = await fetchViaJinaReader(currentUrl, controller.signal);
-          if (fallback && containsExplicitExperience(fallback)) return fallback;
-        }
-        return body;
+        return await response.text();
       } finally {
         clearTimeout(timeout);
         signal?.removeEventListener("abort", onAbort);
