@@ -68,8 +68,18 @@ export class JobDetailEnricher {
           currentUrl = await validatePublicHttpUrl(new URL(location, currentUrl).toString());
           continue;
         }
-        if (!response.ok) throw new Error(`Detail page request failed: ${response.status}`);
-        return await response.text();
+        if (!response.ok) {
+          if ((response.status === 403 || response.status === 429 || response.status >= 500) && redirects === 0) {
+            return await fetchViaJinaReader(currentUrl, controller.signal);
+          }
+          throw new Error(`Detail page request failed: ${response.status}`);
+        }
+        const body = await response.text();
+        if (!containsExplicitExperience(body) && redirects === 0) {
+          const fallback = await fetchViaJinaReader(currentUrl, controller.signal);
+          if (fallback && containsExplicitExperience(fallback)) return fallback;
+        }
+        return body;
       } finally {
         clearTimeout(timeout);
         signal?.removeEventListener("abort", onAbort);
