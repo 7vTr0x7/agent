@@ -44,7 +44,21 @@ export class JobDetailEnricher {
     if ((!force && !shouldEnrich(job.description, job.title, job.source)) || signal?.aborted) return job;
     try {
       const html = await this.fetchDetailPage(job.url, signal);
-      const description = extractJobPostingDescription(html);
+      let description = extractJobPostingDescription(html);
+      if (
+        (!description || !containsExplicitExperience(description)) &&
+        /:json$/i.test(job.source) &&
+        /\b(frontend|front-end|front end|react|next(?:\.js|js)?|full[- ]?stack|web developer|web engineer|software engineer)\b/i.test(job.title)
+      ) {
+        try {
+          const validatedUrl = await validatePublicHttpUrl(job.url);
+          const readerText = await fetchViaJinaReader(validatedUrl, signal);
+          const readerDescription = extractJobPostingDescription(readerText);
+          if (readerDescription && containsExplicitExperience(readerDescription)) description = readerDescription;
+        } catch {
+          // Keep the direct source content when the bounded fallback is unavailable.
+        }
+      }
       return description ? { ...job, description } : job;
     } catch {
       return job;
