@@ -79,7 +79,7 @@ jobs:
             -e FAST_MATCHING_LIMIT=80 \
             -e FAST_RECRUITER_TASK_LIMIT=10 \
             -e OLLAMA_BASE_URL=http://127.0.0.1:11434 \
-            -e OLLAMA_TIMEOUT_MS=1000 \
+            -e OLLAMA_TIMEOUT_MS=250 \
             job-agent:fast-outcome npm run outcome:fast-jobs 2>&1 | tee fast-job-outcome.log
           ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-job-outcome.log
           grep -q '"status": "ok"' fast-job-outcome.log
