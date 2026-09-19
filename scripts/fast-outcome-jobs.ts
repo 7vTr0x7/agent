@@ -52,8 +52,14 @@ async function main(): Promise<void> {
     if (!profile) throw new Error("Configured candidate profile could not be resolved.");
 
     const queue = new TaskQueue(database);
+    const baseConfig = loadConfig();
+    const fastSourceIds = (process.env.FAST_JOB_SOURCE_IDS ?? "remoteok:json,himalayas:json").split(",").map((value) => value.trim()).filter(Boolean);
+    const configuredSources = JSON.parse(baseConfig.jobSources) as Array<{ id?: string }>;
+    const selectedSources = configuredSources.filter((source) => source.id && fastSourceIds.includes(source.id));
+    if (selectedSources.length === 0) throw new Error(`FAST_JOB_SOURCE_IDS selected no configured sources: ${fastSourceIds.join(",")}`);
     const runtime = createDiscoveryRuntime(database, queue, {
-      ...require("../src/config/env").loadConfig()
+      ...baseConfig,
+      jobSources: JSON.stringify(selectedSources)
     }, profile);
 
     const discoveryStartedAt = Date.now();
