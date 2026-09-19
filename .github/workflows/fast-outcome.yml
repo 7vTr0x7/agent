@@ -1,0 +1,154 @@
+name: Fast Outcome Runtime
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - ".github/workflows/fast-outcome.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "Dockerfile"
+  workflow_dispatch:
+
+concurrency:
+  group: fast-outcome-\${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  outcome:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: \${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Build Docker image
+        run: docker build --tag job-agent:fast-outcome .
+
+      - name: Start isolated PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker network create job-agent-fast
+          docker run -d --name job-agent-fast-postgres --network job-agent-fast \
+            -e POSTGRES_DB=job_agent -e POSTGRES_USER=job_agent -e POSTGRES_PASSWORD=fast_runtime_password \
+            postgres:17-alpine
+          for i in \$(seq 1 60); do
+            if docker exec job-agent-fast-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then
+              echo "PostgreSQL ready on attempt \$i"
+              break
+            fi
+            if [ "\$i" = "60" ]; then
+              docker logs job-agent-fast-postgres
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Run fast real-data job outcome
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-fast \
+            -e NODE_ENV=test \
+            -e LOG_LEVEL=info \
+            -e DATABASE_URL=postgres://job_agent:fast_runtime_password@job-agent-fast-postgres:5432/job_agent \
+            -e AUTOMATION_ENABLED=false \
+            -e APPLICATION_DRY_RUN=true \
+            -e APPLICATION_LIVE_ENABLED=false \
+            -e OUTBOUND_ENABLED=false \
+            -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false \
+            -e JOB_DISCOVERY_ENABLED=true \
+            -e CANDIDATE_PROFILE_ID=fast-runtime-candidate \
+            -e CANDIDATE_YEARS_EXPERIENCE=3 \
+            -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS' \
+            -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer' \
+            -e CANDIDATE_FIRST_NAME=Fast \
+            -e CANDIDATE_LAST_NAME=Runtime \
+            -e CANDIDATE_FULL_NAME='Fast Runtime' \
+            -e CANDIDATE_LOCATION=India \
+            -e CANDIDATE_SPONSORSHIP_REQUIRED=false \
+            -e CANDIDATE_NOTICE_PERIOD_DAYS=0 \
+            -e RECRUITER_OUTREACH_ENABLED=false \
+            -e RECRUITER_OUTREACH_DRY_RUN=true \
+            -e RECRUITER_OUTREACH_ACTIVATION=disabled \
+            -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false \
+            -e GMAIL_ENABLED=false \
+            -e EMAIL_ENABLED=false \
+            -e RESUME_TAILORING_ENABLED=false \
+            -e GENERIC_APPLICATION_ADAPTER_ENABLED=true \
+            -e OLLAMA_BASE_URL=http://127.0.0.1:11434 \
+            -e OLLAMA_TIMEOUT_MS=3000 \
+            -e FAST_JOB_SOURCE_IDS=remoteok:json,himalayas:json \
+            -e FAST_MATCHING_LIMIT=100 \
+            job-agent:fast-outcome npm run outcome:fast-jobs | tee fast-job-outcome.log
+
+      - name: Run fast real-data recruiter outcome
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-fast \
+            -e NODE_ENV=test \
+            -e DATABASE_URL=postgres://job_agent:fast_runtime_password@job-agent-fast-postgres:5432/job_agent \
+            -e CANDIDATE_PROFILE_ID=fast-runtime-candidate \
+            -e CANDIDATE_YEARS_EXPERIENCE=3 \
+            -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS' \
+            -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer' \
+            -e CANDIDATE_FIRST_NAME=Fast \
+            -e CANDIDATE_LAST_NAME=Runtime \
+            -e CANDIDATE_FULL_NAME='Fast Runtime' \
+            -e CANDIDATE_LOCATION=India \
+            -e CANDIDATE_PREFERRED_LOCATIONS='Bengaluru,Bangalore,India,Remote' \
+            -e CANDIDATE_REMOTE_ELIGIBLE=true \
+            -e PROACTIVE_RECRUITER_ENABLED=true \
+            -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
+            -e PROACTIVE_RECRUITER_MAX_CANDIDATES_PER_RUN=3 \
+            -e PROACTIVE_RECRUITER_MAX_QUERIES=3 \
+            -e RECRUITER_OUTREACH_ENABLED=false \
+            -e RECRUITER_OUTREACH_DRY_RUN=true \
+            -e RECRUITER_OUTREACH_ACTIVATION=disabled \
+            -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false \
+            -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
+            -e GMAIL_ENABLED=false \
+            -e OUTBOUND_ENABLED=false \
+            -e AUTOMATION_ENABLED=false \
+            -e APPLICATION_DRY_RUN=true \
+            job-agent:fast-outcome npm run proactive-recruiter:once | tee fast-recruiter-outcome.log
+
+      - name: Verify persisted results and side-effect safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          jobs="\$(docker exec job-agent-fast-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM job_opportunities;' | tr -d '[:space:]')"
+          matches="\$(docker exec job-agent-fast-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM match_decisions;' | tr -d '[:space:]')"
+          recruiters="\$(docker exec job-agent-fast-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts WHERE relevance_status IN ('CURRENT','RECENT');" | tr -d '[:space:]')"
+          sent="\$(docker exec job-agent-fast-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';" | tr -d '[:space:]')"
+          submitted="\$(docker exec job-agent-fast-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications WHERE status IN ('SUBMITTED','IN_PROGRESS');" | tr -d '[:space:]')"
+          test "\$jobs" -gt 0
+          test "\$matches" -gt 0
+          test "\$sent" = 0
+          test "\$submitted" = 0
+          printf 'persisted_jobs=%s persisted_matches=%s current_recent_recruiters=%s sent=%s submitted=%s\n' "\$jobs" "\$matches" "\$recruiters" "\$sent" "\$submitted"
+          if grep -Eiq 'GMAIL_ENABLED=true|OUTBOUND_ENABLED=true|PROACTIVE_RECRUITER_SEND_ENABLED=true' fast-job-outcome.log fast-recruiter-outcome.log; then
+            echo 'FAIL: unsafe side-effect configuration appeared in runtime output'
+            exit 1
+          fi
+
+      - name: Upload fast outcome logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fast-outcome-results
+          path: |
+            fast-job-outcome.log
+            fast-recruiter-outcome.log
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f job-agent-fast-postgres >/dev/null 2>&1 || true
+          docker network rm job-agent-fast >/dev/null 2>&1 || true
