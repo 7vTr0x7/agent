@@ -35,7 +35,7 @@ export class DeterministicJobMatcher {
   if(EXCLUDED_TITLE.test(title))return reject("Role title is outside the candidate's frontend/full-stack target.");
   if(PERMANENTLY_EXCLUDED_COMPANIES.some(c=>c.trim().toLowerCase()===job.companyName.trim().toLowerCase()))return reject("Company is permanently excluded by application policy.");
   if(geography==="FOREIGN_ONSITE"||geography==="FOREIGN_HYBRID")return reject("Foreign onsite/hybrid role is outside the candidate's geography target.");
-  if(geography==="REMOTE_RESTRICTED"||RESTRICTED_REMOTE.test(title))return reject("Remote posting explicitly restricts eligibility outside India.");
+  if(geography==="REMOTE_RESTRICTED"||(RESTRICTED_REMOTE.test(title)||(/\bremote\b/i.test(title)&&FOREIGN_LOCATION.test(title))))return reject("Remote posting explicitly restricts eligibility outside India.");
   if(freshness==="HISTORICAL")return reject("Posting is historical and lacks evidence that it remains current.");
   if(seniority==="MANAGER"||seniority==="PRINCIPAL")return reject(`Role seniority (${seniority}) is materially above the candidate's experience.`);
   const requiredYears=extractRequiredYears(text),experienceRange=extractExperienceRange(text);
