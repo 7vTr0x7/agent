@@ -25,7 +25,7 @@ export class JobDetailEnricher {
     this.maxRedirects = Math.max(0, options.maxRedirects ?? DEFAULT_MAX_REDIRECTS);
   }
 
-  async enrichJobs(jobs: readonly Job[], signal?: AbortSignal): Promise<Job[]> {
+  async enrichJobs(jobs: readonly Job[], signal?: AbortSignal, force = false): Promise<Job[]> {
     const output = [...jobs];
     let index = 0;
     const worker = async (): Promise<void> => {
@@ -33,7 +33,7 @@ export class JobDetailEnricher {
         const current = index++;
         if (current >= jobs.length) return;
         if (signal?.aborted) return;
-        output[current] = await this.enrich(jobs[current] as Job, signal);
+        output[current] = await this.enrich(jobs[current] as Job, signal, force);
       }
     };
     await Promise.all(Array.from({ length: Math.min(this.concurrency, jobs.length) }, () => worker()));
