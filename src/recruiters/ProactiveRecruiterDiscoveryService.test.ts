@@ -25,18 +25,18 @@ describe("ProactiveRecruiterDiscoveryService", () => {
   });
 
   it("parses public profile metadata instead of depending on LinkedIn HTML", async () => {
-    const search = `Maya Singh — Technical Recruiter at Acme Corp <https://acme.example/talent/maya-singh>`;
+    const search = `Maya Singh — Technical Recruiter at Acme Corp <https://example.com/talent/maya-singh>`;
     const profile = `<html><head><title>Maya Singh | Technical Recruiter | Acme Corp</title><meta name="description" content="Technical Recruiter hiring React and frontend engineers in Bengaluru"><meta property="og:description" content="Recruiting frontend and React engineers"></head><body><h1>Maya Singh</h1><p>Technical Recruiter at Acme Corp. Hiring React engineers in Bengaluru.</p></body></html>`;
     let calls = 0;
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async (url) => {
       calls += 1;
-      return url.includes("acme.example/talent") ? profile : search;
+      return url.includes("example.com/talent") ? profile : search;
     }});
     const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
     expect(results).toHaveLength(1);
     expect(results[0]?.recruiterName).toBe("Maya Singh");
     expect(results[0]?.employer).toBe("Acme Corp");
-    expect(results[0]?.employerDomain).toBe("acme.example");
+    expect(results[0]?.employerDomain).toBeUndefined();
     expect(service.getLastRunMetrics().profilesFetched).toBeGreaterThan(0);
     expect(service.getLastRunMetrics().profilesParsed).toBeGreaterThan(0);
     expect(calls).toBeGreaterThan(9);

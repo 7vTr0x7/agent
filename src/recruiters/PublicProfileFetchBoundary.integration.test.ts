@@ -5,13 +5,17 @@ describe("proactive recruiter profile fetch boundary integration", () => {
   const profile = (url: string) => `Jane Doe - Technical Recruiter at Acme Corp currently hiring React engineers <${url}> jane@acme.com`;
   const htmlResponse = (body: string, status = 200, headers: Record<string,string> = {"content-type":"text/html"}) => ({ status, ok: status >= 200 && status < 300, headers: new Headers(headers), body: null, text: async () => body });
 
-  it("does not turn an SSRF target into a parsed recruiter", async () => {
-    const search = profile("http://127.0.0.1/profile/jane");
-    jest.spyOn(global, "fetch").mockResolvedValue(htmlResponse(search) as unknown as Response);
+  it.each(["http://127.0.0.1/profile/jane","http://localhost/profile/jane","http://[::1]/profile/jane","http://10.0.0.1/profile/jane","http://192.168.1.10/profile/jane"])("rejects unsafe candidate URL %s before direct fetch or fallback", async (candidate) => {
+    const search = profile(candidate);
+    const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(htmlResponse(search) as unknown as Response);
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1 });
     const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
+    const metrics = service.getLastRunMetrics();
     expect(results).toEqual([]);
-    expect(service.getLastRunMetrics().profileFetchFailureReasons.SSRF_BLOCKED).toBeGreaterThan(0);
+    expect(metrics.profileFetchAttempts).toBe(0);
+    expect(metrics.profileEvidenceFallbackAttempts).toBe(0);
+    expect(metrics.profileFetchFailureReasons.SSRF_BLOCKED).toBeGreaterThan(0);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes(candidate))).toBe(false);
   });
 
   it("classifies profile HTTP failures without counting them as fetched or parsed", async () => {
