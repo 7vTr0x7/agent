@@ -43,6 +43,7 @@ export class DeterministicJobMatcher {
   if(requiredYears!==null&&requiredYears>=5&&requiredYears>profile.yearsExperience)return reject("Explicit 5+ year experience requirement is materially above the candidate profile.");
   if(experienceRange&&experienceRange.min>=7)return reject("Explicit 7+ year experience range is incompatible with the candidate profile.");
   if(technicalOrientation==="REACT_NATIVE")return reject("React Native/mobile is the primary technical orientation and is not equivalent to React web experience.");
+  if(technicalOrientation==="BACKEND_FOCUSED")return reject("Backend-focused role is outside the candidate's frontend/full-stack React target.");
   if(technicalOrientation==="UNRELATED")return reject("Posting is not meaningfully aligned with the candidate's frontend/full-stack React target.");
   if(competingFrameworkIsPrimary(text))return reject("A competing frontend framework is explicit/primary without sufficient React or Next.js core requirements.");
   if(requiredYears!==null||experienceRange)evidence.push({type:"EXPERIENCE",detail:`Detected experience requirement: ${experienceRange?`${experienceRange.min}-${experienceRange.max}`:`${requiredYears}+`} years.`});
