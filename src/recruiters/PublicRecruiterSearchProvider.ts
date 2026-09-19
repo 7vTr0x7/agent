@@ -49,7 +49,34 @@ const success=(id:SourceId)=>health.set(id,{failures:0});
 const failure=(id:SourceId)=>{const n=(health.get(id)?.failures??0)+1;health.set(id,n>=CIRCUIT_FAILURES?{failures:n,openedAt:Date.now()}:{failures:n});};
 async function fetchDefault(url:string,timeout=TIMEOUT,signal?:AbortSignal,headers?:Record<string,string>):Promise<{text:string|null,status?:number,timedOut?:boolean,retryAfterMs?:number}> { const c=new AbortController(),timer=setTimeout(()=>c.abort(),timeout),abort=()=>c.abort(); signal?.addEventListener("abort",abort,{once:true}); try { const r=await fetch(url,{signal:c.signal,redirect:"follow",headers:{accept:"application/json,text/plain,text/html,application/xhtml+xml,*/*;q=0.8","user-agent":"job-agent-public-recruiter-discovery/7.0",...(headers??{})}}); const retryAfter=r.headers.get("retry-after");const retryAfterMs=retryAfter&&/^\d+(?:\.\d+)?$/.test(retryAfter)?Number(retryAfter)*1000:undefined; return {text:r.ok?await r.text():null,status:r.status,retryAfterMs}; } catch(e) { return {text:null,timedOut:e instanceof Error&&e.name==="AbortError"}; } finally { clearTimeout(timer);signal?.removeEventListener("abort",abort); } }
 const retryable=(status?:number)=>status===408||status===425||status===429||(status!==undefined&&status>=500);
-async function fetchSource(source:Source,fetcher:PublicRecruiterSearchOptions["fetchText"],signal:AbortSignal|undefined,s:Stats):Promise<string|null> { if(circuitOpen(source.id))return null;s.attempted++; for(let attempt=0;attempt<=RETRIES;attempt++){ if(signal?.aborted)return null; if(jinaReaderSource(source.id) && !process.env.JINA_API_KEY?.trim()){const wait=Math.max(0,jinaReaderNextAt-Date.now());if(wait)await new Promise(resolve=>setTimeout(resolve,wait));jinaReaderNextAt=Date.now()+3100;} const r=fetcher?{text:await fetcher(source.url,TIMEOUT,signal),status:200,retryAfterMs:undefined}:await fetchDefault(source.url,TIMEOUT,signal,source.headers); if(r.text){s.succeeded++;success(source.id);return r.text;} if(r.timedOut)s.timeouts++;if(r.status===403)s.http403++;else if(r.status===429)s.http429++;else if((r.status??0)>=500)s.http5xx++;else if((r.status??0)>=400)s.otherHttpErrors++; if(!retryable(r.status)&&!r.timedOut)break;if(attempt===RETRIES)break;await new Promise(resolve=>setTimeout(resolve,Math.min(10000,Math.max(r.retryAfterMs??0,250*(2**attempt))+Math.floor(Math.random()*200)))); } s.empty++;failure(source.id);return null; }
+function directSearchUrl(source: Source): string | null {
+  if (!jinaReaderSource(source.id)) return null;
+  const prefix = "https://r.jina.ai/";
+  return source.url.startsWith(prefix) ? source.url.slice(prefix.length) : null;
+}
+async function fetchSource(source:Source,fetcher:PublicRecruiterSearchOptions["fetchText"],signal:AbortSignal|undefined,s:Stats):Promise<string|null> {
+  if(circuitOpen(source.id))return null;
+  s.attempted++;
+  for(let attempt=0;attempt<=RETRIES;attempt++){
+    if(signal?.aborted)return null;
+    if(jinaReaderSource(source.id) && !process.env.JINA_API_KEY?.trim()){
+      const wait=Math.max(0,jinaReaderNextAt-Date.now());
+      if(wait)await new Promise(resolve=>setTimeout(resolve,wait));
+      jinaReaderNextAt=Date.now()+3100;
+    }
+    let r=fetcher?{text:await fetcher(source.url,TIMEOUT,signal),status:200,retryAfterMs:undefined}:await fetchDefault(source.url,TIMEOUT,signal,source.headers);
+    if(!r.text && !fetcher){
+      const directUrl=directSearchUrl(source);
+      if(directUrl) r=await fetchDefault(directUrl,TIMEOUT,signal);
+    }
+    if(r.text){s.succeeded++;success(source.id);return r.text;}
+    if(r.timedOut)s.timeouts++;if(r.status===403)s.http403++;else if(r.status===429)s.http429++;else if((r.status??0)>=500)s.http5xx++;else if((r.status??0)>=400)s.otherHttpErrors++;
+    if(!retryable(r.status)&&!r.timedOut)break;
+    if(attempt===RETRIES)break;
+    await new Promise(resolve=>setTimeout(resolve,Math.min(10000,Math.max(r.retryAfterMs??0,250*(2**attempt))+Math.floor(Math.random()*200))));
+  }
+  s.empty++;failure(source.id);return null;
+}
 async function mapLimit<T,R>(items:T[],limit:number,worker:(item:T)=>Promise<R>):Promise<R[]> { const out:R[]=new Array(items.length);let next=0; await Promise.all(Array.from({length:Math.min(Math.max(1,limit),items.length)},async()=>{while(true){const i=next++;if(i>=items.length)return;out[i]=await worker(items[i] as T);}}));return out; }
 const technologies=(input:RecruiterDiscoveryInput)=>["react","react.js","next.js","nextjs","typescript","javascript","node.js","nodejs","frontend","front-end","full stack","full-stack","web"].filter(x=>`${input.jobTitle} ${input.jobDescription}`.toLowerCase().includes(x)).slice(0,4);
 function queries(input:RecruiterDiscoveryInput,max:number):string[] { const company=input.companyName.trim(),domain=domainOf(input.companyDomain),title=input.jobTitle.trim(),location=input.location?.trim()||"India",tech=technologies(input)[0]??title; return [...new Set([`site:linkedin.com/in "${company}" "${title}" recruiter`,`site:linkedin.com/in "${company}" recruiter`,`site:linkedin.com/in "${company}" "technical recruiter"`,`site:linkedin.com/in "${company}" "talent acquisition"`,`site:linkedin.com/in "${company}" "talent partner"`,`site:linkedin.com/in "${company}" "engineering recruiter"`,`site:linkedin.com/in "${company}" "technical sourcer"`,`site:linkedin.com/in "${company}" "hiring manager" "${title}"`,`site:linkedin.com/in "${company}" recruiter "${location}"`,`site:linkedin.com/in recruiter "${title}" "${location}"`,`site:linkedin.com/in recruiter "${tech}" "${location}"`,`site:${domain} recruiter`,`site:${domain} "talent acquisition"`,`site:${domain} "technical recruiter"`,`site:${domain} (recruiting OR hiring OR careers OR talent)`,`"${company}" "${title}" recruiter "${location}"`,`"${company}" "${tech}" recruiter`,`"${company}" recruiter India`])].slice(0,Math.max(1,max)); }
