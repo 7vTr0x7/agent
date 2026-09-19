@@ -8,6 +8,11 @@ import { TaskWorker } from "../src/queue/TaskWorker";
 import { createDiscoveryRuntime } from "../src/discovery/createDiscoveryRuntime";
 import { MATCH_JOB_TASK } from "../src/matching/MatchTask";
 import { JobAgentApiServer } from "../src/api/JobAgentApiServer";
+import { DISCOVER_RECRUITERS_TASK } from "../src/recruiters/RecruiterDiscoveryTask";
+import { RecruiterDiscoveryRepository } from "../src/recruiters/RecruiterDiscoveryRepository";
+import { PersistentRecruiterDiscoveryService } from "../src/recruiters/PersistentRecruiterDiscoveryService";
+import { RecruiterDiscoveryTaskHandler } from "../src/recruiters/RecruiterDiscoveryTaskHandler";
+import { createRecruiterDiscoveryProvider } from "../src/recruiters/createRecruiterDiscoveryProvider";
 
 interface MatchRow {
   company: string;
@@ -68,9 +73,27 @@ async function main(): Promise<void> {
 
     const matchingLimitRaw = Number.parseInt(process.env.FAST_MATCHING_LIMIT ?? "100", 10);
     const matchingLimit = Number.isInteger(matchingLimitRaw) && matchingLimitRaw > 0 ? matchingLimitRaw : 100;
+    const recruiterDiscoveryEnabled = process.env.RECRUITER_OUTREACH_ENABLED === "true";
+    const recruiterRepository = recruiterDiscoveryEnabled ? new RecruiterDiscoveryRepository(database) : undefined;
+    const recruiterDiscoveryHandler = recruiterDiscoveryEnabled && recruiterRepository
+      ? new RecruiterDiscoveryTaskHandler(
+          new PersistentRecruiterDiscoveryService({
+            provider: createRecruiterDiscoveryProvider({ provider: config.recruiterOutreach.discoveryProvider }),
+            repository: recruiterRepository,
+            minConfidence: config.recruiterOutreach.minConfidence,
+            requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail
+          }),
+          Math.max(1, config.recruiterOutreach.maxContactsPerApplication),
+          undefined,
+          logger
+        )
+      : undefined;
+
+    const handlers = new Map<string, any>([[MATCH_JOB_TASK, runtime.matchTaskHandler]]);
+    if (recruiterDiscoveryHandler) handlers.set(DISCOVER_RECRUITERS_TASK, recruiterDiscoveryHandler);
     const worker = new TaskWorker(
       queue,
-      new Map([[MATCH_JOB_TASK, runtime.matchTaskHandler]]),
+      handlers,
       {
         workerId: `fast-outcome-matching-${process.pid}`,
         pollIntervalMs: 25,
@@ -87,8 +110,21 @@ async function main(): Promise<void> {
       if (!didProcess) break;
       processed += 1;
     }
-    worker.stop();
     const matchingDurationMs = Date.now() - matchingStartedAt;
+
+    const recruiterLimitRaw = Number.parseInt(process.env.FAST_RECRUITER_TASK_LIMIT ?? "10", 10);
+    const recruiterLimit = Number.isInteger(recruiterLimitRaw) && recruiterLimitRaw > 0 ? recruiterLimitRaw : 10;
+    let recruiterTasksProcessed = 0;
+    const recruiterStartedAt = Date.now();
+    if (recruiterDiscoveryHandler) {
+      while (recruiterTasksProcessed < recruiterLimit) {
+        const didProcess = await worker.runOnce([DISCOVER_RECRUITERS_TASK]);
+        if (!didProcess) break;
+        recruiterTasksProcessed += 1;
+      }
+    }
+    worker.stop();
+    const recruiterDurationMs = Date.now() - recruiterStartedAt;
 
     await api.start();
     const address = api.getAddress();
@@ -137,6 +173,7 @@ async function main(): Promise<void> {
       durationMs: Date.now() - startedAt,
       discoveryDurationMs,
       matchingDurationMs,
+      recruiterDurationMs,
       sourceCount: runtime.sourceCount,
       discoveryResults,
       diagnostics: diagnostics.rows,
@@ -145,7 +182,11 @@ async function main(): Promise<void> {
         persisted: db.jobs,
         observations: db.observations,
         matchingTasksProcessed: processed,
-        pendingMatchingTasks: db.pending
+        pendingMatchingTasks: db.pending,
+        recruiterTasksProcessed,
+        recruiterTasksPending: await database.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM tasks WHERE task_type='DISCOVER_RECRUITERS' AND status IN ('PENDING','RUNNING')`
+        ).then((result) => result.rows[0]?.count ?? "0")
       },
       matcher: {
         match: db.apply,
