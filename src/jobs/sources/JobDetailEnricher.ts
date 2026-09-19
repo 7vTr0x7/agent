@@ -41,7 +41,7 @@ export class JobDetailEnricher {
   }
 
   async enrich(job: Job, signal?: AbortSignal): Promise<Job> {
-    if (!shouldEnrich(job.description) || signal?.aborted) return job;
+    if (!shouldEnrich(job.description, job.title) || signal?.aborted) return job;
     try {
       const html = await this.fetchDetailPage(job.url, signal);
       const description = extractJobPostingDescription(html);
@@ -109,9 +109,16 @@ export class JobDetailEnricher {
   }
 }
 
-export function shouldEnrich(description: string): boolean {
+export function shouldEnrich(description: string, title = ""): boolean {
   const normalized = description.trim();
-  return normalized.length === 0 || /\.\.\.$/.test(normalized);
+  if (normalized.length === 0 || /\.\.\.$/.test(normalized)) return true;
+  // Public JSON feeds can expose a complete-looking summary while omitting the
+  // explicit experience requirement that exists on the canonical job page.
+  // Only trigger the existing bounded detail fetch for target-like roles when
+  // no explicit numeric experience signal is present in the feed content.
+  const targetTitle = /\b(frontend|front-end|front end|react|next(?:\.js|js)?|full[- ]?stack|web developer|web engineer|software engineer)\b/i.test(title);
+  const hasNumericExperience = /\b\d+(?:\.\d+)?\s*(?:\+|\-|–|—|to)?\s*years?\b/i.test(normalized);
+  return targetTitle && !hasNumericExperience;
 }
 
 export async function validatePublicHttpUrl(rawUrl: string): Promise<string> {
