@@ -19,9 +19,9 @@ const MANAGER_TITLE=/\b(manager|head of engineering|engineering manager)\b/i, PR
 const COMPETING_FRAMEWORK=/\b(vue(?:\.js)?|angular(?:\.js)?|svelte(?:\.js)?|ember(?:\.js)?|solid(?:\.js)?)\b/i;
 const COMPETING_PRIMARY=/\b(?:deep knowledge of|deep expertise in|expert(?:ise)? in|primary (?:frontend )?framework(?: is|:)?|must have|must be proficient in|strong experience with|extensive experience with)\s+(?:vue(?:\.js)?|angular(?:\.js)?|svelte(?:\.js)?|ember(?:\.js)?|solid(?:\.js)?)\b/i;
 const RESTRICTED_REMOTE=/\b(?:remote|work from home|wfh)\s*(?:[-,:()]\s*)?(?:in|from|within)?\s*(?:the\s+)?(?:usa|u\.s\.a?\.?|united states(?: of america)?|uk|u\.k\.?|united kingdom|canada|australia)\b|\b(?:usa|united states|uk|united kingdom|canada|australia)\s+(?:only|based|based only)\b|\b(?:only|must be based in|based in)\s+(?:the\s+)?(?:usa|united states|uk|united kingdom|canada|australia)\b|\bremote\s+within\s+(?:the\s+)?(?:eu|european union)\b/i;
-const FOREIGN_LOCATION=/\b(?:usa|u\.s\.a?\.?|united states|uk|u\.k\.?|united kingdom|canada|australia|germany|berlin|france|paris|poland|ukraine|philippines|brazil|europe|eastern europe)\b/i;
-const WORLDWIDE_REMOTE=/\\b(?:worldwide|global|anywhere in the world|work from anywhere)\\s+remote\\b|\\bremote\\s+(?:worldwide|globally|anywhere)\\b/i;
-const NON_TARGET_PLATFORM=/\\b(?:sharepoint|microsoft 365|power platform|salesforce|dynamics 365)\\b/i;
+const FOREIGN_LOCATION=/\b(?:usa|u\.s\.a?\.?|united states|uk|u\.k\.?|united kingdom|canada|australia|germany|berlin|france|paris|poland|ukraine|philippines|brazil|mexico|europe|eastern europe)\b/i;
+const WORLDWIDE_REMOTE=/\b(?:worldwide|global|anywhere in the world|work from anywhere)\s+remote\b|\bremote\s+(?:worldwide|globally|anywhere)\b/i;
+const NON_TARGET_PLATFORM=/\b(?:sharepoint|microsoft 365|power platform|salesforce|dynamics 365)\b/i;
 export class DeterministicJobMatcher {
  private readonly applyThreshold:number; private readonly reviewThreshold:number; private readonly now:()=>Date;
  constructor(options:DeterministicMatcherOptions={}){this.applyThreshold=options.applyThreshold??60;this.reviewThreshold=options.reviewThreshold??42;const fixedNow=options.now;this.now=fixedNow?()=>new Date(fixedNow):()=>new Date();}
