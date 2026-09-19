@@ -78,6 +78,12 @@ test.each([404, 403, 429, 500])("keeps the original job on HTTP %i", async (stat
   await expect(new JobDetailEnricher().enrich(original)).resolves.toEqual(original);
 });
 
+test("prefers canonical main text when JSON-LD is present but omits the numeric experience requirement", async () => {
+  jest.mocked(global.fetch).mockResolvedValue(response(`<html><script type="application/ld+json">${JSON.stringify({ "@type": "JobPosting", description: "Senior Frontend Engineer building React applications." })}</script><main><h1>Senior Frontend Engineer</h1><p>At least 7 years of professional software engineering experience.</p></main></html>`));
+  const result = await new JobDetailEnricher().enrich(job({ description: "React and TypeScript" }));
+  expect(result.description).toContain("7 years");
+});
+
 test("recovers numeric experience requirements from a canonical HTML main section when JSON-LD is absent", async () => {
   jest.mocked(global.fetch).mockResolvedValue(response("<html><main><h1>Senior Frontend Engineer</h1><p>At least 7 years of professional software engineering experience.</p><p>React and TypeScript.</p></main></html>"));
   const result = await new JobDetailEnricher().enrich(job({ description: "React and TypeScript" }));
