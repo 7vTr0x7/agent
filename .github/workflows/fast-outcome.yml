@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: fast-outcome-\${{ github.event.pull_request.number || github.ref }}
+  group: fast-outcome-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -24,7 +24,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: \${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Build Docker image
         run: docker build --tag job-agent:fast-outcome .
@@ -37,12 +37,12 @@ jobs:
           docker run -d --name job-agent-fast-postgres --network job-agent-fast \
             -e POSTGRES_DB=job_agent -e POSTGRES_USER=job_agent -e POSTGRES_PASSWORD=fast_runtime_password \
             postgres:17-alpine
-          for i in \$(seq 1 60); do
+          for i in $(seq 1 60); do
             if docker exec job-agent-fast-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then
-              echo "PostgreSQL ready on attempt \$i"
+              echo "PostgreSQL ready on attempt $i"
               break
             fi
-            if [ "\$i" = "60" ]; then
+            if [ "$i" = "60" ]; then
               docker logs job-agent-fast-postgres
               exit 1
             fi
@@ -123,16 +123,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          jobs="\$(docker exec job-agent-fast-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM job_opportunities;' | tr -d '[:space:]')"
-          matches="\$(docker exec job-agent-fast-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM match_decisions;' | tr -d '[:space:]')"
-          recruiters="\$(docker exec job-agent-fast-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts WHERE relevance_status IN ('CURRENT','RECENT');" | tr -d '[:space:]')"
-          sent="\$(docker exec job-agent-fast-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';" | tr -d '[:space:]')"
-          submitted="\$(docker exec job-agent-fast-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications WHERE status IN ('SUBMITTED','IN_PROGRESS');" | tr -d '[:space:]')"
-          test "\$jobs" -gt 0
-          test "\$matches" -gt 0
-          test "\$sent" = 0
-          test "\$submitted" = 0
-          printf 'persisted_jobs=%s persisted_matches=%s current_recent_recruiters=%s sent=%s submitted=%s\n' "\$jobs" "\$matches" "\$recruiters" "\$sent" "\$submitted"
+          jobs="$(docker exec job-agent-fast-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM job_opportunities;' | tr -d '[:space:]')"
+          matches="$(docker exec job-agent-fast-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM match_decisions;' | tr -d '[:space:]')"
+          recruiters="$(docker exec job-agent-fast-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts WHERE relevance_status IN ('CURRENT','RECENT');" | tr -d '[:space:]')"
+          sent="$(docker exec job-agent-fast-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';" | tr -d '[:space:]')"
+          submitted="$(docker exec job-agent-fast-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications WHERE status IN ('SUBMITTED','IN_PROGRESS');" | tr -d '[:space:]')"
+          test "$jobs" -gt 0
+          test "$matches" -gt 0
+          test "$sent" = 0
+          test "$submitted" = 0
+          printf 'persisted_jobs=%s persisted_matches=%s current_recent_recruiters=%s sent=%s submitted=%s\n' "$jobs" "$matches" "$recruiters" "$sent" "$submitted"
           if grep -Eiq 'GMAIL_ENABLED=true|OUTBOUND_ENABLED=true|PROACTIVE_RECRUITER_SEND_ENABLED=true' fast-job-outcome.log fast-recruiter-outcome.log; then
             echo 'FAIL: unsafe side-effect configuration appeared in runtime output'
             exit 1
