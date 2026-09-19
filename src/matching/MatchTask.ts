@@ -75,7 +75,7 @@ export class MatchTaskHandler {
     if (!job || !this.recruiterEnabled || !this.recruiters) return null;
     if (isExcludedCompany(job.companyName, this.excludedCompanies)) return null;
 
-    let companyDomain = resolveEmployerDomainFromJobData(job.companyDomain, job.canonicalUrl, job.description);
+    let companyDomain = resolveEmployerDomainFromJobData(job.companyDomain, job.canonicalUrl, job.description, job.companyName);
     if (companyDomain && !domainMatchesCompanyName(companyDomain, job.companyName)) companyDomain = null;
     if (!companyDomain) companyDomain = await resolveEmployerDomainFromPublicSearch(job.companyName);
     if (!companyDomain || !domainMatchesCompanyName(companyDomain, job.companyName)) return null;
