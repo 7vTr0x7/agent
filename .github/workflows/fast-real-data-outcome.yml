@@ -158,6 +158,28 @@ jobs:
           docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -P pager=off -c "SELECT c.full_name, c.company_name, c.title, c.email, c.email_status, c.verified, c.mailbox_evidence, c.confidence, c.relevance_status FROM recruiter_contacts c ORDER BY c.updated_at DESC LIMIT 10;"
           docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -P pager=off -c "SELECT status, COUNT(*) FROM tasks GROUP BY status ORDER BY status;"
 
+      - name: Verify dashboard API against the same runtime PostgreSQL records
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name job-agent-fast-outcome-api --network job-agent-fast-outcome \
+            -e NODE_ENV=test \
+            -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-fast-outcome-postgres:5432/job_agent \
+            -e API_HOST=0.0.0.0 \
+            -e API_PORT=3000 \
+            -e CANDIDATE_PROFILE_ID=fast-runtime-candidate \
+            -e AUTOMATION_ENABLED=false \
+            -e JOB_DISCOVERY_ENABLED=false \
+            -e PROACTIVE_RECRUITER_ENABLED=false \
+            job-agent:fast-outcome node dist/api/bootstrap.js
+          for i in $(seq 1 30); do
+            if docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome node -e "fetch('http://job-agent-fast-outcome-api:3000/healthz').then(async r=>{console.log(await r.text());process.exit(r.ok?0:1)}).catch(()=>process.exit(1))" >/tmp/job-agent-api-health.log 2>&1; then break; fi
+            sleep 1
+          done
+          docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome node -e "fetch('http://job-agent-fast-outcome-api:3000/healthz').then(async r=>{console.log(await r.text());process.exit(r.ok?0:1)}).catch(()=>process.exit(1))"
+          docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome node -e "fetch('http://job-agent-fast-outcome-api:3000/api/summary').then(async r=>{const j=await r.json(); console.log(JSON.stringify(j)); if(!r.ok || Number(j.jobs)!==236 || Number(j.matches)!==25 || Number(j.matchApply)!==8 || Number(j.matchReview)!==6 || Number(j.matchReject)!==11 || Number(j.recruiters)!==0 || Number(j.outreachSent)!==0 || Number(j.applications)!==0) process.exit(1)}).catch(e=>{console.error(e);process.exit(1)})"
+          docker rm -f job-agent-fast-outcome-api >/dev/null 2>&1 || true
+
       - name: Upload fast runtime logs
         if: always()
         uses: actions/upload-artifact@v4
