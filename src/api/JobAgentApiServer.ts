@@ -63,7 +63,7 @@ export class JobAgentApiServer {
     const server = createServer((request, response) => {
       void this.handle(request, response).catch((error: unknown) => {
         writeJson(response, 500, { status: "ERROR", error: "Internal server error" });
-        void error;
+        console.error("Job Agent API request failed:", error instanceof Error ? error.message : String(error));
       });
     });
 
