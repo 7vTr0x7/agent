@@ -29,7 +29,7 @@ describe("ProactiveRecruiterDiscoveryService rejected-candidate diagnostics", ()
     expect(metrics.rejectedCandidateDiagnostics[0]).toEqual(expect.objectContaining({
       provider: expect.any(String),
       queryIndex: 0,
-      profileUrl: expect.stringContaining("https://example.com/talent/"),
+      profileUrl: expect.stringContaining("https://93.184.216.34/talent/"),
       rejectionReasons: ["ROLE_IRRELEVANT"]
     }));
     expect(metrics.rejectedCandidateDiagnostics[0]?.profileEvidence).toContain("[email-redacted]");
