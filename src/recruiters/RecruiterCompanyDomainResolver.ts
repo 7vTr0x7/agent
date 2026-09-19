@@ -61,17 +61,36 @@ export function resolveEmployerDomainFromJobUrl(value: string | null | undefined
 export function resolveEmployerDomainFromJobData(
   companyDomain: string | null | undefined,
   canonicalUrl: string | null | undefined,
-  _jobDescription: string | null | undefined
+  jobDescription: string | null | undefined,
+  companyName?: string | null
 ): string | null {
-  // Only explicit employer-domain data and the canonical job URL are trusted
-  // as deterministic evidence. Domains mentioned in descriptions are not
-  // authoritative: job postings routinely contain ATS, vendor, partner,
-  // analytics, portfolio, and unrelated contact domains. When these primary
-  // signals are unavailable, callers must use public employer-search
-  // resolution rather than guessing from description links or emails.
   const explicitDomain = resolveEmployerDomainFromJobUrl(companyDomain);
   if (explicitDomain) return explicitDomain;
-  return resolveEmployerDomainFromJobUrl(canonicalUrl);
+
+  const canonicalDomain = resolveEmployerDomainFromJobUrl(canonicalUrl);
+  if (canonicalDomain && companyName && domainMatchesCompany(canonicalDomain, companyName)) return canonicalDomain;
+
+  // Some public job feeds omit the employer domain but retain a first-party
+  // company URL or recruiting email in the posting. Accept those only when
+  // the domain is non-generic and its host matches a token from the employer
+  // name. Never guess a domain from the company name alone.
+  if (!companyName) return null;
+  const text = jobDescription ?? "";
+  const candidates = new Set<string>();
+  for (const rawUrl of text.match(URL_PATTERN) ?? []) {
+    try {
+      const domain = normalizeEmployerHost(new URL(rawUrl).hostname);
+      if (domain) candidates.add(domain);
+    } catch {
+      // Ignore malformed URLs.
+    }
+  }
+  for (const match of text.matchAll(EMAIL_PATTERN)) {
+    const rawDomain = match[0]?.split("@")[1];
+    const domain = rawDomain ? normalizeEmployerHost(rawDomain) : null;
+    if (domain) candidates.add(domain);
+  }
+  return [...candidates].find((domain) => domainMatchesCompany(domain, companyName)) ?? null;
 }
 
 function companyTokens(companyName: string): string[] {
