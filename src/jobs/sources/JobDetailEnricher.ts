@@ -222,7 +222,7 @@ async function fetchViaJinaReader(url: string, signal: AbortSignal): Promise<str
 }
 
 function containsExplicitExperience(value: string): boolean {
-  return /(?:minimum|at least|required|must have)\\s+(?:\\d+(?:\\.\\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\\s*\\+?\\s*years?\\b|\\b\\d+(?:\\.\\d+)?\\s*\\+\\s*years?\\b|\\b\\d+(?:\\.\\d+)?\\s*years?\\s+(?:minimum|required)\\b/i.test(value);
+  return /(?:minimum|at least|required|must have)\s+(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*years?\b|\b\d+(?:\.\d+)?\s*\+\s*years?\b|\b\d+(?:\.\d+)?\s*years?\s+(?:minimum|required)\b/i.test(value);
 }
 
 function extractJobPostingDescription(html: string): string | null {
