@@ -58,12 +58,20 @@ async function main(): Promise<void> {
 
     const queue = new TaskQueue(database);
     const baseConfig = loadConfig();
+    const recruiterDiscoveryEnabled = process.env.RECRUITER_OUTREACH_ENABLED === "true";
+    const runtimeConfig = {
+      ...baseConfig,
+      recruiterOutreach: {
+        ...baseConfig.recruiterOutreach,
+        enabled: recruiterDiscoveryEnabled
+      }
+    };
     const fastSourceIds = (process.env.FAST_JOB_SOURCE_IDS ?? "remoteok:json,himalayas:react:india:json,himalayas:nextjs:india:json,himalayas:frontend:india:json,remotefirstjobs:react:rss,remotefirstjobs:software:rss,weworkremotely:rss,realworkfromanywhere:frontend:rss,realworkfromanywhere:fullstack:rss").split(",").map((value) => value.trim()).filter(Boolean);
     const configuredSources = JSON.parse(baseConfig.jobSources) as Array<{ id?: string }>;
     const selectedSources = configuredSources.filter((source) => source.id && fastSourceIds.includes(source.id));
     if (selectedSources.length === 0) throw new Error(`FAST_JOB_SOURCE_IDS selected no configured sources: ${fastSourceIds.join(",")}`);
     const runtime = createDiscoveryRuntime(database, queue, {
-      ...baseConfig,
+      ...runtimeConfig,
       jobSources: JSON.stringify(selectedSources)
     }, profile);
 
@@ -73,7 +81,6 @@ async function main(): Promise<void> {
 
     const matchingLimitRaw = Number.parseInt(process.env.FAST_MATCHING_LIMIT ?? "100", 10);
     const matchingLimit = Number.isInteger(matchingLimitRaw) && matchingLimitRaw > 0 ? matchingLimitRaw : 100;
-    const recruiterDiscoveryEnabled = process.env.RECRUITER_OUTREACH_ENABLED === "true";
     const recruiterRepository = recruiterDiscoveryEnabled ? new RecruiterDiscoveryRepository(database) : undefined;
     const recruiterDiscoveryHandler = recruiterDiscoveryEnabled && recruiterRepository
       ? new RecruiterDiscoveryTaskHandler(
