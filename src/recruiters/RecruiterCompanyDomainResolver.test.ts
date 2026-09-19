@@ -69,6 +69,24 @@ describe("RecruiterCompanyDomainResolver", () => {
     )).toBeNull();
   });
 
+  it("accepts a company-matching recruiting email from a job description", () => {
+    expect(resolveEmployerDomainFromJobData(
+      null,
+      "https://himalayas.app/companies/particle41/jobs/frontend-developer",
+      "Apply by contacting careers@particle41.com.",
+      "Particle41"
+    )).toBe("particle41.com");
+  });
+
+  it("rejects an unrelated job-description domain", () => {
+    expect(resolveEmployerDomainFromJobData(
+      null,
+      "https://himalayas.app/companies/particle41/jobs/frontend-developer",
+      "Apply through https://example.com/careers or recruiter@gmail.com.",
+      "Particle41"
+    )).toBeNull();
+  });
+
   it("accepts a configured bare employer domain", () => {
     expect(resolveEmployerDomainFromJobData(
       "example.com",
