@@ -48,14 +48,16 @@ function parseRssItems(xml: string): RssItem[] {
 }
 
 function extractEmployerName(title: string, description: string): string | null {
-  const text = `${title} ${description}`;
-  const labeled = text.match(/(?:company|employer|hiring\s+company|organization)\s*[:\-]\s*([^|\n<]{2,100})/i)?.[1]?.trim();
-  if (labeled && !/^(unknown|n\/a|not specified)$/i.test(labeled)) return labeled.replace(/\s+/g, " ").trim();
   const atTitle = title.match(/\s(?:at|@)\s+(.{2,100})$/i)?.[1]?.trim()
     .replace(/\s+[-–—|•]\s+(?:remote|worldwide|india|bengaluru|bangalore).*$/i, "")
     .replace(/[|•,.-]+$/, "")
     .trim();
-  return atTitle && !/^(remote|india|bengaluru|bangalore)$/i.test(atTitle) ? atTitle : null;
+  if (atTitle && !/^(remote|india|bengaluru|bangalore)$/i.test(atTitle)) return atTitle;
+
+  const text = `${title} ${description}`;
+  const labeled = text.match(/(?:company|employer|hiring\s+company|organization)\s*[:\-]\s*([^|\n<]{2,100})/i)?.[1]?.trim();
+  if (labeled && !/^(unknown|n\/a|not specified)$/i.test(labeled)) return labeled.replace(/\s+/g, " ").trim();
+  return null;
 }
 function readTag(xml: string, tag: string): string | null { const escaped = tag.replace(":", "\\:"); return xml.match(new RegExp(`<${escaped}\\b[^>]*>([\\s\\S]*?)</${escaped}>`, "i"))?.[1] ?? null; }
 function readLink(xml: string): string | null { const textLink = readTag(xml, "link"); if (textLink) return decodeXml(textLink); return xml.match(/<link\b[^>]*href=["']([^"']+)["'][^>]*\/?>(?:<\/link>)?/i)?.[1] ?? null; }
