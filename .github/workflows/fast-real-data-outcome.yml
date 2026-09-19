@@ -72,6 +72,7 @@ jobs:
             -e DISCOVERY_SOURCE_RETRIES=1 \
             -e FAST_JOB_SOURCE_IDS='remoteok:json,himalayas:react:india:json,himalayas:nextjs:india:json,himalayas:frontend:india:json,remotefirstjobs:react:rss,remotefirstjobs:software:rss,weworkremotely:rss,realworkfromanywhere:frontend:rss,realworkfromanywhere:fullstack:rss' \
             -e RECRUITER_OUTREACH_ENABLED=true \
+            -e RECRUITER_PUBLIC_DOMAIN_SEARCH_ENABLED=false \
             -e RECRUITER_OUTREACH_DRY_RUN=true \
             -e RECRUITER_OUTREACH_ACTIVATION=disabled \
             -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
