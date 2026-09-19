@@ -25,7 +25,7 @@ export class RssJobSource implements JobSource {
     const description = stripHtml(item.description);
     if (!item.id || !item.title || !item.link) throw new AppError("RSS feed returned an incomplete job posting", { code: "JOB_SOURCE_INVALID_DATA", statusCode: 502 });
     const location = item.location?.trim() || null;
-    const companyName = item.companyName?.trim() || extractEmployerName(item.title, description) || this.options.defaultCompanyName?.trim() || "Unknown";
+    const companyName = extractEmployerName(item.title, description) || item.companyName?.trim() || this.options.defaultCompanyName?.trim() || "Unknown";
     const contentHash = createHash("sha256").update([this.name, item.id, item.title, item.link, description].join("|")).digest("hex");
     return { source: this.name, sourceJobId: item.id, url: item.link, title: item.title, companyName, location, country: inferCountry(location), workplaceType: "remote", employmentType: null, description, postedAt: item.publishedAt, updatedAt: null, contentHash };
   }
