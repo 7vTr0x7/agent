@@ -204,6 +204,7 @@ function expandIpv6(address: string): number[] | null {
 }
 
 function extractJobPostingDescription(html: string): string | null {
+  let bestDescription: string | null = null;
   const scripts = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
   for (const match of scripts) {
     const json = match[1];
@@ -213,7 +214,9 @@ function extractJobPostingDescription(html: string): string | null {
     for (const item of flattenJsonLd(parsed)) {
       if (!isJobPosting(item)) continue;
       const description = clean(item.description);
-      if (description) return description;
+      if (!description) continue;
+      bestDescription ??= description;
+      if (/\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(description)) return description;
     }
   }
   const mainMatch = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
@@ -221,7 +224,7 @@ function extractJobPostingDescription(html: string): string | null {
     const mainText = clean(mainMatch[1]);
     if (mainText && /\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(mainText)) return mainText.slice(0, 60_000);
   }
-  return null;
+  return bestDescription;
 }
 
 interface JobPostingJsonLd { "@type"?: string | string[]; description?: string; }
