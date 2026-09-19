@@ -48,10 +48,7 @@ export class JobDetailEnricher {
       if (
         (!description || !containsExplicitExperience(description)) &&
         /:json$/i.test(job.source) &&
-        (
-          (description?.length ?? 0) < 1_200 ||
-          /\b(?:senior|sr\.?|sitecore|dotnet|\.net)\b/i.test(job.title)
-        )
+        /\b(?:senior|sr\.?|sitecore|dotnet|\.net)\b/i.test(job.title)
       ) {
         try {
           const validatedUrl = await validatePublicHttpUrl(job.url);
