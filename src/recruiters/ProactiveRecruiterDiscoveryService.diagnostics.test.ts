@@ -13,7 +13,7 @@ describe("ProactiveRecruiterDiscoveryService rejected-candidate diagnostics", ()
   };
 
   test("captures rejected candidates with bounded, redacted evidence", async () => {
-    const urls = Array.from({ length: 25 }, (_, i) => `https://example.com/talent/person-${i}`);
+    const urls = Array.from({ length: 25 }, (_, i) => `https://93.184.216.34/talent/person-${i}`);
     const page = `<html><title>Technical Recruiter</title><body>Technical Recruiter at Example Corp. Contact jane@example.com or +91 9876543210. ${urls.join(" ")}</body></html>`;
     const discovery = new ProactiveRecruiterDiscoveryService({
       maxQueries: 1,
