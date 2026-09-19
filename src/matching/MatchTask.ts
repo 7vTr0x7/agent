@@ -42,7 +42,6 @@ export class MatchTaskHandler {
     }
     this.recruiterEnabled = config?.recruiterOutreach.enabled === true || process.env.RECRUITER_OUTREACH_ENABLED === "true";
     this.excludedCompanies = excludedCompanies;
-    this.logger = logger;
   }
 
   async handle(task: ClaimedTask<MatchJobTaskPayload>): Promise<void> {
