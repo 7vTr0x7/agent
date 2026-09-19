@@ -90,6 +90,15 @@ test("recovers numeric experience requirements from a canonical HTML main sectio
   expect(result.description).toContain("seven years");
 });
 
+test("falls back to the bounded public reader when the canonical detail page blocks direct fetch", async () => {
+  jest.mocked(global.fetch)
+    .mockResolvedValueOnce(response("", 403))
+    .mockResolvedValueOnce(response("At least 7 years of professional software engineering experience. React and TypeScript."));
+  const result = await new JobDetailEnricher().enrich(job({ description: "React and TypeScript" }));
+  expect(global.fetch).toHaveBeenCalledTimes(2);
+  expect(result.description).toContain("7 years");
+});
+
 test("keeps the original job when the page has no usable JobPosting description", async () => {
   const original = job();
   jest.mocked(global.fetch).mockResolvedValue(response("<html><main>navigation cookie banner recommendations</main></html>"));
