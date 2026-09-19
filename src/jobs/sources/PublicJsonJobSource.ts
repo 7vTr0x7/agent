@@ -2,17 +2,19 @@ import { createHash } from "node:crypto";
 import { AppError } from "../../shared/errors/AppError";
 import { Job } from "../domain/Job";
 import { JobSource } from "./JobSource";
+import { JobDetailEnricher } from "./JobDetailEnricher";
 
 type PublicJsonProvider = "himalayas" | "jobicy" | "arbeitnow";
 export class PublicJsonJobSource implements JobSource {
  readonly name:string;
- constructor(private readonly provider:PublicJsonProvider,private readonly feedUrl:string,private readonly defaultCountry:string|null=null){this.name=`${provider}:json`;}
+ constructor(private readonly provider:PublicJsonProvider,private readonly feedUrl:string,private readonly defaultCountry:string|null=null,private readonly detailEnricher:JobDetailEnricher|null=null){this.name=`${provider}:json`;}
  async fetchJobs(signal?:AbortSignal):Promise<Job[]>{
   const response=await fetch(this.feedUrl,{signal,headers:{accept:"application/json"}});
   if(!response.ok)throw new AppError(`${this.provider} request failed: ${response.status}`,{code:"JOB_SOURCE_REQUEST_FAILED",statusCode:response.status});
   const payload=(await response.json()) as unknown;
   const records=this.provider==="himalayas"?readHimalayas(payload):this.provider==="jobicy"?readJobicy(payload):readArbeitnow(payload);
-  return records.map(record=>this.normalize(record));
+  const jobs=records.map(record=>this.normalize(record));
+  return this.detailEnricher ? this.detailEnricher.enrichJobs(jobs,signal) : jobs;
  }
  private normalize(record:NormalizedPublicJob):Job{const title=record.title.trim();const url=record.url.trim();const description=stripHtml(record.description);const companyName=record.companyName.trim()||"Unknown";const location=record.location?.trim()||"Worldwide";if(!record.id||!title||!url||!description)throw new AppError(`${this.provider} returned an incomplete job posting`,{code:"JOB_SOURCE_INVALID_DATA",statusCode:502});const contentHash=createHash("sha256").update([this.name,record.id,title,url,description].join("|")).digest("hex");return{source:this.name,sourceJobId:record.id,url,title,companyName,location,country:record.country??this.defaultCountry??inferCountry(location),workplaceType:record.workplaceType??"remote",employmentType:record.employmentType??null,description,postedAt:parseDate(record.postedAt),updatedAt:parseDate(record.updatedAt),contentHash};}
 }
