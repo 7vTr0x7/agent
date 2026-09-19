@@ -81,6 +81,12 @@ describe("DeterministicJobMatcher", () => {
     expect(result.matchScore).toBe(0);
   });
 
+  it("rejects written-number experience requirements", () => {
+    const result = matcher.evaluate(job("React frontend engineer. At least seven years of professional software engineering experience.", "Senior Frontend Engineer"), profile);
+    expect(result.decision).toBe("REJECT");
+    expect(result.matchScore).toBe(0);
+  });
+
   it("does not treat an unquantified senior title as a numeric experience blocker", () => {
     const result = matcher.evaluate(job("React, TypeScript and frontend engineering experience.", "Senior Frontend Engineer"), profile);
     expect(result.decision).not.toBe("REJECT");
