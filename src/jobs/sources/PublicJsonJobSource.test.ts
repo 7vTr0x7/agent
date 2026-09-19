@@ -50,7 +50,7 @@ describe("PublicJsonJobSource", () => {
     }), { status: 200, headers: { "content-type": "application/json" } }));
 
     const enricher = {
-      enrichJobs: jest.fn(async (jobs) => jobs.map((item) => ({ ...item, description: "React and TypeScript. 7 years minimum." })))
+      enrichJobs: jest.fn(async (jobs) => jobs.map((item: any) => ({ ...item, description: "React and TypeScript. 7 years minimum." })))
     } as unknown as JobDetailEnricher;
     const jobs = await new PublicJsonJobSource("himalayas", "https://himalayas.app/jobs/api", null, enricher).fetchJobs();
 
