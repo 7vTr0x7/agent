@@ -110,4 +110,16 @@ describe("DeterministicJobMatcher", () => {
     expect(result.matchScore).toBeGreaterThanOrEqual(70);
     expect(result.decision).toBe("APPLY");
   });
+  it("rejects a remote role explicitly restricted to a foreign country in the title", () => {
+    const result = matcher.evaluate(job("Remote full-stack React role for Canada.", "Remote Full Stack Developer - Canada"), profile);
+    expect(result.decision).toBe("REJECT");
+    expect(result.reason).toContain("India");
+  });
+
+  it("does not treat incidental React in a SharePoint-primary role as frontend work", () => {
+    const result = matcher.evaluate(job("Build Microsoft 365 and SharePoint solutions. React knowledge is helpful for occasional UI work.", "Microsoft 365 Software Engineer - SharePoint Developer"), profile);
+    expect(result.decision).toBe("REJECT");
+    expect(result.matchScore).toBe(0);
+  });
+
 });
