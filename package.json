@@ -33,7 +33,8 @@
     "gmail:authorize": "tsx scripts/gmail-authorize.ts",
     "gmail:verify": "tsx scripts/gmail-verify.ts",
     "gmail:smoke-send": "tsx scripts/gmail-smoke-send.ts",
-    "outcome:fast-jobs": "tsx scripts/fast-outcome-jobs.ts"
+    "outcome:fast-jobs": "tsx scripts/fast-outcome-jobs.ts",
+    "outcome:fast-recruiters": "tsx scripts/fast-outcome-recruiters.ts"
   },
   "dependencies": {
     "dotenv": "^17.2.1",
