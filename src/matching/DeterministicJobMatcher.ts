@@ -13,7 +13,7 @@ const ALIASES: Record<string, string[]> = { react:["react","reactjs","react.js"]
 const FRONTEND_TITLE=/\b(frontend|front-end|front end|ui developer|ui engineer|web developer|web engineer|react developer|react engineer|next\.js developer|nextjs developer)\b/i;
 const FULL_STACK_TITLE=/\b(full[- ]stack|fullstack|product engineer)\b/i;
 const EXCLUDED_TITLE=/\b(product marketing|marketing|sales|account executive|business development|finance|accounting|legal|procurement|recruiter|talent acquisition|customer support|technical support|qa engineer|quality assurance|devops|site reliability|sre|network engineer|data analyst|data scientist|machine learning engineer|ml engineer|ai engineer|security engineer)\b/i;
-const BACKEND_TITLE=/\b(backend|back-end|back end|java developer|python developer|\.net(?:\s+c)? developer|dotnet(?:\s+c)? developer|golang developer|database administrator|dba|platform engineer|infrastructure engineer)\b/i;
+const BACKEND_TITLE=/\b(backend|back-end|back end|java developer|python developer|(?:\.net|dotnet)(?:\s+c)? developer|golang developer|database administrator|dba|platform engineer|infrastructure engineer)\b/i;
 const NATIVE_TITLE=/\breact native\b|\bmobile developer\b|\bmobile engineer\b|\bandroid developer\b|\bios developer\b|\bexpo\b/i;
 const MANAGER_TITLE=/\b(manager|head of engineering|engineering manager)\b/i, PRINCIPAL_TITLE=/\bprincipal\b/i, STAFF_TITLE=/\bstaff\b/i, LEAD_TITLE=/\blead\b/i;
 const COMPETING_FRAMEWORK=/\b(vue(?:\.js)?|angular(?:\.js)?|svelte(?:\.js)?|ember(?:\.js)?|solid(?:\.js)?)\b/i;
