@@ -56,7 +56,10 @@ export class MatchTaskHandler {
       const result = await this.ranking.rankAndPersist({ job, candidateProfileId, deterministicMatchScore: match.deterministic.matchScore, semanticMatchScore: match.semantic?.score ?? null });
       rankedAndEligible = result.persisted;
     }
-    if (!rankedAndEligible) return;
+    if (!rankedAndEligible) {
+      recruiterDispatchDiagnostic(job, "JOB_RANKING_REJECTED", { decision: match.decision, matchScore: match.score });
+      return;
+    }
 
     const dispatches: Promise<unknown>[] = [];
     if (this.applications && match.decision === "APPLY") dispatches.push(this.applications.enqueue(jobOpportunityId, candidateProfileId, 30));
