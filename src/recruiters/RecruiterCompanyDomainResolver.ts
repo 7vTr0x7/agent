@@ -106,22 +106,30 @@ function domainMatchesCompany(domain: string, companyName: string): boolean {
 
 async function fetchSearchResult(query: string, engine: "google" | "bing" | "duckduckgo"): Promise<string | null> {
   const encoded = encodeURIComponent(query);
-  const urls = {
+  const directUrls = {
+    google: `https://www.google.com/search?q=${encoded}&gbv=1`,
+    bing: `https://www.bing.com/search?q=${encoded}`,
+    duckduckgo: `https://html.duckduckgo.com/html/?q=${encoded}`
+  };
+  const readerUrls = {
     google: `https://r.jina.ai/https://www.google.com/search?q=${encoded}&gbv=1`,
     bing: `https://r.jina.ai/https://www.bing.com/search?q=${encoded}`,
     duckduckgo: `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${encoded}`
   };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 9000);
-  try {
-    const response = await fetch(urls[engine], { signal: controller.signal, redirect: "follow", headers: { accept: "text/plain,text/html,application/xhtml+xml,*/*;q=0.8", "user-agent": "job-agent-employer-domain-resolver/1.0" } });
-    if (!response.ok) return null;
-    return await response.text();
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+  const fetchOne = async (url: string, timeoutMs: number): Promise<string | null> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/plain,text/html,application/xhtml+xml,*/*;q=0.8", "user-agent": "job-agent-employer-domain-resolver/1.0" } });
+      if (!response.ok) return null;
+      return await response.text();
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  return await fetchOne(directUrls[engine], 4_000) ?? await fetchOne(readerUrls[engine], 5_000);
 }
 
 function domainsFromSearchText(text: string, companyName: string): string[] {
