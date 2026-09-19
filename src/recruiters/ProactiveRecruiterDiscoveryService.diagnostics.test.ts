@@ -52,4 +52,43 @@ describe("ProactiveRecruiterDiscoveryService rejected-candidate diagnostics", ()
     expect(discovered.length).toBeGreaterThan(0);
     expect(metrics.rejectedCandidateDiagnostics).toHaveLength(0);
   });
+  test("rejects malformed nested recruiter URLs before profile fetch and deduplicates repeated occurrences", async () => {
+    const malformed = "https://www.upwork.com/hire/technical-recruiters/in/https://www.upwork.com%E2%80%BAhire%E2%80%BAtechnical-recruiters%E2%80%BAin";
+    const nested = "https://example.com/talent/https://other.example/path";
+    const encodedNested = "https://example.com/talent/https%3A%2F%2Fother.example%2Fpath";
+    const legitimate = "https://example.com/talent/jane-doe";
+    const searchPage = `Jane Doe - Technical Recruiter at Example Corp actively hiring React frontend engineers in Bengaluru.
+      ${malformed}
+      ${malformed}
+      ${nested}
+      ${encodedNested}
+      ${legitimate}`;
+    const calls:string[] = [];
+    const discovery = new ProactiveRecruiterDiscoveryService({
+      maxQueries: 1,
+      targetCandidates: 1,
+      fetchText: async (url) => {
+        calls.push(url);
+        return url === legitimate
+          ? "Jane Doe - Technical Recruiter at Example Corp actively hiring React frontend engineers in Bengaluru."
+          : searchPage;
+      }
+    });
+
+    const discovered = await discovery.discover(profile);
+    const metrics = discovery.getLastRunMetrics();
+    const malformedDiagnostics = metrics.rejectedCandidateDiagnostics.filter(d => d.rejectionReasons.includes("MALFORMED_NESTED_URL"));
+
+    expect(discovered).toHaveLength(1);
+    expect(discovered[0]?.discoveryUrl).toBe(legitimate);
+    expect(calls).not.toContain(malformed);
+    expect(calls).not.toContain(nested);
+    expect(calls).not.toContain(encodedNested);
+    expect(malformedDiagnostics).toHaveLength(3);
+    expect(malformedDiagnostics[0]?.candidateUrl).toBe(malformed);
+    expect(malformedDiagnostics[0]?.directFetch.attempted).toBe(false);
+    expect(malformedDiagnostics[0]?.fallback.attempted).toBe(false);
+    expect(metrics.rejectionReasons["MALFORMED_NESTED_URL"]).toBeGreaterThanOrEqual(3);
+  });
+
 });
