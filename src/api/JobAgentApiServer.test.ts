@@ -89,6 +89,8 @@ describe("JobAgentApiServer", () => {
       })]);
       expect(JSON.stringify(body)).not.toContain("client_secret");
       expect(JSON.stringify(body)).not.toContain("refreshToken");
+      const summaryQuery = database.query.mock.calls.find(([sql]) => String(sql).includes("match_decisions"))?.[0];
+      expect(String(summaryQuery)).toContain('x."relevanceScore"');
     } finally {
       await server.stop();
     }
