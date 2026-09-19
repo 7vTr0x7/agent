@@ -40,8 +40,8 @@ export class JobDetailEnricher {
     return output;
   }
 
-  async enrich(job: Job, signal?: AbortSignal): Promise<Job> {
-    if (!shouldEnrich(job.description, job.title, job.source) || signal?.aborted) return job;
+  async enrich(job: Job, signal?: AbortSignal, force = false): Promise<Job> {
+    if ((!force && !shouldEnrich(job.description, job.title, job.source)) || signal?.aborted) return job;
     try {
       const html = await this.fetchDetailPage(job.url, signal);
       const description = extractJobPostingDescription(html);
