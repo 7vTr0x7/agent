@@ -13,7 +13,7 @@ const ALIASES: Record<string, string[]> = { react:["react","reactjs","react.js"]
 const FRONTEND_TITLE=/\b(frontend|front-end|front end|ui developer|ui engineer|web developer|web engineer|react developer|react engineer|next\.js developer|nextjs developer)\b/i;
 const FULL_STACK_TITLE=/\b(full[- ]stack|fullstack|product engineer)\b/i;
 const EXCLUDED_TITLE=/\b(product marketing|marketing|sales|account executive|business development|finance|accounting|legal|procurement|recruiter|talent acquisition|customer support|technical support|qa engineer|quality assurance|devops|site reliability|sre|network engineer|data analyst|data scientist|machine learning engineer|ml engineer|ai engineer|security engineer)\b/i;
-const BACKEND_TITLE=/\b(backend|back-end|back end|java developer|python developer|\.net developer|golang developer|database administrator|dba|platform engineer|infrastructure engineer)\b/i;
+const BACKEND_TITLE=/\b(backend|back-end|back end|java developer|python developer|\.net(?:\s+c)? developer|dotnet(?:\s+c)? developer|golang developer|database administrator|dba|platform engineer|infrastructure engineer)\b/i;
 const NATIVE_TITLE=/\breact native\b|\bmobile developer\b|\bmobile engineer\b|\bandroid developer\b|\bios developer\b|\bexpo\b/i;
 const MANAGER_TITLE=/\b(manager|head of engineering|engineering manager)\b/i, PRINCIPAL_TITLE=/\bprincipal\b/i, STAFF_TITLE=/\bstaff\b/i, LEAD_TITLE=/\blead\b/i;
 const COMPETING_FRAMEWORK=/\b(vue(?:\.js)?|angular(?:\.js)?|svelte(?:\.js)?|ember(?:\.js)?|solid(?:\.js)?)\b/i;
@@ -21,7 +21,7 @@ const COMPETING_PRIMARY=/\b(?:deep knowledge of|deep expertise in|expert(?:ise)?
 const RESTRICTED_REMOTE=/\b(?:remote|work from home|wfh)\s*(?:[-,:()]\s*)?(?:in|from|within)?\s*(?:the\s+)?(?:usa|u\.s\.a?\.?|united states(?: of america)?|uk|u\.k\.?|united kingdom|canada|australia)\b|\b(?:usa|united states|uk|united kingdom|canada|australia)\s+(?:only|based|based only)\b|\b(?:only|must be based in|based in)\s+(?:the\s+)?(?:usa|united states|uk|united kingdom|canada|australia)\b|\bremote\s+within\s+(?:the\s+)?(?:eu|european union)\b/i;
 const FOREIGN_LOCATION=/\b(?:usa|u\.s\.a?\.?|united states|uk|u\.k\.?|united kingdom|canada|australia|germany|berlin|france|paris|poland|ukraine|philippines|brazil|mexico|europe|eastern europe)\b/i;
 const WORLDWIDE_REMOTE=/\b(?:worldwide|global|anywhere in the world|work from anywhere)\s+remote\b|\bremote\s+(?:worldwide|globally|anywhere)\b/i;
-const NON_TARGET_PLATFORM=/\b(?:sharepoint|microsoft 365|power platform|salesforce|dynamics 365)\b/i;
+const NON_TARGET_PLATFORM=/\b(?:sharepoint|microsoft 365|power platform|salesforce|dynamics 365|wordpress|word press)\b/i;
 export class DeterministicJobMatcher {
  private readonly applyThreshold:number; private readonly reviewThreshold:number; private readonly now:()=>Date;
  constructor(options:DeterministicMatcherOptions={}){this.applyThreshold=options.applyThreshold??60;this.reviewThreshold=options.reviewThreshold??42;const fixedNow=options.now;this.now=fixedNow?()=>new Date(fixedNow):()=>new Date();}
