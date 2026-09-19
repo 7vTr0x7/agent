@@ -68,7 +68,7 @@ export function resolveEmployerDomainFromJobData(
   if (explicitDomain) return explicitDomain;
 
   const canonicalDomain = resolveEmployerDomainFromJobUrl(canonicalUrl);
-  if (canonicalDomain && companyName && domainMatchesCompany(canonicalDomain, companyName)) return canonicalDomain;
+  if (canonicalDomain && (!companyName || domainMatchesCompany(canonicalDomain, companyName))) return canonicalDomain;
 
   // Some public job feeds omit the employer domain but retain a first-party
   // company URL or recruiting email in the posting. Accept those only when
