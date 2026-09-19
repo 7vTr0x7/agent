@@ -216,6 +216,11 @@ function extractJobPostingDescription(html: string): string | null {
       if (description) return description;
     }
   }
+  const mainMatch = html.match(/<main\\b[^>]*>([\\s\\S]*?)<\\/main>/i);
+  if (mainMatch?.[1]) {
+    const mainText = clean(mainMatch[1]);
+    if (mainText && /\\b\\d+(?:\\.\\d+)?\\s*(?:\\+|years?|yrs?)/i.test(mainText)) return mainText.slice(0, 60_000);
+  }
   return null;
 }
 
