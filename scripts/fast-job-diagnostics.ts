@@ -44,8 +44,8 @@ async function main(): Promise<void> {
           SELECT string_agg(DISTINCT t.status, ', ' ORDER BY t.status)
           FROM tasks t
           WHERE t.task_type='MATCH_JOB'
-            AND (t.payload->>'jobOpportunityId') = j.id
-            AND (t.payload->>'candidateProfileId') = $1
+            AND (t.payload->>'jobOpportunityId') = j.id::text
+            AND (t.payload->>'candidateProfileId') = $1::text
         ) AS task_status
       FROM job_opportunities j
       ORDER BY j.posted_at DESC NULLS LAST, j.company_name, j.title
