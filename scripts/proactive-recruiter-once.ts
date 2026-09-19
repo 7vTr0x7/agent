@@ -21,7 +21,12 @@ async function main(): Promise<void> {
     if (!profile) throw new Error("Configured candidate profile could not be resolved.");
     const taskQueue = new TaskQueue(database);
     const fixturePage = `Jane Doe - Technical Recruiter at Acme Corp actively hiring React frontend engineers <https://linkedin.com/in/jane-doe> jane@acme.com`;
-    const discovery = new ProactiveRecruiterDiscoveryService(fixtureMode ? { fetchText: async () => fixturePage } : {});
+    const maxQueriesRaw = Number.parseInt(process.env.PROACTIVE_RECRUITER_MAX_QUERIES ?? "18", 10);
+    const maxQueries = Number.isInteger(maxQueriesRaw) && maxQueriesRaw > 0 ? maxQueriesRaw : 18;
+    const discovery = new ProactiveRecruiterDiscoveryService({
+      ...(fixtureMode ? { fetchText: async () => fixturePage } : {}),
+      maxQueries
+    });
     const handler = new ProactiveRecruiterTaskHandler(
       discovery,
       new ProactiveRecruiterRepository(database),
@@ -46,7 +51,26 @@ async function main(): Promise<void> {
     const qualityStatus = metrics.identityValidated > 0 && metrics.companyValidated > 0 && metrics.recruiterEvidenceMatches > 0 && metrics.finalDiscovered > 0
       ? "QUALITY_EVIDENCE_PRESENT"
       : "NO_QUALITY_CANDIDATES";
-    console.log(JSON.stringify({ status: "ok", operationalStatus, discoveryStatus, qualityStatus, discovered: metrics.finalDiscovered, persisted: metrics.finalDiscovered > 0 ? "see handler output" : 0, metrics, mode: "isolated-proactive-recruiter", sendEnabled: false, gmailEnabled: false, outboundEnabled: false }));
+    const persistedLeads = await database.query<{
+      name: string | null;
+      company: string;
+      role: string | null;
+      email: string | null;
+      email_status: string | null;
+      verified: boolean;
+      mailbox_evidence: boolean;
+      relevance_status: string | null;
+      relevance_score: number | null;
+      confidence: number | null;
+    }>(
+      `SELECT full_name AS name, company_name AS company, title AS role, email, email_status,
+              verified, mailbox_evidence, relevance_status, relevance_score, confidence
+       FROM recruiter_contacts
+       WHERE relevance_status IN ('CURRENT','RECENT')
+       ORDER BY relevance_score DESC NULLS LAST, confidence DESC NULLS LAST, updated_at DESC
+       LIMIT 10`
+    );
+    console.log(JSON.stringify({ status: "ok", operationalStatus, discoveryStatus, qualityStatus, discovered: metrics.finalDiscovered, persisted: persistedLeads.rows.length, metrics, persistedLeads: persistedLeads.rows, mode: "isolated-proactive-recruiter", sendEnabled: false, gmailEnabled: false, outboundEnabled: false }, null, 2));
   } finally {
     await database.close();
   }
