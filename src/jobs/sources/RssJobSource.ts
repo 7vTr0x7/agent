@@ -51,7 +51,10 @@ function extractEmployerName(title: string, description: string): string | null 
   const text = `${title} ${description}`;
   const labeled = text.match(/(?:company|employer|hiring\s+company|organization)\s*[:\-]\s*([^|\n<]{2,100})/i)?.[1]?.trim();
   if (labeled && !/^(unknown|n\/a|not specified)$/i.test(labeled)) return labeled.replace(/\s+/g, " ").trim();
-  const atTitle = title.match(/\s(?:at|@)\s+([A-Z][A-Za-z0-9&.'\- ]{1,80})$/)?.[1]?.trim();
+  const atTitle = title.match(/\s(?:at|@)\s+(.{2,100})$/i)?.[1]?.trim()
+    .replace(/\s+[-–—|•]\s+(?:remote|worldwide|india|bengaluru|bangalore).*$/i, "")
+    .replace(/[|•,.-]+$/, "")
+    .trim();
   return atTitle && !/^(remote|india|bengaluru|bangalore)$/i.test(atTitle) ? atTitle : null;
 }
 function readTag(xml: string, tag: string): string | null { const escaped = tag.replace(":", "\\:"); return xml.match(new RegExp(`<${escaped}\\b[^>]*>([\\s\\S]*?)</${escaped}>`, "i"))?.[1] ?? null; }
