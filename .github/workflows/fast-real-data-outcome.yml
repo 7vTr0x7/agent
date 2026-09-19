@@ -156,6 +156,8 @@ jobs:
           docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -P pager=off -c "SELECT j.company_name, j.title, j.location, j.canonical_url, m.decision, m.match_score, m.reason FROM match_decisions m JOIN job_opportunities j ON j.id=m.job_opportunity_id ORDER BY m.match_score DESC, j.posted_at DESC NULLS LAST LIMIT 10;"
           echo 'FAST_RUNTIME_RECRUITERS'
           docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -P pager=off -c "SELECT c.full_name, c.company_name, c.title, c.email, c.email_status, c.verified, c.mailbox_evidence, c.confidence, c.relevance_status FROM recruiter_contacts c ORDER BY c.updated_at DESC LIMIT 10;"
+          echo 'FAST_RUNTIME_RECRUITER_JOB_DOMAIN_GATE'
+          docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -P pager=off -c "SELECT j.company_name, j.title, j.company_domain, j.canonical_url, m.decision, m.match_score, (r.job_opportunity_id IS NOT NULL) AS ranking_persisted, EXISTS (SELECT 1 FROM tasks t WHERE t.task_type='DISCOVER_RECRUITERS' AND t.payload->>'jobOpportunityId'=j.id) AS recruiter_task_created FROM job_opportunities j JOIN match_decisions m ON m.job_opportunity_id=j.id LEFT JOIN job_rankings r ON r.job_opportunity_id=j.id AND r.candidate_profile_id='fast-runtime-candidate' WHERE m.decision IN ('APPLY','REVIEW') ORDER BY m.match_score DESC, j.posted_at DESC NULLS LAST LIMIT 25;"
           docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -P pager=off -c "SELECT status, COUNT(*) FROM tasks GROUP BY status ORDER BY status;"
 
       - name: Verify dashboard API against the same runtime PostgreSQL records
