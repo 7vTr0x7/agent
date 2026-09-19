@@ -77,7 +77,9 @@ export class MatchTaskHandler {
 
     let companyDomain = resolveEmployerDomainFromJobData(job.companyDomain, job.canonicalUrl, job.description, job.companyName);
     if (companyDomain && !domainMatchesCompanyName(companyDomain, job.companyName)) companyDomain = null;
-    if (!companyDomain) companyDomain = await resolveEmployerDomainFromPublicSearch(job.companyName);
+    if (!companyDomain && process.env.RECRUITER_PUBLIC_DOMAIN_SEARCH_ENABLED !== "false") {
+      companyDomain = await resolveEmployerDomainFromPublicSearch(job.companyName);
+    }
     if (!companyDomain || !domainMatchesCompanyName(companyDomain, job.companyName)) return null;
 
     const candidateName = this.profiles.fullName ?? ([this.profiles.firstName, this.profiles.lastName].filter(Boolean).join(" ") || "Candidate");
