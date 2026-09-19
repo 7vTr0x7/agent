@@ -25,6 +25,7 @@ export class MatchTaskHandler {
   private readonly recruiters?: RecruiterDiscoveryTaskDispatcher;
   private readonly recruiterEnabled: boolean;
   private readonly excludedCompanies: readonly string[];
+  private readonly logger?: Pick<Console, "info">;
 
   constructor(
     private readonly opportunities: JobOpportunityRepository,
@@ -41,6 +42,7 @@ export class MatchTaskHandler {
     }
     this.recruiterEnabled = config?.recruiterOutreach.enabled === true || process.env.RECRUITER_OUTREACH_ENABLED === "true";
     this.excludedCompanies = excludedCompanies;
+    this.logger = logger;
   }
 
   async handle(task: ClaimedTask<MatchJobTaskPayload>): Promise<void> {
