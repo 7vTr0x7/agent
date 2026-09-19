@@ -13,6 +13,8 @@ import { RecruiterDiscoveryRepository } from "../src/recruiters/RecruiterDiscove
 import { PersistentRecruiterDiscoveryService } from "../src/recruiters/PersistentRecruiterDiscoveryService";
 import { RecruiterDiscoveryTaskHandler } from "../src/recruiters/RecruiterDiscoveryTaskHandler";
 import { createRecruiterDiscoveryProvider } from "../src/recruiters/createRecruiterDiscoveryProvider";
+import { PostgresJobOpportunityRepository } from "../src/jobs/domain/PostgresJobOpportunityRepository";
+import { DeterministicJobMatcher } from "../src/matching/DeterministicJobMatcher";
 
 interface MatchRow {
   company: string;
@@ -96,24 +98,36 @@ async function main(): Promise<void> {
         )
       : undefined;
 
-    // The fast runtime is deliberately bounded. Prioritize already-persisted positive/reviewable
-    // match decisions so the bounded worker consumes real high-value matches rather than an
-    // arbitrary FIFO slice of discovery tasks. This changes scheduling only, not match policy.
-    await database.query(
-      `
-        UPDATE tasks t
-        SET priority = CASE md.decision
-          WHEN 'APPLY' THEN 100
-          WHEN 'REVIEW' THEN 90
-          ELSE 0
-        END
-        FROM match_decisions md
-        WHERE t.task_type = $1
-          AND t.status = 'PENDING'
-          AND t.payload->>'jobOpportunityId' = md.job_opportunity_id::text
-      `,
+    // The fast runtime is deliberately bounded. Discovery enqueues MATCH_JOB tasks before
+    // decisions exist, so a FIFO slice can miss the real positive matches entirely. Re-score
+    // pending tasks with the existing deterministic matcher only to prioritize scheduling;
+    // the normal MatchTaskHandler remains the sole persistence/semantic/ranking path.
+    const opportunityRepository = new PostgresJobOpportunityRepository(database);
+    const deterministicMatcher = new DeterministicJobMatcher();
+    const pendingMatchTasks = await database.query<{ id: string; jobOpportunityId: string }>(
+      `SELECT id, payload->>'jobOpportunityId' AS "jobOpportunityId"
+       FROM tasks
+       WHERE task_type = $1 AND status = 'PENDING'
+       ORDER BY priority DESC, available_at ASC, created_at ASC`,
       [MATCH_JOB_TASK]
     );
+    let prioritizedPositiveMatches = 0;
+    for (const task of pendingMatchTasks.rows) {
+      const job = await opportunityRepository.findById(task.jobOpportunityId);
+      if (!job) continue;
+      const preview = deterministicMatcher.evaluate(job, profile);
+      const priority =
+        preview.decision === "APPLY" ? 200 + preview.matchScore :
+        preview.decision === "REVIEW" ? 100 + preview.matchScore :
+        0;
+      if (priority > 0) prioritizedPositiveMatches += 1;
+      await database.query(
+        `UPDATE tasks SET priority = $2, updated_at = NOW()
+         WHERE id = $1 AND status = 'PENDING'`,
+        [task.id, priority]
+      );
+    }
+    logger.info({ prioritizedPositiveMatches, pendingMatchTasks: pendingMatchTasks.rows.length }, "Prioritized bounded match tasks using the existing deterministic matcher.");
 
     const handlers = new Map<string, any>([[MATCH_JOB_TASK, runtime.matchTaskHandler]]);
     if (recruiterDiscoveryHandler) handlers.set(DISCOVER_RECRUITERS_TASK, recruiterDiscoveryHandler);
