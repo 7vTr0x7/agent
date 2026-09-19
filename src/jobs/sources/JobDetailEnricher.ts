@@ -278,29 +278,6 @@ function clean(value: string | undefined): string | null {
   const stripped = value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
   return stripped || null;
 }
-async function fetchViaJinaReader(url: string, signal?: AbortSignal): Promise<string | null> {
-  const controller = new AbortController();
-  const onAbort = () => controller.abort();
-  signal?.addEventListener("abort", onAbort, { once: true });
-  const timer = setTimeout(() => controller.abort(), 10_000);
-  try {
-    const response = await fetch(`https://r.jina.ai/${url}`, {
-      signal: controller.signal,
-      headers: { accept: "text/plain,text/html;q=0.9,*/*;q=0.8", "user-agent": "JobAgent-detail-enricher/1.0" }
-    });
-    return response.ok ? await response.text() : null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", onAbort);
-  }
-}
-
-function containsExplicitExperience(value: string): boolean {
-  return /\b(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\s*(?:\+\s*)?years?\b/i.test(value);
-}
-
 function decodeHtml(value: string): string {
   return value.replace(/&quot;/g, '"').replace(/&#34;/g, '"').replace(/&amp;/g, "&").replace(/&#38;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }
