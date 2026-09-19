@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { loadConfig } from "../src/config/env";
 import { Database } from "../src/database/Database";
 import { MigrationRunner } from "../src/database/MigrationRunner";
 import { ConfiguredCandidateProfileResolver } from "../src/candidates/ConfiguredCandidateProfileResolver";
@@ -38,7 +39,8 @@ const logger = {
 
 async function main(): Promise<void> {
   const startedAt = Date.now();
-  const database = new Database(process.env.DATABASE_URL ?? "");
+  const config = loadConfig();
+  const database = new Database(config.databaseUrl);
   const api = new JobAgentApiServer(database, { host: "127.0.0.1", port: 0 });
 
   try {
@@ -97,7 +99,7 @@ async function main(): Promise<void> {
       topMatches: MatchRow[];
     };
 
-    const counts = await database.query<{ jobs: string; observations: string; apply: string; review: string; reject: string; pending: string }>(
+    const counts = await database.query<{ jobs: string; observations: string; matches: string; apply: string; review: string; reject: string; pending: string }>(
       `SELECT
         (SELECT COUNT(*)::text FROM job_opportunities) AS jobs,
         (SELECT COUNT(*)::text FROM job_observations) AS observations,
