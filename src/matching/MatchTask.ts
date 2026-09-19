@@ -39,7 +39,7 @@ export class MatchTaskHandler {
       this.applications = new ApplicationTaskDispatcher(taskQueue);
       this.recruiters = new RecruiterDiscoveryTaskDispatcher(taskQueue);
     }
-    this.recruiterEnabled = config?.recruiterOutreach.enabled ?? false;
+    this.recruiterEnabled = config?.recruiterOutreach.enabled === true || process.env.RECRUITER_OUTREACH_ENABLED === "true";
     this.excludedCompanies = excludedCompanies;
   }
 
