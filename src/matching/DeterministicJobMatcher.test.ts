@@ -128,6 +128,24 @@ describe("DeterministicJobMatcher", () => {
     expect(result.reason).toContain("India");
   });
 
+  it("rejects a WordPress-primary role even when frontend skills are mentioned", () => {
+    const result = matcher.evaluate(
+      job("Maintain WordPress sites and plugins. React knowledge is helpful for UI work.", "Senior Software Engineer, WordPress"),
+      profile
+    );
+    expect(result.decision).toBe("REJECT");
+    expect(result.matchScore).toBe(0);
+  });
+
+  it("rejects a .NET/C#-primary developer role even when React is mentioned incidentally", () => {
+    const result = matcher.evaluate(
+      job("Build .NET and C# services. React is mentioned for occasional frontend integration.", "Senior .NET/C# Developer"),
+      profile
+    );
+    expect(result.decision).toBe("REJECT");
+    expect(result.matchScore).toBe(0);
+  });
+
   it("does not treat incidental React in a SharePoint-primary role as frontend work", () => {
     const result = matcher.evaluate(job("Build Microsoft 365 and SharePoint solutions. React knowledge is helpful for occasional UI work.", "Microsoft 365 Software Engineer - SharePoint Developer"), profile);
     expect(result.decision).toBe("REJECT");
