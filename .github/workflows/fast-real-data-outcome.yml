@@ -68,15 +68,15 @@ jobs:
             -e CANDIDATE_SPONSORSHIP_REQUIRED=false \
             -e JOB_EXCLUDED_COMPANIES='Octopus Technologies,Sketch Brahma Technologies' \
             -e JOB_SOURCES='[{"id":"remoteok:json","type":"api","name":"remoteok","feedUrl":"https://remoteok.com/api","status":"APPROVED"},{"id":"himalayas:react:india:json","type":"api","name":"himalayas","feedUrl":"https://himalayas.app/jobs/api/search?q=react%20engineer&country=India&sort=recent&page=1","status":"APPROVED"},{"id":"himalayas:nextjs:india:json","type":"api","name":"himalayas","feedUrl":"https://himalayas.app/jobs/api/search?q=next.js&country=India&sort=recent&page=1","status":"APPROVED"},{"id":"himalayas:frontend:india:json","type":"api","name":"himalayas","feedUrl":"https://himalayas.app/jobs/api/search?q=frontend&country=India&sort=recent&page=1","status":"APPROVED"},{"id":"remotefirstjobs:react:rss","type":"rss","name":"remotefirstjobs-react","feedUrl":"https://remotefirstjobs.com/rss/jobs/react.rss","status":"APPROVED"},{"id":"remotefirstjobs:software:rss","type":"rss","name":"remotefirstjobs-software","feedUrl":"https://remotefirstjobs.com/rss/jobs/software-development.rss","status":"APPROVED"},{"id":"weworkremotely:rss","type":"rss","name":"weworkremotely","feedUrl":"https://weworkremotely.com/remote-jobs.rss","status":"APPROVED"},{"id":"realworkfromanywhere:frontend:rss","type":"rss","name":"realworkfromanywhere-frontend","feedUrl":"https://www.realworkfromanywhere.com/remote-frontend-jobs/rss.xml","status":"APPROVED"},{"id":"realworkfromanywhere:fullstack:rss","type":"rss","name":"realworkfromanywhere-fullstack","feedUrl":"https://www.realworkfromanywhere.com/remote-fullstack-jobs/rss.xml","status":"APPROVED"}]' \
-            -e DISCOVERY_SOURCE_TIMEOUT_MS=60000 \
+            -e DISCOVERY_SOURCE_TIMEOUT_MS=30000 \
             -e DISCOVERY_SOURCE_RETRIES=1 \
-            -e FAST_JOB_SOURCE_IDS='remoteok:json,himalayas:react:india:json,himalayas:nextjs:india:json,himalayas:frontend:india:json,remotefirstjobs:react:rss,remotefirstjobs:software:rss,weworkremotely:rss,realworkfromanywhere:frontend:rss,realworkfromanywhere:fullstack:rss' \
+            -e FAST_JOB_SOURCE_IDS='remoteok:json,himalayas:react:india:json,himalayas:nextjs:india:json,himalayas:frontend:india:json,remotefirstjobs:react:rss' \
             -e RECRUITER_OUTREACH_ENABLED=true \
             -e RECRUITER_PUBLIC_DOMAIN_SEARCH_ENABLED=false \
             -e RECRUITER_OUTREACH_DRY_RUN=true \
             -e RECRUITER_OUTREACH_ACTIVATION=disabled \
             -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
-            -e FAST_MATCHING_LIMIT=150 \
+            -e FAST_MATCHING_LIMIT=80 \
             -e FAST_RECRUITER_TASK_LIMIT=10 \
             -e OLLAMA_BASE_URL=http://127.0.0.1:11434 \
             -e OLLAMA_TIMEOUT_MS=1000 \
