@@ -223,7 +223,7 @@ function expandIpv6(address: string): number[] | null {
   return expanded.map((part) => parseInt(part, 16));
 }
 
-async function fetchViaJinaReader(url: string, signal: AbortSignal): Promise<string> {
+async function fetchViaJinaReader(url: string, signal?: AbortSignal): Promise<string> {
   const response = await fetch(`https://r.jina.ai/${url}`, {
     signal,
     headers: {
