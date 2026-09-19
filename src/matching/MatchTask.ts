@@ -72,18 +72,31 @@ export class MatchTaskHandler {
     job: Awaited<ReturnType<JobOpportunityRepository["findById"]>>,
     candidateProfileId: string
   ): Promise<string | null> {
-    if (!job || !this.recruiterEnabled || !this.recruiters) return null;
-    if (isExcludedCompany(job.companyName, this.excludedCompanies)) return null;
+    if (!job || !this.recruiterEnabled || !this.recruiters) {
+      recruiterDispatchDiagnostic(job, "RECRUITER_DISABLED_OR_UNAVAILABLE");
+      return null;
+    }
+    if (isExcludedCompany(job.companyName, this.excludedCompanies)) {
+      recruiterDispatchDiagnostic(job, "COMPANY_EXCLUDED");
+      return null;
+    }
 
     let companyDomain = resolveEmployerDomainFromJobData(job.companyDomain, job.canonicalUrl, job.description, job.companyName);
-    if (companyDomain && !domainMatchesCompanyName(companyDomain, job.companyName)) companyDomain = null;
+    if (companyDomain && !domainMatchesCompanyName(companyDomain, job.companyName)) {
+      recruiterDispatchDiagnostic(job, "JOB_DATA_DOMAIN_FAILED_COMPANY_MATCH", { companyDomain });
+      companyDomain = null;
+    }
     if (!companyDomain && process.env.RECRUITER_PUBLIC_DOMAIN_SEARCH_ENABLED !== "false") {
       companyDomain = await resolveEmployerDomainFromPublicSearch(job.companyName);
+      recruiterDispatchDiagnostic(job, companyDomain ? "PUBLIC_SEARCH_DOMAIN_RESOLVED" : "PUBLIC_SEARCH_DOMAIN_UNRESOLVED", { companyDomain });
     }
-    if (!companyDomain || !domainMatchesCompanyName(companyDomain, job.companyName)) return null;
+    if (!companyDomain || !domainMatchesCompanyName(companyDomain, job.companyName)) {
+      recruiterDispatchDiagnostic(job, "NO_VALIDATED_EMPLOYER_DOMAIN", { companyDomain });
+      return null;
+    }
 
     const candidateName = this.profiles.fullName ?? ([this.profiles.firstName, this.profiles.lastName].filter(Boolean).join(" ") || "Candidate");
-    return this.recruiters.enqueue({
+    const taskId = await this.recruiters.enqueue({
       companyName: job.companyName,
       companyDomain,
       jobTitle: job.title,
@@ -97,7 +110,26 @@ export class MatchTaskHandler {
       jobOpportunityId: job.id,
       applicationOutcome: "NOT_ATTEMPTED"
     }, 40);
+    recruiterDispatchDiagnostic(job, "DISCOVER_RECRUITERS_ENQUEUED", { companyDomain, taskId });
+    return taskId;
   }
+}
+
+function recruiterDispatchDiagnostic(
+  job: Awaited<ReturnType<JobOpportunityRepository["findById"]>>,
+  reason: string,
+  extra: Record<string, unknown> = {}
+): void {
+  if (process.env.RECRUITER_DISPATCH_DIAGNOSTICS !== "true" || !job) return;
+  console.log(JSON.stringify({
+    event: "recruiter-dispatch",
+    jobOpportunityId: job.id,
+    company: job.companyName,
+    role: job.title,
+    canonicalUrl: job.canonicalUrl,
+    reason,
+    ...extra
+  }));
 }
 
 function companyTokens(companyName: string): string[] {
