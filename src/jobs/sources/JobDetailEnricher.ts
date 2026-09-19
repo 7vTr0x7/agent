@@ -240,6 +240,8 @@ function extractJobPostingDescription(html: string): string | null {
     const bodyText = clean(bodyMatch[1]);
     if (bodyText && /\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(bodyText)) return bodyText.slice(0, 60_000);
   }
+  const plainText = clean(html);
+  if (plainText && containsExplicitExperience(plainText)) return plainText.slice(0, 60_000);
   return bestDescription;
 }
 
