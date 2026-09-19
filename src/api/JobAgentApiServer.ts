@@ -153,7 +153,7 @@ export class JobAgentApiServer {
             ) x
           ) AS "topMatches",
           (
-            SELECT COALESCE(jsonb_agg(x ORDER BY x.relevance_score DESC NULLS LAST, x.confidence DESC NULLS LAST, x.updated_at DESC), '[]'::jsonb)
+            SELECT COALESCE(jsonb_agg(x ORDER BY x."relevanceScore" DESC NULLS LAST, x.confidence DESC NULLS LAST, x.updated_at DESC), '[]'::jsonb)
             FROM (
               SELECT
                 c.full_name AS name,
