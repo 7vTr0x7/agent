@@ -20,7 +20,7 @@ export class PublicJsonJobSource implements JobSource {
 }
 interface NormalizedPublicJob{id:string;title:string;url:string;companyName:string;location?:string|null;country?:string|null;workplaceType?:"onsite"|"remote"|"hybrid"|null;employmentType?:string|null;description:string;postedAt?:string|number|null;updatedAt?:string|number|null;}
 function readHimalayas(payload:unknown):NormalizedPublicJob[]{const jobs=objectArray(payload,"jobs");return jobs.flatMap(job=>{const item=job as Record<string,unknown>;const id=stringValue(item.guid);const title=stringValue(item.title);const url=stringValue(item.applicationLink);const rawDescription=stringValue(item.description)||stringValue(item.excerpt);
-const experienceRequirement=firstString([item.experience,item.experienceRequirement,item.minExperience,item.minimumExperience,item.yearsOfExperience]);
+const experienceRequirement=[item.experience,item.experienceRequirement,item.minExperience,item.minimumExperience,item.yearsOfExperience].map(stringValue).find((value)=>/\b\d+(?:\.\d+)?\s*\+?\s*years?\b/i.test(value)) ?? "";
 const description=experienceRequirement && /\\b\\d+(?:\\.\\d+)?\\s*\\+?\\s*years?\\b/i.test(experienceRequirement)
  ? \`${rawDescription} Experience requirement: ${experienceRequirement}.\`
  : rawDescription;
