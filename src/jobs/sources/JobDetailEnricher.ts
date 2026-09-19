@@ -116,7 +116,8 @@ export function shouldEnrich(description: string, title = "", source = ""): bool
   // explicit experience requirement that exists on the canonical job page.
   // Only trigger the existing bounded detail fetch for target-like roles when
   // no explicit numeric experience signal is present in the feed content.
-  const targetTitle = /\b(frontend|front-end|front end|react|next(?:\.js|js)?|full[- ]?stack|web developer|web engineer|software engineer)\b/i.test(title);\n  if (/:json$/i.test(source)) return targetTitle;
+  const targetTitle = /\b(frontend|front-end|front end|react|next(?:\.js|js)?|full[- ]?stack|web developer|web engineer|software engineer)\b/i.test(title);
+  if (/:json$/i.test(source)) return targetTitle;
   const hasNumericExperience = /\b\d+(?:\.\d+)?\s*(?:\+|\-|–|—|to)?\s*years?\b/i.test(normalized);
   return targetTitle && !hasNumericExperience;
 }
