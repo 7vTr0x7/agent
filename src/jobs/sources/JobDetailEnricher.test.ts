@@ -187,6 +187,12 @@ test("keeps the same normalized identity when the same RSS job is enriched twice
   expect(global.fetch).toHaveBeenCalledTimes(2);
 });
 
+test("enriches target-like complete summaries when numeric experience is absent", () => {
+  expect(shouldEnrich("React frontend engineer with responsibilities and requirements.", "Senior Frontend Engineer")).toBe(true);
+  expect(shouldEnrich("React frontend engineer with 3+ years of experience.", "Senior Frontend Engineer")).toBe(false);
+  expect(shouldEnrich("General engineering role with no numeric requirement.", "Data Engineer")).toBe(false);
+});
+
 test("keeps enrichment source-agnostic and only enriches obvious excerpts", () => {
   expect(shouldEnrich("React frontend engineer ... ")).toBe(true);
   expect(shouldEnrich("React frontend engineer...")).toBe(true);
