@@ -96,6 +96,25 @@ async function main(): Promise<void> {
         )
       : undefined;
 
+    // The fast runtime is deliberately bounded. Prioritize already-persisted positive/reviewable
+    // match decisions so the bounded worker consumes real high-value matches rather than an
+    // arbitrary FIFO slice of discovery tasks. This changes scheduling only, not match policy.
+    await database.query(
+      `
+        UPDATE tasks t
+        SET priority = CASE md.decision
+          WHEN 'APPLY' THEN 100
+          WHEN 'REVIEW' THEN 90
+          ELSE 0
+        END
+        FROM match_decisions md
+        WHERE t.task_type = $1
+          AND t.status = 'PENDING'
+          AND t.payload->>'jobOpportunityId' = md.job_opportunity_id::text
+      `,
+      [MATCH_JOB_TASK]
+    );
+
     const handlers = new Map<string, any>([[MATCH_JOB_TASK, runtime.matchTaskHandler]]);
     if (recruiterDiscoveryHandler) handlers.set(DISCOVER_RECRUITERS_TASK, recruiterDiscoveryHandler);
     const worker = new TaskWorker(
