@@ -225,6 +225,11 @@ function extractJobPostingDescription(html: string): string | null {
     const mainText = clean(mainMatch[1]);
     if (mainText && /\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(mainText)) return mainText.slice(0, 60_000);
   }
+  const bodyMatch = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+  if (bodyMatch?.[1]) {
+    const bodyText = clean(bodyMatch[1]);
+    if (bodyText && /\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(bodyText)) return bodyText.slice(0, 60_000);
+  }
   return bestDescription;
 }
 
