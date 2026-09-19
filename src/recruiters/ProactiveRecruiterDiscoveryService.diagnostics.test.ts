@@ -39,7 +39,7 @@ describe("ProactiveRecruiterDiscoveryService rejected-candidate diagnostics", ()
   });
 
   test("accepted candidates are not added to rejected diagnostics", async () => {
-    const page = "Jane Doe - Technical Recruiter at Example Corp actively hiring React frontend engineers in Bengaluru. https://linkedin.com/in/jane-doe jane@example.com";
+    const page = "Jane Doe - Technical Recruiter at Example Corp actively hiring React frontend engineers in Bengaluru. https://example.com/talent/jane-doe jane@example.com";
     const discovery = new ProactiveRecruiterDiscoveryService({
       maxQueries: 1,
       targetCandidates: 1,
