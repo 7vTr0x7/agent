@@ -110,6 +110,18 @@ describe("DeterministicJobMatcher", () => {
     expect(result.matchScore).toBeGreaterThanOrEqual(70);
     expect(result.decision).toBe("APPLY");
   });
+  it("does not auto-apply a worldwide remote role without India eligibility", () => {
+    const worldwide: JobOpportunity = {
+      ...job("React, Next.js and TypeScript are required. Remote worldwide."),
+      location: "Worldwide",
+      country: null,
+      workplaceType: "remote"
+    };
+    const result = matcher.evaluate(worldwide, profile);
+    expect(result.geography).toBe("REMOTE_WORLDWIDE");
+    expect(result.decision).toBe("REVIEW");
+  });
+
   it("rejects a remote role explicitly restricted to a foreign country in the title", () => {
     const result = matcher.evaluate(job("Remote full-stack React role for Canada.", "Remote Full Stack Developer - Canada"), profile);
     expect(result.decision).toBe("REJECT");
