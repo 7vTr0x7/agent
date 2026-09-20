@@ -49,6 +49,10 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     });
 
     expect(result.metrics.queriesGenerated).toBeGreaterThan(1);
+    expect(result.metrics.configuredProviders).toBeGreaterThan(2);
+    expect(result.metrics.eligibleProviders).toBe(result.metrics.configuredProviders);
+    expect(result.metrics.executedProviders).toBe(result.metrics.eligibleProviders);
+    expect(result.metrics.normalizedResults).toBeGreaterThan(0);
     expect(result.metrics.hiringIntentPosts).toBeGreaterThan(0);
     expect(result.metrics.relevantRolePosts).toBeGreaterThan(0);
     expect(result.metrics.authorsExtracted).toBe(1);
@@ -68,6 +72,20 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     });
     expect(candidate.discoveryEvidence.join(" ")).toContain("We're Hiring");
     expect(candidate.discoveryEvidence.join(" ")).toContain("hr@synergytalententerprise.com");
+  });
+
+  it("considers every configured search provider without an arbitrary provider-count ceiling", async () => {
+    const observed = new Set<string>();
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({
+      targetRoles: ["Frontend Developer"],
+      skills: ["React"],
+      maxQueries: 1,
+      fetchText: async (url) => { observed.add(new URL(url).hostname); return "no relevant results"; }
+    });
+    expect(result.metrics.configuredProviders).toBeGreaterThan(2);
+    expect(result.metrics.executedProviders).toBe(result.metrics.configuredProviders);
+    expect(observed.size).toBeGreaterThan(2);
   });
 
   it("rejects relevant-looking posts when the author lacks hiring-role evidence", async () => {
