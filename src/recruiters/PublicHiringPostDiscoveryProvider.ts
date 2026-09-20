@@ -183,15 +183,38 @@ async function search(query: string, signal?: AbortSignal, fetchTextOverride?: (
   return results;
 }
 
-function extractPublicEvidenceUrls(text: string): string[] {
-  const urls = [...new Set((text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []).map(canonicalUrl))];
-  return urls.filter(url => {
+function configuredSearchInfrastructureHosts(): Set<string> {
+  const hosts = new Set<string>();
+  for (const provider of sourceList("")) {
     try {
-      const parsed = new URL(url);
-      const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
-      return !SEARCH_HOSTS.has(host) && host !== "r.jina.ai" && !host.endsWith("linkedin.com/jobs") && !/^\/in\//i.test(parsed.pathname);
-    } catch { return false; }
-  });
+      hosts.add(new URL(provider.url).hostname.toLowerCase().replace(/^www\./, ""));
+    } catch {}
+  }
+  return hosts;
+}
+
+function isLegitimatePublicResultUrl(value: string, infrastructureHosts: Set<string>): boolean {
+  try {
+    const parsed = new URL(value);
+    if (!/^https?:$/.test(parsed.protocol)) return false;
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    const path = parsed.pathname.toLowerCase();
+    if (!host || SEARCH_HOSTS.has(host) || infrastructureHosts.has(host)) return false;
+    if (host === "r.jina.ai" || host.endsWith(".r.jina.ai")) return false;
+    if (host.endsWith("linkedin.com") && /^\/(?:jobs|in)\//i.test(parsed.pathname)) return false;
+    if (/^\/(?:api|v[0-9]+|ajax|graphql|search|query|suggest|autocomplete|static|assets?|tags?|scripts?|js|css)(?:\/|$)/i.test(path)) return false;
+    if (/\.(?:js|css|map|svg|png|jpe?g|gif|webp|ico|woff2?|ttf|eot|xml)(?:$|[?#])/i.test(path)) return false;
+    if (/^chrome(?:-extension)?:$/i.test(parsed.protocol) || /(?:^|\.)chrome\.google\.com$/i.test(host)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function extractPublicEvidenceUrls(text: string): string[] {
+  const infrastructureHosts = configuredSearchInfrastructureHosts();
+  const urls = [...new Set((text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []).map(canonicalUrl))];
+  return urls.filter(url => isLegitimatePublicResultUrl(url, infrastructureHosts));
 }
 
 function extractProfileUrlFromSearch(text: string, name: string): string | undefined {
