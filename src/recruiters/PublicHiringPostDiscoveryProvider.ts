@@ -96,6 +96,7 @@ function profileFromPostUrl(_url: string): string | undefined {
 }
 function extractAuthor(text: string, postUrl: string): { name?: string; profileUrl?: string } {
   const patterns = [
+    /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo|5mo|6mo)\b/i,
     /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})['’]s\s+(?:Post|post)\b/i,
     /#?(?:hiring|we.?re.?hiring)[^\n]{0,80}\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*\b(?:posted|shared)/i,
     /(?:^|\n)([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*[-|]\s*LinkedIn/i,
