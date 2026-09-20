@@ -2,9 +2,7 @@ name: Phase 8 Hardening
 
 on:
   push:
-    branches: [main, phase8/final-validation]
-  push:
-    branches: [fix/user-visible-runtime-results]
+    branches: [main, phase8/final-validation, fix/user-visible-runtime-results]
   pull_request:
     branches: [main]
   workflow_dispatch:
