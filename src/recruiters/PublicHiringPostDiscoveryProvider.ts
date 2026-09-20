@@ -295,6 +295,9 @@ export class PublicHiringPostDiscoveryProvider {
           const extractedRole = extractRole(evidence);
           if (!extractedRole.role || extractedRole.score < 75 || !experienceCompatible(evidence, input.yearsExperience ?? 3)) { metrics.rejectedPosts++; continue; }
           metrics.relevantRolePosts++;
+          if (process.env.PUBLIC_HIRING_POST_DIAGNOSTICS === "true" && postEvidence.size < 12) {
+            console.error(JSON.stringify({ event: "public-hiring-post-evidence", source: result.source, url, evidence: evidence.slice(0, 5000) }));
+          }
           postEvidence.set(url, { url, text: evidence, source: result.source });
         }
       }
