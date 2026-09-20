@@ -212,6 +212,18 @@ function isLegitimatePublicResultUrl(value: string, infrastructureHosts: Set<str
   }
 }
 
+function isSafePublicDestinationUrl(value: string): boolean {
+  try {
+    const u = new URL(value);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    const host = u.hostname.toLowerCase();
+    if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return false;
+    if (/^127\.|^10\.|^192\.168\.|^169\.254\.|^0\./.test(host)) return false;
+    if (/^172\.(?:1[6-9]|2\d|3[0-1])\./.test(host)) return false;
+    return true;
+  } catch { return false; }
+}
+
 function extractPublicEvidenceUrls(text: string): string[] {
   const infrastructureHosts = configuredSearchInfrastructureHosts();
   const urls = [...new Set((text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []).map(canonicalUrl))];
@@ -299,7 +311,7 @@ export class PublicHiringPostDiscoveryProvider {
     };
     const candidates = new Map<string, ProactiveRecruiterDiscoveryCandidate>();
     const configuredProviderIds = new Set<string>();
-    const postEvidence = new Map<string, { url: string; text: string; source: string }>();
+    const postEvidence = new Map<string, { url: string; text: string; discoveryText: string; source: string }>();
 
     for (const query of queries) {
       if (input.signal?.aborted) break;
@@ -321,6 +333,8 @@ export class PublicHiringPostDiscoveryProvider {
           // Fetch the discovered destination and validate hiring/role evidence from that
           // destination. Falling back to the search shell would let unrelated result text
           // contaminate the candidate.
+          if (!isSafePublicDestinationUrl(url)) continue;
+          const discoveryEvidence = buildEvidence(result.text, url);
           const postPage = await (input.fetchText ? input.fetchText(url, input.signal) : fetchText(url, input.signal, 6500));
           const evidence = postPage ? clean(postPage).slice(0, 12000) : "";
           if (!evidence || !HIRING_INTENT.test(evidence)) continue;
@@ -331,7 +345,7 @@ export class PublicHiringPostDiscoveryProvider {
           if (process.env.PUBLIC_HIRING_POST_DIAGNOSTICS === "true" && postEvidence.size < 12) {
             console.error(JSON.stringify({ event: "public-hiring-post-evidence", source: result.source, url, evidence: evidence.slice(0, 5000) }));
           }
-          postEvidence.set(url, { url, text: evidence, source: result.source });
+          postEvidence.set(url, { url, text: evidence, discoveryText: discoveryEvidence, source: result.source });
         }
       }
     }
@@ -401,7 +415,8 @@ export class PublicHiringPostDiscoveryProvider {
 
     for (const post of postEvidence.values()) {
       if (input.signal?.aborted) break;
-      let author = extractAuthor(post.text, post.url);
+      const identitySearchEvidence = post.discoveryText;
+      let author = extractAuthor(identitySearchEvidence, post.url);
       let profileText = "";
       let profileUrl = author.profileUrl;
       if (!author.name) {
@@ -415,7 +430,7 @@ export class PublicHiringPostDiscoveryProvider {
       }
       if (!author.name || !plausibleName(author.name)) { metrics.rejectedPosts++; continue; }
       metrics.authorsExtracted++;
-      const directEmail = extractDirectEmail(post.text);
+      const directEmail = extractDirectEmail(post.text) ?? extractDirectEmail(post.discoveryText);
       if (directEmail) metrics.directEmails++;
       if (!profileUrl || !profileText) {
         const profileSearch = await search(`site:linkedin.com/in "${author.name}"`, input.signal, input.fetchText);
@@ -425,12 +440,12 @@ export class PublicHiringPostDiscoveryProvider {
         }
       }
       if (profileUrl && !profileText) profileText = clean(await (input.fetchText ? input.fetchText(profileUrl, input.signal) : fetchText(profileUrl, input.signal, 5000)) ?? "");
-      const employer = extractEmployer(post.text, directEmail, profileText);
+      const employer = extractEmployer(post.text + " " + post.discoveryText, directEmail, profileText);
       if (!employer.name) { metrics.rejectedPosts++; continue; }
       metrics.employersExtracted++;
-      const identityEvidence = `${post.text} ${profileText}`;
+      const identityEvidence = `${post.text} ${post.discoveryText} ${profileText}`;
       const explicitHiringContact = AUTHOR_ROLE.test(identityEvidence) ||
-        /(?:my team|our team|i['’]?m hiring|i am hiring|join (?:our|my) team|send (?:your|me your) resume|reach out to me|apply here|apply now)/i.test(post.text);
+        /(?:my team|our team|i['’]?m hiring|i am hiring|join (?:our|my) team|send (?:your|me your) resume|reach out to me|apply here|apply now)/i.test(post.text + " " + post.discoveryText);
       if (!explicitHiringContact) { metrics.rejectedPosts++; continue; }
       metrics.validatedIdentities++;
       const extractedRole = extractRole(post.text);
