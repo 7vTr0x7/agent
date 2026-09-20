@@ -93,6 +93,35 @@ test.each([404, 403, 429, 500])("keeps the original job on HTTP %i", async (stat
   await expect(new JobDetailEnricher().enrich(original)).resolves.toEqual(original);
 });
 
+test("promotes structured JobPosting experienceRequirements into matcher-visible description", async () => {
+  const html = `<html><script type="application/ld+json">${JSON.stringify({
+    "@type": "JobPosting",
+    description: "Senior Frontend Engineer building React applications.",
+    experienceRequirements: { minValue: 7, unitText: "years" }
+  })}</script></html>`;
+  jest.mocked(global.fetch).mockResolvedValue(response(html));
+  const result = await new JobDetailEnricher().enrich(job({ title: "Senior Frontend Engineer", description: "" }));
+  expect(result.description).toContain("Experience requirement: 7+ years.");
+});
+
+test.each([
+  ["3+ years", { minValue: 3, unitText: "years" }, true],
+  ["1-3 years", { minValue: 1, maxValue: 3, unitText: "years" }, true],
+  ["2-4 years", { minValue: 2, maxValue: 4, unitText: "years" }, true],
+  ["5+ years", { minValue: 5, unitText: "years" }, true],
+  ["7+ years", "7+ years", true],
+  ["10+ years", "10+ years", true]
+])("preserves numeric structured experience requirement: %s", async (_label, experienceRequirements, expected) => {
+  const html = `<script type="application/ld+json">${JSON.stringify({
+    "@type": "JobPosting",
+    description: "React frontend engineer.",
+    experienceRequirements
+  })}</script>`;
+  jest.mocked(global.fetch).mockResolvedValue(response(html));
+  const result = await new JobDetailEnricher().enrich(job({ description: "" }));
+  expect(Boolean(result.description?.match(/experience requirement/i))).toBe(expected);
+});
+
 test("prefers canonical main text when JSON-LD is present but omits the numeric experience requirement", async () => {
   jest.mocked(global.fetch).mockResolvedValue(response(`<html><script type="application/ld+json">${JSON.stringify({ "@type": "JobPosting", description: "Senior Frontend Engineer building React applications." })}</script><main><h1>Senior Frontend Engineer</h1><p>At least 7 years of professional software engineering experience.</p></main></html>`));
   const result = await new JobDetailEnricher().enrich(job({ description: "React and TypeScript" }));
