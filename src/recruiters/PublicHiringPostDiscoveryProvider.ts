@@ -316,7 +316,7 @@ export class PublicHiringPostDiscoveryProvider {
         stat.posts += urls.length;
         for (const url of urls) {
           if (postEvidence.has(url)) { metrics.duplicatePosts++; metrics.deduplicatedResults++; continue; }
-          const evidence = buildEvidence(clean(result.text), url);
+          const evidence = buildEvidence(result.text, url);
           if (!HIRING_INTENT.test(evidence)) continue;
           metrics.hiringIntentPosts++;
           const extractedRole = extractRole(evidence);
