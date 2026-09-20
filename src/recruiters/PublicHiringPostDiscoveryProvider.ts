@@ -180,7 +180,7 @@ function extractPublicEvidenceUrls(text: string): string[] {
     try {
       const host = new URL(url).hostname.toLowerCase().replace(/^www\\./, "");
       const path = new URL(url).pathname;
-      return !SEARCH_HOSTS.has(host) && !host.endsWith("r.jina.ai") && !host.endsWith("linkedin.com/jobs") && !/^\\/in\\//i.test(path);
+      return !SEARCH_HOSTS.has(host) && !host.endsWith("r.jina.ai") && !host.endsWith("linkedin.com/jobs") && !/^\/in\//i.test(path);
     } catch { return false; }
   });
 }
