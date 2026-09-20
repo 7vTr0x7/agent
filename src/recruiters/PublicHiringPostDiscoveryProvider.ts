@@ -47,7 +47,7 @@ const ROLE_PATTERNS: Array<[string, RegExp]> = [
 ];
 const AUTHOR_ROLE = /recruiter|recruiting|talent\s+acquisition|talent\s+partner|talent\s+advisor|technical\s+recruiter|engineering\s+recruiter|hiring\s+manager|human\s+resources|\bhr\b|people\s+(?:ops|operations|partner)|founder|co-founder|cofounder|hiring\s+lead|team\s+lead|engineering\s+manager/i;
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const POST_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"']+|feed\/update\/urn:li:activity:\d+)/gi;
+const POST_URL = /(?:https?:\/\/)?(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"'\\)]+|feed\/update\/urn:li:activity:\d+)/gi;
 const PROFILE_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
 const SEARCH_HOSTS = new Set(["google.com","www.google.com","bing.com","www.bing.com","duckduckgo.com","html.duckduckgo.com","startpage.com","www.startpage.com","search.yahoo.com","www.yahoo.com","search.brave.com","www.mojeek.com","qwant.com","www.qwant.com"]);
 
@@ -170,8 +170,16 @@ async function search(query: string, signal?: AbortSignal): Promise<Array<{ sour
   return results;
 }
 function extractPostUrls(text: string): string[] {
-  return [...new Set([...text.matchAll(POST_URL)].map(m => canonicalUrl(m[0])))]
+  return [...new Set([...text.matchAll(POST_URL)].map(m => {
+    const raw = m[0];
+    return canonicalUrl(/^https?:\\/\\//i.test(raw) ? raw : "https://" + raw);
+  }))]
     .filter(url => /linkedin.com\/(?:posts\/|feed\/update\/urn:li:activity:)/i.test(url));
+}
+function extractProfileUrlFromSearch(text: string, name: string): string | undefined {
+  const urls = [...new Set((text.match(PROFILE_URL) ?? []).map(canonicalUrl))];
+  const tokens = name.toLowerCase().split(/\\s+/).filter(Boolean);
+  return urls.find(url => tokens.length >= 2 && tokens.every(token => url.toLowerCase().includes(token.replace(/[^a-z0-9-]/g, ""))));
 }
 function buildEvidence(text: string, postUrl: string): string {
   const i = text.toLowerCase().indexOf(postUrl.toLowerCase());
@@ -220,7 +228,7 @@ export class PublicHiringPostDiscoveryProvider {
         stat.posts += urls.length;
         for (const url of urls) {
           if (postEvidence.has(url)) { metrics.duplicatePosts++; continue; }
-          const evidence = buildEvidence(result.text, url);
+          const evidence = buildEvidence(clean(result.text), url);
           if (!HIRING_INTENT.test(evidence)) continue;
           metrics.hiringIntentPosts++;
           const extractedRole = extractRole(evidence);
@@ -240,18 +248,22 @@ export class PublicHiringPostDiscoveryProvider {
       const directEmail = extractDirectEmail(post.text);
       if (directEmail) metrics.directEmails++;
       let profileText = "";
-      if (author.profileUrl) {
-        profileText = clean(await fetchText(author.profileUrl, input.signal, 5000) ?? "");
-        if (!profileText) {
-          const profileSearch = await search(`site:linkedin.com/in "${author.name}" hiring recruiter`, input.signal);
-          profileText = profileSearch.map(x => x.text).join(" ");
+      let profileUrl = author.profileUrl;
+      if (!profileUrl || !profileText) {
+        const profileSearch = await search(`site:linkedin.com/in "${author.name}"`, input.signal);
+        for (const result of profileSearch) {
+          profileUrl = profileUrl ?? extractProfileUrlFromSearch(result.text, author.name);
+          profileText += " " + result.text;
         }
       }
+      if (profileUrl && !profileText) profileText = clean(await fetchText(profileUrl, input.signal, 5000) ?? "");
       const employer = extractEmployer(post.text, directEmail, profileText);
       if (!employer.name) { metrics.rejectedPosts++; continue; }
       metrics.employersExtracted++;
       const identityEvidence = `${post.text} ${profileText}`;
-      if (!AUTHOR_ROLE.test(identityEvidence)) { metrics.rejectedPosts++; continue; }
+      const explicitHiringContact = AUTHOR_ROLE.test(identityEvidence) ||
+        /(?:my team|our team|we['’]?re hiring|we are hiring|we['’]?re looking for|we are looking for|join (?:our|my) team|send (?:your|me your) resume|dm me|apply here|apply now)/i.test(post.text);
+      if (!explicitHiringContact) { metrics.rejectedPosts++; continue; }
       metrics.validatedIdentities++;
       const extractedRole = extractRole(post.text);
       const emailDomain = directEmail?.split("@")[1]?.toLowerCase();
