@@ -43,7 +43,7 @@ export interface PublicHiringPostDiscoveryInput {
   preferredLocations?: string[];
   maxQueries?: number;
   signal?: AbortSignal;
-  fetchText?: (url: string, signal?: AbortSignal) => Promise<string | null>;
+  fetchText?: (url: string, signal?: AbortSignal, headers?: Record<string,string>) => Promise<string | null>;
 }
 
 const HIRING_INTENT = /(?:we['’]?re\s+hiring|we\s+are\s+hiring|my\s+team\s+is\s+hiring|we['’]?re\s+looking\s+for|we\s+are\s+looking\s+for|looking\s+for\s+(?:a|an)?\s*(?:frontend|front-end|react|next\.js|javascript|typescript|software|full[ -]?stack)\s*(?:developer|engineer|developers|engineers)|hiring\s+(?:for\s+)?(?:a\s+)?(?:frontend|front-end|react|next\.js|javascript|typescript|software|full[ -]?stack)|join\s+(?:our|my)\s+team|send\s+(?:your|me\s+your)\s+(?:resume|cv)|share\s+your\s+(?:resume|cv)|dm\s+(?:me|us)\s+(?:if|for)|reach\s+out\s+(?:with|to)|apply\s+(?:here|now)|referrals?\s+welcome|know\s+someone\s+who)/i;
@@ -174,6 +174,17 @@ async function search(query: string, signal?: AbortSignal, fetchTextOverride?: (
   return results;
 }
 
+function extractPublicEvidenceUrls(text: string): string[] {
+  const urls = [...new Set((text.match(/https?:\/\/[^\s<>"'\\)\\]]+/gi) ?? []).map(canonicalUrl))];
+  return urls.filter(url => {
+    try {
+      const host = new URL(url).hostname.toLowerCase().replace(/^www\\./, "");
+      const path = new URL(url).pathname;
+      return !SEARCH_HOSTS.has(host) && !host.endsWith("r.jina.ai") && !host.endsWith("linkedin.com/jobs") && !/^\\/in\\//i.test(path);
+    } catch { return false; }
+  });
+}
+
 function extractProfileUrlFromSearch(text: string, name: string): string | undefined {
   const urls = [...new Set((text.match(PROFILE_URL) ?? []).map(canonicalUrl))];
   const tokens = name.toLowerCase().split(/\\s+/).filter(Boolean);
@@ -250,7 +261,7 @@ export class PublicHiringPostDiscoveryProvider {
     for (const query of queries) {
       if (input.signal?.aborted) break;
       metrics.queriesExecuted++;
-      const providersForQuery = configuredSearchProviders(query);
+      const providersForQuery = sourceList(query);
       for (const provider of providersForQuery) configuredProviderIds.add(provider.id);
       const results = await search(query, input.signal, input.fetchText);
       for (const result of results) {
