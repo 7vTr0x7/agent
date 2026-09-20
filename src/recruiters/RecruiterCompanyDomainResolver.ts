@@ -8,7 +8,7 @@ const BLOCKED_HOSTS = new Set([
   "remotive.com", "remote.co", "workingnomads.com", "jobspresso.co", "wellfound.com", "otta.com", "dice.com", "ziprecruiter.com",
   "simplyhired.com", "careerbuilder.com", "monster.com", "builtin.com", "flexjobs.com", "jobgether.com", "cutshort.io",
   "instahyre.com", "hirist.com", "foundit.in", "timesjobs.com", "shine.com", "freshersworld.com", "apna.co", "workindia.in",
-  "ycombinator.com"
+  "ycombinator.com", "twitter.com", "x.com", "facebook.com", "instagram.com", "youtube.com"
 ]);
 
 const CAREERS_SUBDOMAINS = /^(careers?|jobs?|job|hire|hiring|talent|recruiting|recruitment|people|hr|apply|workwithus|joinus)\./i;
@@ -153,6 +153,43 @@ function domainsFromSearchText(text: string, companyName: string): string[] {
  * company domain and appear in at least two independent public search-engine
  * result pages. It never falls back to a guessed domain or a job-board host.
  */
+export async function resolveEmployerDomainFromTrustedJobSource(canonicalUrl: string | null | undefined, companyName: string): Promise<string | null> {
+  const raw = (canonicalUrl ?? "").trim();
+  if (!raw) return null;
+  let url: URL;
+  try { url = new URL(raw); } catch { return null; }
+  if (normalizeHost(url.hostname) !== "himalayas.app") return null;
+  const match = url.pathname.match(/^\/companies\/([a-z0-9-]+)\/jobs(?:\/|$)/i);
+  const slug = match?.[1];
+  if (!slug) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`https://himalayas.app/companies/${slug}`, {
+      signal: controller.signal,
+      redirect: "follow",
+      headers: { accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8", "user-agent": "job-agent-employer-domain-resolver/1.0" }
+    });
+    if (!response.ok) return null;
+    const html = await response.text();
+    for (const rawHref of html.matchAll(/href=["'](https?:\/\/[^"'\s>]+)["']/gi)) {
+      const href = rawHref[1];
+      if (!href) continue;
+      try {
+        const domain = normalizeEmployerHost(new URL(href).hostname);
+        if (domain && domainMatchesCompany(domain, companyName)) return domain;
+      } catch {
+        // Ignore malformed external links.
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function resolveEmployerDomainFromPublicSearch(companyName: string): Promise<string | null> {
   const name = companyName.trim();
   if (!name || name.length < 2) return null;
