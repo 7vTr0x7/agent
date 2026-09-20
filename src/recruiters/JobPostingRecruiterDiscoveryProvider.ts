@@ -166,7 +166,7 @@ function parsePublicLinkedInProfiles(html: string): PublicLinkedInProfile[] {
       const normalizedLabel = label.replace(/\s*\|\s*LinkedIn.*$/i, "").trim();
       const parts = normalizedLabel.split(/\s+-\s+|\s+\|\s+/).map((v) => v.trim()).filter(Boolean);
       const name = parts[0] ?? normalizedLabel;
-      const title = parts.slice(1).join(" - ") || undefined;
+      const title = parts[1] || undefined;
       if (!name || name.length > 100) continue;
       seen.add(url);
       results.push({ name, title, url, snippet: normalizedLabel });
