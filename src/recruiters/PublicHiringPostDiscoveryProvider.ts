@@ -101,6 +101,7 @@ function extractEmployer(text: string, email?: string, profileText?: string): { 
   const haystack = [text, profileText ?? ""].join(" ");
   const patterns = [
     /(?:<title[^>]*>|^|\n)[^\n<]{1,120}?\s+-\s+([A-Z][A-Za-z0-9&.' -]{2,80})\s+\|\s+LinkedIn/i,
+    /(?:frontend|front-end|react|next\.js|javascript|typescript|full[ -]?stack|software|web)\s+(?:developer|engineer)[^\.\n]{0,100}\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\s+(?:is|are|we|for|with|and|on|in|from|-|—|\||,|\.|$))/i,
     /(?:team|role|opportunity)\s+at\s+([A-Z][A-Za-z0-9&.' -]{2,80})/i,
     /\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\s+(?:in|for|as|is|are|and|on|with|from|-|—|\||,|\.|$))/i,
     /([A-Z][A-Za-z0-9&.' -]{2,80})\s+(?:is|are)\s+(?:hiring|looking for)/i
