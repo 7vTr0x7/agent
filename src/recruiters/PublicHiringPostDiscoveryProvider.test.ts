@@ -60,6 +60,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       preferredLocations: ["Bengaluru", "India", "Remote"],
       maxQueries: 1
     });
+    console.error("PUBLIC_HIRING_DEBUG", JSON.stringify({ metrics: result.metrics, candidates: result.candidates, fetches: (global.fetch as jest.Mock).mock.calls.map((call: unknown[]) => String(call[0])) }, null, 2));
 
     expect(result.metrics.queriesGenerated).toBeGreaterThan(1);
     expect(result.metrics.configuredProviders).toBeGreaterThan(2);
