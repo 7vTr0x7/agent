@@ -1,6 +1,7 @@
 import { Database } from "../database/Database";
 import { ProactiveRecruiterDiscoveryCandidate } from "./ProactiveRecruiterDiscoveryService";
 import { hasExplicitMailboxEvidence, isMailboxVerifiedForRealSend, recruiterRealSendEligibilitySql } from "./RecruiterMailboxVerification";
+import { resolveEmployerDomainFromPublicSearch } from "./RecruiterCompanyDomainResolver";
 
 export interface ProactiveCampaignRecord { sequenceId: string; messageId: string; }
 
@@ -8,8 +9,12 @@ export class ProactiveRecruiterRepository {
   constructor(private readonly database: Database) {}
 
   async persistCandidate(candidateProfileId: string, candidate: ProactiveRecruiterDiscoveryCandidate): Promise<string | null> {
-    if (!candidate.employerDomain || candidate.employer === "Unknown employer") return null;
-    const domain = normalizeDomain(candidate.employerDomain);
+    if (candidate.employer === "Unknown employer") return null;
+    // Public profile evidence often names the employer without exposing its
+    // domain in the profile/search result. Resolve that missing domain only
+    // through the existing conservative public-search resolver, which requires
+    // independent public evidence and never guesses from the company name.
+    const domain = normalizeDomain(candidate.employerDomain) || (candidate.employer ? await resolveEmployerDomainFromPublicSearch(candidate.employer) : "");
     if (!domain) return null;
     const email = candidate.email?.trim().toLowerCase() || null;
     if (email && email.split("@")[1]?.toLowerCase() !== domain) return null;
