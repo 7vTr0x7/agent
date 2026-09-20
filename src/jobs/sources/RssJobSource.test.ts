@@ -36,7 +36,7 @@ function response(body: string, status = 200, headers: Record<string, string> = 
   return new Response(body, { status, headers });
 }
 
-function rssXml(description: string): string {
+function rssXml(description: string, title = "Full Stack Developer – Frontend Focus"): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
   <channel>
