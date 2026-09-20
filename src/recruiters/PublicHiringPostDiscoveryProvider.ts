@@ -93,7 +93,7 @@ function extractAuthor(text: string, postUrl: string): { name?: string; profileU
   const profileUrl = profileFromPostUrl(postUrl);
   const slugName = profileUrl?.split("/in/")[1]?.replace(/[-_]+/g, " ");
   if (slugName) {
-    const name = slugName.split(" ").map(p => p ? p[0].toUpperCase()+p.slice(1) : p).join(" ");
+    const name = slugName.split(" ").map(p => p ? p.charAt(0).toUpperCase()+p.slice(1) : p).join(" ");
     if (plausibleName(name)) return { name, profileUrl };
   }
   return { profileUrl };
