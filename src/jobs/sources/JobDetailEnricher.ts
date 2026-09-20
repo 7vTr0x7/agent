@@ -123,8 +123,10 @@ export function shouldEnrich(description: string, title = "", source = ""): bool
   // no explicit numeric experience signal is present in the feed content.
   const targetTitle = /\b(frontend|front-end|front end|react|next(?:\.js|js)?|full[- ]?stack|web developer|web engineer|software engineer)\b/i.test(title);
   if (/:json$/i.test(source)) return targetTitle;
+  const highRiskTitle = /\b(?:senior|sr\.?|lead|principal|staff|full[- ]?stack|dotnet|\.net)\b/i.test(title);
   const hasNumericExperience = /\b\d+(?:\.\d+)?\s*(?:\+|\-|–|—|to)?\s*years?\b/i.test(normalized);
-  return targetTitle && !hasNumericExperience;
+  const hasWrittenExperience = /\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+years?\b/i.test(normalized);
+  return targetTitle && (highRiskTitle || (!hasNumericExperience && !hasWrittenExperience));
 }
 
 export async function validatePublicHttpUrl(rawUrl: string): Promise<string> {
