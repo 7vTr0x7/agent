@@ -71,6 +71,39 @@ describe("JobPostingRecruiterDiscoveryProvider", () => {
     } finally { globalThis.fetch = originalFetch; }
   });
 
+  it("uses the public-reader representation when direct search returns successful non-profile results", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://r.jina.ai/https://www.bing.com/search")) {
+        return new Response("### Results\\n[Kayley LoSardo — Talent Advisor | Fieldguide](https://www.linkedin.com/in/kayleylosardo)\\nFieldguide recruiting and talent acquisition");
+      }
+      if (url.includes("html.duckduckgo.com") || url.includes("google.com/search")) {
+        return new Response("<html><body>search results without recruiter profiles</body></html>");
+      }
+      return new Response("<html><body>search results without recruiter profiles</body></html>");
+    }) as typeof fetch;
+    try {
+      const provider = new JobPostingRecruiterDiscoveryProvider();
+      const result = await provider.discover({
+        companyName: "Fieldguide",
+        companyDomain: "fieldguide.io",
+        jobTitle: "Software Engineer",
+        jobDescription: "Current hiring for software engineering.",
+        candidateProfileId: "candidate-1"
+      });
+      expect(result.contacts).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          fullName: "Kayley LoSardo",
+          title: "Talent Advisor",
+          linkedinProfileUrl: "https://www.linkedin.com/in/kayleylosardo"
+        })
+      ]));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("does not attach an unrelated LinkedIn recruiter to an email", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
