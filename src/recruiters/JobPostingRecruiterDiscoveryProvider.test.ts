@@ -1,14 +1,14 @@
 import { JobPostingRecruiterDiscoveryProvider, extractExplicitRecruiterEmails } from "./JobPostingRecruiterDiscoveryProvider";
 
 describe("JobPostingRecruiterDiscoveryProvider", () => {
-  it("extracts only same-domain emails in recruiting context", () => {
+  it("rejects generic recruiting mailboxes because they do not identify a real recruiter", () => {
     const description = `Apply by contacting talent@Example.com. For technical questions email engineering@example.com. Recruiter: hiring@example.com. External: recruiter@gmail.com.`;
-    expect(extractExplicitRecruiterEmails(description, "https://www.example.com/jobs/frontend")).toEqual(["talent@example.com", "hiring@example.com"]);
+    expect(extractExplicitRecruiterEmails(description, "https://www.example.com/jobs/frontend")).toEqual([]);
   });
 
-  it("deduplicates addresses and ignores unrelated company emails", () => {
+  it("ignores generic recruiting aliases and unrelated company emails", () => {
     const description = `Careers: talent@example.com\nRecruiting: TALENT@example.com\nSupport: support@example.com`;
-    expect(extractExplicitRecruiterEmails(description, "example.com")).toEqual(["talent@example.com"]);
+    expect(extractExplicitRecruiterEmails(description, "example.com")).toEqual([]);
   });
 
   it("recognizes obfuscated recruiting emails and mailto links", () => {
@@ -92,13 +92,7 @@ describe("JobPostingRecruiterDiscoveryProvider", () => {
         candidateProfileId: "candidate-1"
       });
 
-      expect(result.contacts).toHaveLength(1);
-      expect(result.contacts[0]).toMatchObject({
-        email: "careers@example.com",
-        verified: false,
-        confidence: 100,
-        verificationStatus: "unverified_public_source"
-      });
+      expect(result.contacts).toHaveLength(0);
     } finally {
       globalThis.fetch = originalFetch;
     }
