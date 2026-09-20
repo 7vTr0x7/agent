@@ -165,13 +165,22 @@ export async function resolveEmployerDomainFromTrustedJobSource(canonicalUrl: st
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
   try {
-    const response = await fetch(`https://himalayas.app/companies/${slug}`, {
+    const sourceUrl = `https://himalayas.app/companies/${slug}`;
+    let response = await fetch(sourceUrl, {
       signal: controller.signal,
       redirect: "follow",
       headers: { accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8", "user-agent": "job-agent-employer-domain-resolver/1.0" }
     });
-    if (!response.ok) return null;
-    const html = await response.text();
+    let html = response.ok ? await response.text() : "";
+    if (!html) {
+      response = await fetch(`https://r.jina.ai/${sourceUrl}`, {
+        signal: controller.signal,
+        redirect: "follow",
+        headers: { accept: "text/plain,text/html;q=0.9,*/*;q=0.8", "user-agent": "job-agent-employer-domain-resolver/1.0" }
+      });
+      if (!response.ok) return null;
+      html = await response.text();
+    }
     for (const rawHref of html.matchAll(/href=["'](https?:\/\/[^"'\s>]+)["']/gi)) {
       const href = rawHref[1];
       if (!href) continue;
