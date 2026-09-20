@@ -44,8 +44,13 @@ export class JobDetailEnricher {
     if ((!force && !shouldEnrich(job.description, job.title, job.source)) || signal?.aborted) return job;
     try {
       const html = await this.fetchDetailPage(job.url, signal);
-      const description = extractJobPostingDescription(html);
-      return description ? { ...job, description } : job;
+      const details = extractJobPostingDetails(html, job.companyName);
+      if (!details.description && !details.companyDomain) return job;
+      return {
+        ...job,
+        ...(details.description ? { description: details.description } : {}),
+        ...(details.companyDomain ? { companyDomain: details.companyDomain } : {})
+      };
     } catch {
       return job;
     }
@@ -227,8 +232,9 @@ function containsExplicitExperience(value: string): boolean {
   return /(?:minimum|at least|required|must have)\s+(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*years?\b|\b\d+(?:\.\d+)?\s*\+\s*years?\b|\b\d+(?:\.\d+)?\s*years?\s+(?:minimum|required)\b/i.test(value);
 }
 
-function extractJobPostingDescription(html: string): string | null {
+function extractJobPostingDetails(html: string, companyName: string): { description: string | null; companyDomain: string | null } {
   let bestDescription: string | null = null;
+  let companyDomain: string | null = null;
   const scripts = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
   for (const match of scripts) {
     const json = match[1];
@@ -237,28 +243,29 @@ function extractJobPostingDescription(html: string): string | null {
     try { parsed = JSON.parse(decodeHtml(json)); } catch { continue; }
     for (const item of flattenJsonLd(parsed)) {
       if (!isJobPosting(item)) continue;
+      companyDomain ??= extractEmployerDomain(item, companyName);
       const description = clean(item.description);
       if (!description) continue;
       bestDescription ??= description;
-      if (/\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(description)) return description;
+      if (/\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(description)) return { description, companyDomain };
     }
   }
   const mainMatch = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
   if (mainMatch?.[1]) {
     const mainText = clean(mainMatch[1]);
-    if (mainText && /\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(mainText)) return mainText.slice(0, 60_000);
+    if (mainText && /\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(mainText)) return { description: mainText.slice(0, 60_000), companyDomain };
   }
   const bodyMatch = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
   if (bodyMatch?.[1]) {
     const bodyText = clean(bodyMatch[1]);
-    if (bodyText && /\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(bodyText)) return bodyText.slice(0, 60_000);
+    if (bodyText && /\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(bodyText)) return { description: bodyText.slice(0, 60_000), companyDomain };
   }
   const plainText = clean(html);
-  if (plainText && containsExplicitExperience(plainText)) return plainText.slice(0, 60_000);
-  return bestDescription;
+  if (plainText && containsExplicitExperience(plainText)) return { description: plainText.slice(0, 60_000), companyDomain };
+  return { description: bestDescription, companyDomain };
 }
 
-interface JobPostingJsonLd { "@type"?: string | string[]; description?: string; }
+interface JobPostingJsonLd { "@type"?: string | string[]; description?: string; hiringOrganization?: { name?: string; url?: string } | Array<{ name?: string; url?: string }>; }
 function flattenJsonLd(value: unknown): JobPostingJsonLd[] {
   if (Array.isArray(value)) return value.flatMap(flattenJsonLd);
   if (!value || typeof value !== "object") return [];
@@ -269,6 +276,29 @@ function flattenJsonLd(value: unknown): JobPostingJsonLd[] {
 function isJobPosting(item: JobPostingJsonLd): boolean {
   const type = item["@type"];
   return Array.isArray(type) ? type.some((entry) => entry.toLowerCase() === "jobposting") : type?.toLowerCase() === "jobposting";
+}
+
+function extractEmployerDomain(item: JobPostingJsonLd, companyName: string): string | null {
+  const organization = Array.isArray(item.hiringOrganization) ? item.hiringOrganization[0] : item.hiringOrganization;
+  const rawUrl = organization?.url?.trim();
+  const orgName = organization?.name?.trim().toLowerCase() ?? "";
+  if (!rawUrl || !organization?.name || !companyName.trim()) return null;
+  const companyTokens = companyName.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 3 && !["the", "and", "inc", "ltd", "llc", "corp", "company"].includes(token));
+  const orgTokens = orgName.split(/[^a-z0-9]+/).filter((token) => token.length >= 3);
+  if (!companyTokens.some((token) => orgTokens.includes(token))) return null;
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    if (!host || host === "localhost" || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return null;
+    const labels = host.split(".").filter(Boolean);
+    if (labels.length < 2) return null;
+    const domain = /^(?:careers?|jobs?|hire|hiring|talent|recruiting|people|hr|apply)\./i.test(host) ? labels.slice(-2).join(".") : host;
+    if (!companyTokens.some((token) => domain.split(".")[0]?.includes(token))) return null;
+    return domain;
+  } catch {
+    return null;
+  }
 }
 function clean(value: string | undefined): string | null {
   if (!value) return null;
