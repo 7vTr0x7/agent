@@ -365,13 +365,22 @@ export class PublicHiringPostDiscoveryProvider {
 
     for (const post of postEvidence.values()) {
       if (input.signal?.aborted) break;
-      const author = extractAuthor(post.text, post.url);
+      let author = extractAuthor(post.text, post.url);
+      let profileText = "";
+      let profileUrl = author.profileUrl;
+      if (!author.name) {
+        const indexedProfileUrl = extractProfileUrls(post.text)[0];
+        if (indexedProfileUrl) {
+          profileUrl = indexedProfileUrl;
+          profileText = clean(await (input.fetchText ? input.fetchText(profileUrl, input.signal) : fetchText(profileUrl, input.signal, 5000)) ?? "");
+          const resolvedName = profileText ? extractProfileName(profileText, profileUrl) : undefined;
+          if (resolvedName) author = { name: resolvedName, profileUrl };
+        }
+      }
       if (!author.name || !plausibleName(author.name)) { metrics.rejectedPosts++; continue; }
       metrics.authorsExtracted++;
       const directEmail = extractDirectEmail(post.text);
       if (directEmail) metrics.directEmails++;
-      let profileText = "";
-      let profileUrl = author.profileUrl;
       if (!profileUrl || !profileText) {
         const profileSearch = await search(`site:linkedin.com/in "${author.name}"`, input.signal, input.fetchText);
         for (const result of profileSearch) {
