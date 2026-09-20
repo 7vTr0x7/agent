@@ -171,7 +171,7 @@ async function search(query: string, signal?: AbortSignal): Promise<Array<{ sour
 function extractPostUrls(text: string): string[] {
   return [...new Set([...text.matchAll(POST_URL)].map(m => {
     const raw = m[0];
-    return canonicalUrl(/^https?:\/\//i.test(raw) ? raw : "https://" + raw);
+    return canonicalUrl(raw.startsWith("http://") || raw.startsWith("https://") ? raw : "https://" + raw);
   }))]
     .filter(url => /linkedin.com\/(?:posts\/|feed\/update\/urn:li:activity:)/i.test(url));
 }
