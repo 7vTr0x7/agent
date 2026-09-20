@@ -53,7 +53,7 @@ describe("ProactiveRecruiterDiscoveryService rejected-candidate diagnostics", ()
     expect(metrics.rejectedCandidateDiagnostics).toHaveLength(0);
   });
   test("accepts a public LinkedIn profile whose title carries the recruiter identity", async () => {
-    const searchPage = "Lane Sinclair - Tesla | LinkedIn";
+    const searchPage = "Lane Sinclair - Tesla | LinkedIn https://www.linkedin.com/in/lane-sinclair-57663924";
     const profilePage = "Lane Sinclair - Tesla | LinkedIn Hi there! I am an engineering recruiter. Frontend Engineers: Tesla is actively hiring frontend engineers with JavaScript and React.";
     const discovery = new ProactiveRecruiterDiscoveryService({
       maxQueries: 1,
