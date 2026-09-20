@@ -1,5 +1,6 @@
 import type { ProactiveRecruiterDiscoveryCandidate } from "./ProactiveRecruiterDiscoveryService";
-import { sourceList, SourceId } from "./PublicSearchProviderRegistry";
+import { sourceList } from "./PublicSearchProviderRegistry";
+import type { SourceId } from "./PublicSearchProviderRegistry";
 
 export interface PublicHiringPostDiscoveryMetrics {
   queriesGenerated: number;
