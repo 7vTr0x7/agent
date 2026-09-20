@@ -33,7 +33,7 @@ describe("ApplicationTaskHandler recruiter independence", () => {
     result: null
   };
 
-  it("does not enqueue recruiter discovery from the application task", async () => {
+  it("continues recruiter discovery after the application task outcome", async () => {
     const dispatcher = { enqueue: jest.fn() };
     const handler = new ApplicationTaskHandler(
       { prepare: jest.fn().mockResolvedValue(prepared) },
@@ -48,6 +48,6 @@ describe("ApplicationTaskHandler recruiter independence", () => {
       payload: { jobOpportunityId: "job-1", candidateProfileId: "candidate-1" }
     } as never);
 
-    expect(dispatcher.enqueue).not.toHaveBeenCalled();
+    expect(dispatcher.enqueue).toHaveBeenCalledWith(expect.objectContaining({ applicationOutcome: "BLOCKED", jobOpportunityId: "job-1", applicationId: "application-1" }));
   });
 });
