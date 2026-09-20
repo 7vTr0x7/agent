@@ -78,6 +78,30 @@ export class ProactiveRecruiterTaskHandler {
     for (const rankedCandidate of ranked.slice(0, Math.max(1, Math.min(payload.maxCandidates, this.options.maxCandidatesPerRun)))) {
       const candidate = byId.get(rankedCandidate.id);
       if (!candidate) continue;
+      if (!candidate.email && candidate.employerDomain) {
+        try {
+          const enriched = await new PublicRecruiterSearchProvider().discover({
+            companyName: candidate.employer,
+            companyDomain: candidate.employerDomain,
+            jobTitle: candidate.targetRoles[0] ?? "Frontend Engineer",
+            jobDescription: candidate.discoveryEvidence.join(" "),
+            candidateProfileId: payload.candidateProfileId
+          });
+          const sameIdentity = enriched.contacts.find(contact =>
+            contact.email &&
+            ((candidate.recruiterName && contact.fullName && contact.fullName.toLowerCase() === candidate.recruiterName.toLowerCase()) ||
+             (candidate.recruiterRole && contact.title && contact.title.toLowerCase().includes(candidate.recruiterRole.toLowerCase().split(" ")[0] ?? "")))
+          );
+          if (sameIdentity?.email) {
+            candidate.email = sameIdentity.email;
+            candidate.emailStatus = "UNVERIFIED";
+            candidate.verificationEvidence = [];
+          }
+        } catch (error) {
+          this.logger.error({ error: error instanceof Error ? error.message : String(error), employer: candidate.employer }, "Proactive recruiter public email enrichment failed");
+        }
+      }
+
       if (candidate.email) {
         try {
           const verification = await verifier(candidate.email);
