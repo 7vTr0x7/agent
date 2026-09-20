@@ -200,7 +200,7 @@ describe("RssJobSource", () => {
 
   it("does not fetch a detail page for a complete RSS description", async () => {
     const completeDescription = "Full Stack Developer with frontend ownership. Build and maintain web applications with a collaborative engineering team.";
-    jest.mocked(global.fetch).mockResolvedValueOnce(response(rssXml(completeDescription)));
+    jest.mocked(global.fetch).mockResolvedValueOnce(response(rssXml(completeDescription, "Data Analyst")));
 
     const jobs = await new RssJobSource({ name: SOURCE, feedUrl: FEED_URL }).fetchJobs();
 
