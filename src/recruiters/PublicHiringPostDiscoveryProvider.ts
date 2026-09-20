@@ -100,28 +100,19 @@ function extractAuthor(text: string, postUrl: string): { name?: string; profileU
 }
 function extractEmployer(text: string, email?: string, profileText?: string): { name?: string; domain?: string } {
   const haystack = [text, profileText ?? ""].join(" ");
-  const patterns = [
-    /(?:<title[^>]*>|^|\n)[^\n<]{1,120}?\s+-\s+([A-Z][A-Za-z0-9&.' -]{2,80})\s+\|\s+LinkedIn/i,
-    /(?:frontend|front-end|react|next\.js|javascript|typescript|full[ -]?stack|software|web)\s+(?:developer|engineer)[^\n]{0,100}?\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\s+(?:is|are|we|for|with|and|on|in|from|-|—|\||,|\.|$))/i,
-    /(?:team|role|opportunity)\s+at\s+([A-Z][A-Za-z0-9&.' -]{2,80})/i,
-    /\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\s+(?:in|for|as|is|are|and|on|with|from|-|—|\||,|\.|$))/i,
-    /([A-Z][A-Za-z0-9&.' -]{2,80})\s+(?:is|are)\s+(?:hiring|looking for)/i
-  ];
-  let name: string | undefined;
-  const profileEmployer = profileText?.match(/(?:^|\n)[^\n-]{2,100}\s+-\s+([A-Z][A-Za-z0-9&.' -]{2,80})\s+\|\s+LinkedIn/i)?.[1]?.trim();
-  if (profileEmployer) name = profileEmployer;
-  for (const p of patterns) {
-    if (name) break;
-    const m = haystack.match(p)?.[1]?.trim().replace(/[|•,.-]+$/, "").trim();
-    if (m && m.length >= 3 && !/^(a|an|the|our|my|your|this|frontend|react|javascript|typescript)$/i.test(m)) { name = m; break; }
-  }
   const emailDomain = email?.split("@")[1]?.toLowerCase();
-  const urlDomains = [...haystack.matchAll(/https?:\/\/([^\s/<>"]+)/gi)]
+  const strongAt = haystack.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\s*(?:is|are|we|for|with|and|on|in|from|-|—|\||,|\.|$))/i)?.[1]?.trim();
+  const linkedinEmployer = haystack.match(/(?:^|\n)[^\n]{1,120}?\s+-\s+([A-Z][A-Za-z0-9&.' -]{2,80})\s+\|\s+LinkedIn/i)?.[1]?.trim();
+  const hiringEmployer = haystack.match(/([A-Z][A-Za-z0-9&.' -]{2,80})\s+(?:is|are)\s+(?:hiring|looking for)/i)?.[1]?.trim();
+  let name = strongAt || linkedinEmployer || hiringEmployer;
+  const urlDomains = [...haystack.matchAll(/https?:\/\/([^\s/<>"']+)/gi)]
     .map(m => normalizeDomain(m[1] ?? ""))
     .filter(d => d && !SEARCH_HOSTS.has(d) && !d.endsWith("linkedin.com"));
-  const domain = emailDomain || urlDomains.find(d => !/^lnkd\.in$/i.test(d));
+  const domain = emailDomain || urlDomains.find(d => d && !/^lnkd\.in$/i.test(d));
   if (!name && domain) name = domain.split(".")[0]?.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-  return name ? { name, ...(domain ? { domain } : {}) } : {};
+  if (name && domain) return { name: name.replace(/[|•,.-]+$/, "").trim(), domain };
+  if (name) return { name: name.replace(/[|•,.-]+$/, "").trim() };
+  return {};
 }
 function extractRole(text: string): { role?: string; score: number; terms: string[] } {
   const terms: string[] = [];
