@@ -56,6 +56,21 @@ describe("JobPostingRecruiterDiscoveryProvider", () => {
     }
   });
 
+  it("falls back to the bounded public reader when a search provider blocks direct access", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("html.duckduckgo.com")) return new Response("", { status: 429 });
+      if (url.startsWith("https://r.jina.ai/https://html.duckduckgo.com")) return new Response('<a href="https://www.linkedin.com/in/priya-sharma">Priya Sharma - Talent Acquisition Partner | Example | LinkedIn</a>');
+      return new Response("<html><body>Example recruiting</body></html>");
+    }) as typeof fetch;
+    try {
+      const provider = new JobPostingRecruiterDiscoveryProvider();
+      const result = await provider.discover({ companyName: "Example", companyDomain: "example.com", jobTitle: "Frontend Engineer", jobDescription: "Current hiring for the frontend engineering team.", candidateProfileId: "candidate-1" });
+      expect(result.contacts).toEqual(expect.arrayContaining([expect.objectContaining({ fullName: "Priya Sharma", linkedinProfileUrl: "https://www.linkedin.com/in/priya-sharma" })]));
+    } finally { globalThis.fetch = originalFetch; }
+  });
+
   it("does not attach an unrelated LinkedIn recruiter to an email", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
