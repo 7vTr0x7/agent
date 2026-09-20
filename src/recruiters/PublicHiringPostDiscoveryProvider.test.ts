@@ -74,7 +74,6 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     const postUrl = "https://www.linkedin.com/posts/example-user_hiring-frontend-activity-1234567890-test";
     const searchPage = [
       postUrl,
-      "https://www.linkedin.com/in/example-user",
       "Example User’s Post",
       "Example User",
       "2d",
@@ -84,8 +83,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       "DM me",
     ].join("\n");
 
-    const profilePage = "<title>Example User - Example Corp | LinkedIn</title> Recruiter at Example Corp. Currently hiring frontend engineers.";
-    global.fetch = jest.fn(async (input: RequestInfo | URL) => new Response(String(input).includes("/in/example-user") ? profilePage : searchPage, { status: 200 })) as typeof fetch;
+    global.fetch = jest.fn(async () => new Response(searchPage, { status: 200 })) as typeof fetch;
 
     const provider = new PublicHiringPostDiscoveryProvider();
     const result = await provider.discover({
@@ -104,6 +102,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     const postUrl = "https://www.linkedin.com/posts/example-user_hiring-frontend-activity-1234567890-test";
     const searchPage = [
       postUrl,
+      "https://www.linkedin.com/in/example-user",
       "Example User’s Post",
       "Example User",
       "2d",
@@ -113,7 +112,8 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       "recruiter@example.com"
     ].join("\n");
 
-    global.fetch = jest.fn(async () => new Response(searchPage, { status: 200 })) as typeof fetch;
+    const profilePage = "<title>Example User - Example Corp | LinkedIn</title> Recruiter at Example Corp. Currently hiring frontend engineers.";
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => new Response(String(input).includes("/in/example-user") ? profilePage : searchPage, { status: 200 })) as typeof fetch;
 
     const provider = new PublicHiringPostDiscoveryProvider();
     const result = await provider.discover({
