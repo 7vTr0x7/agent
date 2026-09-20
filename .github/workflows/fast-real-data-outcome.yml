@@ -77,8 +77,8 @@ jobs:
             -e RECRUITER_OUTREACH_DRY_RUN=true \
             -e RECRUITER_OUTREACH_ACTIVATION=disabled \
             -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
-            -e FAST_MATCHING_LIMIT=100 \
-            -e FAST_RECRUITER_TASK_LIMIT=10 \
+            -e FAST_MATCHING_LIMIT=150 \
+            -e FAST_RECRUITER_TASK_LIMIT=2 \
             -e OLLAMA_BASE_URL=http://127.0.0.1:11434 \
             -e OLLAMA_TIMEOUT_MS=250 \
             job-agent:fast-outcome npm run outcome:fast-jobs 2>&1 | tee fast-job-outcome.log
