@@ -117,6 +117,17 @@ describe("RecruiterCompanyDomainResolver", () => {
     }
   });
 
+  it("resolves an escaped company website from a trusted Himalayas profile", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn(async () => new Response('<script>window.__DATA__={\"website\":\"https:\\/\\/www.particle41.com\"}</script>')) as typeof fetch;
+    try {
+      await expect(resolveEmployerDomainFromTrustedJobSource(
+        "https://himalayas.app/companies/particle41/jobs/frontend-developer",
+        "Particle41"
+      )).resolves.toBe("particle41.com");
+    } finally { globalThis.fetch = originalFetch; }
+  });
+
   it("rejects a job feed company domain even when the canonical URL is the same feed", () => {
     expect(resolveEmployerDomainFromJobData(
       "remoteok.com",
