@@ -263,6 +263,8 @@ function extractJobPostingDetails(html: string, companyName: string): { descript
     const bodyText = clean(bodyMatch[1]);
     if (bodyText && /\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(bodyText)) return { description: bodyText.slice(0, 60_000), companyDomain };
   }
+  const linkedEmployerDomain = extractEmployerDomainFromHtml(html, companyName);
+  companyDomain ??= linkedEmployerDomain;
   const plainText = clean(html);
   if (plainText && containsExplicitExperience(plainText)) return { description: plainText.slice(0, 60_000), companyDomain };
   return { description: bestDescription, companyDomain };
@@ -322,4 +324,26 @@ function clean(value: string | undefined): string | null {
 }
 function decodeHtml(value: string): string {
   return value.replace(/&quot;/g, '"').replace(/&#34;/g, '"').replace(/&amp;/g, "&").replace(/&#38;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+}
+
+
+function extractEmployerDomainFromHtml(html: string, companyName: string): string | null {
+  const tokens = companyName.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 3 && !["the", "and", "inc", "ltd", "llc", "corp", "company"].includes(token));
+  if (tokens.length === 0) return null;
+  for (const match of html.matchAll(/href=["'](https?:\/\/[^"'\s>]+)["']/gi)) {
+    const raw = match[1];
+    if (!raw) continue;
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== "https:" && url.protocol !== "http:") continue;
+      const host = url.hostname.toLowerCase().replace(/^www\./, "");
+      const labels = host.split(".").filter(Boolean);
+      if (labels.length < 2) continue;
+      if (/^(?:careers?|jobs?|hire|hiring|talent|recruiting|people|hr|apply)\./i.test(host)) continue;
+      if (tokens.some((token) => host.split(".")[0]?.includes(token))) return host;
+    } catch {
+      // Ignore malformed links.
+    }
+  }
+  return null;
 }
