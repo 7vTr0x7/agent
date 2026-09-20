@@ -52,8 +52,8 @@ function stripHtml(value: string): string {
 function isPlausiblePersonName(name: string): boolean {
   const normalized = name.trim().toLowerCase();
   if (!normalized || normalized.length < 5 || normalized.length > 80) return false;
-  if (/https?:\\/\\/|www\\.|\\b(?:url|source|search|results?|startpage|google|bing|duckduckgo|linkedin)\\b/.test(normalized)) return false;
-  const parts = normalized.split(/\\s+/).filter(Boolean);
+  if (/https?:\/\/|www\.|\b(?:url|source|search|results?|startpage|google|bing|duckduckgo|linkedin)\b/.test(normalized)) return false;
+  const parts = normalized.split(/\s+/).filter(Boolean);
   return parts.length >= 2 && parts.length <= 5 && parts.every((part) => /^[a-z][a-z.'-]+$/.test(part));
 }
 
