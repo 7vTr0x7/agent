@@ -48,7 +48,7 @@ const ROLE_PATTERNS: Array<[string, RegExp]> = [
   ["Web Developer", /web\s+developer/i]
 ];
 const AUTHOR_ROLE = /recruiter|recruiting|talent\s+acquisition|talent\s+partner|talent\s+advisor|technical\s+recruiter|engineering\s+recruiter|hiring\s+manager|human\s+resources|\bhr\b|people\s+(?:ops|operations|partner)|founder|co-founder|cofounder|hiring\s+lead|team\s+lead|engineering\s+manager/i;
-const EXPLICIT_RECRUITING_ACTION = /(?:share|send)\s+(?:your|the|an?\s+updated\s+)?(?:resume|cv)\s+(?:with\s+me|with\s+us|at\s+|to\s+)|\bdm\s+(?:me|us)\b|apply\s+(?:here|now)|we['’]?re\s+hiring\s+at|my\s+team\s+is\s+hiring/i;
+const EXPLICIT_RECRUITING_ACTION = /(?:my|our)\s+team\s+is\s+hiring|\bi['’]?m\s+hiring\b|\bi\s+am\s+hiring\b|join\s+(?:my|our)\s+team|we['’]?re\s+hiring\s+at|we\s+are\s+hiring\s+at/i;
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const POST_URL = /(?:https?:\/\/)?(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"'\\)]+|feed\/update\/urn:li:activity:\d+)/gi;
 const PROFILE_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
