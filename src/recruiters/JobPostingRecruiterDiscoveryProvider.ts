@@ -138,10 +138,21 @@ async function fetchPublicCompanyPages(companyDomain: string): Promise<Array<{ u
 
 function searchUrls(query: string): string[] {
   const encoded = encodeURIComponent(query);
-  return [
+  const direct = [
     `https://www.bing.com/search?format=rss&q=${encoded}`,
     `https://html.duckduckgo.com/html/?q=${encoded}`,
     `https://www.google.com/search?q=${encoded}&gbv=1`
+  ];
+  // Keep the existing direct providers, but add the same bounded public-reader
+  // path used elsewhere in the recruiter stack. Some providers return a
+  // successful HTTP response containing search results while omitting LinkedIn
+  // profile links; Jina gives the parser a second representation of the same
+  // public query without changing the evidence gates.
+  return [
+    ...direct,
+    `https://r.jina.ai/https://www.bing.com/search?q=${encoded}`,
+    `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${encoded}`,
+    `https://r.jina.ai/https://www.google.com/search?q=${encoded}&gbv=1`
   ];
 }
 function parsePublicLinkedInProfiles(html: string): PublicLinkedInProfile[] {
@@ -156,8 +167,8 @@ function parsePublicLinkedInProfiles(html: string): PublicLinkedInProfile[] {
       const url = `https://www.linkedin.com/in/${pathPart}`;
       if (seen.has(url)) continue;
       const position = match.index ?? 0;
-      const snippet = text.slice(Math.max(0, position - 180), Math.min(text.length, position + 300));
-      const nameTitle = snippet.match(/([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|\|)\s*([^|.]{3,90})/);
+      const snippet = text.slice(Math.max(0, position - 900), Math.min(text.length, position + 900));
+      const nameTitle = snippet.match(/([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|—|\||•|:)\s*([^|.]{3,120})/);
       const name = nameTitle?.[1]?.trim() || pathPart.replace(/[-_]+/g, " ");
       const title = nameTitle?.[2]?.trim();
       seen.add(url);
