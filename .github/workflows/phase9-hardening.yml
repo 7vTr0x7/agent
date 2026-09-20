@@ -3,6 +3,8 @@ name: Phase 9 Hardening
 on:
   push:
     branches: [main, phase9/application-hardening]
+  push:
+    branches: [fix/user-visible-runtime-results]
   pull_request:
     branches: [main]
   workflow_dispatch:
