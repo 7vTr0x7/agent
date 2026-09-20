@@ -312,8 +312,8 @@ export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryP
         linkedinProfileUrl: profile.url,
         provider: this.name,
         sources: [
-          { url: profile.url, type: "public_linkedin_search", confidence: 95 },
-          { type: "job_posting", confidence: 100 }
+          { url: profile.url, type: "public_linkedin_search" as const, confidence: 95 },
+          { type: "job_posting" as const, confidence: 100 }
         ],
         discoveryEvidence: [profile.snippet]
       });
