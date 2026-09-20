@@ -144,6 +144,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
 
     expect(result.metrics.publicPostUrls).toBe(1);
     expect(result.metrics.duplicatePosts).toBeGreaterThan(0);
+    console.info("PUBLIC_DEDUP_DEBUG", JSON.stringify(result.metrics), JSON.stringify(result.candidates));
     expect(result.candidates).toHaveLength(1);
   });
 });
