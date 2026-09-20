@@ -290,6 +290,24 @@ function extractJobPostingDetails(html: string, companyName: string): { descript
     if (bodyText && /\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(bodyText)) return { description: bodyText.slice(0, 60_000), companyDomain };
   }
   const plainText = clean(html);
+  if (plainText && /^[\[{]/.test(plainText)) {
+    try {
+      const parsed = JSON.parse(plainText);
+      for (const item of flattenJsonLd(parsed)) {
+        if (!isJobPosting(item)) continue;
+        const description = clean(item.description);
+        const experienceRequirements = extractExperienceRequirement(item.experienceRequirements);
+        const enrichedDescription = experienceRequirements && !containsExplicitExperience(description ?? "")
+          ? `${description ?? ""} Experience requirement: ${experienceRequirements}.`.trim()
+          : description;
+        if (enrichedDescription) {
+          return { description: enrichedDescription, companyDomain: companyDomain ?? extractEmployerDomain(item, companyName) };
+        }
+      }
+    } catch {
+      // Fall through to the existing plain-text experience check.
+    }
+  }
   if (plainText && containsExplicitExperience(plainText)) return { description: plainText.slice(0, 60_000), companyDomain };
   return { description: bestDescription, companyDomain };
 }
