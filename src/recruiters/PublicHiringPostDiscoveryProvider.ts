@@ -72,12 +72,10 @@ function plausibleName(value: string): boolean {
   const parts = v.split(" ");
   return parts.length >= 2 && parts.length <= 5 && parts.every(p => /^[A-Z][A-Za-z.'-]*$/.test(p));
 }
-function profileFromPostUrl(url: string): string | undefined {
-  try {
-    const path = new URL(url).pathname;
-    const slug = path.match(/^\/posts\/([^_/-]+(?:-[^_/-]+)*)_/i)?.[1];
-    return slug ? `https://www.linkedin.com/in/${slug}` : undefined;
-  } catch { return undefined; }
+function profileFromPostUrl(_url: string): string | undefined {
+  // A post slug is not a reliable identity URL. Resolve the author's public
+  // profile independently from indexed profile evidence instead of guessing.
+  return undefined;
 }
 function extractAuthor(text: string, postUrl: string): { name?: string; profileUrl?: string } {
   const patterns = [
@@ -262,7 +260,7 @@ export class PublicHiringPostDiscoveryProvider {
       metrics.employersExtracted++;
       const identityEvidence = `${post.text} ${profileText}`;
       const explicitHiringContact = AUTHOR_ROLE.test(identityEvidence) ||
-        /(?:my team|our team|we['’]?re hiring|we are hiring|we['’]?re looking for|we are looking for|join (?:our|my) team|send (?:your|me your) resume|dm me|apply here|apply now)/i.test(post.text);
+        /(?:my team|our team|i['’]?m hiring|i am hiring|join (?:our|my) team|send (?:your|me your) resume|dm me|reach out to me|apply here|apply now)/i.test(post.text);
       if (!explicitHiringContact) { metrics.rejectedPosts++; continue; }
       metrics.validatedIdentities++;
       const extractedRole = extractRole(post.text);
