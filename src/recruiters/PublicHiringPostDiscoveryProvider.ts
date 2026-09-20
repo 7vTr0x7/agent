@@ -25,6 +25,7 @@ export interface PublicHiringPostDiscoveryResult {
 export interface PublicHiringPostDiscoveryInput {
   targetRoles: string[];
   skills: string[];
+  yearsExperience?: number;
   location?: string;
   preferredLocations?: string[];
   maxQueries?: number;
@@ -259,7 +260,7 @@ export class PublicHiringPostDiscoveryProvider {
           if (!HIRING_INTENT.test(evidence)) continue;
           metrics.hiringIntentPosts++;
           const extractedRole = extractRole(evidence);
-          if (!extractedRole.role || extractedRole.score < 75 || !experienceCompatible(evidence)) { metrics.rejectedPosts++; continue; }
+          if (!extractedRole.role || extractedRole.score < 75 || !experienceCompatible(evidence, input.yearsExperience ?? 3)) { metrics.rejectedPosts++; continue; }
           metrics.relevantRolePosts++;
           postEvidence.set(url, { url, text: evidence, source: result.source });
         }
@@ -282,7 +283,7 @@ export class PublicHiringPostDiscoveryProvider {
           const snippets = extractHiringSnippets(profileText);
           for (const snippet of snippets) {
             const role = extractRole(snippet);
-            if (!role.role || role.score < 75 || !experienceCompatible(snippet)) continue;
+            if (!role.role || role.score < 75 || !experienceCompatible(snippet, input.yearsExperience ?? 3)) continue;
             metrics.hiringIntentPosts++;
             metrics.relevantRolePosts++;
             const directEmail = extractDirectEmail(snippet);
