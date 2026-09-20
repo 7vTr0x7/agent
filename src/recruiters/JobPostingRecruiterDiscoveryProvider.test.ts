@@ -60,8 +60,8 @@ describe("JobPostingRecruiterDiscoveryProvider", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("html.duckduckgo.com")) return new Response("", { status: 429 });
       if (url.startsWith("https://r.jina.ai/https://html.duckduckgo.com")) return new Response('<a href="https://www.linkedin.com/in/priya-sharma">Priya Sharma - Talent Acquisition Partner | Example | LinkedIn</a>');
+      if (url.includes("html.duckduckgo.com")) return new Response("", { status: 429 });
       return new Response("<html><body>Example recruiting</body></html>");
     }) as typeof fetch;
     try {
