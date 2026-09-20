@@ -52,39 +52,39 @@ const PROFILE_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-
 const SEARCH_HOSTS = new Set(["google.com","www.google.com","bing.com","www.bing.com","duckduckgo.com","html.duckduckgo.com","startpage.com","www.startpage.com","search.yahoo.com","www.yahoo.com","search.brave.com","www.mojeek.com","qwant.com","www.qwant.com"]);
 
 function clean(value: string): string {
-  return value.replace(/<script[\\s\\S]*?<\\/script>/gi, " ").replace(/<style[\\s\\S]*?<\\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/\\s+/g, " ").trim();
+  return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/\s+/g, " ").trim();
 }
 function canonicalUrl(value: string): string {
   try {
     const u = new URL(value);
     u.hash = "";
     ["utm_source","utm_medium","utm_campaign","utm_term","utm_content","trk","trackingId","refId","lipi"].forEach(k => u.searchParams.delete(k));
-    return u.toString().replace(/\\/$/, "");
-  } catch { return value.replace(/\\/+$/, ""); }
+    return u.toString().replace(/\/$/, "");
+  } catch { return value.replace(/\/+$/, ""); }
 }
 function normalizeDomain(value: string): string {
-  return value.trim().toLowerCase().replace(/^https?:\\/\\//, "").replace(/^www\\./, "").split("/")[0] ?? "";
+  return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? "";
 }
 function plausibleName(value: string): boolean {
-  const v = value.trim().replace(/\\s+/g, " ");
+  const v = value.trim().replace(/\s+/g, " ");
   if (v.length < 5 || v.length > 80) return false;
-  if (/^(the|we|our|my|team|hiring|frontend|react|software|developer|engineer)\\b/i.test(v)) return false;
+  if (/^(the|we|our|my|team|hiring|frontend|react|software|developer|engineer)\b/i.test(v)) return false;
   const parts = v.split(" ");
   return parts.length >= 2 && parts.length <= 5 && parts.every(p => /^[A-Z][A-Za-z.'-]*$/.test(p));
 }
 function profileFromPostUrl(url: string): string | undefined {
   try {
     const path = new URL(url).pathname;
-    const slug = path.match(/^\\/posts\\/([^_/-]+(?:-[^_/-]+)*)_/i)?.[1];
+    const slug = path.match(/^\/posts\/([^_/-]+(?:-[^_/-]+)*)_/i)?.[1];
     return slug ? `https://www.linkedin.com/in/${slug}` : undefined;
   } catch { return undefined; }
 }
 function extractAuthor(text: string, postUrl: string): { name?: string; profileUrl?: string } {
   const patterns = [
-    /#(?:hiring|we.?re.?hiring)[^\\n]{0,80}\\b([A-Z][A-Za-z.'-]+(?:\\s+[A-Z][A-Za-z.'-]+){1,4})\\s*\\b(?:posted|shared)/i,
-    /#?([A-Z][A-Za-z.'-]+(?:\\s+[A-Z][A-Za-z.'-]+){1,4})['’]s\\s+(?:Post|post)/,
-    /(?:^|\\n)([A-Z][A-Za-z.'-]+(?:\\s+[A-Z][A-Za-z.'-]+){1,4})\\s*[-|]\\s*LinkedIn/i,
-    /(?:^|\\n)([A-Z][A-Za-z.'-]+(?:\\s+[A-Z][A-Za-z.'-]+){1,4})\\s+(?:2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo|5mo|6mo)\\b/i
+    /#(?:hiring|we.?re.?hiring)[^\n]{0,80}\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*\b(?:posted|shared)/i,
+    /#?([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})['’]s\s+(?:Post|post)/,
+    /(?:^|\n)([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*[-|]\s*LinkedIn/i,
+    /(?:^|\n)([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo|5mo|6mo)\b/i
   ];
   for (const pattern of patterns) {
     const name = text.match(pattern)?.[1]?.trim();
@@ -101,9 +101,9 @@ function extractAuthor(text: string, postUrl: string): { name?: string; profileU
 function extractEmployer(text: string, email?: string, profileText?: string): { name?: string; domain?: string } {
   const haystack = [text, profileText ?? ""].join(" ");
   const patterns = [
-    /(?:at|@)\\s+([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\\s+(?:in|for|as|is|are|and|on|with|from|-|—|\\||,|\\.|$))/i,
-    /(?:team|role|opportunity)\\s+at\\s+([A-Z][A-Za-z0-9&.' -]{2,80})/i,
-    /([A-Z][A-Za-z0-9&.' -]{2,80})\\s+(?:is|are)\\s+(?:hiring|looking for)/i
+    /(?:at|@)\s+([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\s+(?:in|for|as|is|are|and|on|with|from|-|—|\||,|\.|$))/i,
+    /(?:team|role|opportunity)\s+at\s+([A-Z][A-Za-z0-9&.' -]{2,80})/i,
+    /([A-Z][A-Za-z0-9&.' -]{2,80})\s+(?:is|are)\s+(?:hiring|looking for)/i
   ];
   let name: string | undefined;
   for (const p of patterns) {
@@ -111,11 +111,11 @@ function extractEmployer(text: string, email?: string, profileText?: string): { 
     if (m && m.length >= 3 && !/^(a|an|the|our|my|your|this|frontend|react|javascript|typescript)$/i.test(m)) { name = m; break; }
   }
   const emailDomain = email?.split("@")[1]?.toLowerCase();
-  const urlDomains = [...haystack.matchAll(/https?:\\/\\/([^\\s/<>"]+)/gi)]
+  const urlDomains = [...haystack.matchAll(/https?:\/\/([^\s/<>"]+)/gi)]
     .map(m => normalizeDomain(m[1] ?? ""))
     .filter(d => d && !SEARCH_HOSTS.has(d) && !d.endsWith("linkedin.com"));
-  const domain = emailDomain || urlDomains.find(d => !/^lnkd\\.in$/i.test(d));
-  if (!name && domain) name = domain.split(".")[0]?.replace(/[-_]+/g, " ").replace(/\\b\\w/g, c => c.toUpperCase());
+  const domain = emailDomain || urlDomains.find(d => !/^lnkd\.in$/i.test(d));
+  if (!name && domain) name = domain.split(".")[0]?.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   return name ? { name, ...(domain ? { domain } : {}) } : {};
 }
 function extractRole(text: string): { role?: string; score: number; terms: string[] } {
@@ -127,9 +127,9 @@ function extractRole(text: string): { role?: string; score: number; terms: strin
   return { role: terms[0], score, terms };
 }
 function experienceCompatible(text: string): boolean {
-  const ranges = [...text.matchAll(/(\\d+)\\s*(?:-|to|–|—)\\s*(\\d+)\\s*years?/gi)];
+  const ranges = [...text.matchAll(/(\d+)\s*(?:-|to|–|—)\s*(\d+)\s*years?/gi)];
   for (const m of ranges) if (Number(m[1]) > 3) return false;
-  const minimums = [...text.matchAll(/(?:\\b|\\D)(\\d+)\\s*\\+\\s*years?/gi)];
+  const minimums = [...text.matchAll(/(?:\b|\D)(\d+)\s*\+\s*years?/gi)];
   for (const m of minimums) if (Number(m[1]) > 3) return false;
   return true;
 }
@@ -167,15 +167,15 @@ async function search(query: string, signal?: AbortSignal): Promise<Array<{ sour
 }
 function extractPostUrls(text: string): string[] {
   return [...new Set([...text.matchAll(POST_URL)].map(m => canonicalUrl(m[0])))]
-    .filter(url => /linkedin.com\\/(?:posts\\/|feed\\/update\\/urn:li:activity:)/i.test(url));
+    .filter(url => /linkedin.com\/(?:posts\/|feed\/update\/urn:li:activity:)/i.test(url));
 }
 function buildEvidence(text: string, postUrl: string): string {
   const i = text.toLowerCase().indexOf(postUrl.toLowerCase());
-  return (i >= 0 ? text.slice(Math.max(0, i - 1400), Math.min(text.length, i + 5000)) : text.slice(0, 5000)).replace(/\\s+/g, " ").trim().slice(0, 6000);
+  return (i >= 0 ? text.slice(Math.max(0, i - 1400), Math.min(text.length, i + 5000)) : text.slice(0, 5000)).replace(/\s+/g, " ").trim().slice(0, 6000);
 }
 function freshness(evidence: string): ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"] {
-  if (/\\b(?:today|1d|2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo)\\b/i.test(evidence)) return "current";
-  if (/\\b(?:5mo|6mo|7mo|8mo|9mo|10mo|11mo|12mo)\\b/i.test(evidence)) return "recent";
+  if (/\b(?:today|1d|2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo)\b/i.test(evidence)) return "current";
+  if (/\b(?:5mo|6mo|7mo|8mo|9mo|10mo|11mo|12mo)\b/i.test(evidence)) return "recent";
   return "unknown";
 }
 function canonicalIdentityKey(name: string, employer: string, postUrl: string): string {
@@ -286,7 +286,7 @@ export class PublicHiringPostDiscoveryProvider {
       const q = `"${candidate.recruiterName}" "${candidate.employer}" "${candidate.employerDomain}" @${candidate.employerDomain}`;
       const results = await search(q, input.signal);
       const emails = results.flatMap(r => [...new Set((r.text.match(EMAIL) ?? []).map(e => e.toLowerCase()))]);
-      const nameTokens = candidate.recruiterName.toLowerCase().split(/\\s+/).filter(Boolean);
+      const nameTokens = candidate.recruiterName.toLowerCase().split(/\s+/).filter(Boolean);
       const found = emails.find(email => {
         const local = email.split("@")[0] ?? "";
         return email.endsWith(`@${candidate.employerDomain}`) && nameTokens.length >= 2 && nameTokens.every(token => local.includes(token.replace(/[^a-z]/g,"")));
