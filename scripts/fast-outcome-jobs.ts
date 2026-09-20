@@ -112,26 +112,57 @@ async function main(): Promise<void> {
       }
     );
 
+    const matchingConcurrencyRaw = Number.parseInt(process.env.FAST_MATCHING_CONCURRENCY ?? "8", 10);
+    const matchingConcurrency = Number.isInteger(matchingConcurrencyRaw) && matchingConcurrencyRaw > 0 ? Math.min(matchingConcurrencyRaw, matchingLimit) : Math.min(8, matchingLimit);
+    const matchingWorkers = Array.from({ length: matchingConcurrency }, (_, index) => new TaskWorker(
+      queue,
+      handlers,
+      {
+        workerId: `fast-outcome-matching-${process.pid}-${index}`,
+        pollIntervalMs: 25,
+        staleRecoveryIntervalMs: 30_000,
+        heartbeatIntervalMs: 2_000,
+        logger
+      }
+    ));
     let processed = 0;
     const matchingStartedAt = Date.now();
     while (processed < matchingLimit) {
-      const didProcess = await worker.runOnce([MATCH_JOB_TASK]);
-      if (!didProcess) break;
-      processed += 1;
+      const batchSize = Math.min(matchingConcurrency, matchingLimit - processed);
+      const results = await Promise.all(matchingWorkers.slice(0, batchSize).map((item) => item.runOnce([MATCH_JOB_TASK])));
+      const didProcess = results.filter(Boolean).length;
+      processed += didProcess;
+      if (didProcess === 0) break;
     }
     const matchingDurationMs = Date.now() - matchingStartedAt;
 
     const recruiterLimitRaw = Number.parseInt(process.env.FAST_RECRUITER_TASK_LIMIT ?? "10", 10);
     const recruiterLimit = Number.isInteger(recruiterLimitRaw) && recruiterLimitRaw > 0 ? recruiterLimitRaw : 10;
+    const recruiterConcurrencyRaw = Number.parseInt(process.env.FAST_RECRUITER_CONCURRENCY ?? "4", 10);
+    const recruiterConcurrency = Number.isInteger(recruiterConcurrencyRaw) && recruiterConcurrencyRaw > 0 ? Math.min(recruiterConcurrencyRaw, recruiterLimit) : Math.min(4, recruiterLimit);
+    const recruiterWorkers = Array.from({ length: recruiterConcurrency }, (_, index) => new TaskWorker(
+      queue,
+      handlers,
+      {
+        workerId: `fast-outcome-recruiter-${process.pid}-${index}`,
+        pollIntervalMs: 25,
+        staleRecoveryIntervalMs: 30_000,
+        heartbeatIntervalMs: 2_000,
+        logger
+      }
+    ));
     let recruiterTasksProcessed = 0;
     const recruiterStartedAt = Date.now();
     if (recruiterDiscoveryHandler) {
       while (recruiterTasksProcessed < recruiterLimit) {
-        const didProcess = await worker.runOnce([DISCOVER_RECRUITERS_TASK]);
-        if (!didProcess) break;
-        recruiterTasksProcessed += 1;
+        const batchSize = Math.min(recruiterConcurrency, recruiterLimit - recruiterTasksProcessed);
+        const results = await Promise.all(recruiterWorkers.slice(0, batchSize).map((item) => item.runOnce([DISCOVER_RECRUITERS_TASK])));
+        const didProcess = results.filter(Boolean).length;
+        recruiterTasksProcessed += didProcess;
+        if (didProcess === 0) break;
       }
     }
+    for (const item of [...matchingWorkers, ...recruiterWorkers]) item.stop();
     worker.stop();
     const recruiterDurationMs = Date.now() - recruiterStartedAt;
 
