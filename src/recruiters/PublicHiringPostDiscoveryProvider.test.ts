@@ -74,6 +74,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     const postUrl = "https://www.linkedin.com/posts/example-user_hiring-frontend-activity-1234567890-test";
     const searchPage = [
       postUrl,
+      "https://www.linkedin.com/in/example-user",
       "Example User’s Post",
       "Example User",
       "2d",
