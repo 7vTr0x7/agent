@@ -415,7 +415,10 @@ export class PublicHiringPostDiscoveryProvider {
 
     for (const post of postEvidence.values()) {
       if (input.signal?.aborted) break;
-      // The destination page is authoritative for post identity context. Search-result\n      // evidence may supplement it, but must never be the sole hiring/role evidence.\n      const identitySearchEvidence = `${post.text} ${post.discoveryText}`;\n      let author = extractAuthor(identitySearchEvidence, post.url);
+      // The destination page is authoritative for post identity context. Search-result
+      // evidence may supplement it, but must never be the sole hiring/role evidence.
+      const identitySearchEvidence = `${post.text} ${post.discoveryText}`;
+      let author = extractAuthor(identitySearchEvidence, post.url);
       let profileText = "";
       let profileUrl = author.profileUrl;
       if (!author.name) {
