@@ -85,7 +85,7 @@ function normalizeDomain(value: string): string {
 function plausibleName(value: string): boolean {
   const v = value.trim().replace(/\s+/g, " ");
   if (v.length < 5 || v.length > 80) return false;
-  if (/^(the|we|our|my|team|hiring|frontend|react|software|developer|engineer)\b/i.test(v)) return false;
+  if (/^(the|we|our|my|team|hiring|frontend|react|software|developer|engineer|post)\b/i.test(v)) return false;
   const parts = v.split(" ");
   return parts.length >= 2 && parts.length <= 5 && parts.every(p => /^[A-Z][A-Za-z.'-]*$/.test(p));
 }
