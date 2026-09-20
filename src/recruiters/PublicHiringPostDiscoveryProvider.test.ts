@@ -12,6 +12,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     const postUrl = "https://www.linkedin.com/posts/nikhil-pandey00_hiring-frontenddeveloper-reactjs-activity-7498076460147077121-X7ZB";
     const searchPage = [
       "# Frontend hiring",
+      "https://www.linkedin.com/in/nikhil-pandey00",
       postUrl,
       "Nikhil Pandey’s Post",
       "Nikhil Pandey",
