@@ -249,7 +249,11 @@ function extractHiringSnippets(profileText: string): string[] {
 }
 function buildEvidence(text: string, postUrl: string): string {
   const i = text.toLowerCase().indexOf(postUrl.toLowerCase());
-  return (i >= 0 ? text.slice(Math.max(0, i - 1400), Math.min(text.length, i + 5000)) : text.slice(0, 5000)).replace(/\s+/g, " ").trim().slice(0, 6000);
+  if (i < 0) return "";
+  // Search-result evidence must be local to the discovered URL. A whole search-page
+  // shell can contain unrelated hiring words from the query/footer and must not
+  // become evidence for every external navigation link on that page.
+  return text.slice(Math.max(0, i - 1800), Math.min(text.length, i + 2600)).replace(/\s+/g, " ").trim().slice(0, 4400);
 }
 function freshness(evidence: string): ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"] {
   if (/\b(?:today|1d|2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo)\b/i.test(evidence)) return "current";
