@@ -88,7 +88,7 @@ async function main(): Promise<void> {
        ORDER BY relevance_score DESC NULLS LAST, confidence DESC NULLS LAST, updated_at DESC
        LIMIT 10`
     );
-    console.log(JSON.stringify({ status: "ok", operationalStatus, discoveryStatus, qualityStatus, discovered: metrics.finalDiscovered, persisted: persistedLeads.rows.length, metrics, persistedLeads: persistedLeads.rows, mode: "isolated-proactive-recruiter", sendEnabled: false, gmailEnabled: false, outboundEnabled: false }, null, 2));
+    console.log(JSON.stringify({ status: "ok", operationalStatus, discoveryStatus, qualityStatus, discovered: metrics.finalDiscovered, persisted: persistedLeads.rows.length, metrics, persistedLeads: persistedLeads.rows, mode: "isolated-proactive-recruiter", sendEnabled: false, gmailEnabled: false, outboundEnabled: false, hiringPostDiscovery: hiringPostResult.metrics, hiringPostCandidates: hiringPostResult.candidates.length, hiringPostPersisted: hiringPostPersisted.length }, null, 2));
   } finally {
     await database.close();
   }
