@@ -109,9 +109,14 @@ async function fetchText(url: string, timeoutMs = 5000): Promise<string | null> 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,application/xhtml+xml,application/xml,text/xml;q=0.9,*/*;q=0.8", "user-agent": "job-agent-public-recruiter-discovery/3.3" } });
-    if (!response.ok) return null;
-    return await response.text();
+    const headers = { accept: "text/html,application/xhtml+xml,application/xml,text/xml;q=0.9,*/*;q=0.8", "user-agent": "job-agent-public-recruiter-discovery/3.3" };
+    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers });
+    if (response.ok) return await response.text();
+    if (response.status === 403 || response.status === 429 || response.status >= 500) {
+      const reader = await fetch(`https://r.jina.ai/${url}`, { signal: controller.signal, redirect: "follow", headers: { accept: "text/plain,text/html;q=0.9", "user-agent": "job-agent-public-recruiter-discovery/3.3" } });
+      if (reader.ok) return await reader.text();
+    }
+    return null;
   } catch { return null; } finally { clearTimeout(timeout); }
 }
 async function fetchPublicCompanyPages(companyDomain: string): Promise<Array<{ url: string; text: string }>> {
