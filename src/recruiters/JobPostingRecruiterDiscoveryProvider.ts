@@ -230,7 +230,13 @@ async function discoverPublicLinkedInEvidence(companyName: string, companyDomain
     for (const email of extractRecruiterEmailsFromPublicText(stripHtml(page), domain)) emails.add(email);
   }
   return {
-    profiles: [...profiles.values()].filter((profile) => {
+    profiles: [...profiles.values()].map((profile) => {
+      const haystack = `${profile.name} ${profile.title ?? ""} ${profile.snippet}`.toLowerCase();
+      const explicitRecruiterRole = profile.snippet.match(/(?:recruiting coordinator|recruiter|recruiting|talent acquisition partner|talent acquisition|people operations specialist|people operations|human resources|hr professional|hiring manager)/i)?.[0];
+      return explicitRecruiterRole
+        ? { ...profile, title: profile.title && LINKEDIN_RECRUITER_TERMS.some((term) => profile.title!.toLowerCase().includes(term)) ? profile.title : explicitRecruiterRole }
+        : profile;
+    }).filter((profile) => {
       const haystack = `${profile.name} ${profile.title ?? ""} ${profile.snippet}`.toLowerCase();
       return LINKEDIN_RECRUITER_TERMS.some((term) => haystack.includes(term));
     }).slice(0, 10),
@@ -279,11 +285,37 @@ export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryP
         email,
         title: "Recruiting contact from public search result",
         department: "recruiting",
-        confidence: looksLikeRecruitingMailbox(email) ? 94 : 90,
+        confidence: 90,
         verified: false,
         verificationStatus: "unverified_public_source",
         provider: this.name,
         sources: [{ type: "public_search_result", confidence: 92 }]
+      });
+    }
+
+    for (const profile of linkedinProfiles) {
+      const haystack = `${profile.name} ${profile.title ?? ""} ${profile.snippet}`.toLowerCase();
+      const companyName = input.companyName.toLowerCase();
+      const companyTokens = companyName.split(/[^a-z0-9]+/).filter((token) => token.length >= 3 && !["the", "and", "inc", "ltd", "llc", "corp", "company"].includes(token));
+      const companyEvidence = companyTokens.length > 0 && companyTokens.every((token) => haystack.includes(token));
+      const roleEvidence = LINKEDIN_RECRUITER_TERMS.some((term) => haystack.includes(term));
+      if (!profile.name || !profile.url || !companyEvidence || !roleEvidence) continue;
+      const existing = [...contacts.values()].find((contact) => contact.fullName && contact.fullName.toLowerCase() === profile.name.toLowerCase());
+      if (existing) continue;
+      contacts.set(`profile:${profile.url.toLowerCase()}`, {
+        fullName: profile.name,
+        title: profile.title || "Recruiting / Talent Acquisition",
+        department: "recruiting",
+        confidence: 95,
+        verified: false,
+        verificationStatus: "unverified_public_source",
+        linkedinProfileUrl: profile.url,
+        provider: this.name,
+        sources: [
+          { url: profile.url, type: "public_linkedin_search", confidence: 95 },
+          { type: "job_posting", confidence: 100 }
+        ],
+        discoveryEvidence: [profile.snippet]
       });
     }
 
