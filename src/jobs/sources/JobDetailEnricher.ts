@@ -44,7 +44,24 @@ export class JobDetailEnricher {
     if ((!force && !shouldEnrich(job.description, job.title, job.source)) || signal?.aborted) return job;
     try {
       const html = await this.fetchDetailPage(job.url, signal);
-      const details = extractJobPostingDetails(html, job.companyName);
+      let details = extractJobPostingDetails(html, job.companyName);
+      // Some Himalayas job pages return a shell to direct fetch while the
+      // rendered page contains the numeric experience requirement. Reuse the
+      // existing bounded Jina reader only when the first pass did not expose it.
+      if (isHimalayasJobUrl(job.url) && !containsExplicitExperience(details.description ?? "")) {
+        try {
+          const readerHtml = await fetchViaJinaReader(job.url, signal);
+          const readerDetails = extractJobPostingDetails(readerHtml, job.companyName);
+          if (readerDetails.description || readerDetails.companyDomain) {
+            details = {
+              description: readerDetails.description ?? details.description,
+              companyDomain: readerDetails.companyDomain ?? details.companyDomain
+            };
+          }
+        } catch {
+          // Keep the first-pass detail result when the bounded reader is unavailable.
+        }
+      }
       if (!details.description && !details.companyDomain) return job;
       return {
         ...job,
@@ -213,6 +230,15 @@ function expandIpv6(address: string): number[] | null {
   const expanded = parts.length === 2 ? [...left, ...new Array(missing).fill("0"), ...right] : left;
   if (expanded.length !== 8 || expanded.some((part) => !/^[0-9a-f]{1,4}$/i.test(part))) return null;
   return expanded.map((part) => parseInt(part, 16));
+}
+
+function isHimalayasJobUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    return url.hostname.toLowerCase().replace(/^www\./, "") === "himalayas.app" && /^\/companies\/[a-z0-9-]+\/jobs(?:\/|$)/i.test(url.pathname);
+  } catch {
+    return false;
+  }
 }
 
 async function fetchViaJinaReader(url: string, signal?: AbortSignal): Promise<string> {
