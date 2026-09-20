@@ -84,7 +84,8 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       "DM me",
     ].join("\n");
 
-    global.fetch = jest.fn(async () => new Response(searchPage, { status: 200 })) as typeof fetch;
+    const profilePage = "<title>Example User - Example Corp | LinkedIn</title> Recruiter at Example Corp. Currently hiring frontend engineers.";
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => new Response(String(input).includes("/in/example-user") ? profilePage : searchPage, { status: 200 })) as typeof fetch;
 
     const provider = new PublicHiringPostDiscoveryProvider();
     const result = await provider.discover({
