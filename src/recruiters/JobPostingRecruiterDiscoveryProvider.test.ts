@@ -11,14 +11,14 @@ describe("JobPostingRecruiterDiscoveryProvider", () => {
     expect(extractExplicitRecruiterEmails(description, "example.com")).toEqual([]);
   });
 
-  it("recognizes obfuscated recruiting emails and mailto links", () => {
+  it("rejects obfuscated generic recruiting mailboxes and generic mailto aliases", () => {
     const description = `Recruiting: talent [at] example [dot] com. <a href="mailto:careers@example.com">Careers</a>`;
-    expect(extractExplicitRecruiterEmails(description, "example.com")).toEqual(["talent@example.com", "careers@example.com"]);
+    expect(extractExplicitRecruiterEmails(description, "example.com")).toEqual([]);
   });
 
-  it("accepts a recruiting mailbox alias even when the nearby HTML has no keyword", () => {
+  it("does not treat a recruiting mailbox alias as a named recruiter", () => {
     const description = `<a href="mailto:jobs@example.com">Apply for this role</a>`;
-    expect(extractExplicitRecruiterEmails(description, "example.com")).toEqual(["jobs@example.com"]);
+    expect(extractExplicitRecruiterEmails(description, "example.com")).toEqual([]);
   });
 
   it("enriches a public company email with a matching public LinkedIn profile", async () => {
@@ -73,7 +73,7 @@ describe("JobPostingRecruiterDiscoveryProvider", () => {
         jobDescription: "Please contact careers@example.com.",
         candidateProfileId: "candidate-1"
       });
-      expect(result.contacts[0]).not.toHaveProperty("linkedinProfileUrl");
+      expect(result.contacts).toHaveLength(0);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -93,6 +93,43 @@ describe("JobPostingRecruiterDiscoveryProvider", () => {
       });
 
       expect(result.contacts).toHaveLength(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("discovers a named recruiter profile without inventing an email", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("html.duckduckgo.com")) {
+        return new Response('<a href="https://www.linkedin.com/in/priya-sharma">Priya Sharma - Talent Acquisition Partner | Legion Technologies | LinkedIn</a>');
+      }
+      return new Response("<html><body>Legion Technologies</body></html>");
+    }) as typeof fetch;
+
+    try {
+      const provider = new JobPostingRecruiterDiscoveryProvider();
+      const result = await provider.discover({
+        companyName: "Legion Technologies",
+        companyDomain: "legion.co",
+        jobTitle: "Frontend Engineer",
+        jobDescription: "Current hiring for the frontend engineering team.",
+        candidateProfileId: "candidate-1"
+      });
+
+      expect(result.contacts).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          fullName: "Priya Sharma",
+          title: "Talent Acquisition Partner",
+          linkedinProfileUrl: "https://www.linkedin.com/in/priya-sharma"
+        })
+      ]));
+      const profile = result.contacts.find((contact) => contact.fullName === "Priya Sharma");
+      expect(profile?.sources).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: "public_linkedin_search" }),
+        expect.objectContaining({ type: "job_posting" })
+      ]));
     } finally {
       globalThis.fetch = originalFetch;
     }
