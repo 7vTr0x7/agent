@@ -255,12 +255,12 @@ function extractJobPostingDetails(html: string, companyName: string): { descript
   }
   const mainMatch = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
   if (mainMatch?.[1]) {
-    const mainText = clean(mainMatch[1]);
+    const mainText = clean(mainMatch[1].replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>/gi, " "));
     if (mainText && /\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(mainText)) return { description: mainText.slice(0, 60_000), companyDomain };
   }
   const bodyMatch = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
   if (bodyMatch?.[1]) {
-    const bodyText = clean(bodyMatch[1]);
+    const bodyText = clean(bodyMatch[1].replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>/gi, " "));
     if (bodyText && /\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(bodyText)) return { description: bodyText.slice(0, 60_000), companyDomain };
   }
   const linkedEmployerDomain = extractEmployerDomainFromHtml(html, companyName);
