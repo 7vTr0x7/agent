@@ -199,7 +199,8 @@ function isLegitimatePublicResultUrl(value: string, infrastructureHosts: Set<str
     if (!/^https?:$/.test(parsed.protocol)) return false;
     const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
     const path = parsed.pathname.toLowerCase();
-    if (!host || SEARCH_HOSTS.has(host) || infrastructureHosts.has(host)) return false;
+    if (!host || host === "localhost" || SEARCH_HOSTS.has(host) || infrastructureHosts.has(host)) return false;
+    if ([...infrastructureHosts].some(infrastructureHost => host.endsWith(`.\${infrastructureHost}`))) return false;
     if (host === "r.jina.ai" || host.endsWith(".r.jina.ai")) return false;
     if (host.endsWith("linkedin.com") && /^\/(?:jobs|in)\//i.test(parsed.pathname)) return false;
     if (/^\/(?:api|v[0-9]+|ajax|graphql|search|query|suggest|autocomplete|static|assets?|tags?|scripts?|js|css)(?:\/|$)/i.test(path)) return false;
@@ -316,8 +317,13 @@ export class PublicHiringPostDiscoveryProvider {
         stat.posts += urls.length;
         for (const url of urls) {
           if (postEvidence.has(url)) { metrics.duplicatePosts++; metrics.deduplicatedResults++; continue; }
-          const evidence = buildEvidence(result.text, url);
-          if (!HIRING_INTENT.test(evidence)) continue;
+          // A search-result page is discovery evidence, not the public hiring post itself.
+          // Fetch the discovered destination and validate hiring/role evidence from that
+          // destination. Falling back to the search shell would let unrelated result text
+          // contaminate the candidate.
+          const postPage = await (input.fetchText ? input.fetchText(url, input.signal) : fetchText(url, input.signal, 6500));
+          const evidence = postPage ? clean(postPage).slice(0, 12000) : "";
+          if (!evidence || !HIRING_INTENT.test(evidence)) continue;
           metrics.hiringIntentPosts++;
           const extractedRole = extractRole(evidence);
           if (!extractedRole.role || extractedRole.score < 75 || !experienceCompatible(evidence, input.yearsExperience ?? 3)) { metrics.rejectedPosts++; continue; }
