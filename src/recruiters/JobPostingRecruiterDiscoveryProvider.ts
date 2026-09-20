@@ -49,6 +49,14 @@ function isRecruitingContextForEmail(email: string, context: string): boolean {
 function stripHtml(value: string): string {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<noscript[\s\S]*?<\/noscript>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&#64;|&#x40;/gi, "@").replace(/&#46;|&#x2e;/gi, ".").replace(/\s+/g, " ").trim();
 }
+function isPlausiblePersonName(name: string): boolean {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized || normalized.length < 5 || normalized.length > 80) return false;
+  if (/https?:\\/\\/|www\\.|\\b(?:url|source|search|results?|startpage|google|bing|duckduckgo|linkedin)\\b/.test(normalized)) return false;
+  const parts = normalized.split(/\\s+/).filter(Boolean);
+  return parts.length >= 2 && parts.length <= 5 && parts.every((part) => /^[a-z][a-z.'-]+$/.test(part));
+}
+
 function isStrongNameEmailMatch(email: string, name: string): boolean {
   const local = localPart(email).replace(/[^a-z0-9]/gi, "").toLowerCase();
   const parts = name.toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter(Boolean);
@@ -299,7 +307,7 @@ export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryP
       const companyTokens = companyName.split(/[^a-z0-9]+/).filter((token) => token.length >= 3 && !["the", "and", "inc", "ltd", "llc", "corp", "company"].includes(token));
       const companyEvidence = companyTokens.length > 0 && companyTokens.every((token) => haystack.includes(token));
       const roleEvidence = LINKEDIN_RECRUITER_TERMS.some((term) => haystack.includes(term));
-      if (!profile.name || !profile.url || !companyEvidence || !roleEvidence) continue;
+      if (!profile.name || !profile.url || !isPlausiblePersonName(profile.name) || !companyEvidence || !roleEvidence) continue;
       const existing = [...contacts.values()].find((contact) => contact.fullName && contact.fullName.toLowerCase() === profile.name.toLowerCase());
       if (existing) continue;
       contacts.set(`profile:${profile.url.toLowerCase()}`, {
