@@ -89,6 +89,14 @@ function plausibleName(value: string): boolean {
   const parts = v.split(" ");
   return parts.length >= 2 && parts.length <= 5 && parts.every(p => /^[A-Z][A-Za-z.'-]*$/.test(p));
 }
+function extractAuthorNameCandidate(value: string): string | undefined {
+  const tokens = value.trim().split(/\s+/).filter(Boolean);
+  for (let count = Math.min(5, tokens.length); count >= 2; count--) {
+    const candidate = tokens.slice(-count).join(" ");
+    if (plausibleName(candidate)) return candidate;
+  }
+  return undefined;
+}
 function profileFromPostUrl(_url: string): string | undefined {
   // A post slug is not a reliable identity URL. Resolve the author's public
   // profile independently from indexed profile evidence instead of guessing.
@@ -103,8 +111,8 @@ function extractAuthor(text: string, postUrl: string): { name?: string; profileU
     /(?:^|\n)([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo|5mo|6mo)\b/i
   ];
   for (const pattern of patterns) {
-    const name = text.match(pattern)?.[1]?.trim();
-    if (name && plausibleName(name)) return { name, profileUrl: profileFromPostUrl(postUrl) };
+    const name = extractAuthorNameCandidate(text.match(pattern)?.[1] ?? "");
+    if (name) return { name, profileUrl: profileFromPostUrl(postUrl) };
   }
   const profileUrl = profileFromPostUrl(postUrl);
   const slugName = profileUrl?.split("/in/")[1]?.replace(/[-_]+/g, " ");
@@ -422,7 +430,6 @@ export class PublicHiringPostDiscoveryProvider {
       // evidence may supplement it, but must never be the sole hiring/role evidence.
       const identitySearchEvidence = `${post.text} ${post.discoveryText}`;
       let author = extractAuthor(identitySearchEvidence, post.url);
-      if (process.env.PUBLIC_HIRING_POST_DIAGNOSTICS === "true") console.error(JSON.stringify({ event: "public-hiring-author-debug", url: post.url, text: post.text.slice(0, 5000), discoveryText: post.discoveryText.slice(0, 5000), author }));
       let profileText = "";
       let profileUrl = author.profileUrl;
       if (!author.name) {
