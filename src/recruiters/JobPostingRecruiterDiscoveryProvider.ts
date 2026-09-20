@@ -74,6 +74,10 @@ function extractRecruiterEmailsFromPublicText(text: string, companyDomain: strin
     if (!match.value || match.index < 0) continue;
     const email = normalizeEmail(match.value.replace(/^mailto:/i, "").replace(/[),;]+$/g, ""));
     if (!isCompanyEmail(email, domain) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
+    // A generic recruiting mailbox proves only that the company has a
+    // recruiting inbox. It does not identify a real recruiter, so it cannot
+    // become a recruiter lead without a named public identity.
+    if (looksLikeRecruitingMailbox(email)) continue;
     if (!isRecruitingContextForEmail(email, contextAround(normalizedText, match.index))) continue;
     found.add(email);
   }
@@ -171,6 +175,32 @@ function parsePublicLinkedInProfiles(html: string): PublicLinkedInProfile[] {
   return results.slice(0, 20);
 }
 
+async function discoverPublicEmailsForNamedProfiles(
+  companyName: string,
+  companyDomain: string,
+  profiles: readonly PublicLinkedInProfile[]
+): Promise<string[]> {
+  const domain = normalizeDomain(companyDomain);
+  if (!domain || profiles.length === 0) return [];
+  const found = new Set<string>();
+  for (const profile of profiles.slice(0, 10)) {
+    const queries = [
+      `"${profile.name}" "${companyName}" "@${domain}"`,
+      `"${profile.name}" "@${domain}" recruiter`
+    ];
+    for (const query of queries) {
+      const responses = await Promise.all(searchUrls(query).map((url) => fetchText(url, 7000)));
+      for (const response of responses) {
+        if (!response) continue;
+        for (const email of extractRecruiterEmailsFromPublicText(stripHtml(response), domain)) {
+          if (isStrongNameEmailMatch(email, profile.name)) found.add(email);
+        }
+      }
+    }
+  }
+  return [...found];
+}
+
 async function discoverPublicLinkedInEvidence(companyName: string, companyDomain: string, jobTitle: string): Promise<{ profiles: PublicLinkedInProfile[]; emails: string[] }> {
   const domain = normalizeDomain(companyDomain);
   const queries = [
@@ -216,6 +246,12 @@ export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryP
       discoverPublicLinkedInEvidence(input.companyName, input.companyDomain, input.jobTitle),
       fetchPublicCompanyPages(input.companyDomain)
     ]);
+    const namedProfileEmails = await discoverPublicEmailsForNamedProfiles(
+      input.companyName,
+      input.companyDomain,
+      linkedinProfiles
+    );
+    for (const email of namedProfileEmails) searchEmails.push(email);
     const sources = [{ url: "job-description", text: input.jobDescription }, ...pages];
     const contacts = new Map<string, RecruiterContactCandidate>();
 
