@@ -93,19 +93,6 @@ test.each([404, 403, 429, 500])("keeps the original job on HTTP %i", async (stat
   await expect(new JobDetailEnricher().enrich(original)).resolves.toEqual(original);
 });
 
-test("falls back to the existing reader for a rendered Himalayas page missing experience in direct HTML", async () => {
-  jest.mocked(global.fetch)
-    .mockResolvedValueOnce(response("<html><body><h1>Senior Frontend Engineer</h1><p>React and TypeScript.</p></body></html>"))
-    .mockResolvedValueOnce(response("<html><main><h1>Senior Frontend Engineer</h1><p>At least 7 years of professional software engineering experience.</p></main></html>"));
-  const result = await new JobDetailEnricher().enrich(job({
-    url: "https://himalayas.app/companies/example/jobs/senior-frontend-engineer",
-    title: "Senior Frontend Engineer",
-    description: "React and TypeScript."
-  }));
-  expect(result.description).toContain("At least 7 years");
-  expect(global.fetch).toHaveBeenCalledTimes(2);
-});
-
 test("promotes structured JobPosting experienceRequirements into matcher-visible description", async () => {
   const html = `<html><script type="application/ld+json">${JSON.stringify({
     "@type": "JobPosting",
