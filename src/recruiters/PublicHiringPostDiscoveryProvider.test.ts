@@ -26,7 +26,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     ].join("\n");
     const postPage = [
       "<title>We're Hiring | Frontend Developer – React.js</title>",
-      "Nikhil Pandey’s Post",
+      "Nikhil Pandey's Post",
       "Nikhil Pandey",
       "HR professional | Talent acquisition | hiring contact",
       "2d",
