@@ -103,6 +103,19 @@ describe("RecruiterCompanyDomainResolver", () => {
     )).toBeNull();
   });
 
+  it("resolves a company domain from a trusted Himalayas company profile", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn(async () => new Response('<a href="https://particle41.com/">Visit particle41.com</a><a href="https://www.linkedin.com/company/particle41">LinkedIn</a>')) as typeof fetch;
+    try {
+      await expect(resolveEmployerDomainFromTrustedJobSource(
+        "https://himalayas.app/companies/particle41/jobs/frontend-developer",
+        "Particle41"
+      )).resolves.toBe("particle41.com");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("rejects a job feed company domain even when the canonical URL is the same feed", () => {
     expect(resolveEmployerDomainFromJobData(
       "remoteok.com",
