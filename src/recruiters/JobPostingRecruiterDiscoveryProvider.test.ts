@@ -98,6 +98,31 @@ describe("JobPostingRecruiterDiscoveryProvider", () => {
     }
   });
 
+  it("rejects search-provider source labels parsed as recruiter names", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("html.duckduckgo.com")) {
+        return new Response('<a href="https://www.linkedin.com/in/fake-profile">Startpage Search Results URL Source - Recruiter | LinkedIn</a>');
+      }
+      return new Response("<html><body>Example recruiting</body></html>");
+    }) as typeof fetch;
+
+    try {
+      const provider = new JobPostingRecruiterDiscoveryProvider();
+      const result = await provider.discover({
+        companyName: "Example",
+        companyDomain: "example.com",
+        jobTitle: "Frontend Engineer",
+        jobDescription: "Current hiring for frontend engineering.",
+        candidateProfileId: "candidate-1"
+      });
+      expect(result.contacts).toHaveLength(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("discovers a named recruiter profile without inventing an email", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
