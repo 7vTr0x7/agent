@@ -58,6 +58,21 @@ test("enriches a VueJobs-style truncated RSS description from JobPosting JSON-LD
   expect(result.contentHash).toBe("rss-content-hash");
 });
 
+test("extracts the employer domain from trusted JobPosting hiringOrganization data", async () => {
+  const html = "<html><script type=\"application/ld+json\">" + JSON.stringify({
+    "@type": "JobPosting",
+    description: "React frontend engineer.",
+    hiringOrganization: { "@type": "Organization", name: "Particle41", url: "https://particle41.com/" }
+  }) + "</script></html>";
+  jest.mocked(global.fetch).mockResolvedValue(response(html));
+  const result = await new JobDetailEnricher().enrich(job({
+    companyName: "Particle41",
+    companyDomain: null,
+    description: ""
+  }));
+  expect(result.companyDomain).toBe("particle41.com");
+});
+
 test("does not fetch a complete RSS description", async () => {
   const original = job({ description: "A complete job description without an excerpt marker." });
   const result = await new JobDetailEnricher().enrich(original);
