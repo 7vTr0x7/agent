@@ -180,6 +180,31 @@ function extractProfileUrlFromSearch(text: string, name: string): string | undef
   const tokens = name.toLowerCase().split(/\\s+/).filter(Boolean);
   return urls.find(url => tokens.length >= 2 && tokens.every(token => url.toLowerCase().includes(token.replace(/[^a-z0-9-]/g, ""))));
 }
+function extractProfileUrls(text: string): string[] {
+  return [...new Set((text.match(PROFILE_URL) ?? []).map(canonicalUrl))]
+    .filter(url => !/\/pub\/dir\//i.test(url));
+}
+function extractProfileName(profileText: string, profileUrl: string): string | undefined {
+  const title = profileText.match(/(?:^|<title>)\s*([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+-\s+/i)?.[1];
+  if (title && plausibleName(title)) return title.trim();
+  try {
+    const slug = new URL(profileUrl).pathname.match(/^\/in\/([^/?#]+)/i)?.[1];
+    const name = slug?.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    if (name && plausibleName(name)) return name;
+  } catch {}
+  return undefined;
+}
+function extractHiringSnippets(profileText: string): string[] {
+  const text = clean(profileText);
+  const re = new RegExp(HIRING_INTENT.source, "gi");
+  const snippets: string[] = [];
+  for (const match of text.matchAll(re)) {
+    const index = match.index ?? 0;
+    const snippet = text.slice(Math.max(0, index - 1000), Math.min(text.length, index + 3500)).trim();
+    if (snippet && !snippets.includes(snippet)) snippets.push(snippet);
+  }
+  return snippets.slice(0, 8);
+}
 function buildEvidence(text: string, postUrl: string): string {
   const i = text.toLowerCase().indexOf(postUrl.toLowerCase());
   return (i >= 0 ? text.slice(Math.max(0, i - 1400), Math.min(text.length, i + 5000)) : text.slice(0, 5000)).replace(/\s+/g, " ").trim().slice(0, 6000);
