@@ -42,7 +42,7 @@ function rssXml(description: string, title = "Full Stack Developer – Frontend 
   <channel>
     <title>Fixture jobs</title>
     <item>
-      <title>Full Stack Developer – Frontend Focus</title>
+      <title>${title}</title>
       <guid>${SOURCE_JOB_ID}</guid>
       <link>${JOB_URL}</link>
       <dc:creator xmlns:dc="http://purl.org/dc/elements/1.1/">Ship4wd</dc:creator>
