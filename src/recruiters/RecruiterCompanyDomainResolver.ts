@@ -104,17 +104,19 @@ function domainMatchesCompany(domain: string, companyName: string): boolean {
   return tokens.some((token) => host.includes(token));
 }
 
-async function fetchSearchResult(query: string, engine: "google" | "bing" | "duckduckgo"): Promise<string | null> {
+async function fetchSearchResult(query: string, engine: "google" | "bing" | "duckduckgo" | "qwant"): Promise<string | null> {
   const encoded = encodeURIComponent(query);
   const directUrls = {
     google: `https://www.google.com/search?q=${encoded}&gbv=1`,
     bing: `https://www.bing.com/search?q=${encoded}`,
-    duckduckgo: `https://html.duckduckgo.com/html/?q=${encoded}`
+    duckduckgo: `https://html.duckduckgo.com/html/?q=${encoded}`,
+    qwant: `https://www.qwant.com/?q=${encoded}&t=web`
   };
   const readerUrls = {
     google: `https://r.jina.ai/https://www.google.com/search?q=${encoded}&gbv=1`,
     bing: `https://r.jina.ai/https://www.bing.com/search?q=${encoded}`,
-    duckduckgo: `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${encoded}`
+    duckduckgo: `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${encoded}`,
+    qwant: `https://r.jina.ai/https://www.qwant.com/?q=${encoded}&t=web`
   };
   const fetchOne = async (url: string, timeoutMs: number): Promise<string | null> => {
     const controller = new AbortController();
@@ -216,7 +218,8 @@ export async function resolveEmployerDomainFromPublicSearch(companyName: string)
   const results = await Promise.all([
     fetchSearchResult(query, "google"),
     fetchSearchResult(query, "bing"),
-    fetchSearchResult(query, "duckduckgo")
+    fetchSearchResult(query, "duckduckgo"),
+    fetchSearchResult(query, "qwant")
   ]);
   const counts = new Map<string, number>();
   for (const result of results) {
