@@ -46,6 +46,7 @@ const ROLE_PATTERNS: Array<[string, RegExp]> = [
   ["Web Developer", /web\s+developer/i]
 ];
 const AUTHOR_ROLE = /recruiter|recruiting|talent\s+acquisition|talent\s+partner|talent\s+advisor|technical\s+recruiter|engineering\s+recruiter|hiring\s+manager|human\s+resources|\bhr\b|people\s+(?:ops|operations|partner)|founder|co-founder|cofounder|hiring\s+lead|team\s+lead|engineering\s+manager/i;
+const EXPLICIT_RECRUITING_ACTION = /(?:share|send)\s+(?:your|the|an?\s+updated\s+)?(?:resume|cv)\s+(?:with\s+me|with\s+us|at\s+|to\s+)|\bdm\s+(?:me|us)\b|apply\s+(?:here|now)|we['’]?re\s+hiring\s+at|my\s+team\s+is\s+hiring/i;
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const POST_URL = /(?:https?:\/\/)?(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"'\\)]+|feed\/update\/urn:li:activity:\d+)/gi;
 const PROFILE_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
@@ -206,8 +207,14 @@ export class PublicHiringPostDiscoveryProvider {
       `site:linkedin.com/posts "Frontend Developer" "TypeScript" Bangalore`
     ].slice(0, maxQueries);
 
+    const profileQueries = [
+      'site:linkedin.com/in "we\'re hiring" "frontend developer" Bangalore',
+      'site:linkedin.com/in "we are hiring" React Bangalore',
+      'site:linkedin.com/in "my team is hiring" React India',
+      'site:linkedin.com/in "share your resume" React Bengaluru'
+    ];
     const metrics: PublicHiringPostDiscoveryMetrics = {
-      queriesGenerated: queries.length, queriesExecuted: 0, sourcePagesFetched: 0, publicPostUrls: 0,
+      queriesGenerated: queries.length + profileQueries.length, queriesExecuted: 0, sourcePagesFetched: 0, publicPostUrls: 0,
       hiringIntentPosts: 0, relevantRolePosts: 0, employersExtracted: 0, authorsExtracted: 0,
       validatedIdentities: 0, directEmails: 0, publiclyDiscoveredEmails: 0, rejectedPosts: 0, duplicatePosts: 0, sourceStats: {}
     };
@@ -236,7 +243,62 @@ export class PublicHiringPostDiscoveryProvider {
         }
       }
     }
-    metrics.publicPostUrls = postEvidence.size;
+    // Public LinkedIn profile pages are a supported indexed-public source. They often expose
+    // the author's recent posts even when search engines do not expose the individual post URL.
+    for (const query of profileQueries) {
+      if (input.signal?.aborted) break;
+      const results = await search(query, input.signal);
+      for (const result of results) {
+        metrics.sourcePagesFetched++;
+        const profileUrls = extractProfileUrls(result.text);
+        for (const profileUrl of profileUrls) {
+          if (profileUrl.includes("/pub/dir/")) continue;
+          const profileText = clean(await fetchText(profileUrl, input.signal, 6500) ?? "");
+          if (!profileText) continue;
+          const authorName = extractProfileName(profileText, profileUrl);
+          if (!authorName) continue;
+          const snippets = extractHiringSnippets(profileText);
+          for (const snippet of snippets) {
+            const role = extractRole(snippet);
+            if (!role.role || role.score < 75 || !experienceCompatible(snippet)) continue;
+            metrics.hiringIntentPosts++;
+            metrics.relevantRolePosts++;
+            const directEmail = extractDirectEmail(snippet);
+            if (directEmail) metrics.directEmails++;
+            const employer = extractEmployer(profileText, directEmail, profileText);
+            if (!employer.name) continue;
+            metrics.employersExtracted++;
+            const explicitAction = EXPLICIT_RECRUITING_ACTION.test(snippet);
+            if (!AUTHOR_ROLE.test(profileText) && !explicitAction) continue;
+            metrics.authorsExtracted++;
+            metrics.validatedIdentities++;
+            const key = canonicalIdentityKey(authorName, employer.name, profileUrl + "|" + snippet.slice(0, 220));
+            if (candidates.has(key)) { metrics.duplicatePosts++; continue; }
+            candidates.set(key, {
+              recruiterName: authorName,
+              recruiterRole: AUTHOR_ROLE.test(profileText) ? (profileText.match(AUTHOR_ROLE)?.[0] ?? "Hiring Lead") : "Hiring Lead",
+              employer: employer.name,
+              ...(employer.domain ? { employerDomain: employer.domain } : {}),
+              targetRoles: role.terms,
+              roleMatchScore: role.score,
+              hiringEvidenceScore: 90,
+              overallConfidence: Math.min(100, role.score + (employer.domain ? 10 : 0) + 5),
+              discoverySource: "public-web",
+              discoveryUrl: profileUrl,
+              discoveryEvidence: [snippet.slice(0, 5000), profileText.slice(0, 1800)].filter(Boolean),
+              evidenceType: "job_hiring_evidence",
+              evidenceDate: new Date().toISOString(),
+              evidenceFreshness: freshness(snippet),
+              ...(directEmail ? { email: directEmail } : {}),
+              emailStatus: "UNVERIFIED"
+            });
+            metrics.publicPostUrls++;
+          }
+        }
+      }
+    }
+
+    metrics.publicPostUrls = Math.max(metrics.publicPostUrls, postEvidence.size);
 
     for (const post of postEvidence.values()) {
       if (input.signal?.aborted) break;
