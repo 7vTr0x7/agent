@@ -60,6 +60,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(result.metrics.employersExtracted).toBe(1);
     expect(result.metrics.validatedIdentities).toBe(1);
     expect(result.metrics.directEmails).toBe(1);
+    console.info("PUBLIC_HIRING_DEBUG", JSON.stringify(result.metrics), JSON.stringify(result.candidates));
     expect(result.candidates).toHaveLength(1);
     const candidate = result.candidates[0]!;
     expect(candidate).toMatchObject({
