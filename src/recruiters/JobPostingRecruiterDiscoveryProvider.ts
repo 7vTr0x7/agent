@@ -1,6 +1,6 @@
 import {
   RecruiterContactCandidate,
-  RecruiterDiscoveryInput,
+  RecruiterDiscoveryContact, RecruiterDiscoveryInput,
   RecruiterDiscoveryProvider,
   RecruiterDiscoveryResult,
   RecruiterVerificationResult
