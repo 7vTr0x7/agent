@@ -111,6 +111,31 @@ async function main(): Promise<void> {
       maxCandidates: config.proactiveRecruiter.maxCandidatesPerRun
     });
 
+    const hiringPostPersistedRecords = hiringPostPersisted.length
+      ? (await database.query<{
+          id: string;
+          name: string | null;
+          company: string;
+          role: string | null;
+          email: string | null;
+          email_status: string | null;
+          relevance_status: string | null;
+          relevance_score: number | null;
+          source_url: string | null;
+        }>(
+          `SELECT c.id, c.full_name AS name, c.company_name AS company, c.title AS role,
+                  c.email, c.email_status, c.relevance_status, c.relevance_score,
+                  s.source_url
+           FROM recruiter_contacts c
+           LEFT JOIN recruiter_contact_sources s
+             ON s.recruiter_contact_id=c.id
+            AND s.provider='proactive-public-web'
+           WHERE c.id = ANY($1::uuid[])
+           ORDER BY c.updated_at DESC, s.observed_at DESC`,
+          [hiringPostPersisted]
+        )).rows
+      : [];
+
     const metrics = discovery.getLastRunMetrics();
     const operationalStatus = "SUCCESS";
     const discoveryStatus = metrics.finalDiscovered > 0 ? "CANDIDATES_DISCOVERED" : "NO_CANDIDATES";
@@ -136,7 +161,9 @@ async function main(): Promise<void> {
       sendEnabled: false, gmailEnabled: false, outboundEnabled: false,
       hiringPostDiscovery: hiringPostResult.metrics,
       hiringPostCandidates: hiringPostResult.candidates.length,
-      hiringPostPersisted: hiringPostPersisted.length
+      hiringPostPersisted: hiringPostPersisted.length,
+      hiringPostPersistedIds: hiringPostPersisted,
+      hiringPostPersistedRecords
     }, null, 2));
   } finally {
     await database.close();
