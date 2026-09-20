@@ -18,7 +18,7 @@ const PUBLIC_PATHS = [
   "/sitemap.xml", "/sitemap_index.xml"
 ] as const;
 const SITEMAP_RELEVANCE = /(career|job|join|work-with-us|talent|recruit|hiring|people|hr|contact)/i;
-const LINKEDIN_RECRUITER_TERMS = ["recruiter", "recruiting", "talent acquisition", "talent partner", "technical recruiter", "hr", "human resources", "hiring manager"];
+const LINKEDIN_RECRUITER_TERMS = ["recruiter", "recruiting", "talent acquisition", "talent advisor", "talent partner", "technical recruiter", "hr", "human resources", "hiring manager"];
 
 type PublicLinkedInProfile = { name: string; title?: string; url: string; snippet: string };
 
@@ -256,7 +256,7 @@ async function discoverPublicLinkedInEvidence(companyName: string, companyDomain
   return {
     profiles: [...profiles.values()].map((profile) => {
       const haystack = `${profile.name} ${profile.title ?? ""} ${profile.snippet}`.toLowerCase();
-      const explicitRecruiterRole = profile.snippet.match(/(?:recruiting coordinator|recruiter|recruiting|talent acquisition partner|talent acquisition|people operations specialist|people operations|human resources|hr professional|hiring manager)/i)?.[0];
+      const explicitRecruiterRole = profile.snippet.match(/(?:recruiting coordinator|recruiter|recruiting|talent advisor|talent acquisition partner|talent acquisition|people operations specialist|people operations|human resources|hr professional|hiring manager)/i)?.[0];
       return explicitRecruiterRole
         ? { ...profile, title: profile.title && LINKEDIN_RECRUITER_TERMS.some((term) => profile.title!.toLowerCase().includes(term)) ? profile.title : explicitRecruiterRole }
         : profile;
