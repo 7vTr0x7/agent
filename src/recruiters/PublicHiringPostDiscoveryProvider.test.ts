@@ -25,6 +25,18 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       "Strong React.js, JavaScript, TypeScript, HTML, CSS, Tailwind CSS, Redux, REST APIs and GraphQL.",
       "DM Me or apply at hr@synergytalententerprise.com",
     ].join("\n");
+    const postPage = [
+      "<title>We're Hiring | Frontend Developer – React.js</title>",
+      "Nikhil Pandey’s Post",
+      "Nikhil Pandey",
+      "2d",
+      "We're Hiring | Frontend Developer – React.js",
+      "We are looking for a Frontend Developer – React.js at Synergy Talent Enterprise.",
+      "Location: Bangalore (Hybrid)",
+      "Experience: 2–5 Years",
+      "Strong React.js, JavaScript, TypeScript, HTML, CSS, Tailwind CSS, Redux, REST APIs and GraphQL.",
+      "DM Me or apply at hr@synergytalententerprise.com",
+    ].join("\n");
     const profilePage = [
       "<title>Nikhil Pandey - Synergy Talent Enterprise | LinkedIn</title>",
       "About",
@@ -35,7 +47,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
 
     global.fetch = jest.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      return new Response(url.includes("/in/nikhil-pandey00") ? profilePage : searchPage, {
+      return new Response(url.includes("/in/nikhil-pandey00") ? profilePage : url.includes("nikhil-pandey00_hiring-frontenddeveloper-reactjs-activity-7498076460147077121-X7ZB") ? postPage : searchPage, {
         status: 200,
         headers: { "content-type": "text/plain" }
       });
