@@ -89,6 +89,42 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(observed.size).toBeGreaterThan(2);
   });
 
+  it("rejects Qwant search-shell infrastructure URLs while preserving legitimate external result URLs", async () => {
+    const qwantShell = [
+      "<html><head><title>\"Frontend Engineer\" hiring React – Qwant Search</title></head><body>",
+      "<script src=\"https://dd.qwant.com/tags.js\"></script>",
+      "<img src=\"https://www.w3.org/2000/svg\">",
+      "<a href=\"https://chrome.google.com/webstore/detail/extension-id\">extension</a>",
+      "<a href=\"https://mn.qwant.com/v2\">api</a>",
+      "<a href=\"https://api.qwant.com/v3\">api</a>",
+      "<a href=\"https://www.qwant.com/?q=frontend\">search</a>",
+      "<a href=\"https://example.com/careers/frontend-engineer\">Frontend Engineer — Example Corp</a>",
+      "<p>We're hiring a Frontend Engineer. Posted 2d. Example Corp is hiring React engineers.</p>",
+      "</body></html>"
+    ].join("\n");
+
+    global.fetch = jest.fn(async () => new Response(qwantShell, {
+      status: 200,
+      headers: { "content-type": "text/html" }
+    })) as typeof fetch;
+
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({
+      targetRoles: ["Frontend Engineer"],
+      skills: ["React", "TypeScript"],
+      maxQueries: 1
+    });
+
+    expect(result.metrics.normalizedResults).toBeGreaterThanOrEqual(1);
+    expect(result.metrics.publicPostUrls).toBeGreaterThanOrEqual(1);
+    const evidence = result.candidates.flatMap(candidate => candidate.discoveryEvidence).join(" ");
+    expect(evidence).not.toContain("mn.qwant.com/v2");
+    expect(evidence).not.toContain("api.qwant.com/v3");
+    expect(evidence).not.toContain("dd.qwant.com/tags.js");
+    expect(evidence).not.toContain("chrome.google.com/webstore");
+    expect(result.candidates.every(candidate => candidate.discoveryUrl !== "https://api.qwant.com/v3")).toBe(true);
+  });
+
   it("rejects relevant-looking posts when the author lacks hiring-role evidence", async () => {
     const postUrl = "https://www.linkedin.com/posts/example-user_hiring-frontend-activity-1234567890-test";
     const searchPage = [
