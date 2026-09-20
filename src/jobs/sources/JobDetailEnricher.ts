@@ -44,24 +44,7 @@ export class JobDetailEnricher {
     if ((!force && !shouldEnrich(job.description, job.title, job.source)) || signal?.aborted) return job;
     try {
       const html = await this.fetchDetailPage(job.url, signal);
-      let details = extractJobPostingDetails(html, job.companyName);
-      // Some Himalayas job pages return a shell to direct fetch while the
-      // rendered page contains the numeric experience requirement. Reuse the
-      // existing bounded Jina reader only when the first pass did not expose it.
-      if (isHimalayasJobUrl(job.url) && !containsExplicitExperience(details.description ?? "")) {
-        try {
-          const readerHtml = await fetchViaJinaReader(job.url, signal);
-          const readerDetails = extractJobPostingDetails(readerHtml, job.companyName);
-          if (readerDetails.description || readerDetails.companyDomain) {
-            details = {
-              description: readerDetails.description ?? details.description,
-              companyDomain: readerDetails.companyDomain ?? details.companyDomain
-            };
-          }
-        } catch {
-          // Keep the first-pass detail result when the bounded reader is unavailable.
-        }
-      }
+      const details = extractJobPostingDetails(html, job.companyName);
       if (!details.description && !details.companyDomain) return job;
       return {
         ...job,
@@ -232,15 +215,6 @@ function expandIpv6(address: string): number[] | null {
   return expanded.map((part) => parseInt(part, 16));
 }
 
-function isHimalayasJobUrl(rawUrl: string): boolean {
-  try {
-    const url = new URL(rawUrl);
-    return url.hostname.toLowerCase().replace(/^www\./, "") === "himalayas.app" && /^\/companies\/[a-z0-9-]+\/jobs(?:\/|$)/i.test(url.pathname);
-  } catch {
-    return false;
-  }
-}
-
 async function fetchViaJinaReader(url: string, signal?: AbortSignal): Promise<string> {
   const response = await fetch(`https://r.jina.ai/${url}`, {
     signal,
@@ -260,10 +234,10 @@ function containsExplicitExperience(value: string): boolean {
 function extractJobPostingDetails(html: string, companyName: string): { description: string | null; companyDomain: string | null } {
   let bestDescription: string | null = null;
   let companyDomain: string | null = null;
-  const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)];
+  const scripts = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
   for (const match of scripts) {
-    const json = match[1]?.trim();
-    if (!json || !/^[\[{]/.test(json)) continue;
+    const json = match[1];
+    if (json === undefined) continue;
     let parsed: unknown;
     try { parsed = JSON.parse(decodeHtml(json)); } catch { continue; }
     for (const item of flattenJsonLd(parsed)) {
@@ -290,24 +264,6 @@ function extractJobPostingDetails(html: string, companyName: string): { descript
     if (bodyText && /\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(bodyText)) return { description: bodyText.slice(0, 60_000), companyDomain };
   }
   const plainText = clean(html);
-  if (plainText && /^[\[{]/.test(plainText)) {
-    try {
-      const parsed = JSON.parse(plainText);
-      for (const item of flattenJsonLd(parsed)) {
-        if (!isJobPosting(item)) continue;
-        const description = clean(item.description);
-        const experienceRequirements = extractExperienceRequirement(item.experienceRequirements);
-        const enrichedDescription = experienceRequirements && !containsExplicitExperience(description ?? "")
-          ? `${description ?? ""} Experience requirement: ${experienceRequirements}.`.trim()
-          : description;
-        if (enrichedDescription) {
-          return { description: enrichedDescription, companyDomain: companyDomain ?? extractEmployerDomain(item, companyName) };
-        }
-      }
-    } catch {
-      // Fall through to the existing plain-text experience check.
-    }
-  }
   if (plainText && containsExplicitExperience(plainText)) return { description: plainText.slice(0, 60_000), companyDomain };
   return { description: bestDescription, companyDomain };
 }
