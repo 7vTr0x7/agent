@@ -191,9 +191,12 @@ export async function resolveEmployerDomainFromTrustedJobSource(canonicalUrl: st
         // Ignore malformed external links.
       }
     }
+    // Some rendered/anti-bot variants expose the company website inside escaped JSON.
+    // Normalize escaped slashes before applying the same company-token/domain checks.
+    const searchableHtml = html.replace(/\\u002f/gi, "/").replace(/\\\//g, "/");
     // Some rendered/anti-bot variants expose the company website as text rather
     // than an href. Treat only a company-matching, non-blocked domain as evidence.
-    for (const match of html.matchAll(/(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)+)/gi)) {
+    for (const match of searchableHtml.matchAll(/(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)+)/gi)) {
       const domain = normalizeEmployerHost(match[1] ?? "");
       if (domain && domainMatchesCompany(domain, companyName)) return domain;
     }
