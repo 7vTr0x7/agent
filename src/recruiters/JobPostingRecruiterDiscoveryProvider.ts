@@ -316,7 +316,7 @@ export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryP
           { type: "job_posting" as const, confidence: 100 }
         ],
         discoveryEvidence: [profile.snippet]
-      });
+      } as RecruiterDiscoveryContact);
     }
 
     for (const contact of contacts.values()) {
