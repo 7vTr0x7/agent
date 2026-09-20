@@ -230,8 +230,14 @@ function buildEvidence(text: string, postUrl: string): string {
 function freshness(evidence: string): ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"] {
   if (/\b(?:today|1d|2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo)\b/i.test(evidence)) return "current";
   if (/\b(?:5mo|6mo|7mo|8mo|9mo|10mo|11mo|12mo)\b/i.test(evidence)) return "recent";
+  const years = [...evidence.matchAll(/\b(20\d{2})\b/g)].map(match => Number(match[1])).filter(Number.isFinite);
+  const currentYear = new Date().getFullYear();
+  if (years.some(year => year === currentYear)) return "current";
+  if (years.some(year => year === currentYear - 1)) return "recent";
+  if (years.some(year => year < currentYear - 1)) return "historical";
   return "unknown";
 }
+
 function canonicalIdentityKey(name: string, employer: string, _evidenceKey: string): string {
   return `${name.toLowerCase().replace(/[^a-z0-9]+/g," ").trim()}|${employer.toLowerCase().replace(/[^a-z0-9]+/g," ").trim()}`;
 }
