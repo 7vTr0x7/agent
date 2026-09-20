@@ -38,7 +38,7 @@ export class ProactiveRecruiterDiscoveryService{private readonly matcher=new Pro
       preferredLocations:[...(profile.preferredLocations??[])],
       maxQueries:Math.max(1,Math.min(this.maxQueries,12)),
       signal:this.signal,
-      fetchText:this.fetchText ? async (url,signal) => this.fetchText!(url,signal) : undefined
+      fetchText:this.fetchText ? async (url,signal,headers) => this.fetchText!(url,signal,headers) : undefined
     });
     m.hiringPostDiscovery=hiringPostResult.metrics;
     for(const candidate of hiringPostResult.candidates){
