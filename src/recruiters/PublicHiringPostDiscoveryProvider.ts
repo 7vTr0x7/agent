@@ -422,6 +422,7 @@ export class PublicHiringPostDiscoveryProvider {
       // evidence may supplement it, but must never be the sole hiring/role evidence.
       const identitySearchEvidence = `${post.text} ${post.discoveryText}`;
       let author = extractAuthor(identitySearchEvidence, post.url);
+      if (process.env.PUBLIC_HIRING_POST_DIAGNOSTICS === "true") console.error(JSON.stringify({ event: "public-hiring-author-debug", url: post.url, text: post.text.slice(0, 5000), discoveryText: post.discoveryText.slice(0, 5000), author }));
       let profileText = "";
       let profileUrl = author.profileUrl;
       if (!author.name) {
