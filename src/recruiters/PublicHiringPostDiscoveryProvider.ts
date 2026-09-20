@@ -175,12 +175,12 @@ async function search(query: string, signal?: AbortSignal, fetchTextOverride?: (
 }
 
 function extractPublicEvidenceUrls(text: string): string[] {
-  const urls = [...new Set((text.match(/https?:\/\/[^\s<>"'\\)\\]]+/gi) ?? []).map(canonicalUrl))];
+  const urls = [...new Set((text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []).map(canonicalUrl))];
   return urls.filter(url => {
     try {
-      const host = new URL(url).hostname.toLowerCase().replace(/^www\\./, "");
-      const path = new URL(url).pathname;
-      return !SEARCH_HOSTS.has(host) && !host.endsWith("r.jina.ai") && !host.endsWith("linkedin.com/jobs") && !/^\/in\//i.test(path);
+      const parsed = new URL(url);
+      const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+      return !SEARCH_HOSTS.has(host) && host !== "r.jina.ai" && !host.endsWith("linkedin.com/jobs") && !/^\/in\//i.test(parsed.pathname);
     } catch { return false; }
   });
 }
