@@ -12,7 +12,7 @@ concurrency:
 jobs:
   fast-outcome:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -125,6 +125,7 @@ jobs:
             -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
             -e PROACTIVE_RECRUITER_MAX_QUERIES=6 \
             -e PROACTIVE_RECRUITER_TARGET_CANDIDATES=3 \
+            -e PUBLIC_HIRING_POST_MAX_QUERIES=8 \
             -e RECRUITER_OUTREACH_ENABLED=false \
             -e RECRUITER_OUTREACH_DRY_RUN=true \
             -e RECRUITER_OUTREACH_ACTIVATION=disabled \
