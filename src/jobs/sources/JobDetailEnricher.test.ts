@@ -74,7 +74,7 @@ test("extracts the employer domain from trusted JobPosting hiringOrganization da
 });
 
 test("does not fetch a complete RSS description", async () => {
-  const original = job({ description: "A complete job description without an excerpt marker." });
+  const original = job({ title: "Data Analyst", description: "A complete job description without an excerpt marker." });
   const result = await new JobDetailEnricher().enrich(original);
   expect(global.fetch).not.toHaveBeenCalled();
   expect(result).toEqual(original);
