@@ -147,6 +147,13 @@ function experienceCompatible(text: string, candidateYears = 3): boolean {
   for (const m of minimums) if (candidateYears < Number(m[1])) return false;
   return true;
 }
+function usableDirectEmail(email: string | undefined, employerDomain?: string): boolean {
+  if (!email) return false;
+  const domain = email.split("@")[1]?.toLowerCase();
+  if (!domain || GENERIC_EMAIL_DOMAINS.has(domain)) return false;
+  return !employerDomain || domain === employerDomain.toLowerCase();
+}
+
 function extractDirectEmail(text: string): string | undefined {
   const found = [...new Set((text.match(EMAIL) ?? []).map(v => v.toLowerCase()))];
   return found.find(e => !/^(noreply|no-reply)@/i.test(e));
@@ -335,7 +342,7 @@ export class PublicHiringPostDiscoveryProvider {
               evidenceType: "job_hiring_evidence",
               evidenceDate: new Date().toISOString(),
               evidenceFreshness: freshness(snippet),
-              ...(directEmail ? { email: directEmail } : {}),
+              ...(usableDirectEmail(directEmail, employer.domain) ? { email: directEmail } : {}),
               emailStatus: "UNVERIFIED"
             });
             metrics.publicPostUrls++;
@@ -390,7 +397,7 @@ export class PublicHiringPostDiscoveryProvider {
         evidenceType: "job_hiring_evidence",
         evidenceDate: new Date().toISOString(),
         evidenceFreshness: f,
-        ...(directEmail ? { email: directEmail } : {}),
+        ...(usableDirectEmail(directEmail, employer.domain) ? { email: directEmail } : {}),
         emailStatus: "UNVERIFIED"
       };
       const key = canonicalIdentityKey(author.name, employer.name, post.url);
