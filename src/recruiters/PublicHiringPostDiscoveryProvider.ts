@@ -189,8 +189,8 @@ function freshness(evidence: string): ProactiveRecruiterDiscoveryCandidate["evid
   if (/\b(?:5mo|6mo|7mo|8mo|9mo|10mo|11mo|12mo)\b/i.test(evidence)) return "recent";
   return "unknown";
 }
-function canonicalIdentityKey(name: string, employer: string, postUrl: string): string {
-  return `${name.toLowerCase().replace(/[^a-z0-9]+/g," ").trim()}|${employer.toLowerCase().replace(/[^a-z0-9]+/g," ").trim()}|${canonicalUrl(postUrl)}`;
+function canonicalIdentityKey(name: string, employer: string, _evidenceKey: string): string {
+  return `${name.toLowerCase().replace(/[^a-z0-9]+/g," ").trim()}|${employer.toLowerCase().replace(/[^a-z0-9]+/g," ").trim()}`;
 }
 
 export class PublicHiringPostDiscoveryProvider {
