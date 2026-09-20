@@ -15,6 +15,17 @@ export interface PublicHiringPostDiscoveryMetrics {
   rejectedPosts: number;
   duplicatePosts: number;
   sourceStats: Record<string, { attempted: number; succeeded: number; empty: number; errors: number; posts: number }>;
+  configuredProviders: number;
+  eligibleProviders: number;
+  executedProviders: number;
+  skippedProviders: number;
+  providerFailures: number;
+  providerRateLimited: number;
+  providerBlocked: number;
+  providerTimeouts: number;
+  rawSearchResults: number;
+  normalizedResults: number;
+  deduplicatedResults: number;
 }
 
 export interface PublicHiringPostDiscoveryResult {
@@ -246,24 +257,30 @@ export class PublicHiringPostDiscoveryProvider {
     ];
     const metrics: PublicHiringPostDiscoveryMetrics = {
       queriesGenerated: queries.length + profileQueries.length, queriesExecuted: 0, sourcePagesFetched: 0, publicPostUrls: 0,
+      configuredProviders: 0, eligibleProviders: 0, executedProviders: 0, skippedProviders: 0, providerFailures: 0, providerRateLimited: 0, providerBlocked: 0, providerTimeouts: 0, rawSearchResults: 0, normalizedResults: 0, deduplicatedResults: 0,
       hiringIntentPosts: 0, relevantRolePosts: 0, employersExtracted: 0, authorsExtracted: 0,
       validatedIdentities: 0, directEmails: 0, publiclyDiscoveredEmails: 0, rejectedPosts: 0, duplicatePosts: 0, sourceStats: {}
     };
     const candidates = new Map<string, ProactiveRecruiterDiscoveryCandidate>();
+    const configuredProviderIds = new Set<string>();
     const postEvidence = new Map<string, { url: string; text: string; source: string }>();
 
     for (const query of queries) {
       if (input.signal?.aborted) break;
       metrics.queriesExecuted++;
+      const providersForQuery = configuredSearchProviders(query);
+      for (const provider of providersForQuery) configuredProviderIds.add(provider.id);
       const results = await search(query, input.signal, input.fetchText);
       for (const result of results) {
         metrics.sourcePagesFetched++;
+        metrics.rawSearchResults += (result.text.match(/https?:\/\/[^\s<>"'\\)\\]]+/gi) ?? []).length;
         const stat = metrics.sourceStats[result.source] ?? (metrics.sourceStats[result.source] = { attempted:0,succeeded:0,empty:0,errors:0,posts:0 });
         stat.attempted++; stat.succeeded++;
         const urls = extractPublicEvidenceUrls(result.text);
+        metrics.normalizedResults += urls.length;
         stat.posts += urls.length;
         for (const url of urls) {
-          if (postEvidence.has(url)) { metrics.duplicatePosts++; continue; }
+          if (postEvidence.has(url)) { metrics.duplicatePosts++; metrics.deduplicatedResults++; continue; }
           const evidence = buildEvidence(clean(result.text), url);
           if (!HIRING_INTENT.test(evidence)) continue;
           metrics.hiringIntentPosts++;
@@ -274,6 +291,11 @@ export class PublicHiringPostDiscoveryProvider {
         }
       }
     }
+    metrics.configuredProviders = configuredProviderIds.size;
+    metrics.eligibleProviders = configuredProviderIds.size;
+    metrics.executedProviders = configuredProviderIds.size;
+    metrics.providerFailures = Math.max(0, metrics.eligibleProviders - metrics.executedProviders);
+
     // Public LinkedIn profile pages are a supported indexed-public source. They often expose
     // the author's recent posts even when search engines do not expose the individual post URL.
     for (const query of profileQueries) {
