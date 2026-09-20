@@ -79,7 +79,13 @@ export class ApplicationTaskHandler {
       });
     }
 
-    if (this.recruiterDiscoveryDispatcher && prepared.application.companyDomain && shouldFallbackToRecruiter(outcome)) {
+    if (this.recruiterDiscoveryDispatcher && prepared.application.companyDomain) {
+      const applicationOutcome =
+        outcome.outcome === "CONFIRMED_SUCCESS"
+          ? "SUBMITTED"
+          : outcome.outcome === "DEFINITIVE_FAILURE"
+            ? "FAILED"
+            : "BLOCKED";
       await this.recruiterDiscoveryDispatcher.enqueue({
         companyName: prepared.application.companyName,
         companyDomain: prepared.application.companyDomain,
@@ -92,9 +98,17 @@ export class ApplicationTaskHandler {
         candidateLocation: candidateProfile.location,
         jobOpportunityId: prepared.application.jobOpportunityId,
         applicationId: prepared.application.applicationId,
-        applicationOutcome: outcome.outcome === "DEFINITIVE_FAILURE" ? "FAILED" : "BLOCKED"
+        applicationOutcome
       });
-      console.log(JSON.stringify({ level: 30, applicationId: prepared.application.applicationId, jobOpportunityId: prepared.application.jobOpportunityId, companyName: prepared.application.companyName, reason: outcome.reason, msg: "Application safely blocked; recruiter fallback queued" }));
+      console.log(JSON.stringify({
+        level: 30,
+        applicationId: prepared.application.applicationId,
+        jobOpportunityId: prepared.application.jobOpportunityId,
+        companyName: prepared.application.companyName,
+        applicationOutcome,
+        reason: outcome.reason,
+        msg: "Recruiter follow-through queued after application outcome"
+      }));
     }
 
     if (!this.emailDispatcher || !candidateProfile.email) return;
@@ -103,11 +117,4 @@ export class ApplicationTaskHandler {
     if (outcome.outcome === "CONFIRMED_SUCCESS") await this.emailDispatcher.enqueueApplicationSubmitted(context);
     else await this.emailDispatcher.enqueueApplicationBlocked(context);
   }
-}
-
-function shouldFallbackToRecruiter(outcome: ApplicationSubmissionOutcome): boolean {
-  if (outcome.outcome === "AMBIGUOUS" || outcome.outcome === "CONFIRMED_SUCCESS") return false;
-  const reason = outcome.reason.toLowerCase();
-  if (/(?:excluded|duplicate|already exists|already applied|application has already been completed|task lease ownership was lost)/i.test(reason)) return false;
-  return /(unsupported|catalog_only|manual review|captcha|human-verification|authentication|mfa|two-factor|bot|security challenge|application adapter|application url|redirect|required .*field|assessment|sensitive|could not be handled safely|not attempted|could not be completed)/i.test(reason);
 }
