@@ -208,6 +208,16 @@ test("keeps the same normalized identity when the same RSS job is enriched twice
   expect(global.fetch).toHaveBeenCalledTimes(2);
 });
 
+test("enriches a high-risk senior role even when the feed exposes a lower numeric requirement", async () => {
+  jest.mocked(global.fetch).mockResolvedValue(response("<html><main><h1>Senior Frontend Engineer</h1><p>At least 7 years of professional software engineering experience.</p></main></html>"));
+  const result = await new JobDetailEnricher().enrich(job({
+    title: "Senior Frontend Engineer",
+    description: "React frontend engineer with 3+ years of experience."
+  }));
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  expect(result.description).toContain("7 years");
+});
+
 test("enriches target-like complete summaries when numeric experience is absent", () => {
   expect(shouldEnrich("React frontend engineer with responsibilities and requirements.", "Senior Frontend Engineer")).toBe(true);
   expect(shouldEnrich("React frontend engineer with 3+ years of experience.", "Senior Frontend Engineer")).toBe(false);
