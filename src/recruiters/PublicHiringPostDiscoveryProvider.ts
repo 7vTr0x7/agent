@@ -332,6 +332,8 @@ export class PublicHiringPostDiscoveryProvider {
             if (!AUTHOR_ROLE.test(profileText) && !explicitAction) continue;
             metrics.authorsExtracted++;
             metrics.validatedIdentities++;
+            const evidenceFreshness = freshness(snippet);
+            if (evidenceFreshness === "unknown") continue;
             const key = canonicalIdentityKey(authorName, employer.name, profileUrl + "|" + snippet.slice(0, 220));
             if (candidates.has(key)) { metrics.duplicatePosts++; continue; }
             candidates.set(key, {
@@ -348,7 +350,7 @@ export class PublicHiringPostDiscoveryProvider {
               discoveryEvidence: [snippet.slice(0, 5000), profileText.slice(0, 1800)].filter(Boolean),
               evidenceType: "job_hiring_evidence",
               evidenceDate: new Date().toISOString(),
-              evidenceFreshness: freshness(snippet),
+              evidenceFreshness,
               ...(usableDirectEmail(directEmail, employer.domain) ? { email: directEmail } : {}),
               emailStatus: "UNVERIFIED"
             });
@@ -389,6 +391,7 @@ export class PublicHiringPostDiscoveryProvider {
       const emailDomain = directEmail?.split("@")[1]?.toLowerCase();
       const domain = employer.domain ?? emailDomain;
       const f = freshness(post.text);
+      if (f === "unknown") { metrics.rejectedPosts++; continue; }
       const candidate: ProactiveRecruiterDiscoveryCandidate = {
         recruiterName: author.name,
         recruiterRole: identityEvidence.match(AUTHOR_ROLE)?.[0] ?? "Hiring Lead",
