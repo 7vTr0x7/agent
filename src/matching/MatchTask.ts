@@ -5,7 +5,7 @@ import { MatchPipeline } from "./MatchPipeline";
 import { JobRankingService } from "../jobs/policy/JobRankingService";
 import { ApplicationTaskDispatcher } from "../applications/ApplicationTask";
 import { RecruiterDiscoveryTaskDispatcher } from "../recruiters/RecruiterDiscoveryTask";
-import { resolveEmployerDomainFromJobData, resolveEmployerDomainFromPublicSearch } from "../recruiters/RecruiterCompanyDomainResolver";
+import { resolveEmployerDomainFromJobData, resolveEmployerDomainFromPublicSearch, resolveEmployerDomainFromTrustedJobSource } from "../recruiters/RecruiterCompanyDomainResolver";
 import { PERMANENTLY_EXCLUDED_COMPANIES } from "../applications/ApplicationPolicy";
 import { AppConfig } from "../config/env";
 
@@ -90,7 +90,7 @@ export class MatchTaskHandler {
       recruiterDispatchDiagnostic(job, "JOB_DATA_DOMAIN_FAILED_COMPANY_MATCH", { companyDomain });
       companyDomain = null;
     }
-    if (!companyDomain && process.env.RECRUITER_PUBLIC_DOMAIN_SEARCH_ENABLED !== "false") {
+    if (!companyDomain) {\n      companyDomain = await resolveEmployerDomainFromTrustedJobSource(job.canonicalUrl, job.companyName);\n      recruiterDispatchDiagnostic(job, companyDomain ? "TRUSTED_JOB_SOURCE_DOMAIN_RESOLVED" : "TRUSTED_JOB_SOURCE_DOMAIN_UNRESOLVED", { companyDomain });\n    }\n    if (!companyDomain && process.env.RECRUITER_PUBLIC_DOMAIN_SEARCH_ENABLED !== "false") {
       companyDomain = await resolveEmployerDomainFromPublicSearch(job.companyName);
       recruiterDispatchDiagnostic(job, companyDomain ? "PUBLIC_SEARCH_DOMAIN_RESOLVED" : "PUBLIC_SEARCH_DOMAIN_UNRESOLVED", { companyDomain });
     }
