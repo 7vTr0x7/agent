@@ -1,4 +1,5 @@
 import { PublicHiringPostDiscoveryProvider } from "./PublicHiringPostDiscoveryProvider";
+import { sourceList } from "./PublicSearchProviderRegistry";
 
 describe("PublicHiringPostDiscoveryProvider", () => {
   const originalFetch = global.fetch;
