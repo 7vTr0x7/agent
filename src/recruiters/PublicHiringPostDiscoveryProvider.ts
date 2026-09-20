@@ -107,7 +107,10 @@ function extractEmployer(text: string, email?: string, profileText?: string): { 
     /([A-Z][A-Za-z0-9&.' -]{2,80})\s+(?:is|are)\s+(?:hiring|looking for)/i
   ];
   let name: string | undefined;
+  const profileEmployer = profileText?.match(/(?:^|\n)[^\n-]{2,100}\s+-\s+([A-Z][A-Za-z0-9&.' -]{2,80})\s+\|\s+LinkedIn/i)?.[1]?.trim();
+  if (profileEmployer) name = profileEmployer;
   for (const p of patterns) {
+    if (name) break;
     const m = haystack.match(p)?.[1]?.trim().replace(/[|•,.-]+$/, "").trim();
     if (m && m.length >= 3 && !/^(a|an|the|our|my|your|this|frontend|react|javascript|typescript)$/i.test(m)) { name = m; break; }
   }
