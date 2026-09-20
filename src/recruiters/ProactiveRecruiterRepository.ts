@@ -15,7 +15,7 @@ export class ProactiveRecruiterRepository {
     // through the existing conservative public-search resolver, which requires
     // independent public evidence and never guesses from the company name.
     const employerName = candidate.employer.trim();
-    const domain = normalizeDomain(candidate.employerDomain) || (employerName ? await resolveEmployerDomainFromPublicSearch(employerName) : "");
+    const domain = normalizeDomain(candidate.employerDomain ?? "") || (employerName ? await resolveEmployerDomainFromPublicSearch(employerName) : "");
     if (!domain) return null;
     const email = candidate.email?.trim().toLowerCase() || null;
     if (email && email.split("@")[1]?.toLowerCase() !== domain) return null;
