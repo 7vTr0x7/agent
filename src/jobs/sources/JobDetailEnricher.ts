@@ -260,10 +260,10 @@ function containsExplicitExperience(value: string): boolean {
 function extractJobPostingDetails(html: string, companyName: string): { description: string | null; companyDomain: string | null } {
   let bestDescription: string | null = null;
   let companyDomain: string | null = null;
-  const scripts = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
+  const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)];
   for (const match of scripts) {
-    const json = match[1];
-    if (json === undefined) continue;
+    const json = match[1]?.trim();
+    if (!json || !/^[\[{]/.test(json)) continue;
     let parsed: unknown;
     try { parsed = JSON.parse(decodeHtml(json)); } catch { continue; }
     for (const item of flattenJsonLd(parsed)) {
