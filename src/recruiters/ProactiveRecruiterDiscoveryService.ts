@@ -32,7 +32,6 @@ export class ProactiveRecruiterDiscoveryService{private readonly matcher=new Pro
     const hiringPostResult=await new PublicHiringPostDiscoveryProvider().discover({
       targetRoles:[...(profile.targetRoles??[])],
       skills:[...(profile.skills??[])],
-      location:profile.location,
       preferredLocations:[...(profile.preferredLocations??[])],
       maxQueries:Math.max(4,Math.min(this.maxQueries,12)),
       signal:this.signal,
