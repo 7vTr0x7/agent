@@ -123,6 +123,9 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(evidence).not.toContain("dd.qwant.com/tags.js");
     expect(evidence).not.toContain("chrome.google.com/webstore");
     expect(result.candidates.every(candidate => candidate.discoveryUrl !== "https://api.qwant.com/v3")).toBe(true);
+    expect(result.candidates.every(candidate => candidate.discoveryUrl !== "https://www.qwantjunior.com")).toBe(true);
+    expect(result.candidates.every(candidate => candidate.discoveryUrl !== "https://about.qwant.com/en")).toBe(true);
+    expect(result.candidates.every(candidate => candidate.discoveryUrl !== "https://www.welcometothejungle.com/en/companies/qwant")).toBe(true);
   });
 
   it("rejects relevant-looking posts when the author lacks hiring-role evidence", async () => {
