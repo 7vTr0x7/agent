@@ -33,7 +33,7 @@ export class ProactiveRecruiterDiscoveryService{private readonly matcher=new Pro
       targetRoles:[...(profile.targetRoles??[])],
       skills:[...(profile.skills??[])],
       preferredLocations:[...(profile.preferredLocations??[])],
-      maxQueries:Math.max(4,Math.min(this.maxQueries,12)),
+      maxQueries:Math.max(1,Math.min(this.maxQueries,12)),
       signal:this.signal,
       fetchText:this.fetchText ? async (url,signal) => this.fetchText!(url,signal) : undefined
     });
