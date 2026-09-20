@@ -112,6 +112,31 @@ export class ProactiveRecruiterRepository {
     );
 
     await this.database.query(
+      `UPDATE recruiter_contacts
+       SET relevance_score=GREATEST(COALESCE(relevance_score,0),$2),
+           relevance_evidence=$3::jsonb,
+           updated_at=NOW()
+       WHERE id=$1`,
+      [
+        id,
+        Math.round(Math.min(100, candidate.roleMatchScore * 0.6 + candidate.hiringEvidenceScore * 0.4)),
+        JSON.stringify({
+          type: candidate.evidenceType,
+          source: candidate.discoverySource,
+          postUrl: candidate.discoveryUrl,
+          author: candidate.recruiterName,
+          authorRole: candidate.recruiterRole,
+          employer: candidate.employer,
+          employerDomain: domain,
+          targetRoles: candidate.targetRoles,
+          hiringEvidenceScore: candidate.hiringEvidenceScore,
+          evidenceFreshness: candidate.evidenceFreshness,
+          evidence: candidate.discoveryEvidence
+        })
+      ]
+    );
+
+    await this.database.query(
       `INSERT INTO recruiter_proactive_evidence (recruiter_contact_id,candidate_profile_id,target_roles,role_match_score,hiring_evidence_score,overall_confidence,evidence_type,evidence_freshness,evidence_date,discovery_source,discovery_url,discovery_evidence)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        ON CONFLICT (recruiter_contact_id,candidate_profile_id,discovery_url) DO UPDATE SET
