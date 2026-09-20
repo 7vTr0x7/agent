@@ -101,7 +101,7 @@ function extractAuthor(text: string, postUrl: string): { name?: string; profileU
 function extractEmployer(text: string, email?: string, profileText?: string): { name?: string; domain?: string } {
   const haystack = [text, profileText ?? ""].join(" ");
   const emailDomain = email?.split("@")[1]?.toLowerCase();
-  const strongAt = haystack.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\s*(?:is|are|we|for|with|and|on|in|from|-|—|\||,|\.|$))/i)?.[1]?.trim();
+  const strongAt = haystack.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80})(?=\s*[.!?](?:\s|$)|\s+(?:Location|Experience|Skills?)\s*:|$)/i)?.[1]?.trim();
   const linkedinEmployer = haystack.match(/(?:^|\n)[^\n]{1,120}?\s+-\s+([A-Z][A-Za-z0-9&.' -]{2,80})\s+\|\s+LinkedIn/i)?.[1]?.trim();
   const hiringEmployer = haystack.match(/([A-Z][A-Za-z0-9&.' -]{2,80})\s+(?:is|are)\s+(?:hiring|looking for)/i)?.[1]?.trim();
   let name = strongAt || linkedinEmployer || hiringEmployer;
