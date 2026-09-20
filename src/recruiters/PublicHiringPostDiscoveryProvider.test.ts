@@ -55,7 +55,8 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(result.metrics.validatedIdentities).toBe(1);
     expect(result.metrics.directEmails).toBe(1);
     expect(result.candidates).toHaveLength(1);
-    expect(result.candidates[0]).toMatchObject({
+    const candidate = result.candidates[0]!;
+    expect(candidate).toMatchObject({
       recruiterName: "Nikhil Pandey",
       employer: "Synergy Talent Enterprise",
       employerDomain: "synergytalententerprise.com",
@@ -64,8 +65,8 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       evidenceType: "job_hiring_evidence",
       discoveryUrl: postUrl,
     });
-    expect(result.candidates[0].discoveryEvidence.join(" ")).toContain("We're Hiring");
-    expect(result.candidates[0].discoveryEvidence.join(" ")).toContain("hr@synergytalententerprise.com");
+    expect(candidate.discoveryEvidence.join(" ")).toContain("We're Hiring");
+    expect(candidate.discoveryEvidence.join(" ")).toContain("hr@synergytalententerprise.com");
   });
 
   it("rejects relevant-looking posts when the author lacks hiring-role evidence", async () => {
