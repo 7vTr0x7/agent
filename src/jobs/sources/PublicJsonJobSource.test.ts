@@ -37,6 +37,24 @@ describe("PublicJsonJobSource", () => {
     });
   });
 
+  it("preserves an explicit Himalayas experience field in matcher-visible description text", async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      jobs: [{
+        guid: "h-exp",
+        title: "Senior Frontend Engineer",
+        companyName: "Example India",
+        applicationLink: "https://himalayas.app/jobs/h-exp",
+        locationRestrictions: ["India"],
+        experience: "7+ years",
+        description: "React and TypeScript"
+      }]
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+
+    const jobs = await new PublicJsonJobSource("himalayas", "https://himalayas.app/jobs/api").fetchJobs();
+
+    expect(jobs[0]?.description).toContain("Experience requirement: 7+ years.");
+  });
+
   it("passes normalized public jobs through the existing detail enricher when configured", async () => {
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
       jobs: [{
