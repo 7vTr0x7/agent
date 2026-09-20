@@ -6,6 +6,7 @@ import { RecruiterOutreachSendTaskDispatcher } from "../src/recruiters/Recruiter
 import { ProactiveRecruiterDiscoveryService } from "../src/recruiters/ProactiveRecruiterDiscoveryService";
 import { ProactiveRecruiterRepository } from "../src/recruiters/ProactiveRecruiterRepository";
 import { ProactiveRecruiterTaskHandler } from "../src/recruiters/ProactiveRecruiterTaskHandler";
+import { PublicHiringPostDiscoveryProvider } from "../src/recruiters/PublicHiringPostDiscoveryProvider";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -34,6 +35,15 @@ async function main(): Promise<void> {
       { enabled: true, sendEnabled: false, maxCandidatesPerRun: config.proactiveRecruiter.maxCandidatesPerRun, requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail },
       logger
     );
+    const hiringPostDiscovery = new PublicHiringPostDiscoveryProvider();
+    const hiringPostPromise = hiringPostDiscovery.discover({
+      targetRoles: [...profile.targetTitles],
+      skills: [...profile.skills],
+      location: profile.location,
+      preferredLocations: (process.env.CANDIDATE_PREFERRED_LOCATIONS ?? "Bengaluru,Bangalore,India,Remote").split(",").map((value) => value.trim()).filter(Boolean),
+      maxQueries: Number.parseInt(process.env.PUBLIC_HIRING_POST_MAX_QUERIES ?? "8", 10)
+    });
+
     await handler.handleDiscovery({
       candidateProfileId: profile.id,
       candidateName: profile.fullName ?? ([profile.firstName, profile.lastName].filter(Boolean).join(" ") || undefined),
@@ -44,7 +54,15 @@ async function main(): Promise<void> {
       preferredLocations: (process.env.CANDIDATE_PREFERRED_LOCATIONS ?? "Bengaluru,Bangalore,India,Remote").split(",").map((value) => value.trim()).filter(Boolean),
       remoteEligible: process.env.CANDIDATE_REMOTE_ELIGIBLE !== "false",
       maxCandidates: config.proactiveRecruiter.maxCandidatesPerRun
-    });
+    }));
+
+    const hiringPostResult = await hiringPostPromise;
+    const hiringPostPersisted: string[] = [];
+    const hiringPostRepository = new ProactiveRecruiterRepository(database);
+    for (const candidate of hiringPostResult.candidates) {
+      const id = await hiringPostRepository.persistCandidate(profile.id, candidate);
+      if (id) hiringPostPersisted.push(id);
+    }
     const metrics = discovery.getLastRunMetrics();
     const operationalStatus = "SUCCESS";
     const discoveryStatus = metrics.finalDiscovered > 0 ? "CANDIDATES_DISCOVERED" : "NO_CANDIDATES";
