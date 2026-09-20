@@ -215,7 +215,10 @@ function isLegitimatePublicResultUrl(value: string, infrastructureHosts: Set<str
 function isSafePublicDestinationUrl(value: string): boolean {
   try {
     const u = new URL(value);
+    const decoded = decodeURIComponent(value);
     if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    if (/\/https?:\/\//i.test(decoded) || /https?:\/\/.*\/https?:\/\//i.test(decoded)) return false;
+    if (/%3a%2f%2f/i.test(value) && /(?:^|\/)https?:/i.test(decoded)) return false;
     const host = u.hostname.toLowerCase();
     if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return false;
     if (/^127\.|^10\.|^192\.168\.|^169\.254\.|^0\./.test(host)) return false;
