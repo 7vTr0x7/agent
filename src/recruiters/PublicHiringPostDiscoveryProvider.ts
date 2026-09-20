@@ -122,11 +122,15 @@ function extractRole(text: string): { role?: string; score: number; terms: strin
   score = Math.min(100, score + Math.min(25, skillHits.length * 5));
   return { role: terms[0], score, terms };
 }
-function experienceCompatible(text: string): boolean {
+function experienceCompatible(text: string, candidateYears = 3): boolean {
   const ranges = [...text.matchAll(/(\d+)\s*(?:-|to|–|—)\s*(\d+)\s*years?/gi)];
-  for (const m of ranges) if (Number(m[1]) > 3) return false;
+  for (const m of ranges) {
+    const min = Number(m[1]);
+    const max = Number(m[2]);
+    if (candidateYears < min || candidateYears > max) return false;
+  }
   const minimums = [...text.matchAll(/(?:\b|\D)(\d+)\s*\+\s*years?/gi)];
-  for (const m of minimums) if (Number(m[1]) > 3) return false;
+  for (const m of minimums) if (candidateYears < Number(m[1])) return false;
   return true;
 }
 function extractDirectEmail(text: string): string | undefined {
