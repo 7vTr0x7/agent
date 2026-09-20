@@ -320,8 +320,9 @@ export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryP
     }
 
     for (const contact of contacts.values()) {
-      if (!contact.email) continue;
-      const match = linkedinProfiles.find((profile) => isStrongNameEmailMatch(contact.email, profile.name));
+      const email = contact.email;
+      if (!email) continue;
+      const match = linkedinProfiles.find((profile) => isStrongNameEmailMatch(email, profile.name));
       if (!match) continue;
       contact.fullName = match.name;
       contact.title = match.title || "Recruiting / Talent Acquisition";
