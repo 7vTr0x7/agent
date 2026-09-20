@@ -1,4 +1,5 @@
 import type { ProactiveRecruiterDiscoveryCandidate } from "./ProactiveRecruiterDiscoveryService";
+import { sourceList, SourceId } from "./PublicSearchProviderRegistry";
 
 export interface PublicHiringPostDiscoveryMetrics {
   queriesGenerated: number;
@@ -161,30 +162,10 @@ async function fetchText(url: string, signal?: AbortSignal, timeoutMs = 6500): P
   } catch { return null; }
   finally { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); }
 }
-type SearchProvider = { id: string; url: string; headers?: Record<string,string> };
 
-function configuredSearchProviders(query: string): SearchProvider[] {
-  const q = encodeURIComponent(query);
-  const providers: SearchProvider[] = [
-    { id: "google-jina", url: `https://r.jina.ai/https://www.google.com/search?q=${q}&gbv=1` },
-    { id: "bing-jina", url: `https://r.jina.ai/https://www.bing.com/search?q=${q}` },
-    { id: "duckduckgo-jina", url: `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${q}` },
-    { id: "startpage-jina", url: `https://r.jina.ai/https://www.startpage.com/sp/search?query=${q}` },
-    { id: "ecosia-jina", url: `https://r.jina.ai/https://www.ecosia.org/search?q=${q}` },
-    { id: "brave-direct", url: `https://search.brave.com/search?q=${q}&source=web` },
-    { id: "mojeek-direct", url: `https://www.mojeek.com/search?q=${q}` },
-    { id: "qwant-direct", url: `https://www.qwant.com/?q=${q}&t=web` },
-    { id: "yahoo-direct", url: `https://search.yahoo.com/search?p=${q}` }
-  ];
-  if (process.env.JINA_API_KEY?.trim()) providers.push({ id: "jina-search", url: `https://s.jina.ai/${q}`, headers: { authorization: `Bearer ${process.env.JINA_API_KEY.trim()}` } });
-  if (process.env.BRAVE_SEARCH_API_KEY?.trim()) providers.push({ id: "brave-api", url: `https://api.search.brave.com/res/v1/web/search?q=${q}&count=20&extra_snippets=true`, headers: { "x-subscription-token": process.env.BRAVE_SEARCH_API_KEY.trim(), accept: "application/json" } });
-  if (process.env.MOJEEK_API_KEY?.trim()) providers.push({ id: "mojeek-api", url: `https://api.mojeek.com/search?q=${q}&api_key=${encodeURIComponent(process.env.MOJEEK_API_KEY.trim())}&fmt=json&t=20`, headers: { accept: "application/json" } });
-  return providers;
-}
-
-async function search(query: string, signal?: AbortSignal, fetchTextOverride?: (url: string, signal?: AbortSignal, headers?: Record<string,string>) => Promise<string | null>): Promise<Array<{ source: string; text: string }>> {
-  const results: Array<{ source: string; text: string }> = [];
-  for (const provider of configuredSearchProviders(query)) {
+async function search(query: string, signal?: AbortSignal, fetchTextOverride?: (url: string, signal?: AbortSignal, headers?: Record<string,string>) => Promise<string | null>): Promise<Array<{ source: SourceId; text: string }>> {
+  const results: Array<{ source: SourceId; text: string }> = [];
+  for (const provider of sourceList(query)) {
     if (signal?.aborted) break;
     const text = await (fetchTextOverride ? fetchTextOverride(provider.url, signal, provider.headers) : fetchText(provider.url, signal));
     if (text) results.push({ source: provider.id, text });
