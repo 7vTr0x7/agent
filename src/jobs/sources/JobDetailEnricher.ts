@@ -244,9 +244,13 @@ function extractJobPostingDetails(html: string, companyName: string): { descript
       if (!isJobPosting(item)) continue;
       companyDomain ??= extractEmployerDomain(item, companyName);
       const description = clean(item.description);
-      if (!description) continue;
-      bestDescription ??= description;
-      if (/\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(description)) return { description, companyDomain };
+      const experienceRequirements = extractExperienceRequirement(item.experienceRequirements);
+      const enrichedDescription = experienceRequirements && !containsExplicitExperience(description ?? "")
+        ? `${description ?? ""} Experience requirement: ${experienceRequirements}.`.trim()
+        : description;
+      if (!enrichedDescription) continue;
+      bestDescription ??= enrichedDescription;
+      if (containsExplicitExperience(enrichedDescription)) return { description: enrichedDescription, companyDomain };
     }
   }
   const mainMatch = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
@@ -264,7 +268,7 @@ function extractJobPostingDetails(html: string, companyName: string): { descript
   return { description: bestDescription, companyDomain };
 }
 
-interface JobPostingJsonLd { "@type"?: string | string[]; description?: string; hiringOrganization?: { name?: string; url?: string } | Array<{ name?: string; url?: string }>; }
+interface JobPostingJsonLd { "@type"?: string | string[]; description?: string; experienceRequirements?: string | { text?: string; value?: string; minValue?: number; maxValue?: number; unitText?: string }; hiringOrganization?: { name?: string; url?: string } | Array<{ name?: string; url?: string }>; }
 function flattenJsonLd(value: unknown): JobPostingJsonLd[] {
   if (Array.isArray(value)) return value.flatMap(flattenJsonLd);
   if (!value || typeof value !== "object") return [];
@@ -277,6 +281,18 @@ function isJobPosting(item: JobPostingJsonLd): boolean {
   return Array.isArray(type) ? type.some((entry) => entry.toLowerCase() === "jobposting") : type?.toLowerCase() === "jobposting";
 }
 
+function extractExperienceRequirement(value: JobPostingJsonLd["experienceRequirements"]): string | null {
+  if (typeof value === "string") return clean(value);
+  if (!value || typeof value !== "object") return null;
+  if (typeof value.text === "string" && value.text.trim()) return clean(value.text);
+  if (typeof value.value === "string" && value.value.trim()) return clean(value.value);
+  if (typeof value.minValue === "number" && Number.isFinite(value.minValue)) {
+    const unit = typeof value.unitText === "string" && value.unitText.trim() ? value.unitText.trim() : "years";
+    const max = typeof value.maxValue === "number" && Number.isFinite(value.maxValue) ? `-${value.maxValue}` : "+";
+    return `${value.minValue}${max} ${unit}`;
+  }
+  return null;
+}
 function extractEmployerDomain(item: JobPostingJsonLd, companyName: string): string | null {
   const organization = Array.isArray(item.hiringOrganization) ? item.hiringOrganization[0] : item.hiringOrganization;
   const rawUrl = organization?.url?.trim();
