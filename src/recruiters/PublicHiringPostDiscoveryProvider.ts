@@ -333,19 +333,19 @@ export class PublicHiringPostDiscoveryProvider {
       let profileText = "";
       let profileUrl = author.profileUrl;
       if (!profileUrl || !profileText) {
-        const profileSearch = await search(`site:linkedin.com/in "${author.name}"`, input.signal);
+        const profileSearch = await search(`site:linkedin.com/in "${author.name}"`, input.signal, input.fetchText);
         for (const result of profileSearch) {
           profileUrl = profileUrl ?? extractProfileUrlFromSearch(result.text, author.name);
           profileText += " " + result.text;
         }
       }
-      if (profileUrl && !profileText) profileText = clean(await fetchText(profileUrl, input.signal, 5000) ?? "");
+      if (profileUrl && !profileText) profileText = clean(await (input.fetchText ? input.fetchText(profileUrl, input.signal) : fetchText(profileUrl, input.signal, 5000)) ?? "");
       const employer = extractEmployer(post.text, directEmail, profileText);
       if (!employer.name) { metrics.rejectedPosts++; continue; }
       metrics.employersExtracted++;
       const identityEvidence = `${post.text} ${profileText}`;
       const explicitHiringContact = AUTHOR_ROLE.test(identityEvidence) ||
-        /(?:my team|our team|i['’]?m hiring|i am hiring|join (?:our|my) team|send (?:your|me your) resume|dm me|reach out to me|apply here|apply now)/i.test(post.text);
+        /(?:my team|our team|i['’]?m hiring|i am hiring|join (?:our|my) team|send (?:your|me your) resume|reach out to me|apply here|apply now)/i.test(post.text);
       if (!explicitHiringContact) { metrics.rejectedPosts++; continue; }
       metrics.validatedIdentities++;
       const extractedRole = extractRole(post.text);
