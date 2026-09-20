@@ -54,7 +54,7 @@ async function main(): Promise<void> {
       preferredLocations: (process.env.CANDIDATE_PREFERRED_LOCATIONS ?? "Bengaluru,Bangalore,India,Remote").split(",").map((value) => value.trim()).filter(Boolean),
       remoteEligible: process.env.CANDIDATE_REMOTE_ELIGIBLE !== "false",
       maxCandidates: config.proactiveRecruiter.maxCandidatesPerRun
-    }));
+    });
 
     const hiringPostResult = await hiringPostPromise;
     const hiringPostPersisted: string[] = [];
