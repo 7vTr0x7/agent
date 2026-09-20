@@ -92,3 +92,5 @@ describe("ProactiveRecruiterDiscoveryService rejected-candidate diagnostics", ()
   });
 
 });
+
+// Public recruiter acquisition regression coverage remains intentionally network-independent.
