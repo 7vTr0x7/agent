@@ -28,6 +28,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       "<title>We're Hiring | Frontend Developer – React.js</title>",
       "Nikhil Pandey’s Post",
       "Nikhil Pandey",
+      "HR professional | Talent acquisition | hiring contact",
       "2d",
       "We're Hiring | Frontend Developer – React.js",
       "We are looking for a Frontend Developer – React.js at Synergy Talent Enterprise.",
