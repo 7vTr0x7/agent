@@ -259,7 +259,7 @@ export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryP
     );
     for (const email of namedProfileEmails) searchEmails.push(email);
     const sources = [{ url: "job-description", text: input.jobDescription }, ...pages];
-    const contacts = new Map<string, RecruiterContactCandidate>();
+    const contacts = new Map<string, RecruiterDiscoveryContact>();
 
     for (const source of sources) {
       const normalizedText = normalizeObfuscatedEmails(source.text ?? "");
@@ -320,6 +320,7 @@ export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryP
     }
 
     for (const contact of contacts.values()) {
+      if (!contact.email) continue;
       const match = linkedinProfiles.find((profile) => isStrongNameEmailMatch(contact.email, profile.name));
       if (!match) continue;
       contact.fullName = match.name;
