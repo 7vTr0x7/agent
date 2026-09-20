@@ -1,6 +1,7 @@
 import {
   resolveEmployerDomainFromJobData,
-  resolveEmployerDomainFromJobUrl
+  resolveEmployerDomainFromJobUrl,
+  resolveEmployerDomainFromTrustedJobSource
 } from "./RecruiterCompanyDomainResolver";
 
 describe("RecruiterCompanyDomainResolver", () => {
