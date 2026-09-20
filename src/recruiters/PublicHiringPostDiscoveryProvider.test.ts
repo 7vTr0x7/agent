@@ -53,6 +53,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       });
     }) as typeof fetch;
 
+    process.env.PUBLIC_HIRING_POST_DIAGNOSTICS = "true";
     const provider = new PublicHiringPostDiscoveryProvider();
     const result = await provider.discover({
       targetRoles: ["Frontend Engineer", "Frontend Developer", "React Developer"],
