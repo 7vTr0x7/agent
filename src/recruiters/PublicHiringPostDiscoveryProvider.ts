@@ -29,6 +29,7 @@ export interface PublicHiringPostDiscoveryInput {
   preferredLocations?: string[];
   maxQueries?: number;
   signal?: AbortSignal;
+  fetchText?: (url: string, signal?: AbortSignal) => Promise<string | null>;
 }
 
 const HIRING_INTENT = /(?:we['’]?re\s+hiring|we\s+are\s+hiring|my\s+team\s+is\s+hiring|we['’]?re\s+looking\s+for|we\s+are\s+looking\s+for|looking\s+for\s+(?:a|an)?\s*(?:frontend|front-end|react|next\.js|javascript|typescript|software|full[ -]?stack)\s*(?:developer|engineer|developers|engineers)|hiring\s+(?:for\s+)?(?:a\s+)?(?:frontend|front-end|react|next\.js|javascript|typescript|software|full[ -]?stack)|join\s+(?:our|my)\s+team|send\s+(?:your|me\s+your)\s+(?:resume|cv)|share\s+your\s+(?:resume|cv)|dm\s+(?:me|us)\s+(?:if|for)|reach\s+out\s+(?:with|to)|apply\s+(?:here|now)|referrals?\s+welcome|know\s+someone\s+who)/i;
@@ -153,7 +154,7 @@ async function fetchText(url: string, signal?: AbortSignal, timeoutMs = 6500): P
   } catch { return null; }
   finally { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); }
 }
-async function search(query: string, signal?: AbortSignal): Promise<Array<{ source: string; text: string }>> {
+async function search(query: string, signal?: AbortSignal, fetchTextOverride?: (url: string, signal?: AbortSignal) => Promise<string | null>): Promise<Array<{ source: string; text: string }>> {
   const q = encodeURIComponent(query);
   const sources: Array<[string,string]> = [
     ["google", `https://r.jina.ai/https://www.google.com/search?q=${q}&gbv=1`],
@@ -164,7 +165,7 @@ async function search(query: string, signal?: AbortSignal): Promise<Array<{ sour
   const results: Array<{ source: string; text: string }> = [];
   for (const [source, url] of sources) {
     if (signal?.aborted) break;
-    const text = await fetchText(url, signal);
+    const text = await (fetchTextOverride ? fetchTextOverride(url, signal) : fetchText(url, signal));
     if (text) results.push({ source, text });
   }
   return results;
@@ -250,7 +251,7 @@ export class PublicHiringPostDiscoveryProvider {
     for (const query of queries) {
       if (input.signal?.aborted) break;
       metrics.queriesExecuted++;
-      const results = await search(query, input.signal);
+      const results = await search(query, input.signal, input.fetchText);
       for (const result of results) {
         metrics.sourcePagesFetched++;
         const stat = metrics.sourceStats[result.source] ?? (metrics.sourceStats[result.source] = { attempted:0,succeeded:0,empty:0,errors:0,posts:0 });
@@ -279,7 +280,7 @@ export class PublicHiringPostDiscoveryProvider {
         const profileUrls = extractProfileUrls(result.text);
         for (const profileUrl of profileUrls) {
           if (profileUrl.includes("/pub/dir/")) continue;
-          const profileText = clean(await fetchText(profileUrl, input.signal, 6500) ?? "");
+          const profileText = clean(await (input.fetchText ? input.fetchText(profileUrl, input.signal) : fetchText(profileUrl, input.signal, 6500)) ?? "");
           if (!profileText) continue;
           const authorName = extractProfileName(profileText, profileUrl);
           if (!authorName) continue;
