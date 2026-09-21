@@ -38,9 +38,25 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(service.getLastRunMetrics().profilesParsed).toBeGreaterThan(0);
   });
 
+  it("extracts a LinkedIn public profile from a search-result HTML href before profile fetch", async () => {
+    const target = "https://www.linkedin.com/in/jane-doe?trk=public_profile";
+    const search = `<html><body><a href="${target}">Jane Doe — Technical Recruiter at Acme Corp</a></body></html>`;
+    const profile = `<html><head><title>Jane Doe | Technical Recruiter | Acme Corp</title></head><body><h1>Jane Doe</h1><p>Technical Recruiter at Acme Corp. Hiring React engineers in Bengaluru.</p></body></html>`;
+    const service = new ProactiveRecruiterDiscoveryService({
+      maxQueries: 1,
+      fetchText: async (url) => url === "https://www.linkedin.com/in/jane-doe" ? profile : search
+    });
+    const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
+    expect(results[0]?.recruiterName).toBe("Jane Doe");
+    expect(results[0]?.discoveryUrl).toBe("https://www.linkedin.com/in/jane-doe");
+    expect(service.getLastRunMetrics().linkedinUrlsExtracted).toBeGreaterThan(0);
+    expect(service.getLastRunMetrics().publicProfileUrlsExtracted).toBeGreaterThan(0);
+    expect(service.getLastRunMetrics().profileFetchAttempts).toBeGreaterThan(0);
+  });
+
   it("rejects LinkedIn authwall/error pages as parsed profiles while accepting the same real recruiter shape", async () => {
     const authwall = `https://www.linkedin.com/in/jane-doe Title: Sign Up | LinkedIn Markdown Content: Agree & Join LinkedIn By clicking Continue to join or sign in`;
-    const recruiter = `<html><head><title>Jane Doe | Technical Recruiter | Acme Corp</title></head><body><h1>Jane Doe</h1><p>Technical Recruiter at Acme Corp. Hiring React engineers in Bengaluru.</p></body></html>`;
+    const recruiter = `<html><head><title>Jane Doe | Technical Recruiter | Acme Corp</title></head><body><h1>Jane Doe</h1><p>Technical Recruiter at Acme Corp. Hiring React engineers in Bengaluru.</p><a href="https://www.linkedin.com/in/jane-doe">Jane Doe on LinkedIn</a></body></html>`;
     const authwallService = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => authwall });
     expect(await authwallService.discover({ targetRoles: ["React Developer"], skills: ["React"] })).toEqual([]);
     expect(authwallService.getLastRunMetrics().profilesParsed).toBe(0);
