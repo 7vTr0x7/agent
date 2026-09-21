@@ -100,6 +100,39 @@ describe("ProactiveRecruiterRepository", () => {
     expect(updateSql).toContain("email_discovery_status");
   });
 
+  it("persists an employer recruiting contact without inventing a person identity", async () => {
+    const database = { query: jest.fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: "contact-employer-1" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] }) };
+    const repository = new ProactiveRecruiterRepository(database as never);
+
+    const result = await repository.persistCandidate("candidate-1", candidate({
+      contactType: "EMPLOYER",
+      recruiterName: undefined,
+      recruiterRole: undefined,
+      employer: "Nextgraph",
+      employerDomain: "nextgraph.org",
+      email: "job@nextgraph.org",
+      emailStatus: "UNVERIFIED",
+      discoveryUrl: "https://nextgraph.org/hiring-frontend-developer",
+      discoveryEvidence: ["We are hiring a front-end developer - React, Svelte", "job@nextgraph.org"],
+      evidenceType: "job_hiring_evidence"
+    }));
+
+    expect(result).toBe("contact-employer-1");
+    const params = database.query.mock.calls[1]?.[1] as unknown[];
+    expect(params?.[2]).toBe("job@nextgraph.org");
+    expect(params?.[3]).toBeNull();
+    expect(params?.[4]).toBeNull();
+    expect(params?.[16]).toBe("email:job@nextgraph.org");
+    const insertSql = database.query.mock.calls[1]?.[0] as string;
+    expect(insertSql).toContain("full_name");
+    expect(insertSql).toContain("title");
+    expect(JSON.stringify(database.query.mock.calls)).not.toContain("job@nextgraph.org\" as any);
+  });
+
   it("uses the canonical database eligibility predicate before proactive campaign creation", async () => {
     const database = { query: jest.fn()
       .mockResolvedValueOnce({ rows: [{ id: "contact-1" }] })
