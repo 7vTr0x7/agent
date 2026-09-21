@@ -38,6 +38,20 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(service.getLastRunMetrics().profilesParsed).toBeGreaterThan(0);
   });
 
+  it("rejects LinkedIn authwall/error pages as parsed profiles while accepting the same real recruiter shape", async () => {
+    const authwall = `https://www.linkedin.com/in/jane-doe Title: Sign Up | LinkedIn Markdown Content: Agree & Join LinkedIn By clicking Continue to join or sign in`;
+    const recruiter = `<html><head><title>Jane Doe | Technical Recruiter | Acme Corp</title></head><body><h1>Jane Doe</h1><p>Technical Recruiter at Acme Corp. Hiring React engineers in Bengaluru.</p></body></html>`;
+    const authwallService = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => authwall });
+    expect(await authwallService.discover({ targetRoles: ["React Developer"], skills: ["React"] })).toEqual([]);
+    expect(authwallService.getLastRunMetrics().profilesParsed).toBe(0);
+
+    const recruiterService = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => recruiter });
+    const results = await recruiterService.discover({ targetRoles: ["React Developer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
+    expect(results[0]?.recruiterName).toBe("Jane Doe");
+    expect(results[0]?.employer).toBe("Acme Corp");
+    expect(recruiterService.getLastRunMetrics().profilesParsed).toBeGreaterThan(0);
+  });
+
   it("accepts role-relevant public evidence and keeps discovered email unverified", async () => {
     const html = `Jane Doe - Technical Recruiter at Acme Corp currently hiring React and frontend engineers <https://linkedin.com/in/jane-doe> jane@example.com`;
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => html });
