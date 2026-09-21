@@ -38,7 +38,19 @@ export class ApplicationTaskHandler {
     private readonly attemptRepository?: Pick<ApplicationAttemptRepository, "record">,
     private readonly recruiterDiscoveryDispatcher?: Pick<RecruiterDiscoveryTaskDispatcher, "enqueue">,
     private readonly submissionOwnershipVerifier?: (task: ClaimedTask<ApplyJobTaskPayload>) => Promise<boolean>,
-    private readonly applicationEmailDiscovery: ApplicationEmailDiscovery = new JobPostingRecruiterDiscoveryProvider()
+    private readonly applicationEmailDiscovery: ApplicationEmailDiscovery = {
+      async discover(input) {
+        const result = await new JobPostingRecruiterDiscoveryProvider().discover({
+          companyName: input.companyName,
+          companyDomain: input.companyDomain,
+          jobTitle: input.jobTitle,
+          jobDescription: input.jobDescription,
+          candidateProfileId: input.candidateProfileId
+        });
+        return result.contacts.map((contact) => ({ email: contact.email, fullName: contact.fullName, title: contact.title }));
+      }
+    }
+  )
   ) {}
 
   async handle(task: ClaimedTask<ApplyJobTaskPayload>): Promise<void> {
