@@ -44,11 +44,11 @@ async function main(): Promise<void> {
       dedupeKey: `fast-application-email:${job.job_opportunity_id}:${profile.id}`
     });
     const workerId = `fast-application-email-${process.pid}`;
-    const claimed = await queue.claim<typeof ({ jobOpportunityId: string; candidateProfileId: string })>(workerId, [APPLY_JOB_TASK]);
+    const claimed = await queue.claim<{ jobOpportunityId: string; candidateProfileId: string }>(workerId, [APPLY_JOB_TASK]);
     if (!claimed || claimed.id !== taskId) throw new Error("Could not claim the application runtime task.");
 
     const applications = new ApplicationRepository(database, (process.env.JOB_EXCLUDED_COMPANIES ?? "").split(",").map(v => v.trim()).filter(Boolean));
-    const browser = new BrowserSessionService({ headless: true, navigationTimeoutMs: Math.min(config.ollama.timeoutMs, 30000) });
+    const browser = new BrowserSessionService({ headless: true, navigationTimeoutMs: 30000 });
     const adapters = new ApplicationAdapterRegistry(createHostedAtsApplicationAdapters());
     const submissions = new ApplicationSubmissionService(browser, adapters, applications, undefined, undefined, undefined, undefined, undefined, undefined, true);
     let emailDiscoveryStarted = false;
