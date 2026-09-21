@@ -117,7 +117,7 @@ jobs:
           node <<'NODE'
           const fs = require('fs');
           const text = fs.readFileSync('fast-application-email-outcome.log', 'utf8');
-          const marker = /\n\{\s*"status"\s*:\s*"ok"\s*,/g;
+          const marker = /\\n\\{\\s*"status"\\s*:\\s*"ok"\\s*,/g;
           const matches = [...text.matchAll(marker)];
           let parsed;
           if (matches.length) {
@@ -224,10 +224,14 @@ jobs:
             -e JOB_DISCOVERY_ENABLED=false \
             -e PROACTIVE_RECRUITER_ENABLED=false \
             job-agent:fast-outcome node dist/api/bootstrap.js
+
           for i in $(seq 1 30); do
-            if docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome node -e "fetch('http://job-agent-fast-outcome-api:3000/healthz').then(async r=>{console.log(await r.text());process.exit(r.ok?0:1)}).catch(()=>process.exit(1))" >/tmp/job-agent-api-health.log 2>&1; then break; fi
+            if docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome node -e "fetch('http://job-agent-fast-outcome-api:3000/healthz').then(async r=>{console.log(await r.text());process.exit(r.ok?0:1)}).catch(()=>process.exit(1))" >/tmp/job-agent-api-health.log 2>&1; then
+              break
+            fi
             sleep 1
           done
+
           set +e
           : > api-dashboard-diagnostics.log
           echo 'API_CONTAINER_NAME=job-agent-fast-outcome-api' | tee -a api-dashboard-diagnostics.log
@@ -238,15 +242,13 @@ jobs:
           echo 'API_DATABASE_CONTEXT host=job-agent-fast-outcome-postgres port=5432 database=job_agent' | tee -a api-dashboard-diagnostics.log
 
           echo 'HEALTH_STATUS' | tee -a api-dashboard-diagnostics.log
-          health_status=0
-          health_body=''
-          health_body=$(docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome node -e "fetch('http://job-agent-fast-outcome-api:3000/healthz').then(async r=>{console.log('STATUS='+r.status); console.log('BODY='+await r.text()); process.exit(r.ok?0:2)}).catch(e=>{console.error('FETCH_ERROR='+e.stack); process.exit(3)})" 2>&1)
+          health_probe="$(docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome node -e "fetch('http://job-agent-fast-outcome-api:3000/healthz').then(async r=>{console.log('STATUS='+r.status); console.log('BODY='+await r.text()); process.exit(r.ok?0:2)}).catch(e=>{console.error('FETCH_ERROR='+e.stack); process.exit(3)})" 2>&1)"
           health_status=$?
-          printf '%s\n' "$health_body" | tee -a api-dashboard-diagnostics.log
+          printf '%s\n' "$health_probe" | tee -a api-dashboard-diagnostics.log
           echo "HEALTH_PROBE_EXIT=$health_status" | tee -a api-dashboard-diagnostics.log
 
           echo 'SUMMARY_STATUS' | tee -a api-dashboard-diagnostics.log
-          summary_probe=$(docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome node -e '
+          summary_probe="$(docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome node -e '
           (async () => {
             try {
               const r = await fetch("http://job-agent-fast-outcome-api:3000/api/summary");
@@ -281,53 +283,17 @@ jobs:
               process.exit(6);
             }
           })();
-          ')
+          ' 2>&1)"
           summary_status=$?
           printf '%s\n' "$summary_probe" | tee -a api-dashboard-diagnostics.log
+
           if ! printf '%s\n' "$summary_probe" | grep -q '^SUMMARY_STATUS='; then
             echo 'SUMMARY_FETCH_ERROR=probe produced no SUMMARY_STATUS output' | tee -a api-dashboard-diagnostics.log
             summary_status=7
           elif ! printf '%s\n' "$summary_probe" | grep -q '^SUMMARY_BODY='; then
             echo 'SUMMARY_FETCH_ERROR=probe produced no SUMMARY_BODY output' | tee -a api-dashboard-diagnostics.log
             summary_status=7
-          elif [ "$summary_status" -eq 0 ] && ! printf '%s\n' "$summary_probe" | grep -q '^SUMMARY_ASSERTIONS=PASS
-
-          echo 'API_CONTAINER_LOG' | tee -a api-dashboard-diagnostics.log
-          docker logs job-agent-fast-outcome-api 2>&1 | tee -a api-dashboard-diagnostics.log
-          echo 'API_CONTAINER_LOG_END' | tee -a api-dashboard-diagnostics.log
-
-          echo 'DASHBOARD_DIAGNOSTIC_ENV' | tee -a api-dashboard-diagnostics.log
-          docker inspect --format 'image={{.Config.Image}} network={{range $k,$v := .NetworkSettings.Networks}}{{$k}} ip={{$v.IPAddress}}{{end}}' job-agent-fast-outcome-api 2>&1 | tee -a api-dashboard-diagnostics.log
-          echo 'SAFE_API_ENV' | tee -a api-dashboard-diagnostics.log
-          docker inspect --format '{{range .Config.Env}}{{if or (eq . "NODE_ENV=test") (eq . "API_HOST=0.0.0.0") (eq . "API_PORT=3000") (eq . "AUTOMATION_ENABLED=false") (eq . "JOB_DISCOVERY_ENABLED=false") (eq . "PROACTIVE_RECRUITER_ENABLED=false")}}{{println .}}{{end}}{{end}}' job-agent-fast-outcome-api 2>&1 | tee -a api-dashboard-diagnostics.log
-
-          if [ "$health_status" -ne 0 ] || [ "$summary_status" -ne 0 ]; then
-            echo 'DASHBOARD_API_VERIFICATION_FAILED' | tee -a api-dashboard-diagnostics.log
-            docker rm -f job-agent-fast-outcome-api >/dev/null 2>&1 || true
-            exit 1
-          fi
-
-          docker rm -f job-agent-fast-outcome-api >/dev/null 2>&1 || true
-
-      - name: Upload fast runtime logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fast-real-data-outcome-logs
-          path: |
-            fast-job-outcome.log
-            fast-job-diagnostics.log
-            fast-recruiter-outcome.log
-            fast-content-outcome.log
-            fast-application-email-outcome.log
-            api-dashboard-diagnostics.log
-
-      - name: Cleanup
-        if: always()
-        run: |
-          docker rm -f job-agent-fast-outcome-postgres >/dev/null 2>&1 || true
-          docker network rm job-agent-fast-outcome >/dev/null 2>&1 || true
-; then
+          elif [ "$summary_status" -eq 0 ] && ! printf '%s\n' "$summary_probe" | grep -q '^SUMMARY_ASSERTIONS=PASS$'; then
             echo 'SUMMARY_FETCH_ERROR=successful probe produced no SUMMARY_ASSERTIONS=PASS' | tee -a api-dashboard-diagnostics.log
             summary_status=7
           fi
@@ -361,7 +327,6 @@ jobs:
             fast-recruiter-outcome.log
             fast-content-outcome.log
             fast-application-email-outcome.log
-            api-dashboard-diagnostics.log
 
       - name: Cleanup
         if: always()
