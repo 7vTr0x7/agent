@@ -174,9 +174,9 @@ function hasRecruitingEmailEvidence(text: string, email: string): boolean {
   const index = text.toLowerCase().indexOf(email.toLowerCase());
   if (index < 0) return false;
   const context = text.slice(Math.max(0, index - 500), Math.min(text.length, index + 500));
-  const contextWithoutEmail = context.toLowerCase().replace(email.toLowerCase(), "");
-  return /(?:send|email|contact|reach out|resume|cv|apply|hiring|recruiting|recruiter|talent|job|join (?:our|my) team)/i.test(context)
-    && !/support|privacy|legal|press|media|marketing|machine\s+translation|documentation/i.test(contextWithoutEmail);
+  const localPart = email.split("@")[0]?.toLowerCase() ?? "";
+  if (/^(support|info|admin|press|media|legal|privacy|marketing|noreply|no-reply|machine|postmaster|webmaster)$/.test(localPart)) return false;
+  return /(?:send|email|contact|reach out|resume|cv|apply|hiring|recruiting|recruiter|talent|job|join (?:our|my) team)/i.test(context);
 }
 async function fetchText(url: string, signal?: AbortSignal, timeoutMs = 6500): Promise<string | null> {
   const controller = new AbortController();
