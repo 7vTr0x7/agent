@@ -114,7 +114,36 @@ jobs:
           set -euo pipefail
           docker run --rm --network job-agent-fast-outcome             -e NODE_ENV=test             -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-fast-outcome-postgres:5432/job_agent             -e CANDIDATE_PROFILE_ID=fast-runtime-candidate             -e CANDIDATE_YEARS_EXPERIENCE=3             -e CANDIDATE_SKILLS='React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,HTML,CSS,Tailwind'             -e CANDIDATE_TARGET_TITLES='Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer'             -e CANDIDATE_LOCATION=India             -e CANDIDATE_NOTICE_PERIOD_DAYS=0             -e CANDIDATE_SPONSORSHIP_REQUIRED=false             -e JOB_EXCLUDED_COMPANIES='Octopus Technologies,Sketch Brahma Technologies'             -e AUTOMATION_ENABLED=false             -e APPLICATION_DRY_RUN=true             -e APPLICATION_LIVE_ENABLED=false             -e GMAIL_ENABLED=false             -e OUTBOUND_ENABLED=false             -e EMAIL_ENABLED=false             -e RECRUITER_OUTREACH_ENABLED=false             -e OLLAMA_TIMEOUT_MS=250             job-agent:fast-outcome npm run application-email:once 2>&1 | tee fast-application-email-outcome.log
           ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-application-email-outcome.log
-          node -e 'const fs=require("fs"); const lines=fs.readFileSync("fast-application-email-outcome.log","utf8").trim().split("\\n"); const j=JSON.parse(lines.at(-1)); if(j.status!=="ok" || j.feature!=="JOB_FIRST_APPLICATION_EMAIL" || j.independentEmailBranch!==true || j.application?.handlerInvoked!==true || j.emailDiscovery?.started!==true) process.exit(1); console.log(JSON.stringify({application:j.application,emailDiscovery:j.emailDiscovery,preparedEmail:j.preparedEmail},null,2));'
+          node <<'NODE'
+          const fs = require('fs');
+          const text = fs.readFileSync('fast-application-email-outcome.log', 'utf8');
+          const lines = text.split(/\\r?\\n/);
+          let parsed;
+          for (let i = 0; i < lines.length; i += 1) {
+            if (!lines[i].trim().startsWith('{')) continue;
+            const candidate = lines.slice(i).join('\\n').trim();
+            try {
+              parsed = JSON.parse(candidate);
+              break;
+            } catch {}
+          }
+          if (!parsed) {
+            console.error('FAIL: no valid JSON object found in fast-application-email-outcome.log');
+            process.exit(1);
+          }
+          if (
+            parsed.status !== 'ok' ||
+            parsed.feature !== 'JOB_FIRST_APPLICATION_EMAIL' ||
+            parsed.independentEmailBranch !== true ||
+            parsed.application?.handlerInvoked !== true ||
+            parsed.emailDiscovery?.started !== true
+          ) process.exit(1);
+          console.log(JSON.stringify({
+            application: parsed.application,
+            emailDiscovery: parsed.emailDiscovery,
+            preparedEmail: parsed.preparedEmail
+          }, null, 2));
+          NODE
 
       - name: Run independent real content-first discovery
         shell: bash
