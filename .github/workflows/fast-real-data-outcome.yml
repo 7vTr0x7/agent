@@ -107,6 +107,19 @@ jobs:
           ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-job-diagnostics.log
           grep -q '"status": "ok"' fast-job-diagnostics.log
 
+
+      - name: Run independent real application plus email-discovery runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-fast-outcome             -e NODE_ENV=test             -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-fast-outcome-postgres:5432/job_agent             -e CANDIDATE_PROFILE_ID=fast-runtime-candidate             -e CANDIDATE_YEARS_EXPERIENCE=3             -e CANDIDATE_SKILLS='React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,HTML,CSS,Tailwind'             -e CANDIDATE_TARGET_TITLES='Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer'             -e CANDIDATE_LOCATION=India             -e CANDIDATE_NOTICE_PERIOD_DAYS=0             -e CANDIDATE_SPONSORSHIP_REQUIRED=false             -e JOB_EXCLUDED_COMPANIES='Octopus Technologies,Sketch Brahma Technologies'             -e AUTOMATION_ENABLED=false             -e APPLICATION_DRY_RUN=true             -e APPLICATION_LIVE_ENABLED=false             -e GMAIL_ENABLED=false             -e OUTBOUND_ENABLED=false             -e EMAIL_ENABLED=false             -e RECRUITER_OUTREACH_ENABLED=false             -e OLLAMA_TIMEOUT_MS=250             job-agent:fast-outcome npm run application-email:once 2>&1 | tee fast-application-email-outcome.log
+          ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-application-email-outcome.log
+          grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' fast-application-email-outcome.log
+          grep -Eq '"feature"[[:space:]]*:[[:space:]]*"JOB_FIRST_APPLICATION_EMAIL"' fast-application-email-outcome.log
+          grep -Eq '"application"[[:space:]]*:[[:space:]]*\{[^}]*"handlerInvoked"[[:space:]]*:[[:space:]]*true' fast-application-email-outcome.log
+          grep -Eq '"emailDiscovery"[[:space:]]*:[[:space:]]*\{[^}]*"started"[[:space:]]*:[[:space:]]*true' fast-application-email-outcome.log
+          grep -Eq '"independentEmailBranch"[[:space:]]*:[[:space:]]*true' fast-application-email-outcome.log
+
       - name: Run independent real content-first discovery
         shell: bash
         run: |
@@ -205,6 +218,7 @@ jobs:
             fast-job-diagnostics.log
             fast-recruiter-outcome.log
             fast-content-outcome.log
+            fast-application-email-outcome.log
 
       - name: Cleanup
         if: always()
