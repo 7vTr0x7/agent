@@ -134,7 +134,7 @@ function extractEmployer(text: string, email?: string, profileText?: string): { 
     .map(m => normalizeDomain(m[1] ?? ""))
     .filter(d => d && !SEARCH_HOSTS.has(d) && !d.endsWith("linkedin.com"));
   const domain = emailDomain || urlDomains.find(d => d && !/^lnkd\.in$/i.test(d));
-  if (emailDomain && name && /\b(?:hiring[- ]frontend|frontend[- ]developer|hiring[- ]react|react[- ]developer)\b/i.test(name)) name = undefined;
+  if (emailDomain && name && /\b(?:hiring[- ]frontend|frontend[- ]developer|hiring[- ]react|react[- ]developer|min\s+read|skip\s+to|navigation)\b/i.test(name)) name = undefined;
   if (!name && domain) name = domain.split(".")[0]?.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   if (name && domain) return { name: name.replace(/[|•,.-]+$/, "").trim(), domain };
   if (name) return { name: name.replace(/[|•,.-]+$/, "").trim() };
@@ -169,6 +169,17 @@ function usableDirectEmail(email: string | undefined, employerDomain?: string): 
 function extractDirectEmail(text: string): string | undefined {
   const found = [...new Set((text.match(EMAIL) ?? []).map(v => v.toLowerCase()))];
   return found.find(e => !/^(noreply|no-reply)@/i.test(e));
+}
+function hasRecruitingEmailEvidence(text: string, email: string): boolean {
+  const index = text.toLowerCase().indexOf(email.toLowerCase());
+  if (index < 0) return false;
+  const context = text.slice(Math.max(0, index - 500), Math.min(text.length, index + 500));
+  return /(?:send|email|contact|reach out|resume|cv|apply|hiring|recruiting|recruiter|talent|job|join (?:our|my) team)/i.test(context)
+    && !/support|privacy|legal|press|media|marketing|machine\s+translation|documentation/i.test(context.replace(new RegExp(email.replace(/[.*+?^${}()|[\]\\]/g, "\\function extractDirectEmail(text: string): string | undefined {
+  const found = [...new Set((text.match(EMAIL) ?? []).map(v => v.toLowerCase()))];
+  return found.find(e => !/^(noreply|no-reply)@/i.test(e));
+}
+"), "i"), ""));
 }
 async function fetchText(url: string, signal?: AbortSignal, timeoutMs = 6500): Promise<string | null> {
   const controller = new AbortController();
@@ -455,7 +466,7 @@ export class PublicHiringPostDiscoveryProvider {
         const employerEmail = directEmail?.toLowerCase();
         const extractedRole = extractRole(post.text);
         const contactFreshness = freshness(post.text);
-        if (employerContact.name && employerContact.domain && employerEmail && usableDirectEmail(employerEmail, employerContact.domain) && extractedRole.role && extractedRole.score >= 75 && contactFreshness !== "unknown") {
+        if (employerContact.name && employerContact.domain && employerEmail && usableDirectEmail(employerEmail, employerContact.domain) && hasRecruitingEmailEvidence(post.text, employerEmail) && extractedRole.role && extractedRole.score >= 75 && contactFreshness !== "unknown") {
           metrics.employersExtracted++;
           metrics.validatedContacts++;
           const candidate: ProactiveRecruiterDiscoveryCandidate = {
