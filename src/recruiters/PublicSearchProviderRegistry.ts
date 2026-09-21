@@ -1,5 +1,5 @@
 export type SourceId =
-  | "google-jina" | "bing-jina" | "duckduckgo-jina" | "startpage-jina" | "ecosia-jina"
+  | "google-jina" | "google-direct" | "bing-jina" | "bing-direct" | "duckduckgo-jina" | "startpage-jina" | "ecosia-jina"
   | "jina-search" | "brave-api" | "mojeek-api" | "brave-direct" | "mojeek-direct"
   | "qwant-direct" | "yahoo-direct";
 
@@ -12,6 +12,8 @@ export interface Source {
 export function sourceList(query: string): Source[] {
   const q = encodeURIComponent(query);
   const sources: Source[] = [
+    { id: "google-direct", url: `https://www.google.com/search?q=${q}&gbv=1` },
+    { id: "bing-direct", url: `https://www.bing.com/search?q=${q}` },
     { id: "google-jina", url: `https://r.jina.ai/https://www.google.com/search?q=${q}&gbv=1` },
     { id: "bing-jina", url: `https://r.jina.ai/https://www.bing.com/search?q=${q}` },
     { id: "duckduckgo-jina", url: `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${q}` },
