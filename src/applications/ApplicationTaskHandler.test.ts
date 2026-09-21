@@ -284,7 +284,7 @@ describe("ApplicationTaskHandler", () => {
           outcome: "DEFINITIVE_FAILURE" as const,
           reason: "Application form unavailable.",
           adapterName: "greenhouse",
-          result: { submitted: false, reason: "Application form unavailable." }
+          result: { submitted: false, externalApplicationId: null, confirmationUrl: null, reason: "Application form unavailable." }
         };
       }
     };
