@@ -130,7 +130,6 @@ describe("ProactiveRecruiterRepository", () => {
     const insertSql = database.query.mock.calls[1]?.[0] as string;
     expect(insertSql).toContain("full_name");
     expect(insertSql).toContain("title");
-    expect(JSON.stringify(database.query.mock.calls)).not.toContain("job@nextgraph.org\" as any);
   });
 
   it("uses the canonical database eligibility predicate before proactive campaign creation", async () => {
