@@ -134,6 +134,7 @@ function extractEmployer(text: string, email?: string, profileText?: string): { 
     .map(m => normalizeDomain(m[1] ?? ""))
     .filter(d => d && !SEARCH_HOSTS.has(d) && !d.endsWith("linkedin.com"));
   const domain = emailDomain || urlDomains.find(d => d && !/^lnkd\.in$/i.test(d));
+  if (emailDomain && name && /\b(?:hiring[- ]frontend|frontend[- ]developer|hiring[- ]react|react[- ]developer)\b/i.test(name)) name = undefined;
   if (!name && domain) name = domain.split(".")[0]?.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   if (name && domain) return { name: name.replace(/[|•,.-]+$/, "").trim(), domain };
   if (name) return { name: name.replace(/[|•,.-]+$/, "").trim() };
