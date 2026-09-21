@@ -49,7 +49,7 @@ export class ProactiveRecruiterRepository {
     );
 
     const params = [
-      candidate.employer, domain, email, candidate.recruiterName ?? null, candidate.recruiterRole ?? null,
+      candidate.employer, domain, email, candidate.contactType === "EMPLOYER" ? null : candidate.recruiterName, candidate.contactType === "EMPLOYER" ? null : candidate.recruiterRole,
       Math.round(candidate.overallConfidence), verified, verificationStatus, candidate.discoverySource,
       persistedEmailStatus, "VALID", mxStatus, mailboxEvidence, JSON.stringify(verificationEvidence), relevanceStatus,
       linkedinProfileUrl, identityKey, email ? "FOUND" : "PENDING"
