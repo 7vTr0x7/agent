@@ -130,6 +130,8 @@ describe("ProactiveRecruiterRepository", () => {
     const insertSql = database.query.mock.calls[1]?.[0] as string;
     expect(insertSql).toContain("full_name");
     expect(insertSql).toContain("title");
+    const relevanceEvidenceSql = database.query.mock.calls[3]?.[1] as unknown[];
+    expect(JSON.stringify(relevanceEvidenceSql)).toContain("EMPLOYER");
   });
 
   it("uses the canonical database eligibility predicate before proactive campaign creation", async () => {
