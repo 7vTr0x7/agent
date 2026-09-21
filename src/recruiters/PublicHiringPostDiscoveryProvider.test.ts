@@ -179,7 +179,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]).toMatchObject({
       contactType: "EMPLOYER",
-      recruiterName: undefined,
+      recruiterName: "Employer recruiting contact",
       employer: "Nextgraph",
       employerDomain: "nextgraph.org",
       email: "job@nextgraph.org",
