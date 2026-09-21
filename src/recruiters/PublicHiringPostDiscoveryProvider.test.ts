@@ -190,6 +190,26 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(result.candidates[0]?.discoveryEvidence.join(" ")).toContain("job@nextgraph.org");
   });
 
+  it("rejects footer/support emails that are not recruiting contact evidence", async () => {
+    const postUrl = "https://bebee.com/gb/jobs/frontend-developer-react-remote";
+    const searchPage = [postUrl, "Frontend Developer (React) (Remote)", "We are hiring for one of our clients, seeking a Frontend Developer (React)."].join("\n");
+    const postPage = [
+      "<title>Frontend Developer (React) (Remote) - Hired | BeBee</title>",
+      "Frontend Developer (React) (Remote)",
+      "We are hiring for one of our clients, seeking a Frontend Developer (React) to work on a contract basis.",
+      "Apply Now",
+      "support@bebee.com"
+    ].join("\n");
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => new Response(String(input) === postUrl ? postPage : searchPage, { status: 200 })) as typeof fetch;
+
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({ targetRoles: ["Frontend Developer"], skills: ["React"], maxQueries: 1 });
+
+    expect(result.metrics.relevantRolePosts).toBeGreaterThan(0);
+    expect(result.candidates).toHaveLength(0);
+    expect(result.metrics.validatedContacts).toBe(0);
+  });
+
   it("rejects relevant-looking posts when the author lacks hiring-role evidence", async () => {
     const postUrl = "https://www.linkedin.com/posts/example-user_hiring-frontend-activity-1234567890-test";
     const searchPage = [
