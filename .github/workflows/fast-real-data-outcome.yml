@@ -118,7 +118,7 @@ jobs:
           node <<'NODE'
           const fs = require('fs');
           const text = fs.readFileSync('fast-application-email-outcome.log', 'utf8');
-          const marker = /\\n\\{\\s*"status"\\s*:\\s*"ok"\\s*,/g;
+          const marker = /\n\{\s*"status"\s*:\s*"ok"\s*,/g;
           const matches = [...text.matchAll(marker)];
           let parsed;
           if (matches.length) {
