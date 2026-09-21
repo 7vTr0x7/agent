@@ -117,14 +117,13 @@ jobs:
           node <<'NODE'
           const fs = require('fs');
           const text = fs.readFileSync('fast-application-email-outcome.log', 'utf8');
-          const lines = text.split(/\\r?\\n/);
+          const marker = /\\n\\{\\s*"status"\\s*:\\s*"ok"\\s*,/g;
+          const matches = [...text.matchAll(marker)];
           let parsed;
-          for (let i = 0; i < lines.length; i += 1) {
-            if (!lines[i].trim().startsWith('{')) continue;
-            const candidate = lines.slice(i).join('\\n').trim();
+          if (matches.length) {
+            const start = matches[matches.length - 1].index + 1;
             try {
-              parsed = JSON.parse(candidate);
-              break;
+              parsed = JSON.parse(text.slice(start).trim());
             } catch {}
           }
           if (!parsed) {
