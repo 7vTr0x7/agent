@@ -174,12 +174,9 @@ function hasRecruitingEmailEvidence(text: string, email: string): boolean {
   const index = text.toLowerCase().indexOf(email.toLowerCase());
   if (index < 0) return false;
   const context = text.slice(Math.max(0, index - 500), Math.min(text.length, index + 500));
+  const contextWithoutEmail = context.toLowerCase().replace(email.toLowerCase(), "");
   return /(?:send|email|contact|reach out|resume|cv|apply|hiring|recruiting|recruiter|talent|job|join (?:our|my) team)/i.test(context)
-    && !/support|privacy|legal|press|media|marketing|machine\s+translation|documentation/i.test(context.replace(new RegExp(email.replace(/[.*+?^${}()|[\]\\]/g, "\\function extractDirectEmail(text: string): string | undefined {
-  const found = [...new Set((text.match(EMAIL) ?? []).map(v => v.toLowerCase()))];
-  return found.find(e => !/^(noreply|no-reply)@/i.test(e));
-}
-"), "i"), ""));
+    && !/support|privacy|legal|press|media|marketing|machine\s+translation|documentation/i.test(contextWithoutEmail);
 }
 async function fetchText(url: string, signal?: AbortSignal, timeoutMs = 6500): Promise<string | null> {
   const controller = new AbortController();
