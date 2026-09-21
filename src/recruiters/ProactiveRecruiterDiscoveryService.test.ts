@@ -22,7 +22,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
 
   it("unwraps Bing ck/a base64 redirect URLs before public profile classification", async () => {
     const target = "https://www.linkedin.com/in/priya-sharma";
-    const payload = Buffer.from(target, "utf8").toString("base64").replace(/=/g, "").replace(/\\+/g, "-").replace(/\\//g, "_");
+    const payload = Buffer.from(target, "utf8").toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
     const redirect = "https://www.bing.com/ck/a?u=a1" + payload;
     const search = `Priya Sharma — Technical Recruiter at Acme Corp <${redirect}>`;
     const profile = `<html><head><title>Priya Sharma | Technical Recruiter | Acme Corp</title></head><body><h1>Priya Sharma</h1><p>Technical Recruiter at Acme Corp. Hiring React engineers in Bengaluru.</p></body></html>`;
