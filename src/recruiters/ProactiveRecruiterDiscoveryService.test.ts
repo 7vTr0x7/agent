@@ -10,6 +10,16 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(new Set(queries).size).toBe(queries.length);
   });
 
+  it("unwraps search-provider redirect URLs before profile classification", async () => {
+    const redirect = "https://www.google.com/url?q=" + encodeURIComponent("https://example.com/talent/maya-singh");
+    const search = `Maya Singh — Technical Recruiter at Acme Corp <${redirect}>`;
+    const profile = `<html><head><title>Maya Singh | Technical Recruiter | Acme Corp</title></head><body><h1>Maya Singh</h1><p>Technical Recruiter at Acme Corp. Hiring React engineers in Bengaluru.</p></body></html>`;
+    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async (url) => url.includes("example.com/talent/maya-singh") ? profile : search });
+    const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
+    expect(results[0]?.recruiterName).toBe("Maya Singh");
+    expect(results[0]?.discoveryUrl).toContain("example.com/talent/maya-singh");
+  });
+
   it("accepts role-relevant public evidence and keeps discovered email unverified", async () => {
     const html = `Jane Doe - Technical Recruiter at Acme Corp currently hiring React and frontend engineers <https://linkedin.com/in/jane-doe> jane@example.com`;
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => html });
