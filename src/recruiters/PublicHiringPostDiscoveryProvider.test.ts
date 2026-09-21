@@ -190,6 +190,22 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(result.candidates[0]?.discoveryEvidence.join(" ")).toContain("job@nextgraph.org");
   });
 
+  it("rejects generic prose employers and automated mailbox evidence", async () => {
+    const postUrl = "https://example.com/hiring-frontend";
+    const postPage = [
+      "<title>Frontend hiring announcement</title>",
+      "We're hiring a Frontend Developer. Our team works at scale.",
+      "Send questions to i-am-a-machine@example.com",
+      "React TypeScript",
+      "2026"
+    ].join("\n");
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => new Response(String(input) === postUrl ? postPage : postUrl + "\n" + postPage, { status: 200 })) as typeof fetch;
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({ targetRoles: ["Frontend Developer"], skills: ["React"], maxQueries: 1 });
+    expect(result.candidates).toHaveLength(0);
+    expect(result.metrics.validatedContacts).toBe(0);
+  });
+
   it("rejects footer/support emails that are not recruiting contact evidence", async () => {
     const postUrl = "https://bebee.com/gb/jobs/frontend-developer-react-remote";
     const searchPage = [postUrl, "Frontend Developer (React) (Remote)", "We are hiring for one of our clients, seeking a Frontend Developer (React)."].join("\n");
