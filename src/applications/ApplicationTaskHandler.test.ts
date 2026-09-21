@@ -324,6 +324,49 @@ describe("ApplicationTaskHandler", () => {
     expect(emailDispatcher.submitted).toHaveLength(0);
   });
 
+
+
+  it("starts application-email discovery before an application runtime error and does not suppress the application error", async () => {
+    const applications = {
+      async prepare() {
+        return {
+          prepared: true as const,
+          application: {
+            applicationId: "application-error",
+            jobOpportunityId: "job-1",
+            candidateProfileId: "candidate-1",
+            url: "https://example.com/apply",
+            jobTitle: "Frontend Engineer",
+            companyName: "Example Corp",
+            companyDomain: "example.com",
+            jobDescription: "React TypeScript frontend role."
+          }
+        };
+      }
+    };
+    const submissions = { async submit() { throw new Error("Browser runtime failed."); } };
+    const discovery = {
+      calls: 0,
+      async discover() { this.calls++; return []; }
+    };
+    const handler = new ApplicationTaskHandler(
+      applications,
+      submissions,
+      { async getById() { return candidateProfile; } },
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      discovery
+    );
+
+    await expect(handler.handle(task())).rejects.toThrow("Browser runtime failed.");
+    expect(discovery.calls).toBe(1);
+  });
+
   it("throws when the candidate profile cannot be loaded", async () => {
     const applications = new FakeApplications();
     const submissions = new FakeSubmissionService();
