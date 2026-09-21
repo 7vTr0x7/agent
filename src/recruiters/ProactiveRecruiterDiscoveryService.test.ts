@@ -32,6 +32,15 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(service.getLastRunMetrics().profileFetchAttempts).toBeGreaterThan(0);
   });
 
+  it("rejects search infrastructure person-photo URLs as public profiles", async () => {
+    const infrastructure = "Search results <https://business.bing.com/api/v3/search/person/photo?caller=IP%5Cu0026id%3D%7B0%7D>";
+    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => infrastructure });
+    const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
+    expect(results).toEqual([]);
+    expect(service.getLastRunMetrics().publicProfileUrlsExtracted).toBe(0);
+    expect(service.getLastRunMetrics().profileFetchAttempts).toBe(0);
+  });
+
   it("unwraps search-provider redirect URLs before profile classification", async () => {
     const redirect = "https://www.google.com/url?q=" + encodeURIComponent("https://example.com/talent/maya-singh");
     const search = `Maya Singh — Technical Recruiter at Acme Corp <${redirect}>`;
