@@ -140,6 +140,56 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(result.candidates.every(candidate => candidate.discoveryUrl !== "https://www.welcometothejungle.com/en/companies/qwant")).toBe(true);
   });
 
+  it("accepts a legitimate employer recruiting email when no person identity is established", async () => {
+    const postUrl = "https://nextgraph.org/hiring-frontend-developer";
+    const searchPage = [
+      postUrl,
+      "We are hiring a front-end developer - React, Svelte",
+      "The NextGraph association is pleased to announce it is opening a position for an open source front-end developer.",
+      "Fully remote and European based.",
+      "Send us a short message to job@nextgraph.org",
+      "Jun 9, 2026"
+    ].join("\\n");
+    const postPage = [
+      "<title>We are hiring a front-end developer - React, Svelte — NextGraph</title>",
+      "Jun 9, 2026",
+      "We are hiring a front-end developer - React, Svelte",
+      "The NextGraph association is pleased to announce it is opening a position for an open source front-end developer, fulltime or part-time, fully remote and European based, working with React and/or Svelte frameworks.",
+      "We are fully funded and hiring immediately or in the coming months.",
+      "Send us a short message to job@nextgraph.org"
+    ].join("\\n");
+
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return new Response(url === postUrl ? postPage : searchPage, { status: 200, headers: { "content-type": "text/plain" } });
+    }) as typeof fetch;
+
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({
+      targetRoles: ["Frontend Developer", "React Developer"],
+      skills: ["React", "TypeScript"],
+      maxQueries: 1
+    });
+
+    expect(result.metrics.hiringIntentPosts).toBeGreaterThan(0);
+    expect(result.metrics.relevantRolePosts).toBeGreaterThan(0);
+    expect(result.metrics.authorsExtracted).toBe(0);
+    expect(result.metrics.validatedContacts).toBe(1);
+    expect(result.metrics.directEmails).toBeGreaterThan(0);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      contactType: "EMPLOYER",
+      recruiterName: undefined,
+      employer: "Nextgraph",
+      employerDomain: "nextgraph.org",
+      email: "job@nextgraph.org",
+      emailStatus: "UNVERIFIED",
+      discoverySource: "public-web",
+      discoveryUrl: postUrl
+    });
+    expect(result.candidates[0]?.discoveryEvidence.join(" ")).toContain("job@nextgraph.org");
+  });
+
   it("rejects relevant-looking posts when the author lacks hiring-role evidence", async () => {
     const postUrl = "https://www.linkedin.com/posts/example-user_hiring-frontend-activity-1234567890-test";
     const searchPage = [
