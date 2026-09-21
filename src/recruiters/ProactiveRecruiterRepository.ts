@@ -49,7 +49,7 @@ export class ProactiveRecruiterRepository {
     );
 
     const params = [
-      candidate.employer, domain, email, candidate.recruiterName, candidate.recruiterRole,
+      candidate.employer, domain, email, candidate.recruiterName ?? null, candidate.recruiterRole ?? null,
       Math.round(candidate.overallConfidence), verified, verificationStatus, candidate.discoverySource,
       persistedEmailStatus, "VALID", mxStatus, mailboxEvidence, JSON.stringify(verificationEvidence), relevanceStatus,
       linkedinProfileUrl, identityKey, email ? "FOUND" : "PENDING"
@@ -124,8 +124,9 @@ export class ProactiveRecruiterRepository {
           type: candidate.evidenceType,
           source: candidate.discoverySource,
           postUrl: candidate.discoveryUrl,
-          author: candidate.recruiterName,
-          authorRole: candidate.recruiterRole,
+          contactType: candidate.contactType ?? "PERSON",
+          author: candidate.recruiterName ?? null,
+          authorRole: candidate.recruiterRole ?? null,
           employer: candidate.employer,
           employerDomain: domain,
           targetRoles: candidate.targetRoles,
@@ -175,9 +176,11 @@ export class ProactiveRecruiterRepository {
 }
 
 function buildIdentityKey(candidate: ProactiveRecruiterDiscoveryCandidate, domain: string): string {
+  if (candidate.email) return `email:${candidate.email.toLowerCase()}`;
+  if (candidate.contactType === "EMPLOYER") return `employer:${domain}`;
   if (isLinkedInProfile(candidate.discoveryUrl)) return `linkedin:${canonicalLinkedIn(candidate.discoveryUrl)}`;
   if (/^https?:\/\//i.test(candidate.discoveryUrl) && candidate.discoveryUrl.startsWith("public-search:") === false) return `profile:${canonicalUrl(candidate.discoveryUrl)}`;
-  return `person:${candidate.recruiterName.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}|${domain}`;
+  return `person:${(candidate.recruiterName ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}|${domain}`;
 }
 function isLinkedInProfile(value: string): boolean { try { const url = new URL(value); return url.hostname.toLowerCase().endsWith("linkedin.com") && /^\/in\/[^/]+/i.test(url.pathname); } catch { return false; } }
 function canonicalLinkedIn(value: string): string { try { const url = new URL(value); const profile = url.pathname.match(/^\/in\/([^/?#]+)/i)?.[1]; return profile ? `https://www.linkedin.com/in/${profile.toLowerCase()}` : value.toLowerCase().replace(/\/+$/, ""); } catch { return value.toLowerCase().replace(/\/+$/, ""); } }
