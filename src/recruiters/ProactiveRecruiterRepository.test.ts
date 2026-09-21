@@ -110,8 +110,8 @@ describe("ProactiveRecruiterRepository", () => {
 
     const result = await repository.persistCandidate("candidate-1", candidate({
       contactType: "EMPLOYER",
-      recruiterName: undefined,
-      recruiterRole: undefined,
+      recruiterName: "Employer recruiting contact",
+      recruiterRole: "Employer recruiting contact",
       employer: "Nextgraph",
       employerDomain: "nextgraph.org",
       email: "job@nextgraph.org",
