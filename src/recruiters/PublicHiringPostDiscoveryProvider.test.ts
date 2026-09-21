@@ -149,7 +149,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       "Fully remote and European based.",
       "Send us a short message to job@nextgraph.org",
       "Jun 9, 2026"
-    ].join("\\n");
+    ].join("\n");
     const postPage = [
       "<title>We are hiring a front-end developer - React, Svelte — NextGraph</title>",
       "Jun 9, 2026",
@@ -157,7 +157,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       "The NextGraph association is pleased to announce it is opening a position for an open source front-end developer, fulltime or part-time, fully remote and European based, working with React and/or Svelte frameworks.",
       "We are fully funded and hiring immediately or in the coming months.",
       "Send us a short message to job@nextgraph.org"
-    ].join("\\n");
+    ].join("\n");
 
     global.fetch = jest.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
