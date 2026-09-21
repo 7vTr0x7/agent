@@ -20,6 +20,24 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(results[0]?.discoveryUrl).toContain("example.com/talent/maya-singh");
   });
 
+  it("unwraps Bing ck/a base64 redirect URLs before public profile classification", async () => {
+    const target = "https://www.linkedin.com/in/priya-sharma";
+    const payload = Buffer.from(target, "utf8").toString("base64").replace(/=/g, "").replace(/\\+/g, "-").replace(/\\//g, "_");
+    const redirect = "https://www.bing.com/ck/a?u=a1" + payload;
+    const search = `Priya Sharma — Technical Recruiter at Acme Corp <${redirect}>`;
+    const profile = `<html><head><title>Priya Sharma | Technical Recruiter | Acme Corp</title></head><body><h1>Priya Sharma</h1><p>Technical Recruiter at Acme Corp. Hiring React engineers in Bengaluru.</p></body></html>`;
+    const service = new ProactiveRecruiterDiscoveryService({
+      maxQueries: 1,
+      fetchText: async (url) => url === target ? profile : search
+    });
+    const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
+    expect(results[0]?.recruiterName).toBe("Priya Sharma");
+    expect(results[0]?.discoveryUrl).toBe(target);
+    expect(service.getLastRunMetrics().linkedinUrlsExtracted).toBeGreaterThan(0);
+    expect(service.getLastRunMetrics().profileFetchAttempts).toBeGreaterThan(0);
+    expect(service.getLastRunMetrics().profilesParsed).toBeGreaterThan(0);
+  });
+
   it("accepts role-relevant public evidence and keeps discovered email unverified", async () => {
     const html = `Jane Doe - Technical Recruiter at Acme Corp currently hiring React and frontend engineers <https://linkedin.com/in/jane-doe> jane@example.com`;
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => html });
