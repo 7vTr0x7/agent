@@ -459,6 +459,8 @@ export class PublicHiringPostDiscoveryProvider {
           metrics.validatedContacts++;
           const candidate: ProactiveRecruiterDiscoveryCandidate = {
             contactType: "EMPLOYER",
+            recruiterName: "Employer recruiting contact",
+            recruiterRole: "Employer recruiting contact",
             employer: employerContact.name,
             employerDomain: normalizeDomain(employerContact.domain),
             targetRoles: extractedRole.terms,
