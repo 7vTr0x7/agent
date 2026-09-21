@@ -35,7 +35,8 @@
     "gmail:smoke-send": "tsx scripts/gmail-smoke-send.ts",
     "outcome:fast-jobs": "tsx scripts/fast-outcome-jobs.ts",
     "diagnostics:fast-jobs": "tsx scripts/fast-job-diagnostics.ts",
-    "content-first:once": "tsx scripts/public-hiring-posts-once.ts"
+    "content-first:once": "tsx scripts/public-hiring-posts-once.ts",
+    "application-email:once": "tsx scripts/application-email-outcome-once.ts"
   },
   "dependencies": {
     "dotenv": "^17.2.1",
