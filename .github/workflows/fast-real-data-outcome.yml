@@ -107,6 +107,16 @@ jobs:
           ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-job-diagnostics.log
           grep -q '"status": "ok"' fast-job-diagnostics.log
 
+      - name: Run independent real content-first discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-fast-outcome             -e NODE_ENV=test             -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-fast-outcome-postgres:5432/job_agent             -e CANDIDATE_PROFILE_ID=fast-runtime-candidate             -e CANDIDATE_YEARS_EXPERIENCE=3             -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,HTML,CSS,Tailwind'             -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer'             -e CANDIDATE_LOCATION=India             -e CANDIDATE_PREFERRED_LOCATIONS='Bengaluru,Bangalore,India,Remote'             -e PUBLIC_HIRING_POST_MAX_QUERIES=11             -e PUBLIC_HIRING_POST_DIAGNOSTICS=true             job-agent:fast-outcome npm run content-first:once 2>&1 | tee fast-content-outcome.log
+          ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-content-outcome.log
+          grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' fast-content-outcome.log
+          grep -Eq '"feature"[[:space:]]*:[[:space:]]*"CONTENT_FIRST"' fast-content-outcome.log
+          grep -Eq '"realResultCount"[[:space:]]*:[[:space:]]*[1-9][0-9]*' fast-content-outcome.log
+
       - name: Run bounded real public recruiter discovery
         shell: bash
         run: |
@@ -194,6 +204,7 @@ jobs:
             fast-job-outcome.log
             fast-job-diagnostics.log
             fast-recruiter-outcome.log
+            fast-content-outcome.log
 
       - name: Cleanup
         if: always()
