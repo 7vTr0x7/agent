@@ -12,6 +12,7 @@ export interface PublicHiringPostDiscoveryMetrics {
   employersExtracted: number;
   authorsExtracted: number;
   validatedIdentities: number;
+  validatedContacts: number;
   directEmails: number;
   publiclyDiscoveredEmails: number;
   rejectedPosts: number;
@@ -290,7 +291,9 @@ function freshness(evidence: string): ProactiveRecruiterDiscoveryCandidate["evid
   return "unknown";
 }
 
-function canonicalIdentityKey(name: string, employer: string, _evidenceKey: string): string {
+function canonicalIdentityKey(name: string | undefined, employer: string, _evidenceKey: string, email?: string): string {
+  if (email) return `email:${email.toLowerCase()}`;
+  if (!name) return `employer:${employer.toLowerCase().replace(/[^a-z0-9]+/g,"").trim()}`;
   return `${name.toLowerCase().replace(/[^a-z0-9]+/g," ").trim()}|${employer.toLowerCase().replace(/[^a-z0-9]+/g," ").trim()}`;
 }
 
@@ -318,7 +321,7 @@ export class PublicHiringPostDiscoveryProvider {
       queriesGenerated: queries.length + profileQueries.length, queriesExecuted: 0, sourcePagesFetched: 0, publicPostUrls: 0,
       configuredProviders: 0, eligibleProviders: 0, executedProviders: 0, skippedProviders: 0, providerFailures: 0, providerRateLimited: 0, providerBlocked: 0, providerTimeouts: 0, rawSearchResults: 0, normalizedResults: 0, deduplicatedResults: 0,
       hiringIntentPosts: 0, relevantRolePosts: 0, employersExtracted: 0, authorsExtracted: 0,
-      validatedIdentities: 0, directEmails: 0, publiclyDiscoveredEmails: 0, rejectedPosts: 0, duplicatePosts: 0, sourceStats: {}
+      validatedIdentities: 0, validatedContacts: 0, directEmails: 0, publiclyDiscoveredEmails: 0, rejectedPosts: 0, duplicatePosts: 0, sourceStats: {}
     };
     const candidates = new Map<string, ProactiveRecruiterDiscoveryCandidate>();
     const configuredProviderIds = new Set<string>();
@@ -441,10 +444,46 @@ export class PublicHiringPostDiscoveryProvider {
           if (resolvedName) author = { name: resolvedName, profileUrl };
         }
       }
-      if (!author.name || !plausibleName(author.name)) { metrics.rejectedPosts++; continue; }
-      metrics.authorsExtracted++;
       const directEmail = extractDirectEmail(post.text) ?? extractDirectEmail(post.discoveryText);
       if (directEmail) metrics.directEmails++;
+      if (!author.name || !plausibleName(author.name)) {
+        // A public hiring page can establish a legitimate employer recruiting
+        // contact without establishing a person identity. Keep that contact
+        // distinct from recruiter/person identities; never manufacture an author.
+        const employerContact = extractEmployer(post.text + " " + post.discoveryText, directEmail, profileText);
+        const employerEmail = directEmail?.toLowerCase();
+        const extractedRole = extractRole(post.text);
+        const contactFreshness = freshness(post.text);
+        if (employerContact.name && employerContact.domain && employerEmail && usableDirectEmail(employerEmail, employerContact.domain) && extractedRole.role && extractedRole.score >= 75 && contactFreshness !== "unknown") {
+          metrics.employersExtracted++;
+          metrics.validatedContacts++;
+          const candidate: ProactiveRecruiterDiscoveryCandidate = {
+            contactType: "EMPLOYER",
+            employer: employerContact.name,
+            employerDomain: normalizeDomain(employerContact.domain),
+            targetRoles: extractedRole.terms,
+            roleMatchScore: extractedRole.score,
+            hiringEvidenceScore: 85,
+            overallConfidence: Math.min(100, extractedRole.score + 15),
+            discoverySource: "public-web",
+            discoveryUrl: post.url,
+            discoveryEvidence: [post.text.slice(0, 3500), post.discoveryText.slice(0, 1200)].filter(Boolean),
+            evidenceType: "job_hiring_evidence",
+            evidenceDate: new Date().toISOString(),
+            evidenceFreshness: contactFreshness,
+            email: employerEmail,
+            emailStatus: "UNVERIFIED"
+          };
+          const key = canonicalIdentityKey(undefined, employerContact.name, post.url, employerEmail);
+          const existing = candidates.get(key);
+          if (existing) candidates.set(key, { ...existing, discoveryEvidence: [...new Set([...existing.discoveryEvidence, ...candidate.discoveryEvidence])].slice(0, 5) });
+          else candidates.set(key, candidate);
+          continue;
+        }
+        metrics.rejectedPosts++;
+        continue;
+      }
+      metrics.authorsExtracted++;
       if (!profileUrl || !profileText) {
         const profileSearch = await search(`site:linkedin.com/in "${author.name}"`, input.signal, input.fetchText);
         for (const result of profileSearch) {
