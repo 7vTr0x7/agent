@@ -50,7 +50,6 @@ export class ApplicationTaskHandler {
         return result.contacts.map((contact) => ({ email: contact.email, fullName: contact.fullName, title: contact.title }));
       }
     }
-  )
   ) {}
 
   async handle(task: ClaimedTask<ApplyJobTaskPayload>): Promise<void> {
