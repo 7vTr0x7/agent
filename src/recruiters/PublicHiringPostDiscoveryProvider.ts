@@ -126,7 +126,7 @@ function extractAuthor(text: string, postUrl: string): { name?: string; profileU
 function extractEmployer(text: string, email?: string, profileText?: string): { name?: string; domain?: string } {
   const haystack = [text, profileText ?? ""].join(" ");
   const emailDomain = email?.split("@")[1]?.toLowerCase();
-  const strongAt = haystack.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80})(?=\s*[.!?](?:\s|$)|\s+(?:Location|Experience|Skills?)\s*:|$)/i)?.[1]?.trim();
+  const strongAt = haystack.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80})(?=\s*[.!?](?:\s|$)|\s+(?:Location|Experience|Skills?)\s*:|$)/)?.[1]?.trim();
   const linkedinEmployer = haystack.match(/(?:^|\n)[^\n]{1,120}?\s+-\s+([A-Z][A-Za-z0-9&.' -]{2,80})\s+\|\s+LinkedIn/i)?.[1]?.trim();
   const hiringEmployer = haystack.match(/([A-Z][A-Za-z0-9&.' -]{2,80})\s+(?:is|are)\s+(?:hiring|looking for)/i)?.[1]?.trim();
   let name = strongAt || linkedinEmployer || hiringEmployer;
@@ -175,7 +175,7 @@ function hasRecruitingEmailEvidence(text: string, email: string): boolean {
   if (index < 0) return false;
   const context = text.slice(Math.max(0, index - 500), Math.min(text.length, index + 500));
   const localPart = email.split("@")[0]?.toLowerCase() ?? "";
-  if (/^(support|info|admin|press|media|legal|privacy|marketing|noreply|no-reply|machine|postmaster|webmaster)$/.test(localPart)) return false;
+  if (/^(support|info|admin|press|media|legal|privacy|marketing|noreply|no-reply|machine|postmaster|webmaster)$/.test(localPart) || /(?:^|[-_.])(machine|bot|system|automation|automated|donotreply)(?:[-_.]|$)/.test(localPart)) return false;
   return /(?:send|email|contact|reach out|resume|cv|apply|hiring|recruiting|recruiter|talent|job|join (?:our|my) team)/i.test(context);
 }
 async function fetchText(url: string, signal?: AbortSignal, timeoutMs = 6500): Promise<string | null> {
