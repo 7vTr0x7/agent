@@ -186,13 +186,14 @@ function normalizeEmailStatus(value: string, evidence: RecruiterVerificationEvid
   }
 }
 
-function buildProactiveMessage(profile: CandidateProfile, candidate: { recruiterName: string; recruiterRole: string; employer: string; targetRoles: string[]; evidenceFreshness: string; discoveryEvidence: string[] }): string {
+function buildProactiveMessage(profile: CandidateProfile, candidate: { contactType?: "PERSON"|"EMPLOYER"; recruiterName: string; recruiterRole: string; employer: string; targetRoles: string[]; evidenceFreshness: string; discoveryEvidence: string[] }): string {
   const name = profile.fullName?.trim() || [profile.firstName, profile.lastName].filter(Boolean).join(" ") || "Candidate";
   const roles = profile.targetTitles.length ? profile.targetTitles.slice(0, 3).join(" / ") : "Frontend / React / Next.js";
   const skills = profile.skills.slice(0, 5).join(", ");
   const location = profile.location ? ` I’m currently based in ${profile.location}.` : "";
   const evidenceLine = candidate.evidenceFreshness === "current" ? "Your public recruiting information appears relevant to these kinds of roles." : candidate.evidenceFreshness === "recent" ? "Your recent public recruiting information appears relevant to these kinds of roles." : "Your public recruiting background appears relevant to these kinds of roles.";
-  return [`Hi ${candidate.recruiterName.split(" ")[0] || "there"},`, "", `I’m ${name}, and I’m exploring ${roles} opportunities.${location}`, `I have ${profile.yearsExperience} years of experience with ${skills}.`, evidenceLine, "", "I’m reaching out proactively rather than assuming there is a specific opening. If you recruit for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.", "", "Thank you,", name].join("\n");
+  const greeting = candidate.contactType === "EMPLOYER" ? "Hi there," : `Hi ${candidate.recruiterName.split(" ")[0] || "there"},`;
+  return [greeting, "", `I’m ${name}, and I’m exploring ${roles} opportunities.${location}`, `I have ${profile.yearsExperience} years of experience with ${skills}.`, evidenceLine, "", "I’m reaching out proactively rather than assuming there is a specific opening. If you recruit for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.", "", "Thank you,", name].join("\n");
 }
 
 function freshnessScore(value: string): number { return value === "current" ? 100 : value === "recent" ? 75 : value === "historical" ? 40 : 10; }
