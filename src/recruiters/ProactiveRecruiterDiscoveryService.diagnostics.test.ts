@@ -70,7 +70,7 @@ describe("ProactiveRecruiterDiscoveryService rejected-candidate diagnostics", ()
       fetchText: async (url) => {
         calls.push(url);
         return url === legitimate
-          ? "Jane Doe - Technical Recruiter at Example Corp actively hiring React frontend engineers in Bengaluru."
+          ? "<html><head><title>Jane Doe | Technical Recruiter | Example Corp</title></head><body><h1>Jane Doe</h1><p>Technical Recruiter at Example Corp actively hiring React frontend engineers in Bengaluru.</p></body></html>"
           : searchPage;
       }
     });
