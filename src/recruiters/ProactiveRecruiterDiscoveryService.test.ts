@@ -188,7 +188,25 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(service.getLastRunMetrics().rejectionReasons.ROLE_IRRELEVANT).toBeGreaterThan(0);
   });
 
-  it("records profile fetch failures separately from successful profile fetches", async () => {
+
+  it("does not qualify a fetched recruiter profile without public hiring evidence", async () => {
+    const search = `site:linkedin.com/in "technical recruiter" "Frontend Engineer" "Bengaluru" Jane Doe <https://linkedin.com/in/jane-doe>`;
+    const profile = `<html><head><title>Jane Doe | Technical Recruiter | Acme Corp</title></head><body><h1>Jane Doe</h1><p>Technical Recruiter at Acme Corp.</p></body></html>`;
+    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async (url) => url.includes("linkedin.com/in/") ? profile : search });
+    const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
+    expect(results).toEqual([]);
+    expect(service.getLastRunMetrics().hiringEvidenceAccepted).toBe(0);
+    expect(service.getLastRunMetrics().rejectionReasons.HIRING_EVIDENCE_MISSING).toBeGreaterThan(0);
+  });
+
+  it("does not qualify a job-page person name as a recruiter profile", async () => {
+    const page = `Jane Doe - Technical Recruiter at Acme Corp currently hiring React engineers <https://acme.com/jobs/frontend-engineer>`;
+    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => page });
+    const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
+    expect(results).toEqual([]);
+    expect(service.getLastRunMetrics().identityValidated).toBe(0);
+  });
+\n  it("records profile fetch failures separately from successful profile fetches", async () => {
     const searchPage = `Jane Doe - Recruiter <https://linkedin.com/in/jane-doe>`;
     let profile = false;
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async (url) => {
