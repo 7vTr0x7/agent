@@ -194,7 +194,10 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     const profile = `<html><head><title>Jane Doe | Technical Recruiter | Acme Corp</title></head><body><h1>Jane Doe</h1><p>Technical Recruiter at Acme Corp.</p></body></html>`;
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async (url) => url.includes("linkedin.com/in/") ? profile : search });
     const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
-    expect(results).toEqual([]);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.recruiterName).toBe("Jane Doe");
+    expect(results[0]?.hiringEvidenceScore).toBe(0);
+    expect(results[0]?.emailStatus).toBe("UNVERIFIED");
     expect(service.getLastRunMetrics().hiringEvidenceAccepted).toBe(0);
     expect(service.getLastRunMetrics().rejectionReasons.HIRING_EVIDENCE_MISSING).toBeGreaterThan(0);
   });
