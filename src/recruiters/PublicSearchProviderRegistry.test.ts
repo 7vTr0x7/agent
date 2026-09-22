@@ -8,3 +8,5 @@ describe("PublicSearchProviderRegistry", () => {
     expect(ids).toContain("bing-jina");
   });
 });
+
+  it("includes public Jina search when no API key is configured", () => { const previous = process.env.JINA_API_KEY; delete process.env.JINA_API_KEY; try { expect(sourceList("frontend recruiter").find(source => source.id === "jina-search")?.url).toContain("https://s.jina.ai/"); } finally { if (previous === undefined) delete process.env.JINA_API_KEY; else process.env.JINA_API_KEY = previous; } });
