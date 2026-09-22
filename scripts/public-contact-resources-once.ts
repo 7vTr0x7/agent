@@ -45,7 +45,7 @@ async function main(){
  if(!profile)throw new Error("Configured candidate profile could not be resolved.");
  const db=new Database(process.env.DATABASE_URL??"");
  const recruiterRepository=new ProactiveRecruiterRepository(db);
- const queries=["site:*/careers frontend developer hiring email Bengaluru","site:*/jobs frontend developer recruiter email India","site:*/hiring React developer email Bengaluru","site:*/recruiting frontend developer email India","careers frontend developer contact email Bengaluru","jobs React developer contact email India","send your resume frontend developer email","talent acquisition React recruiter email Bengaluru"];
+ const queries=["inurl:careers frontend developer hiring email Bengaluru","inurl:jobs frontend developer recruiter email India","inurl:hiring React developer email Bengaluru","inurl:recruiting frontend developer email India","careers frontend developer contact email Bengaluru","jobs React developer contact email India","send your resume frontend developer email","talent acquisition React recruiter email Bengaluru"];
  const pages=(await mapLimit(queries,4,async q=>{const rs=await Promise.all(sourceList(q).map(async s=>({response:await fetchText(s.url)})));return rs.filter(x=>x.response).map(x=>({text:x.response!.text}))})).flat();
  const resources=new Map<string,Resource>();
  for(const page of pages)for(const url of urlsFromSearch(page.text))if(resourceLooksRelevant(url))resources.set(url,{url,sourceType:/\.csv(?:$|\?)/i.test(url)?"CSV":/\.json(?:$|\?)/i.test(url)?"JSON":/\.txt(?:$|\?)/i.test(url)?"TEXT":"HTML"});
