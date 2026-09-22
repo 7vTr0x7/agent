@@ -2,6 +2,7 @@ import { promises as dns } from "node:dns";
 import { Database } from "../src/database/Database";
 import { ConfiguredCandidateProfileResolver } from "../src/candidates/ConfiguredCandidateProfileResolver";
 import { sourceList } from "../src/recruiters/PublicSearchProviderRegistry";
+import { ProactiveRecruiterRepository } from "../src/recruiters/ProactiveRecruiterRepository";
 
 type Resource={url:string;sourceType:"HTML"|"TEXT"|"CSV"|"JSON"};
 const EMAIL=/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
@@ -42,6 +43,7 @@ async function main(){
  const profile=await ConfiguredCandidateProfileResolver.fromEnvironment().getById(process.env.CANDIDATE_PROFILE_ID??"");
  if(!profile)throw new Error("Configured candidate profile could not be resolved.");
  const db=new Database(process.env.DATABASE_URL??"");
+ const recruiterRepository=new ProactiveRecruiterRepository(db);
  const queries=["frontend developer hiring resume email Bengaluru","react developer hiring email India","we are hiring frontend recruiter email","we are hiring React resume email","talent acquisition frontend email India","technical recruiter React email Bengaluru","send your resume frontend developer","careers React recruiter email"];
  const pages=(await mapLimit(queries,4,async q=>{const rs=await Promise.all(sourceList(q).map(async s=>({response:await fetchText(s.url)})));return rs.filter(x=>x.response).map(x=>({text:x.response!.text}))})).flat();
  const resources=new Map<string,Resource>();
@@ -57,10 +59,29 @@ async function main(){
    const status=await validation(email);if(status==="INVALID"){invalid++;continue}
    const score=relevance(email,text,profile.skills);if(score<60)continue;
    const domain=email.split("@")[1]?.toLowerCase()??"";
-   const existing=await db.query<{id:string}>("SELECT id FROM contacts WHERE normalized_email=LOWER($1) OR LOWER(email)=LOWER($1) LIMIT 1",[email]);
+   const existing=await db.query<{id:string}>("SELECT id FROM recruiter_contacts WHERE LOWER(email)=LOWER($1) LIMIT 1",[email]);
    if(existing.rowCount){duplicates++;continue}
-   const inserted=await db.query("INSERT INTO contacts(company_name,name,email,role,source,normalized_email,source_url,source_type,provenance,validation_status,relevance_score,suppressed) VALUES($1,NULL,$2,$3,$4,$2,$5,$6,$7,$8,$9,FALSE)",[domain,email,/recruit|talent|hr|hiring/i.test(text)?"Recruiting / Talent / Hiring contact":"Professional contact","PUBLIC_CONTACT_RESOURCE:"+resource.url,resource.url,type,JSON.stringify({sourceUrl:resource.url,sourceType:type}),status,score]);
-   if(inserted.rowCount===1)persisted++; else duplicates++;
+   const candidate={
+    contactType:"EMPLOYER" as const,
+    recruiterName:"Employer recruiting contact",
+    recruiterRole:"Recruiting / Talent / Hiring contact",
+    employer:domain,
+    employerDomain:domain,
+    targetRoles:profile.targetTitles?.slice(0,8)??[],
+    roleMatchScore:Math.min(100,Math.max(75,score)),
+    hiringEvidenceScore:85,
+    overallConfidence:Math.min(100,Math.max(80,score)),
+    discoverySource:"public-web" as const,
+    discoveryUrl:resource.url,
+    discoveryEvidence:[text.slice(0,3500)],
+    evidenceType:"job_hiring_evidence" as const,
+    evidenceDate:new Date().toISOString(),
+    evidenceFreshness:"current" as const,
+    email,
+    emailStatus:status==="LIKELY"?"LIKELY" as const:"UNVERIFIED" as const
+   };
+   const id=await recruiterRepository.persistCandidate(process.env.CANDIDATE_PROFILE_ID??"",candidate);
+   if(id)persisted++; else duplicates++;
   }
   return {resource,type,emails:emails.length,qualified:qualified.length,persisted,duplicates,invalid,status:"PROCESSED" as const};
  });
