@@ -206,7 +206,8 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(results).toEqual([]);
     expect(service.getLastRunMetrics().identityValidated).toBe(0);
   });
-\n  it("records profile fetch failures separately from successful profile fetches", async () => {
+
+  it("records profile fetch failures separately from successful profile fetches", async () => {
     const searchPage = `Jane Doe - Recruiter <https://linkedin.com/in/jane-doe>`;
     let profile = false;
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async (url) => {
