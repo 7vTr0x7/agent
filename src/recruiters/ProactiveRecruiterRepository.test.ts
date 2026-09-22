@@ -148,7 +148,8 @@ describe("ProactiveRecruiterRepository", () => {
     expect(result).toBeNull();
     expect(database.query).not.toHaveBeenCalled();
   });
-\n  it("uses the canonical database eligibility predicate before proactive campaign creation", async () => {
+
+  it("uses the canonical database eligibility predicate before proactive campaign creation", async () => {
     const database = { query: jest.fn()
       .mockResolvedValueOnce({ rows: [{ id: "contact-1" }] })
       .mockResolvedValueOnce({ rows: [{ email: "jane@acme.example" }] })
