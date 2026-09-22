@@ -48,7 +48,10 @@ async function fetchText(url:string):Promise<FetchResult>{
  }finally{clearTimeout(t)}
 }
 async function mapLimit<T,R>(items:T[],limit:number,fn:(x:T)=>Promise<R>){const out:R[]=[];let next=0;async function worker(){for(;;){const i=next++;if(i>=items.length)return;out[i]=await fn(items[i])}}await Promise.all(Array.from({length:Math.min(limit,items.length)},()=>worker()));return out}
-function urlsFromSearch(text:string){return [...new Set((text.match(/https?:\/\/[^\s<>()\]]+/gi)??[]).map(canonical))].filter(legitimate)}
+function urlsFromSearch(text:string){
+ const candidates=text.match(/https?:\/\/[^\s<>()\]]+/gi)??[];
+ return [...new Set(candidates.map(v=>v.replace(/[>"'.,;:!?]+$/g,"")).map(canonical))].filter(legitimate)
+}
 function resourceLooksRelevant(url:string){try{const u=new URL(url),v=(u.hostname+" "+u.pathname).toLowerCase();return /career|careers|job|jobs|hiring|hire|recruit|recruiting|talent|contact|about|people|team|resume|apply/.test(v)}catch{return false}}
 export function extractEmails(text:string){return [...new Set((text.match(EMAIL)??[]).map(v=>v.toLowerCase()))].filter(e=>!GENERIC.test(e.split("@")[0]??"")&&!/^(example|test)@/i.test(e))}
 export function relevance(email:string,context:string,skills:string[]){const h=(email+" "+context).toLowerCase();let s=0;if(RELEVANT.test(h))s+=45;if(skills.some(x=>h.includes(x.toLowerCase())))s+=25;if(/resume|cv|apply|hiring|recruit|talent|career/i.test(h))s+=20;if(!/support|privacy|legal|press|newsletter|unsubscribe/i.test(h))s+=10;return Math.min(100,s)}
