@@ -189,6 +189,19 @@ jobs:
           grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' fast-recruiter-outcome.log
           grep -q '"sendEnabled":false' fast-recruiter-outcome.log
 
+      - name: Run independent real public contact-resource discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-fast-outcome             -e NODE_ENV=test             -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-fast-outcome-postgres:5432/job_agent             -e CANDIDATE_PROFILE_ID=fast-runtime-candidate             -e CANDIDATE_YEARS_EXPERIENCE=3             -e CANDIDATE_LOCATION=India             -e CANDIDATE_PREFERRED_LOCATIONS='Bengaluru,Bangalore,India,Remote'             -e CANDIDATE_SKILLS='React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS'             -e CANDIDATE_TARGET_TITLES='Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer'             -e GMAIL_ENABLED=false             -e OUTBOUND_ENABLED=false             -e AUTOMATION_ENABLED=false             -e APPLICATION_DRY_RUN=true             -e APPLICATION_LIVE_ENABLED=false             -e RECRUITER_OUTREACH_ENABLED=false             job-agent:fast-outcome npm run public-contact-resources:once 2>&1 | tee fast-contact-resource-outcome.log
+          ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-contact-resource-outcome.log
+          grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' fast-contact-resource-outcome.log
+          grep -Eq '"feature"[[:space:]]*:[[:space:]]*"PUBLIC_CONTACT_RESOURCE"' fast-contact-resource-outcome.log
+          grep -Eq '"resourcesDiscovered"[[:space:]]*:[[:space:]]*[1-9][0-9]*' fast-contact-resource-outcome.log
+          grep -Eq '"resourcesProcessed"[[:space:]]*:[[:space:]]*[1-9][0-9]*' fast-contact-resource-outcome.log
+          grep -Eq '"emailsExtracted"[[:space:]]*:[[:space:]]*[1-9][0-9]*' fast-contact-resource-outcome.log
+          grep -Eq '"contactsPersisted"[[:space:]]*:[[:space:]]*[1-9][0-9]*' fast-contact-resource-outcome.log
+
       - name: Verify fast runtime side effects and persist result snapshot
         shell: bash
         run: |
@@ -328,6 +341,7 @@ jobs:
             fast-recruiter-outcome.log
             fast-content-outcome.log
             fast-application-email-outcome.log
+            fast-contact-resource-outcome.log
             api-dashboard-diagnostics.log
 
       - name: Cleanup
