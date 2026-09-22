@@ -67,6 +67,17 @@ const urls=[...new Set(extractedSourceUrls.map(unwrapSearchResultUrl).map(u=>/li
       const existing=candidates.get(key);
       if(existing)candidates.set(key,mergeCandidates(existing,candidate));
       else candidates.set(key,candidate);
+      if(candidate.contactType !== "EMPLOYER" && candidate.recruiterName && candidate.recruiterRole && candidate.employer && candidate.employer !== "Unknown employer" && candidate.discoveryUrl && candidate.evidenceType === "job_hiring_evidence" && candidate.roleMatchScore > 0){
+        m.recruiterRoleMatches++;
+        m.recruiterEvidenceMatches++;
+        m.companyValidated++;
+        m.identityValidated++;
+        m.relevanceAccepted++;
+        if(candidate.hiringEvidenceScore > 0){
+          m.hiringEvidenceAccepted++;
+          incrementHiringFreshness(m,candidate.evidenceFreshness);
+        } else m.hiringUnknown++;
+      }
     }m.finalDiscovered=candidates.size;return[...candidates.values()];}
   private mergeCandidate(candidates:Map<string,ProactiveRecruiterDiscoveryCandidate>,result:ProactiveRecruiterDiscoveryCandidate,stats:ProactiveRecruiterDiscoveryMetrics["sourceStats"][string],m:ProactiveRecruiterDiscoveryMetrics){const key=identityKey(result),existing=candidates.get(key);if(existing){m.duplicates++;stats.duplicates++;candidates.set(key,mergeCandidates(existing,result));return;}stats.candidates++;candidates.set(key,result);}
   private buildCandidate(profile:CandidateProfileLike,url:string,roleEvidence:string,evidence:string,source:SourceId,m:ProactiveRecruiterDiscoveryMetrics,diagnosticContext?:{queryIndex:number;query:string;provider:SourceId;candidateUrl:string;profileUrl:string;directFetch:{attempted:boolean;status?:number;reason?:string};fallback:{attempted:boolean;status?:number;reason?:string;finalUrl?:string};searchEvidence:string;profileEvidence:string}){const roleMatch=this.matcher.match(profile,roleEvidence,"");const diagnostic=(reasons:string[],identityEvidence:string="",recruiterEvidence:string=roleEvidence,targetEvidence:string=roleEvidence,hiringEvidence:string=diagnosticContext?.profileEvidence??evidence)=>{if(diagnosticContext)recordRejectedCandidateDiagnostic(m,diagnosticContext,reasons,identityEvidence,recruiterEvidence,targetEvidence,hiringEvidence);};if(!roleMatch.score){reject(m,"ROLE_IRRELEVANT");diagnostic(["ROLE_IRRELEVANT"]);return null;}if(!RECRUITING.test(roleEvidence)){reject(m,"NOT_RECRUITER");diagnostic(["NOT_RECRUITER"]);return null;}if(NON_RECRUITING.test(evidence)&&!RECRUITING.test(evidence.replace(NON_RECRUITING,""))){reject(m,"NOT_RECRUITER");diagnostic(["NOT_RECRUITER"]);return null;}const name=extractRecruiterName(roleEvidence);if(!name){reject(m,"IDENTITY_AMBIGUOUS");diagnostic(["IDENTITY_AMBIGUOUS"],roleEvidence);return null;}const email=extractRecruiterEmail(evidence,profile),employer=extractEmployer(evidence,email,url);if(employer.name==="Unknown employer"){reject(m,"COMPANY_UNKNOWN");diagnostic(["COMPANY_UNKNOWN"],name);return null;}m.identityValidated++;m.companyValidated++;m.recruiterEvidenceMatches++;m.recruiterRoleMatches++;m.relevanceAccepted++;const now=this.now(),freshness=classifyEvidenceFreshness(evidence,now),hiring=hasHiringEvidence(evidence);if(hiring){m.hiringEvidenceAccepted++;incrementHiringFreshness(m,freshness);}else m.hiringUnknown++;return makeCandidate(name,roleMatch,employer,url,evidence,freshness,hiring,email,source,now);}
