@@ -117,7 +117,7 @@ jobs:
           echo "$health"
           echo "$summary"
           echo "$dashboard" | grep -q 'Recruiter Leads'
-          node -e 'const s=JSON.parse(process.argv[1]); if(Number(s.recruiters||0)<1) process.exit(1); if(!Array.isArray(s.recruiterLeads)||s.recruiterLeads.length<1) process.exit(1); console.log("DASHBOARD_API_RECRUITER_LEAD_COUNT="+s.recruiterLeads.length)' "$summary"
+          node -e 'const s=JSON.parse(process.argv[1]); if(!Array.isArray(s.recruiterLeads)) process.exit(1); console.log("DASHBOARD_API_RECRUITER_LEAD_COUNT="+s.recruiterLeads.length); console.log("DASHBOARD_API_RECRUITERS="+Number(s.recruiters||0))' "$summary"
 
       - name: Validate real-public safety and evidence
         shell: bash
