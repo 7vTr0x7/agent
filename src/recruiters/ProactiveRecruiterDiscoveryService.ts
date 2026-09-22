@@ -63,7 +63,6 @@ const urls=[...new Set(extractedSourceUrls.map(unwrapSearchResultUrl).map(u=>/li
     });
     m.hiringPostDiscovery=hiringPostResult.metrics;
     for(const candidate of hiringPostResult.candidates){
-      if(!hasRequiredRecruiterEvidence(candidate)) { reject(m, candidate.contactType === "EMPLOYER" ? "NON_PERSON_CANDIDATE" : !isPublicProfileUrl(candidate.discoveryUrl) ? "IDENTITY_NOT_PUBLIC_PROFILE" : candidate.hiringEvidenceScore <= 0 ? "HIRING_EVIDENCE_MISSING" : "RECRUITER_EVIDENCE_INCOMPLETE"); continue; }
       const key=identityKey(candidate);
       const existing=candidates.get(key);
       if(existing)candidates.set(key,mergeCandidates(existing,candidate));
