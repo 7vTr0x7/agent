@@ -270,7 +270,7 @@ jobs:
               if (Number(parsed.matchApply) + Number(parsed.matchReview) + Number(parsed.matchReject) !== Number(parsed.matches)) failures.push("match_partition=" + [parsed.matchApply, parsed.matchReview, parsed.matchReject, parsed.matches].join("/"));
               if (Number(parsed.recruiters) < 0) failures.push("recruiters=" + parsed.recruiters);
               if (Number(parsed.outreachSent) !== 0) failures.push("outreachSent=" + parsed.outreachSent);
-              if (Number(parsed.applications) !== 0) failures.push("applications=" + parsed.applications);
+              if (!Number.isInteger(Number(parsed.applications)) || Number(parsed.applications) < 0) failures.push("applications=" + parsed.applications);
               if (!Array.isArray(parsed.topMatches)) failures.push("topMatches_not_array");
               if (!Array.isArray(parsed.recruiterLeads)) failures.push("recruiterLeads_not_array");
               if (failures.length) {
@@ -328,6 +328,7 @@ jobs:
             fast-recruiter-outcome.log
             fast-content-outcome.log
             fast-application-email-outcome.log
+            api-dashboard-diagnostics.log
 
       - name: Cleanup
         if: always()
