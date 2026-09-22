@@ -12,12 +12,12 @@ describe("public contact resource extraction", () => {
   });
 
   it("removes search-result punctuation instead of fetching quoted URLs", () => {
-    expect(urlsFromSearch('https://about.qwant.com/en/" https://example.com/careers, https://example.com/jobs)'))
-      .toEqual(["https://about.qwant.com/en","https://example.com/careers","https://example.com/jobs"]);
+    expect(urlsFromSearch('https://example.com/careers" https://example.com/jobs, https://example.com/team)'))
+      .toEqual(["https://example.com/careers","https://example.com/jobs","https://example.com/team"]);
   });
 
   it("does not treat search infrastructure as a public resource", () => {
-    expect(urlsFromSearch("https://www.qwant.com/?q=frontend https://api.qwant.com/v3 https://example.com/careers"))
+    expect(urlsFromSearch('https://www.qwant.com/?q=frontend https://api.qwant.com/v3 https://about.qwant.com/en/" https://example.com/careers'))
       .toEqual(["https://example.com/careers"]);
   });
 });
