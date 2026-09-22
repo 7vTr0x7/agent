@@ -1,5 +1,5 @@
 import { Database } from "../database/Database";
-import { ProactiveRecruiterDiscoveryCandidate } from "./ProactiveRecruiterDiscoveryService";
+import { ProactiveRecruiterDiscoveryCandidate, hasRequiredRecruiterEvidence } from "./ProactiveRecruiterDiscoveryService";
 import { hasExplicitMailboxEvidence, isMailboxVerifiedForRealSend, recruiterRealSendEligibilitySql } from "./RecruiterMailboxVerification";
 import { resolveEmployerDomainFromPublicSearch } from "./RecruiterCompanyDomainResolver";
 
@@ -9,6 +9,7 @@ export class ProactiveRecruiterRepository {
   constructor(private readonly database: Database) {}
 
   async persistCandidate(candidateProfileId: string, candidate: ProactiveRecruiterDiscoveryCandidate): Promise<string | null> {
+    if (candidate.contactType !== "EMPLOYER" && !hasRequiredRecruiterEvidence(candidate)) return null;
     if (candidate.employer === "Unknown employer") return null;
     // Public profile evidence often names the employer without exposing its
     // domain in the profile/search result. Resolve that missing domain only
