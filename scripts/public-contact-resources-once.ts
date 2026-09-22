@@ -35,6 +35,7 @@ async function fetchText(url:string){
 }
 async function mapLimit<T,R>(items:T[],limit:number,fn:(x:T)=>Promise<R>){const out:R[]=[];let next=0;async function worker(){for(;;){const i=next++;if(i>=items.length)return;out[i]=await fn(items[i])}}await Promise.all(Array.from({length:Math.min(limit,items.length)},()=>worker()));return out}
 function urlsFromSearch(text:string){return [...new Set((text.match(/https?:\/\/[^\s<>()\]]+/gi)??[]).map(canonical))].filter(legitimate)}
+function resourceLooksRelevant(url:string){try{const u=new URL(url),v=(u.hostname+" "+u.pathname).toLowerCase();return /career|careers|job|jobs|hiring|hire|recruit|recruiting|talent|contact|about|people|team|resume|apply/.test(v)}catch{return false}}
 export function extractEmails(text:string){return [...new Set((text.match(EMAIL)??[]).map(v=>v.toLowerCase()))].filter(e=>!GENERIC.test(e.split("@")[0]??"")&&!/^(example|test)@/i.test(e))}
 export function relevance(email:string,context:string,skills:string[]){const h=(email+" "+context).toLowerCase();let s=0;if(RELEVANT.test(h))s+=45;if(skills.some(x=>h.includes(x.toLowerCase())))s+=25;if(/resume|cv|apply|hiring|recruit|talent|career/i.test(h))s+=20;if(!/support|privacy|legal|press|newsletter|unsubscribe/i.test(h))s+=10;return Math.min(100,s)}
 async function validation(email:string):Promise<"VALID"|"LIKELY"|"UNVERIFIED"|"INVALID">{if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return "INVALID";const d=email.split("@")[1]?.toLowerCase();if(!d)return "INVALID";try{return (await dns.resolveMx(d)).length?"LIKELY":"INVALID"}catch{return "UNVERIFIED"}}
@@ -44,20 +45,20 @@ async function main(){
  if(!profile)throw new Error("Configured candidate profile could not be resolved.");
  const db=new Database(process.env.DATABASE_URL??"");
  const recruiterRepository=new ProactiveRecruiterRepository(db);
- const queries=["frontend developer hiring resume email Bengaluru","react developer hiring email India","we are hiring frontend recruiter email","we are hiring React resume email","talent acquisition frontend email India","technical recruiter React email Bengaluru","send your resume frontend developer","careers React recruiter email"];
+ const queries=["site:*/careers frontend developer hiring email Bengaluru","site:*/jobs frontend developer recruiter email India","site:*/hiring React developer email Bengaluru","site:*/recruiting frontend developer email India","careers frontend developer contact email Bengaluru","jobs React developer contact email India","send your resume frontend developer email","talent acquisition React recruiter email Bengaluru"];
  const pages=(await mapLimit(queries,4,async q=>{const rs=await Promise.all(sourceList(q).map(async s=>({response:await fetchText(s.url)})));return rs.filter(x=>x.response).map(x=>({text:x.response!.text}))})).flat();
  const resources=new Map<string,Resource>();
- for(const page of pages)for(const url of urlsFromSearch(page.text))resources.set(url,{url,sourceType:/\.csv(?:$|\?)/i.test(url)?"CSV":/\.json(?:$|\?)/i.test(url)?"JSON":/\.txt(?:$|\?)/i.test(url)?"TEXT":"HTML"});
+ for(const page of pages)for(const url of urlsFromSearch(page.text))if(resourceLooksRelevant(url))resources.set(url,{url,sourceType:/\.csv(?:$|\?)/i.test(url)?"CSV":/\.json(?:$|\?)/i.test(url)?"JSON":/\.txt(?:$|\?)/i.test(url)?"TEXT":"HTML"});
  const resourceList=[...resources.values()];
  const processed=await mapLimit(resourceList,4,async resource=>{
   const fetched=await fetchText(resource.url);if(!fetched)return {resource,emails:0,qualified:0,persisted:0,duplicates:0,invalid:0,status:"FAILED" as const,type:resource.sourceType};
-  const type=typeFor(resource.url,fetched.contentType),text=type==="HTML"?clean(fetched.text):fetched.text,emails=extractEmails(text),qualified=emails.filter(e=>relevance(e,text,profile.skills)>=60);
+  const type=typeFor(resource.url,fetched.contentType),text=type==="HTML"?clean(fetched.text):fetched.text,emails=extractEmails(text),resourceContext=`${resource.url} ${text}` ,qualified=emails.filter(e=>relevance(e,resourceContext,profile.skills)>=60);
   const title=(text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]??"").replace(/\s+/g," ").trim().slice(0,300)||null;
   await db.query("INSERT INTO public_contact_resources(source_url,source_type,title,processed_at,status,records_seen,emails_extracted,emails_normalized,invalid_emails,duplicate_emails,qualified_contacts) VALUES($1,$2,$3,NOW(),'PROCESSED',$4,$5,$6,$7,0,$8) ON CONFLICT(source_url) DO UPDATE SET processed_at=EXCLUDED.processed_at,status=EXCLUDED.status,title=EXCLUDED.title,records_seen=EXCLUDED.records_seen,emails_extracted=EXCLUDED.emails_extracted,emails_normalized=EXCLUDED.emails_normalized,invalid_emails=EXCLUDED.invalid_emails,qualified_contacts=EXCLUDED.qualified_contacts",[resource.url,type,title,emails.length,emails.length,emails.length,emails.filter(e=>!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)).length,qualified.length]);
   let persisted=0,duplicates=0,invalid=0;
   for(const email of emails){
    const status=await validation(email);if(status==="INVALID"){invalid++;continue}
-   const score=relevance(email,text,profile.skills);if(score<60)continue;
+   const score=relevance(email,`${resource.url} ${text}`,profile.skills);if(score<60)continue;
    const domain=email.split("@")[1]?.toLowerCase()??"";
    const existing=await db.query<{id:string}>("SELECT id FROM recruiter_contacts WHERE LOWER(email)=LOWER($1) LIMIT 1",[email]);
    if(existing.rowCount){duplicates++;continue}
