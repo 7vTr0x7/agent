@@ -1,5 +1,5 @@
 import { Database } from "../database/Database";
-import { ProactiveRecruiterDiscoveryCandidate, hasRequiredRecruiterEvidence } from "./ProactiveRecruiterDiscoveryService";
+import { ProactiveRecruiterDiscoveryCandidate, hasRecruiterIdentityEvidence, hasRequiredRecruiterEvidence } from "./ProactiveRecruiterDiscoveryService";
 import { hasExplicitMailboxEvidence, isMailboxVerifiedForRealSend, recruiterRealSendEligibilitySql } from "./RecruiterMailboxVerification";
 import { resolveEmployerDomainFromPublicSearch } from "./RecruiterCompanyDomainResolver";
 
@@ -9,7 +9,7 @@ export class ProactiveRecruiterRepository {
   constructor(private readonly database: Database) {}
 
   async persistCandidate(candidateProfileId: string, candidate: ProactiveRecruiterDiscoveryCandidate): Promise<string | null> {
-    if (candidate.contactType !== "EMPLOYER" && !hasRequiredRecruiterEvidence(candidate)) return null;
+    if (candidate.contactType !== "EMPLOYER" && !hasRecruiterIdentityEvidence(candidate)) return null;
     if (candidate.employer === "Unknown employer") return null;
     // Public profile evidence often names the employer without exposing its
     // domain in the profile/search result. Resolve that missing domain only
@@ -21,7 +21,7 @@ export class ProactiveRecruiterRepository {
     const email = candidate.email?.trim().toLowerCase() || null;
     if (email && email.split("@")[1]?.toLowerCase() !== domain) return null;
 
-    const relevanceStatus = candidate.evidenceFreshness === "current" ? "CURRENT" : candidate.evidenceFreshness === "recent" ? "RECENT" : candidate.evidenceFreshness === "historical" ? "HISTORICAL" : "UNKNOWN";
+    const relevanceStatus = candidate.hiringEvidenceScore > 0 ? (candidate.evidenceFreshness === "current" ? "CURRENT" : candidate.evidenceFreshness === "recent" ? "RECENT" : candidate.evidenceFreshness === "historical" ? "HISTORICAL" : "UNKNOWN") : "UNKNOWN";
     const verificationEvidence = candidate.verificationEvidence ?? [];
     const explicitMailboxEvidence = hasExplicitMailboxEvidence(verificationEvidence);
     const mailboxEvidence = Boolean(email) && explicitMailboxEvidence && isMailboxVerifiedForRealSend({
