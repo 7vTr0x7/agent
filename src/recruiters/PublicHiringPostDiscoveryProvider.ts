@@ -69,7 +69,13 @@ const PROFILE_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-
 const SEARCH_HOSTS = new Set(["google.com","www.google.com","bing.com","www.bing.com","duckduckgo.com","html.duckduckgo.com","startpage.com","www.startpage.com","search.yahoo.com","www.yahoo.com","search.brave.com","www.mojeek.com","qwant.com","www.qwant.com"]);
 const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com","outlook.com","hotmail.com","yahoo.com","icloud.com","proton.me","protonmail.com"]);
 
-// Public-search pages can contain hundreds of unrelated navigation/result URLs.\n// Bound destination fan-out so one query cannot turn into an effectively unbounded\n// sequence of 6.5s page fetches. The goal is a reliable vertical slice, not exhaustive\n// crawling of a search-engine result page.\nconst MAX_DESTINATION_URLS_PER_SEARCH = 8;\nconst MAX_POST_EVIDENCE = 24;\nconst MAX_PROFILE_URLS_PER_SEARCH = 6;
+// Public-search pages can contain hundreds of unrelated navigation/result URLs.
+// Bound destination fan-out so one query cannot turn into an effectively unbounded
+// sequence of 6.5s page fetches. The goal is a reliable vertical slice, not exhaustive
+// crawling of a search-engine result page.
+const MAX_DESTINATION_URLS_PER_SEARCH = 8;
+const MAX_POST_EVIDENCE = 24;
+const MAX_PROFILE_URLS_PER_SEARCH = 6;
 
 function clean(value: string): string {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/\s+/g, " ").trim();
