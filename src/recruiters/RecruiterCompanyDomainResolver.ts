@@ -293,10 +293,10 @@ async function resolveEmployerDomainFromLinkedInCompanyPage(companyName: string)
   const results = await fetchProviderSearchResults(query);
   const companyUrls = new Set<string>();
   for (const result of results) {
-    for (const rawUrl of result.match(/https?:\\/\\/[^\\s<>"'()]+/gi) ?? []) {
+    for (const rawUrl of result.match(/https?:\/\/[^\s<>"'()]+/gi) ?? []) {
       try {
         const url = new URL(rawUrl);
-        if (url.hostname.toLowerCase().endsWith("linkedin.com") && /^\\/company\\//i.test(url.pathname)) {
+        if (url.hostname.toLowerCase().endsWith("linkedin.com") && /^\/company\//i.test(url.pathname)) {
           companyUrls.add(`https://www.linkedin.com${url.pathname}`);
         }
       } catch {
