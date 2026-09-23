@@ -256,9 +256,29 @@ function isSafePublicDestinationUrl(value: string): boolean {
   } catch { return false; }
 }
 
+function unwrapSearchResultUrl(value: string): string {
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    if (host === "duckduckgo.com" && parsed.pathname.startsWith("/l/")) {
+      const target = parsed.searchParams.get("uddg");
+      if (target) return decodeURIComponent(target);
+    }
+    if (host === "google.com" && parsed.pathname === "/url") {
+      const target = parsed.searchParams.get("q") ?? parsed.searchParams.get("url");
+      if (target) return decodeURIComponent(target ?? "");
+    }
+    return value;
+  } catch {
+    return value;
+  }
+}
 function extractPublicEvidenceUrls(text: string): string[] {
   const infrastructureHosts = configuredSearchInfrastructureHosts();
-  const urls = [...new Set((text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []).map(canonicalUrl))];
+  const urls = [...new Set((text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? [])
+    .map(value => value.replace(/[>"'.,;:!?]+$/g, ""))
+    .map(unwrapSearchResultUrl)
+    .map(canonicalUrl))];
   return urls.filter(url => isLegitimatePublicResultUrl(url, infrastructureHosts));
 }
 
