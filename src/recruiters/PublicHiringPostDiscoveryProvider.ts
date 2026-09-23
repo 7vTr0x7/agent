@@ -67,7 +67,7 @@ const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const POST_URL = /(?:https?:\/\/)?(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"'\\)]+|feed\/update\/urn:li:activity:\d+)/gi;
 const PROFILE_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
 const SEARCH_HOSTS = new Set(["google.com","www.google.com","bing.com","www.bing.com","duckduckgo.com","html.duckduckgo.com","startpage.com","www.startpage.com","search.yahoo.com","www.yahoo.com","search.brave.com","www.mojeek.com","qwant.com","www.qwant.com"]);
-const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com","outlook.com","hotmail.com","yahoo.com","icloud.com","proton.me","protonmail.com"]);
+const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com","outlook.com","hotmail.com","yahoo.com","icloud.com","proton.me","protonmail.com"]);\n\n// Public-search pages can contain hundreds of unrelated navigation/result URLs.\n// Bound destination fan-out so one query cannot turn into an effectively unbounded\n// sequence of 6.5s page fetches. The goal is a reliable vertical slice, not exhaustive\n// crawling of a search-engine result page.\nconst MAX_DESTINATION_URLS_PER_SEARCH = 8;\nconst MAX_POST_EVIDENCE = 24;\nconst MAX_PROFILE_URLS_PER_SEARCH = 6;
 
 function clean(value: string): string {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/\s+/g, " ").trim();
@@ -347,7 +347,7 @@ export class PublicHiringPostDiscoveryProvider {
         metrics.rawSearchResults += (result.text.match(/https?:\/\/[^\s<>"'\\)\\]]+/gi) ?? []).length;
         const stat = metrics.sourceStats[result.source] ?? (metrics.sourceStats[result.source] = { attempted:0,succeeded:0,empty:0,errors:0,posts:0 });
         stat.attempted++; stat.succeeded++;
-        const urls = extractPublicEvidenceUrls(result.text);
+        const urls = extractPublicEvidenceUrls(result.text).slice(0, MAX_DESTINATION_URLS_PER_SEARCH);
         metrics.normalizedResults += urls.length;
         stat.posts += urls.length;
         for (const url of urls) {
@@ -368,7 +368,7 @@ export class PublicHiringPostDiscoveryProvider {
           if (process.env.PUBLIC_HIRING_POST_DIAGNOSTICS === "true" && postEvidence.size < 12) {
             console.error(JSON.stringify({ event: "public-hiring-post-evidence", source: result.source, url, evidence: evidence.slice(0, 5000) }));
           }
-          postEvidence.set(url, { url, text: evidence, discoveryText: discoveryEvidence, source: result.source });
+          postEvidence.set(url, { url, text: evidence, discoveryText: discoveryEvidence, source: result.source });\n          if (postEvidence.size >= MAX_POST_EVIDENCE) break;
         }
       }
     }
@@ -384,7 +384,7 @@ export class PublicHiringPostDiscoveryProvider {
       const results = await search(query, input.signal, input.fetchText);
       for (const result of results) {
         metrics.sourcePagesFetched++;
-        const profileUrls = extractProfileUrls(result.text);
+        const profileUrls = extractProfileUrls(result.text).slice(0, MAX_PROFILE_URLS_PER_SEARCH);
         for (const profileUrl of profileUrls) {
           if (profileUrl.includes("/pub/dir/")) continue;
           const profileText = clean(await (input.fetchText ? input.fetchText(profileUrl, input.signal) : fetchText(profileUrl, input.signal, 6500)) ?? "");
