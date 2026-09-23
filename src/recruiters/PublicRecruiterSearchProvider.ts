@@ -108,7 +108,8 @@ function queries(input:RecruiterDiscoveryInput,max:number):string[] { const comp
 async function employerPages(domain:string,signal?:AbortSignal,fetcher?:PublicRecruiterSearchOptions["fetchText"]):Promise<Array<{url:string,text:string}>> { const urls=EMPLOYER_PATHS.map(p=>`https://${domain}${p}`); const pages=await mapLimit(urls,CONCURRENCY,async url=>{const text=fetcher?await fetcher(url,EMPLOYER_TIMEOUT,signal):(await fetchDefault(url,EMPLOYER_TIMEOUT,signal)).text;return text?{url,text}:null;});return pages.filter((p):p is {url:string,text:string}=>Boolean(p)); }
 function identity(url:string,text:string,domain:string):RecruiterIdentityCandidate|null {
   const lowered=text.toLowerCase();
-  const variants=[url.toLowerCase(),url.toLowerCase().replace(/^https?:\\/\\/(?:www\\.)?/,""),url.toLowerCase().replace(/^https?:\\/\\//,"")];
+  const normalizedUrl=url.toLowerCase();
+  const variants=[normalizedUrl,normalizedUrl.replace("https://www.","").replace("http://www.","").replace("https://","").replace("http://","")];
   const i=Math.max(...variants.map((value)=>lowered.indexOf(value)));
   if(i<0)return null;
   const snippet=text.slice(Math.max(0,i-360),Math.min(text.length,i+700));
