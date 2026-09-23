@@ -21,6 +21,13 @@ describe("public contact resource extraction", () => {
       .toEqual(["https://example.com/careers","https://example.com/jobs","https://example.com/team"]);
   });
 
+  it("decodes Bing's encoded search redirect before resource classification", () => {
+    const target = "https://www.intellicar.in/career-categories/engineering";
+    const payload = Buffer.from(target, "utf8").toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+    const redirect = `https://www.bing.com/ck/a?u=a1${payload}`;
+    expect(urlsFromSearch(redirect)).toEqual([target]);
+  });
+
   it("rejects known blocked job-board hosts while preserving unrelated domains", () => {
     expect(urlsFromSearch("https://www.simplyhired.com/jobs https://foo.simplyhired.com/careers https://www.joblist.com https://www.snagajob.com https://example.com/careers"))
       .toEqual(["https://example.com/careers"]);
