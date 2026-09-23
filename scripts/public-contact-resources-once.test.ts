@@ -23,7 +23,9 @@ describe("public contact resource extraction", () => {
 
   it("does not turn embedded Schema.org JSON into a resource URL", () => {
     const noisy = 'https://remotefirstjobs.com/companies/example/jobs/frontend%22,%22email%22:%22careers@example.com%22,%22logo%22:%22https://example.com/logo.png%22';
+    const noisySuffix = 'https://remotefirstjobs.com/companies/example/jobs/frontend%22%7D';
     expect(urlsFromSearch(noisy)).toEqual(["https://remotefirstjobs.com/companies/example/jobs/frontend"]);
+    expect(urlsFromSearch(noisySuffix)).toEqual(["https://remotefirstjobs.com/companies/example/jobs/frontend"]);
   });
 
   it("rejects known blocked job-board hosts while preserving unrelated domains", () => {
