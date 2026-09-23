@@ -388,11 +388,8 @@ async function main(): Promise<void> {
              resource_id, normalized_email, domain, validation_status, relevance_score,
              evidence_context, observed_at, updated_at
            ) VALUES($1,$2,$3,$4,$5,$6,NOW(),NOW())
-           ON CONFLICT(resource_id, normalized_email) DO UPDATE SET
-             validation_status=EXCLUDED.validation_status,
-             relevance_score=GREATEST(public_contact_resource_contacts.relevance_score, EXCLUDED.relevance_score),
-             evidence_context=EXCLUDED.evidence_context,
-             updated_at=NOW()`,
+           ON CONFLICT(resource_id, normalized_email) DO NOTHING
+           RETURNING id`,
           [resourceId, item.email, domain, status, score, item.context.slice(0, 3500)]
         );
 
