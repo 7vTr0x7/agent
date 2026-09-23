@@ -39,3 +39,7 @@ describe("public contact resource extraction", () => {
     expect(urlsFromSearch("ftp://example.com/contacts https://example.com/careers")).toEqual(["https://example.com/careers"]);
   });
 });
+
+  it("accepts public GitHub contact-resource URLs for open career datasets", () => {
+    expect(urlsFromSearch("https://raw.githubusercontent.com/byborh/careerLauncher/main/data/companies.md https://github.com/search?q=careers")).toEqual(["https://raw.githubusercontent.com/byborh/careerLauncher/main/data/companies.md"]);
+  });
