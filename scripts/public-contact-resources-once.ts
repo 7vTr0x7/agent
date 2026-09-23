@@ -335,6 +335,25 @@ async function main(): Promise<void> {
     }
   }
 
+  const matchedJobResources = await db.query<{ canonical_url: string }>(
+    `SELECT DISTINCT j.canonical_url
+       FROM job_opportunities j
+       JOIN match_decisions m ON m.job_opportunity_id = j.id
+      WHERE m.decision IN ('APPLY','REVIEW')
+        AND j.canonical_url IS NOT NULL
+      ORDER BY j.canonical_url
+      LIMIT 24`
+  );
+  for (const row of matchedJobResources.rows) {
+    const url = canonical(row.canonical_url);
+    if (legitimate(url)) {
+      resources.set(url, {
+        url,
+        sourceType: typeFor(url, "")
+      });
+    }
+  }
+
   const resourceList = [...resources.values()];
   const processed = await mapLimit(resourceList, 4, async (resource) => {
     const fetched = await fetchText(resource.url);
