@@ -1,4 +1,5 @@
 import { promises as dns } from "node:dns";
+import { isIP } from "node:net";
 import { Database } from "../src/database/Database";
 import { ConfiguredCandidateProfileResolver } from "../src/candidates/ConfiguredCandidateProfileResolver";
 import { sourceList } from "../src/recruiters/PublicSearchProviderRegistry";
@@ -20,16 +21,43 @@ type FetchResult =
  | {ok:true;text:string;contentType:string;finalUrl:string;httpStatus:number;bytesRead:number;elapsedMs:number}
  | {ok:false;failureReason:"HTTP_NON_2XX"|"TIMEOUT"|"NETWORK_ERROR"|"REDIRECT_ERROR"|"CONTENT_TOO_LARGE"|"EMPTY_BODY"|"UNSUPPORTED_CONTENT_TYPE"|"PARSER_ERROR"|"EMAIL_EXTRACTION_ERROR";httpStatus?:number;contentType?:string;finalUrl?:string;bytesRead?:number;elapsedMs:number;errorCode?:string};
 
+function isPrivateAddress(address:string):boolean{
+ const version=isIP(address);
+ if(version===4){
+  const p=address.split(".").map(Number);if(p.length!==4||p.some(n=>!Number.isInteger(n)))return true;
+  const [a,b]=p as [number,number];
+  return a===0||a===10||a===127||(a===169&&b===254)||(a===172&&b>=16&&b<=31)||(a===192&&b===168)||(a===198&&(b===18||b===19))||(a===100&&b>=64&&b<=127);
+ }
+ if(version===6){
+  const h=address.toLowerCase().split(":").join("").padStart(32,"0");
+  return address==="::1"||address==="::"||h.startsWith("fc")||h.startsWith("fd")||h.startsWith("fe8")||h.startsWith("fe9")||h.startsWith("fea")||h.startsWith("feb")||h.startsWith("ff")||h.startsWith("00000000000000000000ffff");
+ }
+ return true;
+}
+async function assertPublicFetchUrl(url:string):Promise<void>{
+ const u=new URL(url);
+ if(!/^https?:$/.test(u.protocol)||!legitimate(url))throw new Error("UNSAFE_FETCH_URL");
+ const addresses=await dns.lookup(u.hostname,{all:true,verbatim:true});
+ if(!addresses.length||addresses.some(entry=>isPrivateAddress(entry.address)))throw new Error("PRIVATE_OR_NON_PUBLIC_ADDRESS");
+}
 async function fetchText(url:string):Promise<FetchResult>{
  const started=Date.now(),c=new AbortController(),t=setTimeout(()=>c.abort(),Number(process.env.PUBLIC_CONTACT_RESOURCE_TIMEOUT_MS??12000));
  try{
+  let currentUrl=url;
   let r:Response;
-  try{r=await fetch(url,{redirect:"follow",signal:c.signal,headers:{accept:"text/html,text/plain,text/csv,application/json,*/*;q=0.5","user-agent":"job-agent-public-contact-resource-discovery/1.0"}});}
-  catch(e){
+  for(let hop=0;hop<=3;hop++){
+   try{await assertPublicFetchUrl(currentUrl);}catch(e){return {ok:false,failureReason:"REDIRECT_ERROR",finalUrl:currentUrl,elapsedMs:Date.now()-started,errorCode:e instanceof Error?e.message:"UNSAFE_FETCH_URL"};}
+   try{r=await fetch(currentUrl,{redirect:"manual",signal:c.signal,headers:{accept:"text/html,text/plain,text/csv,application/json,*/*;q=0.5","user-agent":"job-agent-public-contact-resource-discovery/1.0"}});}
+   catch(e){
    const elapsedMs=Date.now()-started,code=e instanceof Error && "code" in e?String((e as Error & {code?:unknown}).code??""):undefined;
    return {ok:false,failureReason:c.signal.aborted?"TIMEOUT":"NETWORK_ERROR",elapsedMs,errorCode:code};
   }
-  const finalUrl=r.url||url,contentType=r.headers.get("content-type")?.toLowerCase()??"";
+  if([301,302,303,307,308].includes(r.status)){
+   const location=r.headers.get("location");
+   if(!location||hop===3)return {ok:false,failureReason:"REDIRECT_ERROR",httpStatus:r.status,finalUrl:currentUrl,elapsedMs:Date.now()-started,errorCode:location?"REDIRECT_LIMIT":"MISSING_LOCATION"};
+   try{currentUrl=new URL(location,currentUrl).toString();continue}catch(e){return {ok:false,failureReason:"REDIRECT_ERROR",httpStatus:r.status,finalUrl:currentUrl,elapsedMs:Date.now()-started,errorCode:"INVALID_LOCATION"};}
+  }
+  const finalUrl=r.url||currentUrl,contentType=r.headers.get("content-type")?.toLowerCase()??"";
   if(!r.ok)return {ok:false,failureReason:"HTTP_NON_2XX",httpStatus:r.status,contentType,finalUrl,elapsedMs:Date.now()-started};
   const maxBytes=Number(process.env.PUBLIC_CONTACT_RESOURCE_MAX_BYTES??8*1024*1024);
   if(r.body){
@@ -63,7 +91,8 @@ async function main(){
  if(!profile)throw new Error("Configured candidate profile could not be resolved.");
  const db=new Database(process.env.DATABASE_URL??"");
  const recruiterRepository=new ProactiveRecruiterRepository(db);
- const excludedSites="-site:simplyhired.com -site:joblist.com -site:snagajob.com -site:indeed.com -site:linkedin.com -site:glassdoor.com -site:foundit.in";\n const queries=[`inurl:careers "frontend developer" "Bengaluru" "@" ${excludedSites}`,`inurl:careers "React developer" "Bangalore" "@" ${excludedSites}`,`"frontend developer" "careers@" "Bengaluru" ${excludedSites}`,`"React" "careers@" "Bangalore" ${excludedSites}`,`"send your resume" "frontend developer" "Bengaluru" ${excludedSites}`,`"send your resume" "React developer" "India" ${excludedSites}`,`"talent acquisition" "React" "Bengaluru" "@" ${excludedSites}`,`"hiring" "Next.js" "Bengaluru" "careers@" ${excludedSites}`];
+ const excludedSites="-site:simplyhired.com -site:joblist.com -site:snagajob.com -site:indeed.com -site:linkedin.com -site:glassdoor.com -site:foundit.in";
+ const queries=[`inurl:careers "frontend developer" "Bengaluru" "@" ${excludedSites}`,`inurl:careers "React developer" "Bangalore" "@" ${excludedSites}`,`"frontend developer" "careers@" "Bengaluru" ${excludedSites}`,`"React" "careers@" "Bangalore" ${excludedSites}`,`"send your resume" "frontend developer" "Bengaluru" ${excludedSites}`,`"send your resume" "React developer" "India" ${excludedSites}`,`"talent acquisition" "React" "Bengaluru" "@" ${excludedSites}`,`"hiring" "Next.js" "Bengaluru" "careers@" ${excludedSites}`];
  const pages=(await mapLimit(queries,4,async q=>{const rs=await Promise.all(sourceList(q).map(async s=>({url:s.url,response:await fetchText(s.url)})));return rs.filter(x=>x.response.ok).map(x=>({text:x.response.text}))})).flat();
  const resources=new Map<string,Resource>();
  for(const page of pages)for(const url of urlsFromSearch(page.text))if(resourceLooksRelevant(url))resources.set(url,{url,sourceType:/\.csv(?:$|\?)/i.test(url)?"CSV":/\.json(?:$|\?)/i.test(url)?"JSON":/\.txt(?:$|\?)/i.test(url)?"TEXT":"HTML"});
