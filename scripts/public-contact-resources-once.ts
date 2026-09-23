@@ -15,7 +15,7 @@ const SEARCH_HOSTS = new Set([
   "www.yahoo.com", "search.brave.com", "www.mojeek.com", "qwant.com", "www.qwant.com",
   "r.jina.ai"
 ]);
-const GENERIC = /^(noreply|no-reply|postmaster|webmaster|admin|support|privacy|legal|press|media|marketing|sales)$/i;
+const GENERIC = /^(noreply|no-reply|postmaster|webmaster|admin|support|privacy|legal|press|media|marketing|sales|security|billing|accommodations?|accessibility|helpdesk)$/i;
 const HIRING_INTENT = /we['’]?re\s+hiring|we\s+are\s+hiring|hiring\s+(?:for|a|an)|looking\s+for\s+(?:a|an)?\s*(?:frontend|front-end|react|next\.js|javascript|typescript|software|full[ -]?stack)|send\s+(?:your|me\s+your)\s+(?:resume|cv)|share\s+your\s+(?:resume|cv)|apply\s+(?:here|now)|referrals?\s+welcome|talent\s+acquisition|recruit(?:er|ing)|join\s+(?:our|my)\s+team/i;
 const ROLE_OR_SKILL = /frontend|front-end|react(?:\.js|js)?|next(?:\.js|js)?|typescript|javascript|software\s+engineer|developer|engineering/i;
 const RESOURCE_SIGNAL = /career|careers|job|jobs|hiring|hire|recruit|recruiting|talent|contact|about|people|team|resume|apply/i;
@@ -312,7 +312,7 @@ export function qualifiesJobPageAsContactResource(url: string, text: string, ski
   const cleaned = clean(text);
   if (!HIRING_INTENT.test(cleaned) || !ROLE_OR_SKILL.test(cleaned)) return false;
   return extractEmailContextsFromResource(text, "HTML").some((item) =>
-    relevance(item.email, `${url} ${item.context}`, skills) >= 60
+    relevance(item.email, `${url} ${item.context}`, skills, cleaned) >= 60
   );
 }
 
@@ -372,8 +372,11 @@ function extractEmailContextsFromResource(raw: string, type: Resource["sourceTyp
   return [...merged.entries()].map(([email, context]) => ({ email, context }));
 }
 
-export function relevance(email: string, context: string, skills: string[]): number {
+export function relevance(email: string, context: string, skills: string[], pageContext = ""): number {
   const haystack = (email + " " + context).toLowerCase();
+  const pageHaystack = pageContext.toLowerCase();
+  const pageCanSupplyHiringEvidence = Boolean(pageContext) && HIRING_INTENT.test(pageHaystack) && ROLE_OR_SKILL.test(pageHaystack);
+  if (!HIRING_INTENT.test(haystack) && !pageCanSupplyHiringEvidence) return 0;
   let score = 0;
   if (HIRING_INTENT.test(haystack)) score += 40;
   if (ROLE_OR_SKILL.test(haystack)) score += 25;
@@ -488,7 +491,7 @@ async function main(): Promise<void> {
     const text = type === "HTML" ? clean(fetched.text) : fetched.text;
     const emailContexts = extractEmailContextsFromResource(fetched.text, type);
     const emails = emailContexts.map((item) => item.email);
-    const qualified = emailContexts.filter((item) => relevance(item.email, `${resource.url} ${item.context}`, [...profile.skills]) >= 60);
+    const qualified = emailContexts.filter((item) => relevance(item.email, `${resource.url} ${item.context}`, [...profile.skills], text) >= 60);
 
     const title = (text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "")
       .replace(/\s+/g, " ").trim().slice(0, 300) || resource.url.slice(0, 300);
@@ -525,7 +528,7 @@ async function main(): Promise<void> {
           continue;
         }
 
-        const score = relevance(item.email, `${resource.url} ${item.context}`, [...profile.skills]);
+        const score = relevance(item.email, `${resource.url} ${item.context}`, [...profile.skills], text);
         if (score < 60) continue;
 
         const domain = item.email.split("@")[1]?.toLowerCase();
