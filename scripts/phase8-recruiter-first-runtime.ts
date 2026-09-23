@@ -21,7 +21,6 @@ const candidateProfile = {
 const companyDomain = "phase8.test";
 const email = "jane.recruiter@phase8.test";
 const recruiterName = "Jane Recruiter";
-const discoveryUrl = "https://phase8.test/recruiting/jane";
 const evidence = "Jane Recruiter - Technical Recruiter at Phase Eight Corp actively hiring React frontend engineers in Bengaluru and India. Recruiting for React, Next.js and TypeScript roles. 2026.";
 
 async function main(): Promise<void> {
@@ -33,7 +32,7 @@ async function main(): Promise<void> {
     const discovered = await discovery.discover(candidateProfile);
     if (discovered.length < 1) throw new Error("Proactive recruiter discovery found no candidates.");
     const candidate = { ...discovered[0], recruiterName, recruiterRole: "Technical Recruiter", employer: "Phase Eight Corp", employerDomain: companyDomain, email, emailStatus: "VERIFIED" as const, verificationEvidence: [{ provider: "phase8-fixture-mailbox-verifier", status: "mailbox_verified", confidence: 99, mailboxLevel: true, source: "isolated-test-provider" }] };
-    candidate.discoveryUrl = discoveryUrl; candidate.evidenceFreshness = "current"; candidate.evidenceType = "job_hiring_evidence"; candidate.roleMatchScore = 100; candidate.hiringEvidenceScore = 100; candidate.overallConfidence = 99;
+    candidate.evidenceFreshness = "current"; candidate.evidenceType = "job_hiring_evidence"; candidate.roleMatchScore = 100; candidate.hiringEvidenceScore = 100; candidate.overallConfidence = 99;
     const repository = new ProactiveRecruiterRepository(db);
     const contactId = await repository.persistCandidate(candidateProfile.id, candidate);
     if (!contactId) throw new Error("Proactive recruiter was not persisted.");

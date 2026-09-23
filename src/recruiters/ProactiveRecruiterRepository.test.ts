@@ -12,7 +12,7 @@ const candidate = (overrides: Partial<ProactiveRecruiterDiscoveryCandidate> = {}
   overallConfidence: 95,
   discoverySource: "public-web",
   discoveryUrl: "https://linkedin.com/in/jane-doe",
-  discoveryEvidence: ["Technical recruiter"],
+  discoveryEvidence: ["Technical recruiter at Acme. Currently hiring frontend engineers."],
   evidenceType: "public_profile",
   evidenceDate: new Date().toISOString(),
   evidenceFreshness: "current",
@@ -132,6 +132,21 @@ describe("ProactiveRecruiterRepository", () => {
     expect(insertSql).toContain("title");
     const relevanceEvidenceSql = database.query.mock.calls[3]?.[1] as unknown[];
     expect(JSON.stringify(relevanceEvidenceSql)).toContain("EMPLOYER");
+  });
+
+
+  it("does not persist a recruiter without a genuine public profile and hiring evidence", async () => {
+    const database = { query: jest.fn() };
+    const repository = new ProactiveRecruiterRepository(database as never);
+
+    const result = await repository.persistCandidate("candidate-1", candidate({
+      discoveryUrl: "https://www.bing.com/search?q=Jane+Doe+recruiter",
+      discoveryEvidence: ["Jane Doe - Technical Recruiter at Acme"],
+      hiringEvidenceScore: 0
+    }));
+
+    expect(result).toBeNull();
+    expect(database.query).not.toHaveBeenCalled();
   });
 
   it("uses the canonical database eligibility predicate before proactive campaign creation", async () => {

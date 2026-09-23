@@ -41,6 +41,9 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Typecheck
         run: npm run typecheck
+      - name: Typecheck runtime scripts
+        run: npm run typecheck:scripts
+
       - name: Build
         run: npm run build
       - name: Full tests

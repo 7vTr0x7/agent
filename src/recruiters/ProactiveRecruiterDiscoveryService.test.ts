@@ -188,6 +188,35 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(service.getLastRunMetrics().rejectionReasons.ROLE_IRRELEVANT).toBeGreaterThan(0);
   });
 
+
+  it("keeps a fetched recruiter profile as a candidate when public hiring evidence is missing", async () => {
+    const search = `site:linkedin.com/in "technical recruiter" "Frontend Engineer" "Bengaluru" Jane Doe <https://linkedin.com/in/jane-doe>`;
+    const profile = `<html><head><title>Jane Doe | Technical Recruiter | Acme Corp</title></head><body><h1>Jane Doe</h1><p>Technical Recruiter at Acme Corp.</p></body></html>`;
+    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async (url) => url.includes("linkedin.com/in/") ? profile : search });
+    const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
+    expect(results).toHaveLength(1);
+    expect(results[0]?.recruiterName).toBe("Jane Doe");
+    expect(results[0]?.hiringEvidenceScore).toBe(0);
+    expect(results[0]?.emailStatus).toBe("UNVERIFIED");
+    expect(service.getLastRunMetrics().hiringEvidenceAccepted).toBe(0);
+  });
+
+  it("does not treat query text as profile evidence when the actual profile cannot be fetched", async () => {
+    const search = `site:linkedin.com/in "technical recruiter" "Frontend Engineer" Jane Doe <https://linkedin.com/in/jane-doe>`;
+    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async (url) => url.includes("linkedin.com/in/") ? null : search });
+    const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
+    expect(results).toEqual([]);
+    expect(service.getLastRunMetrics().profilesFetched).toBe(0);
+  });
+
+  it("does not qualify a job-page person name as a recruiter profile", async () => {
+    const page = `Jane Doe - Technical Recruiter at Acme Corp currently hiring React engineers <https://acme.com/jobs/frontend-engineer>`;
+    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => page });
+    const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
+    expect(results).toEqual([]);
+    expect(service.getLastRunMetrics().identityValidated).toBe(0);
+  });
+
   it("records profile fetch failures separately from successful profile fetches", async () => {
     const searchPage = `Jane Doe - Recruiter <https://linkedin.com/in/jane-doe>`;
     let profile = false;

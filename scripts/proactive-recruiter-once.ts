@@ -45,8 +45,6 @@ async function main(): Promise<void> {
       yearsExperience: profile.yearsExperience,
       location: profile.location,
       preferredLocations,
-      remoteEligible: process.env.CANDIDATE_REMOTE_ELIGIBLE !== "false"
-    }, {
       maxQueries: Number.parseInt(process.env.PUBLIC_HIRING_POST_MAX_QUERIES ?? "8", 10)
     });
 
@@ -73,7 +71,7 @@ async function main(): Promise<void> {
             candidate.email = sameIdentity.email;
             candidate.emailStatus = "UNVERIFIED";
             candidate.verificationEvidence = [];
-            hiringPostResult.metrics.publicEmailsFound += 1;
+
           }
         } catch (error) {
           logger.error({ error: error instanceof Error ? error.message : String(error), employer: candidate.employer }, "Public email enrichment for hiring-post author failed");

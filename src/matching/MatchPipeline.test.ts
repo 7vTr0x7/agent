@@ -5,7 +5,7 @@ import { MatchPipeline } from "./MatchPipeline";
 import { MatchDecisionRepository } from "./MatchDecisionRepository";
 import { SemanticJobMatcher } from "./SemanticJobMatcher";
 
-const profile: CandidateProfile = { id: "candidate-1", yearsExperience: 3, skills: ["React", "TypeScript"], targetTitles: ["Frontend Engineer"] };
+const profile: CandidateProfile = { id: "candidate-1", yearsExperience: 3, currentCompensationLpa: 6.5, skills: ["React", "TypeScript"], targetTitles: ["Frontend Engineer"] };
 const job: JobOpportunity = { id: "job-1", canonicalId: "canonical-1", canonicalUrl: "https://example.com/job-1", title: "Frontend Engineer", companyName: "Example", location: "Bengaluru", country: "India", workplaceType: "hybrid", employmentType: "full-time", description: "React and TypeScript application development.", postedAt: null, sourceUpdatedAt: new Date(), lastSeenAt: new Date(), closedAt: null, status: "ACTIVE", createdAt: new Date(), updatedAt: new Date() };
 
 describe("MatchPipeline", () => {
@@ -20,5 +20,31 @@ describe("MatchPipeline", () => {
   it("combines deterministic and semantic scores using the current weighted scoring", async () => {
     const repository: MatchDecisionRepository = { save: jest.fn().mockResolvedValue(undefined) }; const semantic = { evaluate: jest.fn().mockResolvedValue({ score: 80, decision: "APPLY", rationale: "Strong semantic fit", strengths: ["React ecosystem"], gaps: ["GraphQL"], confidence: 0.9, inputHash: "semantic-hash", model: "qwen3:8b" }) } as unknown as SemanticJobMatcher; const result = await new MatchPipeline(new DeterministicJobMatcher(), semantic, repository).evaluateAndPersist(job, profile);
     expect(result.semantic?.score).toBe(80); expect(result.score).toBe(Math.round(result.deterministic.matchScore * 0.6 + 80 * 0.4)); expect(result.decision).toBe("APPLY"); expect(repository.save).toHaveBeenCalledTimes(1);
+  });
+  it("does not let semantic matching upgrade a deterministic REVIEW into APPLY", async () => {
+    const reviewJob = {
+      ...job,
+      description: "React and TypeScript application development. Compensation ₹3-5 LPA."
+    };
+    const repository: MatchDecisionRepository = { save: jest.fn().mockResolvedValue(undefined) };
+    const semantic = {
+      evaluate: jest.fn().mockResolvedValue({
+        score: 100,
+        decision: "APPLY",
+        rationale: "Strong semantic fit",
+        strengths: ["React ecosystem"],
+        gaps: [],
+        confidence: 0.99,
+        inputHash: "semantic-hash",
+        model: "qwen3:8b"
+      })
+    } as unknown as SemanticJobMatcher;
+
+    const result = await new MatchPipeline(new DeterministicJobMatcher(), semantic, repository)
+      .evaluateAndPersist(reviewJob, profile);
+
+    expect(result.deterministic.decision).toBe("REVIEW");
+    expect(result.decision).toBe("REVIEW");
+    expect(result.score).toBeGreaterThan(30);
   });
 });
