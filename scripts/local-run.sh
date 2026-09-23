@@ -52,7 +52,7 @@ docker run --rm --network "$NETWORK" \
   -e CANDIDATE_NOTICE_PERIOD_DAYS=0 \
   -e CANDIDATE_SPONSORSHIP_REQUIRED=false \
   -e JOB_EXCLUDED_COMPANIES="${JOB_EXCLUDED_COMPANIES:-Octopus Technologies,Sketch Brahma Technologies}" \
-  -e FAST_JOB_SOURCE_IDS="${FAST_JOB_SOURCE_IDS:-remoteok:json,himalayas:react:india:json,himalayas:nextjs:india:json,himalayas:frontend:india:json,remotefirstjobs:react:rss}" \
+  -e FAST_JOB_SOURCE_IDS="${FAST_JOB_SOURCE_IDS:-remoteok:json,himalayas:json,remotefirstjobs:react:rss,remotefirstjobs:software:rss,weworkremotely:rss}" \
   -e FAST_MATCHING_LIMIT="${FAST_MATCHING_LIMIT:-150}" \
   -e DISCOVERY_SOURCE_TIMEOUT_MS="${DISCOVERY_SOURCE_TIMEOUT_MS:-30000}" \
   -e DISCOVERY_SOURCE_RETRIES="${DISCOVERY_SOURCE_RETRIES:-1}" \
