@@ -16,7 +16,12 @@ describe("public contact resource extraction", () => {
       .toEqual(["https://example.com/careers","https://example.com/jobs","https://example.com/team"]);
   });
 
-  it("rejects known blocked job-board hosts while preserving unrelated domains", () => {\n    expect(urlsFromSearch("https://www.simplyhired.com/jobs https://foo.simplyhired.com/careers https://www.joblist.com https://www.snagajob.com https://example.com/careers"))\n      .toEqual(["https://example.com/careers"]);\n  });\n\n  it("does not treat search infrastructure as a public resource", () => {
+  it("rejects known blocked job-board hosts while preserving unrelated domains", () => {
+    expect(urlsFromSearch("https://www.simplyhired.com/jobs https://foo.simplyhired.com/careers https://www.joblist.com https://www.snagajob.com https://example.com/careers"))
+      .toEqual(["https://example.com/careers"]);
+  });
+
+  it("does not treat search infrastructure as a public resource", () => {
     expect(urlsFromSearch('https://www.qwant.com/?q=frontend https://api.qwant.com/v3 https://about.qwant.com/en/" https://example.com/careers'))
       .toEqual(["https://example.com/careers"]);
   });
