@@ -248,7 +248,7 @@ export function urlsFromSearch(text: string): string[] {
     .replace(/%26/gi, "&");
   const candidates = [
     ...(decoded.match(/https?:\/\/[^\s<>()\]]+/gi) ?? []),
-    ...[...decoded.matchAll(/href\\s*=\\s*["']([^"']+)["']/gi)].map((match) => match[1] ?? "")
+    ...[...decoded.matchAll(/href\s*=\s*["']([^"']+)["']/gi)].map((match) => match[1] ?? "")
   ];
   return [...new Set(candidates
     .map((value) => value.replace(/[>"'.,;:!?]+$/g, ""))
