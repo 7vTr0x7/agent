@@ -400,7 +400,7 @@ async function main(): Promise<void> {
 
     if (resourceId) {
       await db.query(
-        "UPDATE public_contact_resources SET duplicate_emails=$2, invalid_emails=$3, updated_at=NOW() WHERE id=$1",
+        "UPDATE public_contact_resources SET duplicate_emails=$2, invalid_emails=$3 WHERE id=$1",
         [resourceId, duplicates, invalid]
       );
     }
