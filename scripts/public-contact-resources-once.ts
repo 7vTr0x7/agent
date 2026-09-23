@@ -41,40 +41,81 @@ async function assertPublicFetchUrl(url:string):Promise<void>{
  if(!addresses.length||addresses.some(entry=>isPrivateAddress(entry.address)))throw new Error("PRIVATE_OR_NON_PUBLIC_ADDRESS");
 }
 async function fetchText(url:string):Promise<FetchResult>{
- const started=Date.now(),c=new AbortController(),t=setTimeout(()=>c.abort(),Number(process.env.PUBLIC_CONTACT_RESOURCE_TIMEOUT_MS??12000));
+ const started=Date.now();
+ const controller=new AbortController();
+ const timeout=setTimeout(()=>controller.abort(),Number(process.env.PUBLIC_CONTACT_RESOURCE_TIMEOUT_MS??12000));
  try{
   let currentUrl=url;
-  let r:Response;
   for(let hop=0;hop<=3;hop++){
-   try{await assertPublicFetchUrl(currentUrl);}catch(e){return {ok:false,failureReason:"REDIRECT_ERROR",finalUrl:currentUrl,elapsedMs:Date.now()-started,errorCode:e instanceof Error?e.message:"UNSAFE_FETCH_URL"};}
-   try{r=await fetch(currentUrl,{redirect:"manual",signal:c.signal,headers:{accept:"text/html,text/plain,text/csv,application/json,*/*;q=0.5","user-agent":"job-agent-public-contact-resource-discovery/1.0"}});}
-   catch(e){
-   const elapsedMs=Date.now()-started,code=e instanceof Error && "code" in e?String((e as Error & {code?:unknown}).code??""):undefined;
-   return {ok:false,failureReason:c.signal.aborted?"TIMEOUT":"NETWORK_ERROR",elapsedMs,errorCode:code};
+   try{
+    await assertPublicFetchUrl(currentUrl);
+   }catch(error){
+    return {ok:false,failureReason:"REDIRECT_ERROR",finalUrl:currentUrl,elapsedMs:Date.now()-started,errorCode:error instanceof Error?error.message:"UNSAFE_FETCH_URL"};
+   }
+   let response:Response;
+   try{
+    response=await fetch(currentUrl,{redirect:"manual",signal:controller.signal,headers:{accept:"text/html,text/plain,text/csv,application/json,*/*;q=0.5","user-agent":"job-agent-public-contact-resource-discovery/1.0"}});
+   }catch(error){
+    const elapsedMs=Date.now()-started;
+    const code=error instanceof Error && "code" in error?String((error as Error & {code?:unknown}).code??""):undefined;
+    return {ok:false,failureReason:controller.signal.aborted?"TIMEOUT":"NETWORK_ERROR",elapsedMs,errorCode:code};
+   }
+   if([301,302,303,307,308].includes(response.status)){
+    const location=response.headers.get("location");
+    if(!location||hop===3){
+     return {ok:false,failureReason:"REDIRECT_ERROR",httpStatus:response.status,finalUrl:currentUrl,elapsedMs:Date.now()-started,errorCode:location?"REDIRECT_LIMIT":"MISSING_LOCATION"};
+    }
+    try{
+     currentUrl=new URL(location,currentUrl).toString();
+    }catch{
+     return {ok:false,failureReason:"REDIRECT_ERROR",httpStatus:response.status,finalUrl:currentUrl,elapsedMs:Date.now()-started,errorCode:"INVALID_LOCATION"};
+    }
+    continue;
+   }
+   const finalUrl=response.url||currentUrl;
+   const contentType=response.headers.get("content-type")?.toLowerCase()??"";
+   if(!response.ok){
+    return {ok:false,failureReason:"HTTP_NON_2XX",httpStatus:response.status,contentType,finalUrl,elapsedMs:Date.now()-started};
+   }
+   const maxBytes=Number(process.env.PUBLIC_CONTACT_RESOURCE_MAX_BYTES??8*1024*1024);
+   if(response.body){
+    const reader=response.body.getReader();
+    const chunks:Uint8Array[]=[];
+    let total=0;
+    try{
+     for(;;){
+      const part=await reader.read();
+      if(part.done)break;
+      total+=part.value.byteLength;
+      if(total>maxBytes){
+       await reader.cancel();
+       return {ok:false,failureReason:"CONTENT_TOO_LARGE",httpStatus:response.status,contentType,finalUrl,bytesRead:total,elapsedMs:Date.now()-started};
+      }
+      chunks.push(part.value);
+     }
+    }catch(error){
+     return {ok:false,failureReason:"NETWORK_ERROR",httpStatus:response.status,contentType,finalUrl,bytesRead:total,elapsedMs:Date.now()-started,errorCode:error instanceof Error?error.name:undefined};
+    }finally{
+     reader.releaseLock();
+    }
+    if(total===0){
+     return {ok:false,failureReason:"EMPTY_BODY",httpStatus:response.status,contentType,finalUrl,bytesRead:0,elapsedMs:Date.now()-started};
+    }
+    const out=new Uint8Array(total);
+    let offset=0;
+    for(const chunk of chunks){out.set(chunk,offset);offset+=chunk.byteLength;}
+    return {ok:true,text:new TextDecoder().decode(out),contentType,finalUrl,httpStatus:response.status,bytesRead:total,elapsedMs:Date.now()-started};
+   }
+   const text=await response.text();
+   const bytesRead=new TextEncoder().encode(text).byteLength;
+   if(bytesRead===0)return {ok:false,failureReason:"EMPTY_BODY",httpStatus:response.status,contentType,finalUrl,bytesRead,elapsedMs:Date.now()-started};
+   if(bytesRead>maxBytes)return {ok:false,failureReason:"CONTENT_TOO_LARGE",httpStatus:response.status,contentType,finalUrl,bytesRead,elapsedMs:Date.now()-started};
+   return {ok:true,text,contentType,finalUrl,httpStatus:response.status,bytesRead,elapsedMs:Date.now()-started};
   }
-  if([301,302,303,307,308].includes(r.status)){
-   const location=r.headers.get("location");
-   if(!location||hop===3)return {ok:false,failureReason:"REDIRECT_ERROR",httpStatus:r.status,finalUrl:currentUrl,elapsedMs:Date.now()-started,errorCode:location?"REDIRECT_LIMIT":"MISSING_LOCATION"};
-   try{currentUrl=new URL(location,currentUrl).toString();continue}catch(e){return {ok:false,failureReason:"REDIRECT_ERROR",httpStatus:r.status,finalUrl:currentUrl,elapsedMs:Date.now()-started,errorCode:"INVALID_LOCATION"};}
-  }
-  const finalUrl=r.url||currentUrl,contentType=r.headers.get("content-type")?.toLowerCase()??"";
-  if(!r.ok)return {ok:false,failureReason:"HTTP_NON_2XX",httpStatus:r.status,contentType,finalUrl,elapsedMs:Date.now()-started};
-  const maxBytes=Number(process.env.PUBLIC_CONTACT_RESOURCE_MAX_BYTES??8*1024*1024);
-  if(r.body){
-   const reader=r.body.getReader(),chunks:Uint8Array[]=[],decoder=new TextDecoder();
-   let total=0;
-   try{for(;;){const part=await reader.read();if(part.done)break;total+=part.value.byteLength;if(total>maxBytes){await reader.cancel();return {ok:false,failureReason:"CONTENT_TOO_LARGE",httpStatus:r.status,contentType,finalUrl,bytesRead:total,elapsedMs:Date.now()-started};}chunks.push(part.value);}}
-   catch(e){return {ok:false,failureReason:"NETWORK_ERROR",httpStatus:r.status,contentType,finalUrl,bytesRead:total,elapsedMs:Date.now()-started,errorCode:e instanceof Error?e.name:undefined};}
-   finally{reader.releaseLock();}
-   if(total===0)return {ok:false,failureReason:"EMPTY_BODY",httpStatus:r.status,contentType,finalUrl,bytesRead:0,elapsedMs:Date.now()-started};
-   const out=new Uint8Array(total);let offset=0;for(const chunk of chunks){out.set(chunk,offset);offset+=chunk.byteLength;}
-   return {ok:true,text:decoder.decode(out),contentType,finalUrl,httpStatus:r.status,bytesRead:total,elapsedMs:Date.now()-started};
-  }
-  const text=await r.text(),bytesRead=new TextEncoder().encode(text).byteLength;
-  if(bytesRead===0)return {ok:false,failureReason:"EMPTY_BODY",httpStatus:r.status,contentType,finalUrl,bytesRead,elapsedMs:Date.now()-started};
-  if(bytesRead>maxBytes)return {ok:false,failureReason:"CONTENT_TOO_LARGE",httpStatus:r.status,contentType,finalUrl,bytesRead,elapsedMs:Date.now()-started};
-  return {ok:true,text,contentType,finalUrl,httpStatus:r.status,bytesRead,elapsedMs:Date.now()-started};
- }finally{clearTimeout(t)}
+  return {ok:false,failureReason:"REDIRECT_ERROR",finalUrl:currentUrl,elapsedMs:Date.now()-started,errorCode:"REDIRECT_LIMIT"};
+ }finally{
+  clearTimeout(timeout);
+ }
 }
 async function mapLimit<T,R>(items:T[],limit:number,fn:(x:T)=>Promise<R>){const out:R[]=[];let next=0;async function worker(){for(;;){const i=next++;if(i>=items.length)return;out[i]=await fn(items[i])}}await Promise.all(Array.from({length:Math.min(limit,items.length)},()=>worker()));return out}
 export function urlsFromSearch(text:string){
