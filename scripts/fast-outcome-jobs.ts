@@ -200,6 +200,7 @@ async function main(): Promise<void> {
     );
 
     const db = counts.rows[0];
+    if (!db) throw new Error("Fast outcome database summary returned no row.");
     const apiCountsAgree =
       summary.jobs === db.jobs &&
       summary.matchApply === db.apply &&
