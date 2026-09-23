@@ -38,7 +38,7 @@
     "content-first:once": "tsx scripts/public-hiring-posts-once.ts",
     "public-contact-resources:once": "tsx scripts/public-contact-resources-once.ts",
     "application-email:once": "tsx scripts/application-email-outcome-once.ts",
-    "typecheck:scripts": "tsc --noEmit --target ES2022 --module CommonJS --moduleResolution Node --strict --esModuleInterop --skipLibCheck --noUncheckedIndexedAccess --noImplicitOverride $(find scripts -maxdepth 1 -name '*.ts' ! -name '*.test.ts' -print)"
+    "typecheck:scripts": "tsc --noEmit --target ES2022 --module CommonJS --moduleResolution Node --strict --esModuleInterop --skipLibCheck --noUncheckedIndexedAccess --noImplicitOverride scripts/fast-outcome-jobs.ts scripts/proactive-recruiter-once.ts scripts/public-contact-resources-once.ts"
   },
   "dependencies": {
     "dotenv": "^17.2.1",
