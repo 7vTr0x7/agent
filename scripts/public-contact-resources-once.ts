@@ -64,10 +64,10 @@ function legitimate(url: string): boolean {
     const parsed = new URL(url);
     const hostname = host(url);
     const pathname = parsed.pathname.toLowerCase();
-    const isSearchHost = SEARCH_HOSTS.has(hostname) || [...SEARCH_HOSTS].some((domain) => hostname.endsWith(`.\${domain}`));
+    const isSearchHost = SEARCH_HOSTS.has(hostname) || [...SEARCH_HOSTS].some((domain) => hostname.endsWith(`.${domain}`));
     const isBlockedResourceHost =
       CONTACT_RESOURCE_BLOCKED_HOSTS.has(hostname) ||
-      [...CONTACT_RESOURCE_BLOCKED_HOSTS].some((domain) => hostname.endsWith(`.\${domain}`));
+      [...CONTACT_RESOURCE_BLOCKED_HOSTS].some((domain) => hostname.endsWith(`.${domain}`));
 
     if (!/^https?:$/.test(parsed.protocol) || !hostname || isSearchHost || isBlockedResourceHost || hostname === "localhost" || hostname.endsWith(".local")) {
       return false;
