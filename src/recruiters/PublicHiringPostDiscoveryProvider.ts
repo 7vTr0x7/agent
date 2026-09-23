@@ -117,6 +117,7 @@ function extractAuthor(text: string, postUrl: string): { name?: string; profileU
     /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo|5mo|6mo)\b/i,
     /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})['’]s\s+(?:Post|post)\b/i,
     /#?(?:hiring|we.?re.?hiring)[^\n]{0,80}\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*\b(?:posted|shared)/i,
+    /Direct message the job poster(?: from [^\n]{1,120})?\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})/i,
     /(?:^|\n)([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*[-|]\s*LinkedIn/i,
     /(?:^|\n)([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo|5mo|6mo)\b/i
   ];
@@ -229,7 +230,8 @@ function isLegitimatePublicResultUrl(value: string, infrastructureHosts: Set<str
     if (!host || host === "localhost" || SEARCH_HOSTS.has(host) || infrastructureHosts.has(host)) return false;
     if ([...infrastructureHosts].some(infrastructureHost => host.endsWith(`.\${infrastructureHost}`))) return false;
     if (host === "r.jina.ai" || host.endsWith(".r.jina.ai")) return false;
-    if (host.endsWith("linkedin.com") && /^\/(?:jobs|in)\//i.test(parsed.pathname)) return false;
+    if (host.endsWith("linkedin.com") && /^\/in\//i.test(parsed.pathname)) return false;
+    if (host.endsWith("linkedin.com") && !/^\/jobs\/view\//i.test(parsed.pathname) && /^\/jobs\//i.test(parsed.pathname)) return false;
     if (/^\/(?:api|v[0-9]+|ajax|graphql|search|query|suggest|autocomplete|static|assets?|tags?|scripts?|js|css)(?:\/|$)/i.test(path)) return false;
     if (/\.(?:js|css|map|svg|png|jpe?g|gif|webp|ico|woff2?|ttf|eot|xml)(?:$|[?#])/i.test(path)) return false;
     if (/^chrome(?:-extension)?:$/i.test(parsed.protocol) || /(?:^|\.)chrome\.google\.com$/i.test(host)) return false;
