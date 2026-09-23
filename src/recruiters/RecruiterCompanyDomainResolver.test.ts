@@ -182,8 +182,8 @@ describe("RecruiterCompanyDomainResolver", () => {
     const payload = encodeURIComponent(employerUrl);
     globalThis.fetch = jest.fn(async (input: string | URL) => {
       const url = String(input);
-      if (url.includes("google.com/search")) return new Response(
-        `<a href="https://www.google.com/url?q=${payload}">Omnicom Group official website</a>`,
+      if (url.includes("bing.com/search")) return new Response(
+        `<a href="https://www.bing.com/ck/a?u=${payload}">Omnicom Group official website</a>`,
         { status: 200 }
       );
       if (url.includes("omnicomgroup.com")) return new Response(
