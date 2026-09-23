@@ -64,10 +64,10 @@ function legitimate(url: string): boolean {
     const parsed = new URL(url);
     const hostname = host(url);
     const pathname = parsed.pathname.toLowerCase();
-    const isSearchHost = SEARCH_HOSTS.has(hostname) || [...SEARCH_HOSTS].some((domain) => hostname.endsWith(\`.\${domain}\`));
+    const isSearchHost = SEARCH_HOSTS.has(hostname) || [...SEARCH_HOSTS].some((domain) => hostname.endsWith(`.\${domain}`));
     const isBlockedResourceHost =
       CONTACT_RESOURCE_BLOCKED_HOSTS.has(hostname) ||
-      [...CONTACT_RESOURCE_BLOCKED_HOSTS].some((domain) => hostname.endsWith(\`.\${domain}\`));
+      [...CONTACT_RESOURCE_BLOCKED_HOSTS].some((domain) => hostname.endsWith(`.\${domain}`));
 
     if (!/^https?:$/.test(parsed.protocol) || !hostname || isSearchHost || isBlockedResourceHost || hostname === "localhost" || hostname.endsWith(".local")) {
       return false;
@@ -340,7 +340,7 @@ async function main(): Promise<void> {
     const text = type === "HTML" ? clean(fetched.text) : fetched.text;
     const emailContexts = extractEmailContexts(text);
     const emails = emailContexts.map((item) => item.email);
-    const qualified = emailContexts.filter((item) => relevance(item.email, \`${resource.url} ${item.context}\`, [...profile.skills]) >= 60);
+    const qualified = emailContexts.filter((item) => relevance(item.email, `${resource.url} ${item.context}`, [...profile.skills]) >= 60);
 
     const title = (text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "")
       .replace(/\s+/g, " ").trim().slice(0, 300) || resource.url.slice(0, 300);
@@ -377,7 +377,7 @@ async function main(): Promise<void> {
           continue;
         }
 
-        const score = relevance(item.email, \`${resource.url} ${item.context}\`, [...profile.skills]);
+        const score = relevance(item.email, `${resource.url} ${item.context}`, [...profile.skills]);
         if (score < 60) continue;
 
         const domain = item.email.split("@")[1]?.toLowerCase();
