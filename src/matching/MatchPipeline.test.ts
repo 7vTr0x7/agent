@@ -21,4 +21,30 @@ describe("MatchPipeline", () => {
     const repository: MatchDecisionRepository = { save: jest.fn().mockResolvedValue(undefined) }; const semantic = { evaluate: jest.fn().mockResolvedValue({ score: 80, decision: "APPLY", rationale: "Strong semantic fit", strengths: ["React ecosystem"], gaps: ["GraphQL"], confidence: 0.9, inputHash: "semantic-hash", model: "qwen3:8b" }) } as unknown as SemanticJobMatcher; const result = await new MatchPipeline(new DeterministicJobMatcher(), semantic, repository).evaluateAndPersist(job, profile);
     expect(result.semantic?.score).toBe(80); expect(result.score).toBe(Math.round(result.deterministic.matchScore * 0.6 + 80 * 0.4)); expect(result.decision).toBe("APPLY"); expect(repository.save).toHaveBeenCalledTimes(1);
   });
+  it("does not let semantic matching upgrade a deterministic REVIEW into APPLY", async () => {
+    const reviewJob = {
+      ...job,
+      description: "React and TypeScript application development. Compensation ₹3-5 LPA."
+    };
+    const repository: MatchDecisionRepository = { save: jest.fn().mockResolvedValue(undefined) };
+    const semantic = {
+      evaluate: jest.fn().mockResolvedValue({
+        score: 100,
+        decision: "APPLY",
+        rationale: "Strong semantic fit",
+        strengths: ["React ecosystem"],
+        gaps: [],
+        confidence: 0.99,
+        inputHash: "semantic-hash",
+        model: "qwen3:8b"
+      })
+    } as unknown as SemanticJobMatcher;
+
+    const result = await new MatchPipeline(new DeterministicJobMatcher(), semantic, repository)
+      .evaluateAndPersist(reviewJob, profile);
+
+    expect(result.deterministic.decision).toBe("REVIEW");
+    expect(result.decision).toBe("REVIEW");
+    expect(result.score).toBeGreaterThan(30);
+  });
 });
