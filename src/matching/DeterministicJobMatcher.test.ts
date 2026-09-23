@@ -60,6 +60,39 @@ describe("DeterministicJobMatcher", () => {
     expect(result.matchScore).toBe(0);
   });
 
+  it.each([
+    ["3+ years", "React frontend engineer. Minimum 3 years of experience.", "APPLY"],
+    ["1-3 years", "React frontend engineer. 1-3 years of relevant experience.", "APPLY"],
+    ["2-4 years", "React frontend engineer. 2-4 years of relevant experience.", "APPLY"],
+  ])("keeps compatible explicit experience requirement: %s", (_label, description, decision) => {
+    const result = matcher.evaluate(job(description, "Frontend Engineer"), profile);
+    expect(result.decision).toBe(decision);
+  });
+
+  it.each([
+    ["5+ years", "React frontend engineer. 5+ years of Full Stack development experience.", "REJECT"],
+    ["7+ years", "React frontend engineer. 7+ years of experience required.", "REJECT"],
+    ["10+ years", "React frontend engineer. At least 10 years of experience.", "REJECT"],
+    ["7 years minimum", "React frontend engineer. Experience: 7 years minimum.", "REJECT"],
+    ["5 years in role", "React frontend engineer. At least 5 years in Software Developer role.", "REJECT"],
+  ])("rejects explicit incompatible experience requirement: %s", (_label, description, decision) => {
+    const result = matcher.evaluate(job(description, "Frontend Engineer"), profile);
+    expect(result.decision).toBe(decision);
+    expect(result.matchScore).toBe(0);
+  });
+
+  it("rejects written-number experience requirements", () => {
+    const result = matcher.evaluate(job("React frontend engineer. At least seven years of professional software engineering experience.", "Senior Frontend Engineer"), profile);
+    expect(result.decision).toBe("REJECT");
+    expect(result.matchScore).toBe(0);
+  });
+
+  it("does not treat an unquantified senior title as a numeric experience blocker", () => {
+    const result = matcher.evaluate(job("React, TypeScript and frontend engineering experience.", "Senior Frontend Engineer"), profile);
+    expect(result.decision).not.toBe("REJECT");
+    expect(result.evidence).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "HARD_BLOCKER", detail: expect.stringMatching(/experience requirement/i) })]));
+  });
+
   it("does not hard-reject preferred experience", () => {
     const result = matcher.evaluate(job("React and TypeScript. 5 years of experience preferred."), profile);
     expect(result.evidence).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "HARD_BLOCKER" })]));
@@ -110,4 +143,46 @@ describe("DeterministicJobMatcher", () => {
     expect(result.matchScore).toBeGreaterThanOrEqual(70);
     expect(result.decision).toBe("APPLY");
   });
+  it("does not auto-apply a worldwide remote role without India eligibility", () => {
+    const worldwide: JobOpportunity = {
+      ...job("React, Next.js and TypeScript are required. Remote worldwide."),
+      location: "Worldwide",
+      country: null,
+      workplaceType: "remote"
+    };
+    const result = matcher.evaluate(worldwide, profile);
+    expect(result.geography).toBe("REMOTE_WORLDWIDE");
+    expect(result.decision).toBe("REVIEW");
+  });
+
+  it("rejects a remote role explicitly restricted to a foreign country in the title", () => {
+    const result = matcher.evaluate(job("Remote full-stack React role for Canada.", "Remote Full Stack Developer - Canada"), profile);
+    expect(result.decision).toBe("REJECT");
+    expect(result.reason).toContain("India");
+  });
+
+  it("rejects a WordPress-primary role even when frontend skills are mentioned", () => {
+    const result = matcher.evaluate(
+      job("Maintain WordPress sites and plugins. React knowledge is helpful for UI work.", "Senior Software Engineer, WordPress"),
+      profile
+    );
+    expect(result.decision).toBe("REJECT");
+    expect(result.matchScore).toBe(0);
+  });
+
+  it("rejects a .NET/C#-primary developer role even when React is mentioned incidentally", () => {
+    const result = matcher.evaluate(
+      job("Build .NET and C# services. React is mentioned for occasional frontend integration.", "Senior .NET/C# Developer"),
+      profile
+    );
+    expect(result.decision).toBe("REJECT");
+    expect(result.matchScore).toBe(0);
+  });
+
+  it("does not treat incidental React in a SharePoint-primary role as frontend work", () => {
+    const result = matcher.evaluate(job("Build Microsoft 365 and SharePoint solutions. React knowledge is helpful for occasional UI work.", "Microsoft 365 Software Engineer - SharePoint Developer"), profile);
+    expect(result.decision).toBe("REJECT");
+    expect(result.matchScore).toBe(0);
+  });
+
 });

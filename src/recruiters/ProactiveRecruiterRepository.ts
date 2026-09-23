@@ -1,6 +1,7 @@
 import { Database } from "../database/Database";
 import { ProactiveRecruiterDiscoveryCandidate } from "./ProactiveRecruiterDiscoveryService";
 import { hasExplicitMailboxEvidence, isMailboxVerifiedForRealSend, recruiterRealSendEligibilitySql } from "./RecruiterMailboxVerification";
+import { resolveEmployerDomainFromPublicSearch } from "./RecruiterCompanyDomainResolver";
 
 export interface ProactiveCampaignRecord { sequenceId: string; messageId: string; }
 
@@ -8,8 +9,13 @@ export class ProactiveRecruiterRepository {
   constructor(private readonly database: Database) {}
 
   async persistCandidate(candidateProfileId: string, candidate: ProactiveRecruiterDiscoveryCandidate): Promise<string | null> {
-    if (!candidate.employerDomain || candidate.employer === "Unknown employer") return null;
-    const domain = normalizeDomain(candidate.employerDomain);
+    if (candidate.employer === "Unknown employer") return null;
+    // Public profile evidence often names the employer without exposing its
+    // domain in the profile/search result. Resolve that missing domain only
+    // through the existing conservative public-search resolver, which requires
+    // independent public evidence and never guesses from the company name.
+    const employerName = candidate.employer.trim();
+    const domain = normalizeDomain(candidate.employerDomain ?? "") || (employerName ? await resolveEmployerDomainFromPublicSearch(employerName) : "");
     if (!domain) return null;
     const email = candidate.email?.trim().toLowerCase() || null;
     if (email && email.split("@")[1]?.toLowerCase() !== domain) return null;
@@ -43,7 +49,7 @@ export class ProactiveRecruiterRepository {
     );
 
     const params = [
-      candidate.employer, domain, email, candidate.recruiterName, candidate.recruiterRole,
+      candidate.employer, domain, email, candidate.contactType === "EMPLOYER" ? null : candidate.recruiterName, candidate.contactType === "EMPLOYER" ? null : candidate.recruiterRole,
       Math.round(candidate.overallConfidence), verified, verificationStatus, candidate.discoverySource,
       persistedEmailStatus, "VALID", mxStatus, mailboxEvidence, JSON.stringify(verificationEvidence), relevanceStatus,
       linkedinProfileUrl, identityKey, email ? "FOUND" : "PENDING"
@@ -106,6 +112,32 @@ export class ProactiveRecruiterRepository {
     );
 
     await this.database.query(
+      `UPDATE recruiter_contacts
+       SET relevance_score=GREATEST(COALESCE(relevance_score,0),$2),
+           relevance_evidence=$3::jsonb,
+           updated_at=NOW()
+       WHERE id=$1`,
+      [
+        id,
+        Math.round(Math.min(100, candidate.roleMatchScore * 0.6 + candidate.hiringEvidenceScore * 0.4)),
+        JSON.stringify({
+          type: candidate.evidenceType,
+          source: candidate.discoverySource,
+          postUrl: candidate.discoveryUrl,
+          contactType: candidate.contactType ?? "PERSON",
+          author: candidate.recruiterName ?? null,
+          authorRole: candidate.recruiterRole ?? null,
+          employer: candidate.employer,
+          employerDomain: domain,
+          targetRoles: candidate.targetRoles,
+          hiringEvidenceScore: candidate.hiringEvidenceScore,
+          evidenceFreshness: candidate.evidenceFreshness,
+          evidence: candidate.discoveryEvidence
+        })
+      ]
+    );
+
+    await this.database.query(
       `INSERT INTO recruiter_proactive_evidence (recruiter_contact_id,candidate_profile_id,target_roles,role_match_score,hiring_evidence_score,overall_confidence,evidence_type,evidence_freshness,evidence_date,discovery_source,discovery_url,discovery_evidence)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        ON CONFLICT (recruiter_contact_id,candidate_profile_id,discovery_url) DO UPDATE SET
@@ -144,9 +176,11 @@ export class ProactiveRecruiterRepository {
 }
 
 function buildIdentityKey(candidate: ProactiveRecruiterDiscoveryCandidate, domain: string): string {
+  if (candidate.email) return `email:${candidate.email.toLowerCase()}`;
+  if (candidate.contactType === "EMPLOYER") return `employer:${domain}`;
   if (isLinkedInProfile(candidate.discoveryUrl)) return `linkedin:${canonicalLinkedIn(candidate.discoveryUrl)}`;
   if (/^https?:\/\//i.test(candidate.discoveryUrl) && candidate.discoveryUrl.startsWith("public-search:") === false) return `profile:${canonicalUrl(candidate.discoveryUrl)}`;
-  return `person:${candidate.recruiterName.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}|${domain}`;
+  return `person:${(candidate.recruiterName ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}|${domain}`;
 }
 function isLinkedInProfile(value: string): boolean { try { const url = new URL(value); return url.hostname.toLowerCase().endsWith("linkedin.com") && /^\/in\/[^/]+/i.test(url.pathname); } catch { return false; } }
 function canonicalLinkedIn(value: string): string { try { const url = new URL(value); const profile = url.pathname.match(/^\/in\/([^/?#]+)/i)?.[1]; return profile ? `https://www.linkedin.com/in/${profile.toLowerCase()}` : value.toLowerCase().replace(/\/+$/, ""); } catch { return value.toLowerCase().replace(/\/+$/, ""); } }

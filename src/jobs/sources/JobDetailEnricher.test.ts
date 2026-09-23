@@ -58,8 +58,30 @@ test("enriches a VueJobs-style truncated RSS description from JobPosting JSON-LD
   expect(result.contentHash).toBe("rss-content-hash");
 });
 
+test("extracts employer domain from a company-matching first-party HTML link when JSON-LD is absent", async () => {
+  const html = "<html><a href=\"https://www.particle41.com/careers\">Particle41 careers</a><main>Senior Frontend Engineer. 3+ years of experience.</main></html>";
+  jest.mocked(global.fetch).mockResolvedValue(response(html));
+  const result = await new JobDetailEnricher().enrich(job({ companyName: "Particle41", companyDomain: null, description: "" }));
+  expect(result.companyDomain).toBe("particle41.com");
+});
+
+test("extracts the employer domain from trusted JobPosting hiringOrganization data", async () => {
+  const html = "<html><script type=\"application/ld+json\">" + JSON.stringify({
+    "@type": "JobPosting",
+    description: "React frontend engineer.",
+    hiringOrganization: { "@type": "Organization", name: "Particle41", url: "https://particle41.com/" }
+  }) + "</script></html>";
+  jest.mocked(global.fetch).mockResolvedValue(response(html));
+  const result = await new JobDetailEnricher().enrich(job({
+    companyName: "Particle41",
+    companyDomain: null,
+    description: ""
+  }));
+  expect(result.companyDomain).toBe("particle41.com");
+});
+
 test("does not fetch a complete RSS description", async () => {
-  const original = job({ description: "A complete job description without an excerpt marker." });
+  const original = job({ title: "Data Analyst", description: "A complete job description without an excerpt marker." });
   const result = await new JobDetailEnricher().enrich(original);
   expect(global.fetch).not.toHaveBeenCalled();
   expect(result).toEqual(original);
@@ -76,6 +98,56 @@ test.each([404, 403, 429, 500])("keeps the original job on HTTP %i", async (stat
   const original = job();
   jest.mocked(global.fetch).mockResolvedValue(response("", status));
   await expect(new JobDetailEnricher().enrich(original)).resolves.toEqual(original);
+});
+
+test("promotes structured JobPosting experienceRequirements into matcher-visible description", async () => {
+  const html = `<html><script type="application/ld+json">${JSON.stringify({
+    "@type": "JobPosting",
+    description: "Senior Frontend Engineer building React applications.",
+    experienceRequirements: { minValue: 7, unitText: "years" }
+  })}</script></html>`;
+  jest.mocked(global.fetch).mockResolvedValue(response(html));
+  const result = await new JobDetailEnricher().enrich(job({ title: "Senior Frontend Engineer", description: "" }));
+  expect(result.description).toContain("Experience requirement: 7+ years.");
+});
+
+test.each([
+  ["3+ years", { minValue: 3, unitText: "years" }, true],
+  ["1-3 years", { minValue: 1, maxValue: 3, unitText: "years" }, true],
+  ["2-4 years", { minValue: 2, maxValue: 4, unitText: "years" }, true],
+  ["5+ years", { minValue: 5, unitText: "years" }, true],
+  ["7+ years", "7+ years", true],
+  ["10+ years", "10+ years", true]
+])("preserves numeric structured experience requirement: %s", async (_label, experienceRequirements, expected) => {
+  const html = `<script type="application/ld+json">${JSON.stringify({
+    "@type": "JobPosting",
+    description: "React frontend engineer.",
+    experienceRequirements
+  })}</script>`;
+  jest.mocked(global.fetch).mockResolvedValue(response(html));
+  const result = await new JobDetailEnricher().enrich(job({ description: "" }));
+  expect(Boolean(result.description?.match(/experience requirement/i))).toBe(expected);
+});
+
+test("prefers canonical main text when JSON-LD is present but omits the numeric experience requirement", async () => {
+  jest.mocked(global.fetch).mockResolvedValue(response(`<html><script type="application/ld+json">${JSON.stringify({ "@type": "JobPosting", description: "Senior Frontend Engineer building React applications." })}</script><main><h1>Senior Frontend Engineer</h1><p>At least 7 years of professional software engineering experience.</p></main></html>`));
+  const result = await new JobDetailEnricher().enrich(job({ description: "React and TypeScript" }));
+  expect(result.description).toContain("7 years");
+});
+
+test("recovers numeric experience requirements from a canonical HTML main section when JSON-LD is absent", async () => {
+  jest.mocked(global.fetch).mockResolvedValue(response("<html><main><h1>Senior Frontend Engineer</h1><p>At least 7 years of professional software engineering experience.</p><p>React and TypeScript.</p></main></html>"));
+  const result = await new JobDetailEnricher().enrich(job({ description: "React and TypeScript" }));
+  expect(result.description).toContain("7 years");
+});
+
+test("falls back to the bounded public reader when the canonical detail page blocks direct fetch", async () => {
+  jest.mocked(global.fetch)
+    .mockResolvedValueOnce(response("", 403))
+    .mockResolvedValueOnce(response("At least 7 years of professional software engineering experience. React and TypeScript."));
+  const result = await new JobDetailEnricher().enrich(job({ description: "React and TypeScript" }));
+  expect(global.fetch).toHaveBeenCalledTimes(2);
+  expect(result.description).toContain("7 years");
 });
 
 test("keeps the original job when the page has no usable JobPosting description", async () => {
@@ -185,6 +257,12 @@ test("keeps the same normalized identity when the same RSS job is enriched twice
   expect(first.description).toBe("Recovered full description");
   expect(second.description).toBe("Recovered full description");
   expect(global.fetch).toHaveBeenCalledTimes(2);
+});
+
+test("enriches target-like complete summaries when numeric experience is absent", () => {
+  expect(shouldEnrich("React frontend engineer with responsibilities and requirements.", "Senior Frontend Engineer")).toBe(true);
+  expect(shouldEnrich("React frontend engineer with 3+ years of experience.", "Senior Frontend Engineer")).toBe(false);
+  expect(shouldEnrich("General engineering role with no numeric requirement.", "Data Engineer")).toBe(false);
 });
 
 test("keeps enrichment source-agnostic and only enriches obvious excerpts", () => {

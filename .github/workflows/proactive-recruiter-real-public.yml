@@ -99,8 +99,25 @@ jobs:
             -e APPLICATION_DRY_RUN=true \
             job-agent:proactive-recruiter-real npm run proactive-recruiter:once 2>&1 | tee real-public-proactive-recruiter.log
           ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' real-public-proactive-recruiter.log
-          grep -q '"status":"ok"' real-public-proactive-recruiter.log
-          grep -q '"operationalStatus":"SUCCESS"' real-public-proactive-recruiter.log
+          grep -q '"status": "ok"' real-public-proactive-recruiter.log
+          grep -q '"operationalStatus": "SUCCESS"' real-public-proactive-recruiter.log
+
+      - name: Verify dashboard API against the same recruiter database
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name job-agent-proactive-api --network job-agent-proactive             -e NODE_ENV=test             -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-proactive-postgres:5432/job_agent             job-agent:proactive-recruiter-real             node -e "require('./dist/api/bootstrap')"
+          for i in $(seq 1 30); do
+            if docker run --rm --network job-agent-proactive curlimages/curl:8.12.1 -fsS http://job-agent-proactive-api:3000/healthz >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          health="$(docker run --rm --network job-agent-proactive curlimages/curl:8.12.1 -fsS http://job-agent-proactive-api:3000/healthz)"
+          summary="$(docker run --rm --network job-agent-proactive curlimages/curl:8.12.1 -fsS http://job-agent-proactive-api:3000/api/summary)"
+          dashboard="$(docker run --rm --network job-agent-proactive curlimages/curl:8.12.1 -fsS http://job-agent-proactive-api:3000/)"
+          echo "$health"
+          echo "$summary"
+          echo "$dashboard" | grep -q 'Recruiter Leads'
+          node -e 'const s=JSON.parse(process.argv[1]); if(Number(s.recruiters||0)<1) process.exit(1); if(!Array.isArray(s.recruiterLeads)||s.recruiterLeads.length<1) process.exit(1); console.log("DASHBOARD_API_RECRUITER_LEAD_COUNT="+s.recruiterLeads.length)' "$summary"
 
       - name: Validate real-public safety and evidence
         shell: bash
@@ -135,6 +152,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker rm -f job-agent-proactive-app >/dev/null 2>&1 || true
+          docker rm -f job-agent-proactive-api >/dev/null 2>&1 || true
+docker rm -f job-agent-proactive-app >/dev/null 2>&1 || true
           docker rm -f job-agent-proactive-postgres >/dev/null 2>&1 || true
           docker network rm job-agent-proactive >/dev/null 2>&1 || true

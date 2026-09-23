@@ -19,6 +19,21 @@ describe("PublicRecruiterSearchProvider", () => {
     expect(result.metrics?.queriesGenerated).toBe(1);
   });
 
+  it("does not treat a generic employer recruiting mailbox as a named recruiter lead", async () => {
+    const provider = new PublicRecruiterSearchProvider({
+      maxQueries: 1,
+      fetchText: async (url) => url.includes("https://acme.com/") ? "Contact recruiting@acme.com for careers." : ""
+    });
+    const result = await provider.discover({
+      companyName: "Acme Corp",
+      companyDomain: "acme.com",
+      jobTitle: "Frontend Developer",
+      jobDescription: "React and TypeScript",
+      candidateProfileId: "candidate-1"
+    });
+    expect(result.contacts).toHaveLength(0);
+  });
+
   it("discovers identity-only recruiter candidates from public LinkedIn evidence", async () => {
     const provider = new PublicRecruiterSearchProvider({ maxQueries: 1, fetchText: async () => "Priya Sharma - Talent Acquisition Partner | LinkedIn https://www.linkedin.com/in/priya-sharma" });
     const result = await provider.discover({ companyName: "Acme Corp", companyDomain: "acme.com", jobTitle: "Frontend Developer", jobDescription: "React and TypeScript", location: "Bengaluru", candidateProfileId: "candidate-1" });

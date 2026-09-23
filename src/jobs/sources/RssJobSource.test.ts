@@ -36,13 +36,13 @@ function response(body: string, status = 200, headers: Record<string, string> = 
   return new Response(body, { status, headers });
 }
 
-function rssXml(description: string): string {
+function rssXml(description: string, title = "Full Stack Developer – Frontend Focus"): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
   <channel>
     <title>Fixture jobs</title>
     <item>
-      <title>Full Stack Developer – Frontend Focus</title>
+      <title>${title}</title>
       <guid>${SOURCE_JOB_ID}</guid>
       <link>${JOB_URL}</link>
       <dc:creator xmlns:dc="http://purl.org/dc/elements/1.1/">Ship4wd</dc:creator>
@@ -200,7 +200,7 @@ describe("RssJobSource", () => {
 
   it("does not fetch a detail page for a complete RSS description", async () => {
     const completeDescription = "Full Stack Developer with frontend ownership. Build and maintain web applications with a collaborative engineering team.";
-    jest.mocked(global.fetch).mockResolvedValueOnce(response(rssXml(completeDescription)));
+    jest.mocked(global.fetch).mockResolvedValueOnce(response(rssXml(completeDescription, "Data Analyst")));
 
     const jobs = await new RssJobSource({ name: SOURCE, feedUrl: FEED_URL }).fetchJobs();
 

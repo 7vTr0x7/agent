@@ -32,8 +32,26 @@
     "proactive-recruiter:once": "tsx scripts/proactive-recruiter-once.ts",
     "gmail:authorize": "tsx scripts/gmail-authorize.ts",
     "gmail:verify": "tsx scripts/gmail-verify.ts",
-    "gmail:smoke-send": "tsx scripts/gmail-smoke-send.ts"
+    "gmail:smoke-send": "tsx scripts/gmail-smoke-send.ts",
+    "outcome:fast-jobs": "tsx scripts/fast-outcome-jobs.ts",
+    "diagnostics:fast-jobs": "tsx scripts/fast-job-diagnostics.ts",
+    "content-first:once": "tsx scripts/public-hiring-posts-once.ts",
+    "public-contact-resources:once": "tsx scripts/public-contact-resources-once.ts",
+    "application-email:once": "tsx scripts/application-email-outcome-once.ts"
   },
-  "dependencies": {"dotenv":"^17.2.1","pg":"^8.16.3","pino":"^9.9.4"},
-  "devDependencies": {"@types/jest":"^30.0.0","@types/node":"^24.3.0","@types/pg":"^8.15.5","jest":"^30.1.3","playwright":"^1.63.0","ts-jest":"^29.4.1","tsx":"^4.20.5","typescript":"^5.9.2"}
+  "dependencies": {
+    "dotenv": "^17.2.1",
+    "pg": "^8.16.3",
+    "pino": "^9.9.4"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.3.0",
+    "@types/pg": "^8.15.5",
+    "jest": "^30.1.3",
+    "playwright": "^1.63.0",
+    "ts-jest": "^29.4.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
 }

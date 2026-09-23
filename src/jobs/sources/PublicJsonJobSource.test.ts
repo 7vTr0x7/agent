@@ -1,4 +1,5 @@
 import { PublicJsonJobSource } from "./PublicJsonJobSource";
+import { JobDetailEnricher } from "./JobDetailEnricher";
 
 describe("PublicJsonJobSource", () => {
   const originalFetch = global.fetch;
@@ -34,6 +35,45 @@ describe("PublicJsonJobSource", () => {
       workplaceType: "remote",
       description: "React and TypeScript"
     });
+  });
+
+  it("preserves an explicit Himalayas experience field in matcher-visible description text", async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      jobs: [{
+        guid: "h-exp",
+        title: "Senior Frontend Engineer",
+        companyName: "Example India",
+        applicationLink: "https://himalayas.app/jobs/h-exp",
+        locationRestrictions: ["India"],
+        experience: "7+ years",
+        description: "React and TypeScript"
+      }]
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+
+    const jobs = await new PublicJsonJobSource("himalayas", "https://himalayas.app/jobs/api").fetchJobs();
+
+    expect(jobs[0]?.description).toContain("Experience requirement: 7+ years.");
+  });
+
+  it("passes normalized public jobs through the existing detail enricher when configured", async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      jobs: [{
+        guid: "h-enrich",
+        title: "Senior Frontend Engineer",
+        companyName: "Example India",
+        applicationLink: "https://himalayas.app/jobs/h-enrich",
+        locationRestrictions: ["India"],
+        description: "React and TypeScript"
+      }]
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+
+    const enricher = {
+      enrichJobs: jest.fn(async (jobs) => jobs.map((item: any) => ({ ...item, description: "React and TypeScript. 7 years minimum." })))
+    } as unknown as JobDetailEnricher;
+    const jobs = await new PublicJsonJobSource("himalayas", "https://himalayas.app/jobs/api", null, enricher).fetchJobs();
+
+    expect(enricher.enrichJobs).toHaveBeenCalledTimes(1);
+    expect(jobs[0]?.description).toContain("7 years minimum");
   });
 
   it("normalizes Jobicy jobs", async () => {

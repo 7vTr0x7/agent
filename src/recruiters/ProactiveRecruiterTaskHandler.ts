@@ -78,6 +78,30 @@ export class ProactiveRecruiterTaskHandler {
     for (const rankedCandidate of ranked.slice(0, Math.max(1, Math.min(payload.maxCandidates, this.options.maxCandidatesPerRun)))) {
       const candidate = byId.get(rankedCandidate.id);
       if (!candidate) continue;
+      if (!candidate.email && candidate.employerDomain) {
+        try {
+          const enriched = await new PublicRecruiterSearchProvider().discover({
+            companyName: candidate.employer,
+            companyDomain: candidate.employerDomain,
+            jobTitle: candidate.targetRoles[0] ?? "Frontend Engineer",
+            jobDescription: candidate.discoveryEvidence.join(" "),
+            candidateProfileId: payload.candidateProfileId
+          });
+          const sameIdentity = enriched.contacts.find(contact =>
+            contact.email &&
+            ((candidate.recruiterName && contact.fullName && contact.fullName.toLowerCase() === candidate.recruiterName.toLowerCase()) ||
+             (candidate.recruiterRole && contact.title && contact.title.toLowerCase().includes(candidate.recruiterRole.toLowerCase().split(" ")[0] ?? "")))
+          );
+          if (sameIdentity?.email) {
+            candidate.email = sameIdentity.email;
+            candidate.emailStatus = "UNVERIFIED";
+            candidate.verificationEvidence = [];
+          }
+        } catch (error) {
+          this.logger.error({ error: error instanceof Error ? error.message : String(error), employer: candidate.employer }, "Proactive recruiter public email enrichment failed");
+        }
+      }
+
       if (candidate.email) {
         try {
           const verification = await verifier(candidate.email);
@@ -162,13 +186,14 @@ function normalizeEmailStatus(value: string, evidence: RecruiterVerificationEvid
   }
 }
 
-function buildProactiveMessage(profile: CandidateProfile, candidate: { recruiterName: string; recruiterRole: string; employer: string; targetRoles: string[]; evidenceFreshness: string; discoveryEvidence: string[] }): string {
+function buildProactiveMessage(profile: CandidateProfile, candidate: { contactType?: "PERSON"|"EMPLOYER"; recruiterName: string; recruiterRole: string; employer: string; targetRoles: string[]; evidenceFreshness: string; discoveryEvidence: string[] }): string {
   const name = profile.fullName?.trim() || [profile.firstName, profile.lastName].filter(Boolean).join(" ") || "Candidate";
   const roles = profile.targetTitles.length ? profile.targetTitles.slice(0, 3).join(" / ") : "Frontend / React / Next.js";
   const skills = profile.skills.slice(0, 5).join(", ");
   const location = profile.location ? ` I’m currently based in ${profile.location}.` : "";
   const evidenceLine = candidate.evidenceFreshness === "current" ? "Your public recruiting information appears relevant to these kinds of roles." : candidate.evidenceFreshness === "recent" ? "Your recent public recruiting information appears relevant to these kinds of roles." : "Your public recruiting background appears relevant to these kinds of roles.";
-  return [`Hi ${candidate.recruiterName.split(" ")[0] || "there"},`, "", `I’m ${name}, and I’m exploring ${roles} opportunities.${location}`, `I have ${profile.yearsExperience} years of experience with ${skills}.`, evidenceLine, "", "I’m reaching out proactively rather than assuming there is a specific opening. If you recruit for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.", "", "Thank you,", name].join("\n");
+  const greeting = candidate.contactType === "EMPLOYER" ? "Hi there," : `Hi ${candidate.recruiterName.split(" ")[0] || "there"},`;
+  return [greeting, "", `I’m ${name}, and I’m exploring ${roles} opportunities.${location}`, `I have ${profile.yearsExperience} years of experience with ${skills}.`, evidenceLine, "", "I’m reaching out proactively rather than assuming there is a specific opening. If you recruit for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.", "", "Thank you,", name].join("\n");
 }
 
 function freshnessScore(value: string): number { return value === "current" ? 100 : value === "recent" ? 75 : value === "historical" ? 40 : 10; }

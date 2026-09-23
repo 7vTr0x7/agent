@@ -9,11 +9,21 @@ import { TailoredResumeRepository } from "../resume/TailoredResumeRepository";
 import { ApplicationAttemptRepository } from "./ApplicationAttemptRepository";
 import { classifyApplicationFailure } from "./ApplicationFailureClassifier";
 import { RecruiterDiscoveryTaskDispatcher } from "../recruiters/RecruiterDiscoveryTask";
+import { JobPostingRecruiterDiscoveryProvider } from "../recruiters/JobPostingRecruiterDiscoveryProvider";
 
 export interface CandidateProfileResolver { getById(candidateProfileId: string): Promise<CandidateProfile | null>; }
 export interface ApplicationEmailDispatcher {
   enqueueApplicationSubmitted(context: ApplicationEmailContext): Promise<string>;
   enqueueApplicationBlocked(context: ApplicationEmailContext): Promise<string>;
+}
+export interface ApplicationEmailDiscovery {
+  discover(input: {
+    companyName: string;
+    companyDomain: string;
+    jobTitle: string;
+    jobDescription: string;
+    candidateProfileId: string;
+  }): Promise<{ email?: string; fullName?: string; title?: string }[]>;
 }
 
 export class ApplicationTaskHandler {
@@ -27,7 +37,19 @@ export class ApplicationTaskHandler {
     private readonly tailoredResumeRepository?: TailoredResumeRepository,
     private readonly attemptRepository?: Pick<ApplicationAttemptRepository, "record">,
     private readonly recruiterDiscoveryDispatcher?: Pick<RecruiterDiscoveryTaskDispatcher, "enqueue">,
-    private readonly submissionOwnershipVerifier?: (task: ClaimedTask<ApplyJobTaskPayload>) => Promise<boolean>
+    private readonly submissionOwnershipVerifier?: (task: ClaimedTask<ApplyJobTaskPayload>) => Promise<boolean>,
+    private readonly applicationEmailDiscovery: ApplicationEmailDiscovery = {
+      async discover(input) {
+        const result = await new JobPostingRecruiterDiscoveryProvider().discover({
+          companyName: input.companyName,
+          companyDomain: input.companyDomain,
+          jobTitle: input.jobTitle,
+          jobDescription: input.jobDescription,
+          candidateProfileId: input.candidateProfileId
+        });
+        return result.contacts.map((contact) => ({ email: contact.email, fullName: contact.fullName, title: contact.title }));
+      }
+    }
   ) {}
 
   async handle(task: ClaimedTask<ApplyJobTaskPayload>): Promise<void> {
@@ -47,6 +69,25 @@ export class ApplicationTaskHandler {
       if (this.tailoredResumeRepository) await this.tailoredResumeRepository.save({ applicationId: prepared.application.applicationId, jobOpportunityId: prepared.application.jobOpportunityId, candidateProfileId: prepared.application.candidateProfileId, jobTitle: prepared.application.jobTitle, sourceVersion: artifact.sourceVersion, resumePath: artifact.resumePath, atsScore: artifact.atsScore, matchedKeywords: artifact.matchedKeywords, missingKeywords: artifact.missingKeywords, warnings: artifact.warnings });
       applicationProfile = { ...candidateProfile, resumePath: artifact.resumePath };
     }
+
+    const applicationEmailDiscoveryPromise = prepared.application.companyDomain
+      ? this.applicationEmailDiscovery.discover({
+          companyName: prepared.application.companyName,
+          companyDomain: prepared.application.companyDomain,
+          jobTitle: prepared.application.jobTitle,
+          jobDescription: prepared.application.jobDescription,
+          candidateProfileId: candidateProfile.id
+        }).catch((error) => {
+          console.warn(JSON.stringify({
+            level: 40,
+            applicationId: prepared.application.applicationId,
+            jobOpportunityId: prepared.application.jobOpportunityId,
+            reason: error instanceof Error ? error.message : String(error),
+            msg: "Independent application-email discovery failed; application phase continues"
+          }));
+          return [];
+        })
+      : Promise.resolve([]);
 
     let outcome: ApplicationSubmissionOutcome;
     try {
@@ -79,7 +120,13 @@ export class ApplicationTaskHandler {
       });
     }
 
-    if (this.recruiterDiscoveryDispatcher && prepared.application.companyDomain && shouldFallbackToRecruiter(outcome)) {
+    if (this.recruiterDiscoveryDispatcher && prepared.application.companyDomain) {
+      const applicationOutcome =
+        outcome.outcome === "CONFIRMED_SUCCESS"
+          ? "SUBMITTED"
+          : outcome.outcome === "DEFINITIVE_FAILURE"
+            ? "FAILED"
+            : "BLOCKED";
       await this.recruiterDiscoveryDispatcher.enqueue({
         companyName: prepared.application.companyName,
         companyDomain: prepared.application.companyDomain,
@@ -92,22 +139,26 @@ export class ApplicationTaskHandler {
         candidateLocation: candidateProfile.location,
         jobOpportunityId: prepared.application.jobOpportunityId,
         applicationId: prepared.application.applicationId,
-        applicationOutcome: outcome.outcome === "DEFINITIVE_FAILURE" ? "FAILED" : "BLOCKED"
+        applicationOutcome
       });
-      console.log(JSON.stringify({ level: 30, applicationId: prepared.application.applicationId, jobOpportunityId: prepared.application.jobOpportunityId, companyName: prepared.application.companyName, reason: outcome.reason, msg: "Application safely blocked; recruiter fallback queued" }));
+      console.log(JSON.stringify({
+        level: 30,
+        applicationId: prepared.application.applicationId,
+        jobOpportunityId: prepared.application.jobOpportunityId,
+        companyName: prepared.application.companyName,
+        applicationOutcome,
+        reason: outcome.reason,
+        msg: "Recruiter follow-through queued after application outcome"
+      }));
     }
 
-    if (!this.emailDispatcher || !candidateProfile.email) return;
+    if (!this.emailDispatcher) return;
+    const discoveredEmails = await applicationEmailDiscoveryPromise;
+    const recipient = discoveredEmails.find((contact) => Boolean(contact.email))?.email;
+    if (!recipient) return;
     const candidateName = candidateProfile.fullName ?? ([candidateProfile.firstName, candidateProfile.lastName].filter(Boolean).join(" ") || "Candidate");
-    const context: ApplicationEmailContext = { recipient: candidateProfile.email, candidateName, jobTitle: prepared.application.jobTitle, companyName: prepared.application.companyName, applicationId: prepared.application.applicationId, confirmationUrl: outcome.result?.confirmationUrl, reason: outcome.outcome === "CONFIRMED_SUCCESS" ? undefined : outcome.reason };
+    const context: ApplicationEmailContext = { recipient, candidateName, jobTitle: prepared.application.jobTitle, companyName: prepared.application.companyName, applicationId: prepared.application.applicationId, confirmationUrl: outcome.result?.confirmationUrl, reason: outcome.outcome === "CONFIRMED_SUCCESS" ? undefined : outcome.reason };
     if (outcome.outcome === "CONFIRMED_SUCCESS") await this.emailDispatcher.enqueueApplicationSubmitted(context);
     else await this.emailDispatcher.enqueueApplicationBlocked(context);
   }
-}
-
-function shouldFallbackToRecruiter(outcome: ApplicationSubmissionOutcome): boolean {
-  if (outcome.outcome === "AMBIGUOUS" || outcome.outcome === "CONFIRMED_SUCCESS") return false;
-  const reason = outcome.reason.toLowerCase();
-  if (/(?:excluded|duplicate|already exists|already applied|application has already been completed|task lease ownership was lost)/i.test(reason)) return false;
-  return /(unsupported|catalog_only|manual review|captcha|human-verification|authentication|mfa|two-factor|bot|security challenge|application adapter|application url|redirect|required .*field|assessment|sensitive|could not be handled safely|not attempted|could not be completed)/i.test(reason);
 }

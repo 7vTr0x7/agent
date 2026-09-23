@@ -25,7 +25,7 @@ export class JobDetailEnricher {
     this.maxRedirects = Math.max(0, options.maxRedirects ?? DEFAULT_MAX_REDIRECTS);
   }
 
-  async enrichJobs(jobs: readonly Job[], signal?: AbortSignal): Promise<Job[]> {
+  async enrichJobs(jobs: readonly Job[], signal?: AbortSignal, force = false): Promise<Job[]> {
     const output = [...jobs];
     let index = 0;
     const worker = async (): Promise<void> => {
@@ -33,19 +33,24 @@ export class JobDetailEnricher {
         const current = index++;
         if (current >= jobs.length) return;
         if (signal?.aborted) return;
-        output[current] = await this.enrich(jobs[current] as Job, signal);
+        output[current] = await this.enrich(jobs[current] as Job, signal, force);
       }
     };
     await Promise.all(Array.from({ length: Math.min(this.concurrency, jobs.length) }, () => worker()));
     return output;
   }
 
-  async enrich(job: Job, signal?: AbortSignal): Promise<Job> {
-    if (!shouldEnrich(job.description) || signal?.aborted) return job;
+  async enrich(job: Job, signal?: AbortSignal, force = false): Promise<Job> {
+    if ((!force && !shouldEnrich(job.description, job.title, job.source)) || signal?.aborted) return job;
     try {
       const html = await this.fetchDetailPage(job.url, signal);
-      const description = extractJobPostingDescription(html);
-      return description ? { ...job, description } : job;
+      const details = extractJobPostingDetails(html, job.companyName);
+      if (!details.description && !details.companyDomain) return job;
+      return {
+        ...job,
+        ...(details.description ? { description: details.description } : {}),
+        ...(details.companyDomain ? { companyDomain: details.companyDomain } : {})
+      };
     } catch {
       return job;
     }
@@ -68,7 +73,12 @@ export class JobDetailEnricher {
           currentUrl = await validatePublicHttpUrl(new URL(location, currentUrl).toString());
           continue;
         }
-        if (!response.ok) throw new Error(`Detail page request failed: ${response.status}`);
+        if (!response.ok) {
+          if ((response.status === 403 || response.status === 429 || response.status >= 500) && redirects === 0) {
+            return await fetchViaJinaReader(currentUrl, controller.signal);
+          }
+          throw new Error(`Detail page request failed: ${response.status}`);
+        }
         return await response.text();
       } finally {
         clearTimeout(timeout);
@@ -109,9 +119,18 @@ export class JobDetailEnricher {
   }
 }
 
-export function shouldEnrich(description: string): boolean {
+export function shouldEnrich(description: string, title = "", source = ""): boolean {
   const normalized = description.trim();
-  return normalized.length === 0 || /\.\.\.$/.test(normalized);
+  if (normalized.length === 0 || /\.\.\.$/.test(normalized)) return true;
+  // Public JSON feeds can expose a complete-looking summary while omitting the
+  // explicit experience requirement that exists on the canonical job page.
+  // Only trigger the existing bounded detail fetch for target-like roles when
+  // no explicit numeric experience signal is present in the feed content.
+  const targetTitle = /\b(frontend|front-end|front end|react|next(?:\.js|js)?|full[- ]?stack|web developer|web engineer|software engineer)\b/i.test(title);
+  if (/:json$/i.test(source)) return targetTitle;
+  const hasNumericExperience = /\b\d+(?:\.\d+)?\s*(?:\+|\-|–|—|to)?\s*years?\b/i.test(normalized);
+  const hasWrittenExperience = /\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+years?\b/i.test(normalized);
+  return targetTitle && !hasNumericExperience && !hasWrittenExperience;
 }
 
 export async function validatePublicHttpUrl(rawUrl: string): Promise<string> {
@@ -196,7 +215,25 @@ function expandIpv6(address: string): number[] | null {
   return expanded.map((part) => parseInt(part, 16));
 }
 
-function extractJobPostingDescription(html: string): string | null {
+async function fetchViaJinaReader(url: string, signal?: AbortSignal): Promise<string> {
+  const response = await fetch(`https://r.jina.ai/${url}`, {
+    signal,
+    headers: {
+      accept: "text/plain,text/html;q=0.9,*/*;q=0.8",
+      "user-agent": "Mozilla/5.0 (compatible; JobAgent/0.1; +https://github.com/7vTr0x7/agent)"
+    }
+  });
+  if (!response.ok) throw new Error(`Detail page reader request failed: ${response.status}`);
+  return await response.text();
+}
+
+function containsExplicitExperience(value: string): boolean {
+  return /(?:minimum|at least|required|must have)\s+(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*years?\b|\b\d+(?:\.\d+)?\s*\+\s*years?\b|\b\d+(?:\.\d+)?\s*years?\s+(?:minimum|required)\b/i.test(value);
+}
+
+function extractJobPostingDetails(html: string, companyName: string): { description: string | null; companyDomain: string | null } {
+  let bestDescription: string | null = null;
+  let companyDomain: string | null = null;
   const scripts = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
   for (const match of scripts) {
     const json = match[1];
@@ -205,14 +242,35 @@ function extractJobPostingDescription(html: string): string | null {
     try { parsed = JSON.parse(decodeHtml(json)); } catch { continue; }
     for (const item of flattenJsonLd(parsed)) {
       if (!isJobPosting(item)) continue;
+      companyDomain ??= extractEmployerDomain(item, companyName);
       const description = clean(item.description);
-      if (description) return description;
+      const experienceRequirements = extractExperienceRequirement(item.experienceRequirements);
+      const enrichedDescription = experienceRequirements && !containsExplicitExperience(description ?? "")
+        ? `${description ?? ""} Experience requirement: ${experienceRequirements}.`.trim()
+        : description;
+      if (!enrichedDescription) continue;
+      bestDescription ??= enrichedDescription;
+      if (containsExplicitExperience(enrichedDescription)) return { description: enrichedDescription, companyDomain };
     }
   }
-  return null;
+  const linkedEmployerDomain = extractEmployerDomainFromHtml(html, companyName);
+  companyDomain ??= linkedEmployerDomain;
+  const mainMatch = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
+  if (mainMatch?.[1]) {
+    const mainText = clean(mainMatch[1].replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>/gi, " "));
+    if (mainText && /\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(mainText)) return { description: mainText.slice(0, 60_000), companyDomain };
+  }
+  const bodyMatch = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+  if (bodyMatch?.[1]) {
+    const bodyText = clean(bodyMatch[1].replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>/gi, " "));
+    if (bodyText && /\b\d+(?:\.\d+)?\s*(?:\+|years?|yrs?)/i.test(bodyText)) return { description: bodyText.slice(0, 60_000), companyDomain };
+  }
+  const plainText = clean(html);
+  if (plainText && containsExplicitExperience(plainText)) return { description: plainText.slice(0, 60_000), companyDomain };
+  return { description: bestDescription, companyDomain };
 }
 
-interface JobPostingJsonLd { "@type"?: string | string[]; description?: string; }
+interface JobPostingJsonLd { "@type"?: string | string[]; description?: string; experienceRequirements?: string | { text?: string; value?: string; minValue?: number; maxValue?: number; unitText?: string }; hiringOrganization?: { name?: string; url?: string } | Array<{ name?: string; url?: string }>; }
 function flattenJsonLd(value: unknown): JobPostingJsonLd[] {
   if (Array.isArray(value)) return value.flatMap(flattenJsonLd);
   if (!value || typeof value !== "object") return [];
@@ -224,6 +282,41 @@ function isJobPosting(item: JobPostingJsonLd): boolean {
   const type = item["@type"];
   return Array.isArray(type) ? type.some((entry) => entry.toLowerCase() === "jobposting") : type?.toLowerCase() === "jobposting";
 }
+
+function extractExperienceRequirement(value: JobPostingJsonLd["experienceRequirements"]): string | null {
+  if (typeof value === "string") return clean(value);
+  if (!value || typeof value !== "object") return null;
+  if (typeof value.text === "string" && value.text.trim()) return clean(value.text);
+  if (typeof value.value === "string" && value.value.trim()) return clean(value.value);
+  if (typeof value.minValue === "number" && Number.isFinite(value.minValue)) {
+    const unit = typeof value.unitText === "string" && value.unitText.trim() ? value.unitText.trim() : "years";
+    const max = typeof value.maxValue === "number" && Number.isFinite(value.maxValue) ? `-${value.maxValue}` : "+";
+    return `${value.minValue}${max} ${unit}`;
+  }
+  return null;
+}
+function extractEmployerDomain(item: JobPostingJsonLd, companyName: string): string | null {
+  const organization = Array.isArray(item.hiringOrganization) ? item.hiringOrganization[0] : item.hiringOrganization;
+  const rawUrl = organization?.url?.trim();
+  const orgName = organization?.name?.trim().toLowerCase() ?? "";
+  if (!rawUrl || !organization?.name || !companyName.trim()) return null;
+  const companyTokens = companyName.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 3 && !["the", "and", "inc", "ltd", "llc", "corp", "company"].includes(token));
+  const orgTokens = orgName.split(/[^a-z0-9]+/).filter((token) => token.length >= 3);
+  if (!companyTokens.some((token) => orgTokens.includes(token))) return null;
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    if (!host || host === "localhost" || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return null;
+    const labels = host.split(".").filter(Boolean);
+    if (labels.length < 2) return null;
+    const domain = /^(?:careers?|jobs?|hire|hiring|talent|recruiting|people|hr|apply)\./i.test(host) ? labels.slice(-2).join(".") : host;
+    if (!companyTokens.some((token) => domain.split(".")[0]?.includes(token))) return null;
+    return domain;
+  } catch {
+    return null;
+  }
+}
 function clean(value: string | undefined): string | null {
   if (!value) return null;
   const stripped = value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
@@ -231,4 +324,26 @@ function clean(value: string | undefined): string | null {
 }
 function decodeHtml(value: string): string {
   return value.replace(/&quot;/g, '"').replace(/&#34;/g, '"').replace(/&amp;/g, "&").replace(/&#38;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+}
+
+
+function extractEmployerDomainFromHtml(html: string, companyName: string): string | null {
+  const tokens = companyName.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 3 && !["the", "and", "inc", "ltd", "llc", "corp", "company"].includes(token));
+  if (tokens.length === 0) return null;
+  for (const match of html.matchAll(/href=["'](https?:\/\/[^"'\s>]+)["']/gi)) {
+    const raw = match[1];
+    if (!raw) continue;
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== "https:" && url.protocol !== "http:") continue;
+      const host = url.hostname.toLowerCase().replace(/^www\./, "");
+      const labels = host.split(".").filter(Boolean);
+      if (labels.length < 2) continue;
+      if (/^(?:careers?|jobs?|hire|hiring|talent|recruiting|people|hr|apply)\./i.test(host)) continue;
+      if (tokens.some((token) => host.split(".")[0]?.includes(token))) return host;
+    } catch {
+      // Ignore malformed links.
+    }
+  }
+  return null;
 }

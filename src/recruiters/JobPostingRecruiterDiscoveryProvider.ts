@@ -1,6 +1,6 @@
 import {
   RecruiterContactCandidate,
-  RecruiterDiscoveryInput,
+  RecruiterDiscoveryContact, RecruiterDiscoveryInput,
   RecruiterDiscoveryProvider,
   RecruiterDiscoveryResult,
   RecruiterVerificationResult
@@ -18,7 +18,7 @@ const PUBLIC_PATHS = [
   "/sitemap.xml", "/sitemap_index.xml"
 ] as const;
 const SITEMAP_RELEVANCE = /(career|job|join|work-with-us|talent|recruit|hiring|people|hr|contact)/i;
-const LINKEDIN_RECRUITER_TERMS = ["recruiter", "recruiting", "talent acquisition", "talent partner", "technical recruiter", "hr", "human resources", "hiring manager"];
+const LINKEDIN_RECRUITER_TERMS = ["recruiter", "recruiting", "talent acquisition", "talent advisor", "talent partner", "technical recruiter", "hr", "human resources", "hiring manager"];
 
 type PublicLinkedInProfile = { name: string; title?: string; url: string; snippet: string };
 
@@ -49,6 +49,14 @@ function isRecruitingContextForEmail(email: string, context: string): boolean {
 function stripHtml(value: string): string {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<noscript[\s\S]*?<\/noscript>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&#64;|&#x40;/gi, "@").replace(/&#46;|&#x2e;/gi, ".").replace(/\s+/g, " ").trim();
 }
+function isPlausiblePersonName(name: string): boolean {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized || normalized.length < 5 || normalized.length > 80) return false;
+  if (/https?:\/\/|www\.|\b(?:url|source|search|results?|startpage|google|bing|duckduckgo|linkedin)\b/.test(normalized)) return false;
+  const parts = normalized.split(/\s+/).filter(Boolean);
+  return parts.length >= 2 && parts.length <= 5 && parts.every((part) => /^[a-z][a-z.'-]+$/.test(part));
+}
+
 function isStrongNameEmailMatch(email: string, name: string): boolean {
   const local = localPart(email).replace(/[^a-z0-9]/gi, "").toLowerCase();
   const parts = name.toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter(Boolean);
@@ -74,6 +82,10 @@ function extractRecruiterEmailsFromPublicText(text: string, companyDomain: strin
     if (!match.value || match.index < 0) continue;
     const email = normalizeEmail(match.value.replace(/^mailto:/i, "").replace(/[),;]+$/g, ""));
     if (!isCompanyEmail(email, domain) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
+    // A generic recruiting mailbox proves only that the company has a
+    // recruiting inbox. It does not identify a real recruiter, so it cannot
+    // become a recruiter lead without a named public identity.
+    if (looksLikeRecruitingMailbox(email)) continue;
     if (!isRecruitingContextForEmail(email, contextAround(normalizedText, match.index))) continue;
     found.add(email);
   }
@@ -97,9 +109,14 @@ async function fetchText(url: string, timeoutMs = 5000): Promise<string | null> 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,application/xhtml+xml,application/xml,text/xml;q=0.9,*/*;q=0.8", "user-agent": "job-agent-public-recruiter-discovery/3.3" } });
-    if (!response.ok) return null;
-    return await response.text();
+    const headers = { accept: "text/html,application/xhtml+xml,application/xml,text/xml;q=0.9,*/*;q=0.8", "user-agent": "job-agent-public-recruiter-discovery/3.3" };
+    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers });
+    if (response.ok) return await response.text();
+    if (response.status === 403 || response.status === 429 || response.status >= 500) {
+      const reader = await fetch(`https://r.jina.ai/${url}`, { signal: controller.signal, redirect: "follow", headers: { accept: "text/plain,text/html;q=0.9", "user-agent": "job-agent-public-recruiter-discovery/3.3" } });
+      if (reader.ok) return await reader.text();
+    }
+    return null;
   } catch { return null; } finally { clearTimeout(timeout); }
 }
 async function fetchPublicCompanyPages(companyDomain: string): Promise<Array<{ url: string; text: string }>> {
@@ -121,10 +138,21 @@ async function fetchPublicCompanyPages(companyDomain: string): Promise<Array<{ u
 
 function searchUrls(query: string): string[] {
   const encoded = encodeURIComponent(query);
-  return [
+  const direct = [
     `https://www.bing.com/search?format=rss&q=${encoded}`,
     `https://html.duckduckgo.com/html/?q=${encoded}`,
     `https://www.google.com/search?q=${encoded}&gbv=1`
+  ];
+  // Keep the existing direct providers, but add the same bounded public-reader
+  // path used elsewhere in the recruiter stack. Some providers return a
+  // successful HTTP response containing search results while omitting LinkedIn
+  // profile links; Jina gives the parser a second representation of the same
+  // public query without changing the evidence gates.
+  return [
+    ...direct,
+    `https://r.jina.ai/https://www.bing.com/search?q=${encoded}`,
+    `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${encoded}`,
+    `https://r.jina.ai/https://www.google.com/search?q=${encoded}&gbv=1`
   ];
 }
 function parsePublicLinkedInProfiles(html: string): PublicLinkedInProfile[] {
@@ -139,8 +167,8 @@ function parsePublicLinkedInProfiles(html: string): PublicLinkedInProfile[] {
       const url = `https://www.linkedin.com/in/${pathPart}`;
       if (seen.has(url)) continue;
       const position = match.index ?? 0;
-      const snippet = text.slice(Math.max(0, position - 180), Math.min(text.length, position + 300));
-      const nameTitle = snippet.match(/([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|\|)\s*([^|.]{3,90})/);
+      const snippet = text.slice(Math.max(0, position - 900), Math.min(text.length, position + 900));
+      const nameTitle = snippet.match(/([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|—|\||•|:)\s*([^|.]{3,120})/);
       const name = nameTitle?.[1]?.trim() || pathPart.replace(/[-_]+/g, " ");
       const title = nameTitle?.[2]?.trim();
       seen.add(url);
@@ -162,13 +190,39 @@ function parsePublicLinkedInProfiles(html: string): PublicLinkedInProfile[] {
       const normalizedLabel = label.replace(/\s*\|\s*LinkedIn.*$/i, "").trim();
       const parts = normalizedLabel.split(/\s+-\s+|\s+\|\s+/).map((v) => v.trim()).filter(Boolean);
       const name = parts[0] ?? normalizedLabel;
-      const title = parts.slice(1).join(" - ") || undefined;
+      const title = parts[1] || undefined;
       if (!name || name.length > 100) continue;
       seen.add(url);
       results.push({ name, title, url, snippet: normalizedLabel });
     } catch { /* ignore search-engine tracking links */ }
   }
   return results.slice(0, 20);
+}
+
+async function discoverPublicEmailsForNamedProfiles(
+  companyName: string,
+  companyDomain: string,
+  profiles: readonly PublicLinkedInProfile[]
+): Promise<string[]> {
+  const domain = normalizeDomain(companyDomain);
+  if (!domain || profiles.length === 0) return [];
+  const found = new Set<string>();
+  for (const profile of profiles.slice(0, 10)) {
+    const queries = [
+      `"${profile.name}" "${companyName}" "@${domain}"`,
+      `"${profile.name}" "@${domain}" recruiter`
+    ];
+    for (const query of queries) {
+      const responses = await Promise.all(searchUrls(query).map((url) => fetchText(url, 7000)));
+      for (const response of responses) {
+        if (!response) continue;
+        for (const email of extractRecruiterEmailsFromPublicText(stripHtml(response), domain)) {
+          if (isStrongNameEmailMatch(email, profile.name)) found.add(email);
+        }
+      }
+    }
+  }
+  return [...found];
 }
 
 async function discoverPublicLinkedInEvidence(companyName: string, companyDomain: string, jobTitle: string): Promise<{ profiles: PublicLinkedInProfile[]; emails: string[] }> {
@@ -200,7 +254,13 @@ async function discoverPublicLinkedInEvidence(companyName: string, companyDomain
     for (const email of extractRecruiterEmailsFromPublicText(stripHtml(page), domain)) emails.add(email);
   }
   return {
-    profiles: [...profiles.values()].filter((profile) => {
+    profiles: [...profiles.values()].map((profile) => {
+      const haystack = `${profile.name} ${profile.title ?? ""} ${profile.snippet}`.toLowerCase();
+      const explicitRecruiterRole = profile.snippet.match(/(?:recruiting coordinator|recruiter|recruiting|talent advisor|talent acquisition partner|talent acquisition|people operations specialist|people operations|human resources|hr professional|hiring manager)/i)?.[0];
+      return explicitRecruiterRole
+        ? { ...profile, title: profile.title && LINKEDIN_RECRUITER_TERMS.some((term) => profile.title!.toLowerCase().includes(term)) ? profile.title : explicitRecruiterRole }
+        : profile;
+    }).filter((profile) => {
       const haystack = `${profile.name} ${profile.title ?? ""} ${profile.snippet}`.toLowerCase();
       return LINKEDIN_RECRUITER_TERMS.some((term) => haystack.includes(term));
     }).slice(0, 10),
@@ -216,8 +276,14 @@ export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryP
       discoverPublicLinkedInEvidence(input.companyName, input.companyDomain, input.jobTitle),
       fetchPublicCompanyPages(input.companyDomain)
     ]);
+    const namedProfileEmails = await discoverPublicEmailsForNamedProfiles(
+      input.companyName,
+      input.companyDomain,
+      linkedinProfiles
+    );
+    for (const email of namedProfileEmails) searchEmails.push(email);
     const sources = [{ url: "job-description", text: input.jobDescription }, ...pages];
-    const contacts = new Map<string, RecruiterContactCandidate>();
+    const contacts = new Map<string, RecruiterDiscoveryContact>();
 
     for (const source of sources) {
       const normalizedText = normalizeObfuscatedEmails(source.text ?? "");
@@ -243,7 +309,7 @@ export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryP
         email,
         title: "Recruiting contact from public search result",
         department: "recruiting",
-        confidence: looksLikeRecruitingMailbox(email) ? 94 : 90,
+        confidence: 90,
         verified: false,
         verificationStatus: "unverified_public_source",
         provider: this.name,
@@ -251,8 +317,36 @@ export class JobPostingRecruiterDiscoveryProvider implements RecruiterDiscoveryP
       });
     }
 
+    for (const profile of linkedinProfiles) {
+      const haystack = `${profile.name} ${profile.title ?? ""} ${profile.snippet}`.toLowerCase();
+      const companyName = input.companyName.toLowerCase();
+      const companyTokens = companyName.split(/[^a-z0-9]+/).filter((token) => token.length >= 3 && !["the", "and", "inc", "ltd", "llc", "corp", "company"].includes(token));
+      const companyEvidence = companyTokens.length > 0 && companyTokens.every((token) => haystack.includes(token));
+      const roleEvidence = LINKEDIN_RECRUITER_TERMS.some((term) => haystack.includes(term));
+      if (!profile.name || !profile.url || !isPlausiblePersonName(profile.name) || !companyEvidence || !roleEvidence) continue;
+      const existing = [...contacts.values()].find((contact) => contact.fullName && contact.fullName.toLowerCase() === profile.name.toLowerCase());
+      if (existing) continue;
+      contacts.set(`profile:${profile.url.toLowerCase()}`, {
+        fullName: profile.name,
+        title: profile.title || "Recruiting / Talent Acquisition",
+        department: "recruiting",
+        confidence: 95,
+        verified: false,
+        verificationStatus: "unverified_public_source",
+        linkedinProfileUrl: profile.url,
+        provider: this.name,
+        sources: [
+          { url: profile.url, type: "public_linkedin_search" as const, confidence: 95 },
+          { type: "job_posting" as const, confidence: 100 }
+        ],
+        discoveryEvidence: [profile.snippet]
+      } as RecruiterDiscoveryContact);
+    }
+
     for (const contact of contacts.values()) {
-      const match = linkedinProfiles.find((profile) => isStrongNameEmailMatch(contact.email, profile.name));
+      const email = contact.email;
+      if (!email) continue;
+      const match = linkedinProfiles.find((profile) => Boolean(profile.name) && isStrongNameEmailMatch(email, profile.name!));
       if (!match) continue;
       contact.fullName = match.name;
       contact.title = match.title || "Recruiting / Talent Acquisition";

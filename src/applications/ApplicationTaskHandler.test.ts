@@ -1,4 +1,5 @@
 import { ApplicationContext } from "./ApplicationAdapter";
+import { ApplicationEmailContext } from "../notifications/Email";
 import { ApplicationSubmissionOutcome } from "./ApplicationSubmissionService";
 import { ApplicationTaskHandler } from "./ApplicationTaskHandler";
 import { APPLY_JOB_TASK } from "./ApplicationTask";
@@ -253,6 +254,117 @@ describe("ApplicationTaskHandler", () => {
     await handler.handle(task());
 
     expect(submissions.requests).toHaveLength(0);
+  });
+
+
+
+  it("runs application-email discovery independently and prepares the email even when application submission fails", async () => {
+    const applications = {
+      async prepare() {
+        return {
+          prepared: true as const,
+          application: {
+            applicationId: "application-failure",
+            jobOpportunityId: "job-1",
+            candidateProfileId: "candidate-1",
+            url: "https://example.com/apply",
+            jobTitle: "Frontend Engineer",
+            companyName: "Example Corp",
+            companyDomain: "example.com",
+            jobDescription: "React TypeScript frontend role."
+          }
+        };
+      }
+    };
+    const submissions = {
+      async submit() {
+        return {
+          submitted: false,
+          safetyAllowed: false,
+          outcome: "DEFINITIVE_FAILURE" as const,
+          reason: "Application form unavailable.",
+          adapterName: "greenhouse",
+          result: { submitted: false, externalApplicationId: null, confirmationUrl: null, reason: "Application form unavailable." }
+        };
+      }
+    };
+    const emailDispatcher = {
+      submitted: [] as ApplicationEmailContext[],
+      blocked: [] as ApplicationEmailContext[],
+      async enqueueApplicationSubmitted(context: ApplicationEmailContext) { this.submitted.push(context); return "email-submitted"; },
+      async enqueueApplicationBlocked(context: ApplicationEmailContext) { this.blocked.push(context); return "email-blocked"; }
+    };
+    const discovery = {
+      calls: 0,
+      async discover() {
+        this.calls++;
+        return [{ email: "recruiter@example.com", fullName: "Example Recruiter", title: "Technical Recruiter" }];
+      }
+    };
+
+    const handler = new ApplicationTaskHandler(
+      applications,
+      submissions,
+      { async getById() { return candidateProfile; } },
+      [],
+      emailDispatcher,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      discovery
+    );
+
+    await handler.handle(task());
+
+    expect(discovery.calls).toBe(1);
+    expect(emailDispatcher.blocked).toHaveLength(1);
+    expect(emailDispatcher.blocked[0]?.recipient).toBe("recruiter@example.com");
+    expect(emailDispatcher.submitted).toHaveLength(0);
+  });
+
+
+
+  it("starts application-email discovery before an application runtime error and does not suppress the application error", async () => {
+    const applications = {
+      async prepare() {
+        return {
+          prepared: true as const,
+          application: {
+            applicationId: "application-error",
+            jobOpportunityId: "job-1",
+            candidateProfileId: "candidate-1",
+            url: "https://example.com/apply",
+            jobTitle: "Frontend Engineer",
+            companyName: "Example Corp",
+            companyDomain: "example.com",
+            jobDescription: "React TypeScript frontend role."
+          }
+        };
+      }
+    };
+    const submissions = { async submit() { throw new Error("Browser runtime failed."); } };
+    const discovery = {
+      calls: 0,
+      async discover() { this.calls++; return []; }
+    };
+    const handler = new ApplicationTaskHandler(
+      applications,
+      submissions,
+      { async getById() { return candidateProfile; } },
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      discovery
+    );
+
+    await expect(handler.handle(task())).rejects.toThrow("Browser runtime failed.");
+    expect(discovery.calls).toBe(1);
   });
 
   it("throws when the candidate profile cannot be loaded", async () => {

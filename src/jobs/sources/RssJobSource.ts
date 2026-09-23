@@ -25,7 +25,7 @@ export class RssJobSource implements JobSource {
     const description = stripHtml(item.description);
     if (!item.id || !item.title || !item.link) throw new AppError("RSS feed returned an incomplete job posting", { code: "JOB_SOURCE_INVALID_DATA", statusCode: 502 });
     const location = item.location?.trim() || null;
-    const companyName = item.companyName?.trim() || extractEmployerName(item.title, description) || this.options.defaultCompanyName?.trim() || "Unknown";
+    const companyName = extractEmployerName(item.title, description) || item.companyName?.trim() || this.options.defaultCompanyName?.trim() || "Unknown";
     const contentHash = createHash("sha256").update([this.name, item.id, item.title, item.link, description].join("|")).digest("hex");
     return { source: this.name, sourceJobId: item.id, url: item.link, title: item.title, companyName, location, country: inferCountry(location), workplaceType: "remote", employmentType: null, description, postedAt: item.publishedAt, updatedAt: null, contentHash };
   }
@@ -48,11 +48,16 @@ function parseRssItems(xml: string): RssItem[] {
 }
 
 function extractEmployerName(title: string, description: string): string | null {
+  const atTitle = title.match(/\s(?:at|@)\s+(.{2,100})$/i)?.[1]?.trim()
+    .replace(/\s+[-–—|•]\s+(?:remote|worldwide|india|bengaluru|bangalore).*$/i, "")
+    .replace(/[|•,.-]+$/, "")
+    .trim();
+  if (atTitle && !/^(remote|india|bengaluru|bangalore)$/i.test(atTitle)) return atTitle;
+
   const text = `${title} ${description}`;
   const labeled = text.match(/(?:company|employer|hiring\s+company|organization)\s*[:\-]\s*([^|\n<]{2,100})/i)?.[1]?.trim();
   if (labeled && !/^(unknown|n\/a|not specified)$/i.test(labeled)) return labeled.replace(/\s+/g, " ").trim();
-  const atTitle = title.match(/\s(?:at|@)\s+([A-Z][A-Za-z0-9&.'\- ]{1,80})$/)?.[1]?.trim();
-  return atTitle && !/^(remote|india|bengaluru|bangalore)$/i.test(atTitle) ? atTitle : null;
+  return null;
 }
 function readTag(xml: string, tag: string): string | null { const escaped = tag.replace(":", "\\:"); return xml.match(new RegExp(`<${escaped}\\b[^>]*>([\\s\\S]*?)</${escaped}>`, "i"))?.[1] ?? null; }
 function readLink(xml: string): string | null { const textLink = readTag(xml, "link"); if (textLink) return decodeXml(textLink); return xml.match(/<link\b[^>]*href=["']([^"']+)["'][^>]*\/?>(?:<\/link>)?/i)?.[1] ?? null; }

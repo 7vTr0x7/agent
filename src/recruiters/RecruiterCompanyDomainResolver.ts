@@ -8,7 +8,7 @@ const BLOCKED_HOSTS = new Set([
   "remotive.com", "remote.co", "workingnomads.com", "jobspresso.co", "wellfound.com", "otta.com", "dice.com", "ziprecruiter.com",
   "simplyhired.com", "careerbuilder.com", "monster.com", "builtin.com", "flexjobs.com", "jobgether.com", "cutshort.io",
   "instahyre.com", "hirist.com", "foundit.in", "timesjobs.com", "shine.com", "freshersworld.com", "apna.co", "workindia.in",
-  "ycombinator.com"
+  "ycombinator.com", "twitter.com", "x.com", "facebook.com", "instagram.com", "youtube.com"
 ]);
 
 const CAREERS_SUBDOMAINS = /^(careers?|jobs?|job|hire|hiring|talent|recruiting|recruitment|people|hr|apply|workwithus|joinus)\./i;
@@ -61,17 +61,36 @@ export function resolveEmployerDomainFromJobUrl(value: string | null | undefined
 export function resolveEmployerDomainFromJobData(
   companyDomain: string | null | undefined,
   canonicalUrl: string | null | undefined,
-  _jobDescription: string | null | undefined
+  jobDescription: string | null | undefined,
+  companyName?: string | null
 ): string | null {
-  // Only explicit employer-domain data and the canonical job URL are trusted
-  // as deterministic evidence. Domains mentioned in descriptions are not
-  // authoritative: job postings routinely contain ATS, vendor, partner,
-  // analytics, portfolio, and unrelated contact domains. When these primary
-  // signals are unavailable, callers must use public employer-search
-  // resolution rather than guessing from description links or emails.
   const explicitDomain = resolveEmployerDomainFromJobUrl(companyDomain);
   if (explicitDomain) return explicitDomain;
-  return resolveEmployerDomainFromJobUrl(canonicalUrl);
+
+  const canonicalDomain = resolveEmployerDomainFromJobUrl(canonicalUrl);
+  if (canonicalDomain && (!companyName || domainMatchesCompany(canonicalDomain, companyName))) return canonicalDomain;
+
+  // Some public job feeds omit the employer domain but retain a first-party
+  // company URL or recruiting email in the posting. Accept those only when
+  // the domain is non-generic and its host matches a token from the employer
+  // name. Never guess a domain from the company name alone.
+  if (!companyName) return null;
+  const text = jobDescription ?? "";
+  const candidates = new Set<string>();
+  for (const rawUrl of text.match(URL_PATTERN) ?? []) {
+    try {
+      const domain = normalizeEmployerHost(new URL(rawUrl).hostname);
+      if (domain) candidates.add(domain);
+    } catch {
+      // Ignore malformed URLs.
+    }
+  }
+  for (const match of text.matchAll(EMAIL_PATTERN)) {
+    const rawDomain = match[0]?.split("@")[1];
+    const domain = rawDomain ? normalizeEmployerHost(rawDomain) : null;
+    if (domain) candidates.add(domain);
+  }
+  return [...candidates].find((domain) => domainMatchesCompany(domain, companyName)) ?? null;
 }
 
 function companyTokens(companyName: string): string[] {
@@ -85,24 +104,34 @@ function domainMatchesCompany(domain: string, companyName: string): boolean {
   return tokens.some((token) => host.includes(token));
 }
 
-async function fetchSearchResult(query: string, engine: "google" | "bing" | "duckduckgo"): Promise<string | null> {
+async function fetchSearchResult(query: string, engine: "google" | "bing" | "duckduckgo" | "qwant"): Promise<string | null> {
   const encoded = encodeURIComponent(query);
-  const urls = {
+  const directUrls = {
+    google: `https://www.google.com/search?q=${encoded}&gbv=1`,
+    bing: `https://www.bing.com/search?q=${encoded}`,
+    duckduckgo: `https://html.duckduckgo.com/html/?q=${encoded}`,
+    qwant: `https://www.qwant.com/?q=${encoded}&t=web`
+  };
+  const readerUrls = {
     google: `https://r.jina.ai/https://www.google.com/search?q=${encoded}&gbv=1`,
     bing: `https://r.jina.ai/https://www.bing.com/search?q=${encoded}`,
-    duckduckgo: `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${encoded}`
+    duckduckgo: `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${encoded}`,
+    qwant: `https://r.jina.ai/https://www.qwant.com/?q=${encoded}&t=web`
   };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 9000);
-  try {
-    const response = await fetch(urls[engine], { signal: controller.signal, redirect: "follow", headers: { accept: "text/plain,text/html,application/xhtml+xml,*/*;q=0.8", "user-agent": "job-agent-employer-domain-resolver/1.0" } });
-    if (!response.ok) return null;
-    return await response.text();
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+  const fetchOne = async (url: string, timeoutMs: number): Promise<string | null> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/plain,text/html,application/xhtml+xml,*/*;q=0.8", "user-agent": "job-agent-employer-domain-resolver/1.0" } });
+      if (!response.ok) return null;
+      return await response.text();
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  return await fetchOne(directUrls[engine], 4_000) ?? await fetchOne(readerUrls[engine], 5_000);
 }
 
 function domainsFromSearchText(text: string, companyName: string): string[] {
@@ -126,6 +155,61 @@ function domainsFromSearchText(text: string, companyName: string): string[] {
  * company domain and appear in at least two independent public search-engine
  * result pages. It never falls back to a guessed domain or a job-board host.
  */
+export async function resolveEmployerDomainFromTrustedJobSource(canonicalUrl: string | null | undefined, companyName: string): Promise<string | null> {
+  const raw = (canonicalUrl ?? "").trim();
+  if (!raw) return null;
+  let url: URL;
+  try { url = new URL(raw); } catch { return null; }
+  if (normalizeHost(url.hostname) !== "himalayas.app") return null;
+  const match = url.pathname.match(/^\/companies\/([a-z0-9-]+)\/jobs(?:\/|$)/i);
+  const slug = match?.[1];
+  if (!slug) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const sourceUrl = `https://himalayas.app/companies/${slug}`;
+    let response = await fetch(sourceUrl, {
+      signal: controller.signal,
+      redirect: "follow",
+      headers: { accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8", "user-agent": "job-agent-employer-domain-resolver/1.0" }
+    });
+    let html = response.ok ? await response.text() : "";
+    if (!html) {
+      response = await fetch(`https://r.jina.ai/${sourceUrl}`, {
+        signal: controller.signal,
+        redirect: "follow",
+        headers: { accept: "text/plain,text/html;q=0.9,*/*;q=0.8", "user-agent": "job-agent-employer-domain-resolver/1.0" }
+      });
+      if (!response.ok) return null;
+      html = await response.text();
+    }
+    for (const rawHref of html.matchAll(/href=["'](https?:\/\/[^"'\s>]+)["']/gi)) {
+      const href = rawHref[1];
+      if (!href) continue;
+      try {
+        const domain = normalizeEmployerHost(new URL(href).hostname);
+        if (domain && domainMatchesCompany(domain, companyName)) return domain;
+      } catch {
+        // Ignore malformed external links.
+      }
+    }
+    // Some rendered/anti-bot variants expose the company website inside escaped JSON.
+    // Normalize escaped slashes before applying the same company-token/domain checks.
+    const searchableHtml = html.replace(/\\u002f/gi, "/").replace(/\\\//g, "/");
+    // Some rendered/anti-bot variants expose the company website as text rather
+    // than an href. Treat only a company-matching, non-blocked domain as evidence.
+    for (const match of searchableHtml.matchAll(/(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)+)/gi)) {
+      const domain = normalizeEmployerHost(match[1] ?? "");
+      if (domain && domainMatchesCompany(domain, companyName)) return domain;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function resolveEmployerDomainFromPublicSearch(companyName: string): Promise<string | null> {
   const name = companyName.trim();
   if (!name || name.length < 2) return null;
@@ -134,7 +218,8 @@ export async function resolveEmployerDomainFromPublicSearch(companyName: string)
   const results = await Promise.all([
     fetchSearchResult(query, "google"),
     fetchSearchResult(query, "bing"),
-    fetchSearchResult(query, "duckduckgo")
+    fetchSearchResult(query, "duckduckgo"),
+    fetchSearchResult(query, "qwant")
   ]);
   const counts = new Map<string, number>();
   for (const result of results) {

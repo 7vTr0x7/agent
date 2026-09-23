@@ -12,9 +12,25 @@ export interface DiscoveryRunResult {
 }
 
 export const SOURCE_CONCURRENCY = 4;
-const SOURCE_TIMEOUT_MS = 3 * 60 * 1000;
+const DEFAULT_SOURCE_TIMEOUT_MS = 3 * 60 * 1000;
 const PLATFORM_FEDERATION_TIMEOUT_MS = 60 * 60 * 1000;
-const SOURCE_RETRIES = 2;
+const DEFAULT_SOURCE_RETRIES = 2;
+
+function envPositiveInteger(name: string, fallback: number): number {
+  const value = process.env[name];
+  if (value === undefined || value.trim() === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive integer`);
+  return parsed;
+}
+
+function envNonNegativeInteger(name: string, fallback: number): number {
+  const value = process.env[name];
+  if (value === undefined || value.trim() === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${name} must be a non-negative integer`);
+  return parsed;
+}
 const RETRY_BASE_DELAY_MS = 1000;
 
 export class DiscoveryRunner {
@@ -40,10 +56,14 @@ export class DiscoveryRunner {
 
     const runId = await this.runs.start(descriptor);
     const isPlatformFederation = descriptor.id === "platform-search:federation";
-    const timeoutMs = isPlatformFederation ? PLATFORM_FEDERATION_TIMEOUT_MS : SOURCE_TIMEOUT_MS;
+    const timeoutMs = isPlatformFederation
+      ? PLATFORM_FEDERATION_TIMEOUT_MS
+      : envPositiveInteger("DISCOVERY_SOURCE_TIMEOUT_MS", DEFAULT_SOURCE_TIMEOUT_MS);
     // Platform federation already isolates failures per platform. Retrying the
     // entire 200+ platform cycle would multiply runtime and duplicate traffic.
-    const maxRetries = isPlatformFederation ? 0 : SOURCE_RETRIES;
+    const maxRetries = isPlatformFederation
+      ? 0
+      : envNonNegativeInteger("DISCOVERY_SOURCE_RETRIES", DEFAULT_SOURCE_RETRIES);
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {

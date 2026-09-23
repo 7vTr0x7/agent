@@ -1,8 +1,7 @@
 name: Controlled Discovery Runtime
 
 on:
-  pull_request:
-    branches: [main]
+  # Broad federation is a final validation run, not the normal PR feedback loop.
   workflow_dispatch:
 
 concurrency:

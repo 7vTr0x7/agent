@@ -1,0 +1,351 @@
+# Day 17 final-runtime trigger: execute the existing end-to-end workflow on the current branch.
+name: Fast Real Data Outcome Runtime
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: fast-real-data-outcome-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast-outcome:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Build Docker image
+        run: docker build --tag job-agent:fast-outcome .
+
+      - name: Start isolated PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker network create job-agent-fast-outcome
+          docker run -d --name job-agent-fast-outcome-postgres --network job-agent-fast-outcome \
+            -e POSTGRES_DB=job_agent \
+            -e POSTGRES_USER=job_agent \
+            -e POSTGRES_PASSWORD=runtime_test_password \
+            postgres:17-alpine
+          for i in $(seq 1 90); do
+            if docker exec job-agent-fast-outcome-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          for i in $(seq 1 30); do
+            if docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -tAc 'SELECT 1;' 2>/dev/null | grep -qx '1'; then break; fi
+            sleep 1
+          done
+          docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -tAc 'SELECT 1;' | grep -qx '1'
+
+      - name: Run bounded real-data discovery and matching
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-fast-outcome \
+            -e NODE_ENV=test \
+            -e LOG_LEVEL=warn \
+            -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-fast-outcome-postgres:5432/job_agent \
+            -e AUTOMATION_ENABLED=false \
+            -e APPLICATION_DRY_RUN=true \
+            -e APPLICATION_LIVE_ENABLED=false \
+            -e OUTBOUND_ENABLED=false \
+            -e GMAIL_ENABLED=false \
+            -e EMAIL_ENABLED=false \
+            -e JOB_DISCOVERY_ENABLED=true \
+            -e JOB_DISCOVERY_INTERVAL_MS=3600000 \
+            -e CANDIDATE_PROFILE_ID=fast-runtime-candidate \
+            -e CANDIDATE_YEARS_EXPERIENCE=3 \
+            -e CANDIDATE_SKILLS='React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS' \
+            -e CANDIDATE_TARGET_TITLES='Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer' \
+            -e CANDIDATE_LOCATION=India \
+            -e CANDIDATE_CURRENT_COMPENSATION_LPA=6.5 \
+            -e CANDIDATE_NOTICE_PERIOD_DAYS=0 \
+            -e CANDIDATE_SPONSORSHIP_REQUIRED=false \
+            -e JOB_EXCLUDED_COMPANIES='Octopus Technologies,Sketch Brahma Technologies' \
+            -e JOB_SOURCES='[{"id":"remoteok:json","type":"api","name":"remoteok","feedUrl":"https://remoteok.com/api","status":"APPROVED"},{"id":"himalayas:react:india:json","type":"api","name":"himalayas","feedUrl":"https://himalayas.app/jobs/api/search?q=react%20engineer&country=India&sort=recent&page=1","status":"APPROVED"},{"id":"himalayas:nextjs:india:json","type":"api","name":"himalayas","feedUrl":"https://himalayas.app/jobs/api/search?q=next.js&country=India&sort=recent&page=1","status":"APPROVED"},{"id":"himalayas:frontend:india:json","type":"api","name":"himalayas","feedUrl":"https://himalayas.app/jobs/api/search?q=frontend&country=India&sort=recent&page=1","status":"APPROVED"},{"id":"remotefirstjobs:react:rss","type":"rss","name":"remotefirstjobs-react","feedUrl":"https://remotefirstjobs.com/rss/jobs/react.rss","status":"APPROVED"},{"id":"remotefirstjobs:software:rss","type":"rss","name":"remotefirstjobs-software","feedUrl":"https://remotefirstjobs.com/rss/jobs/software-development.rss","status":"APPROVED"},{"id":"weworkremotely:rss","type":"rss","name":"weworkremotely","feedUrl":"https://weworkremotely.com/remote-jobs.rss","status":"APPROVED"},{"id":"realworkfromanywhere:frontend:rss","type":"rss","name":"realworkfromanywhere-frontend","feedUrl":"https://www.realworkfromanywhere.com/remote-frontend-jobs/rss.xml","status":"APPROVED"},{"id":"realworkfromanywhere:fullstack:rss","type":"rss","name":"realworkfromanywhere-fullstack","feedUrl":"https://www.realworkfromanywhere.com/remote-fullstack-jobs/rss.xml","status":"APPROVED"}]' \
+            -e DISCOVERY_SOURCE_TIMEOUT_MS=30000 \
+            -e DISCOVERY_SOURCE_RETRIES=1 \
+            -e FAST_JOB_SOURCE_IDS='remoteok:json,himalayas:react:india:json,himalayas:nextjs:india:json,himalayas:frontend:india:json,remotefirstjobs:react:rss' \
+            -e RECRUITER_OUTREACH_ENABLED=true \
+            -e RECRUITER_PUBLIC_DOMAIN_SEARCH_ENABLED=true \
+            -e RECRUITER_DISPATCH_DIAGNOSTICS=true \
+            -e RECRUITER_OUTREACH_DRY_RUN=true \
+            -e RECRUITER_OUTREACH_ACTIVATION=disabled \
+            -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
+            -e FAST_MATCHING_LIMIT=150 \
+            -e FAST_RECRUITER_TASK_LIMIT=10 \
+            -e OLLAMA_BASE_URL=http://127.0.0.1:11434 \
+            -e OLLAMA_TIMEOUT_MS=250 \
+            job-agent:fast-outcome npm run outcome:fast-jobs 2>&1 | tee fast-job-outcome.log
+          ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-job-outcome.log
+          grep -q '"status": "ok"' fast-job-outcome.log
+          grep -q '"countsAgreeWithDatabase": true' fast-job-outcome.log
+          grep -q '"topMatches":' fast-job-outcome.log
+
+      - name: Diagnose every persisted job before changing matching policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-fast-outcome \
+            -e NODE_ENV=test \
+            -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-fast-outcome-postgres:5432/job_agent \
+            -e CANDIDATE_PROFILE_ID=fast-runtime-candidate \
+            -e CANDIDATE_YEARS_EXPERIENCE=3 \
+            -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,HTML,CSS,Tailwind' \
+            -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer' \
+            -e CANDIDATE_LOCATION=India \
+            -e CANDIDATE_CURRENT_COMPENSATION_LPA=6.5 \
+            -e CANDIDATE_NOTICE_PERIOD_DAYS=0 \
+            -e CANDIDATE_SPONSORSHIP_REQUIRED=false \
+            -e JOB_EXCLUDED_COMPANIES='Octopus Technologies,Sketch Brahma Technologies' \
+            job-agent:fast-outcome npm run diagnostics:fast-jobs 2>&1 | tee fast-job-diagnostics.log
+          ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-job-diagnostics.log
+          grep -q '"status": "ok"' fast-job-diagnostics.log
+
+
+      - name: Run independent real application plus email-discovery runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-fast-outcome             -e NODE_ENV=test             -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-fast-outcome-postgres:5432/job_agent             -e CANDIDATE_PROFILE_ID=fast-runtime-candidate             -e CANDIDATE_YEARS_EXPERIENCE=3             -e CANDIDATE_SKILLS='React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,HTML,CSS,Tailwind'             -e CANDIDATE_TARGET_TITLES='Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer'             -e CANDIDATE_LOCATION=India             -e CANDIDATE_NOTICE_PERIOD_DAYS=0             -e CANDIDATE_SPONSORSHIP_REQUIRED=false             -e JOB_EXCLUDED_COMPANIES='Octopus Technologies,Sketch Brahma Technologies'             -e AUTOMATION_ENABLED=false             -e APPLICATION_DRY_RUN=true             -e APPLICATION_LIVE_ENABLED=false             -e GMAIL_ENABLED=false             -e OUTBOUND_ENABLED=false             -e EMAIL_ENABLED=false             -e RECRUITER_OUTREACH_ENABLED=false             -e OLLAMA_TIMEOUT_MS=250             job-agent:fast-outcome npm run application-email:once 2>&1 | tee fast-application-email-outcome.log
+          ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-application-email-outcome.log
+          node <<'NODE'
+          const fs = require('fs');
+          const text = fs.readFileSync('fast-application-email-outcome.log', 'utf8');
+          const marker = /\n\{\s*"status"\s*:\s*"ok"\s*,/g;
+          const matches = [...text.matchAll(marker)];
+          let parsed;
+          if (matches.length) {
+            const start = matches[matches.length - 1].index + 1;
+            try {
+              parsed = JSON.parse(text.slice(start).trim());
+            } catch {}
+          }
+          if (!parsed) {
+            console.error('FAIL: no valid JSON object found in fast-application-email-outcome.log');
+            process.exit(1);
+          }
+          if (
+            parsed.status !== 'ok' ||
+            parsed.feature !== 'JOB_FIRST_APPLICATION_EMAIL' ||
+            parsed.independentEmailBranch !== true ||
+            parsed.application?.handlerInvoked !== true ||
+            parsed.emailDiscovery?.started !== true
+          ) process.exit(1);
+          console.log(JSON.stringify({
+            application: parsed.application,
+            emailDiscovery: parsed.emailDiscovery,
+            preparedEmail: parsed.preparedEmail
+          }, null, 2));
+          NODE
+
+      - name: Run independent real content-first discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-fast-outcome             -e NODE_ENV=test             -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-fast-outcome-postgres:5432/job_agent             -e CANDIDATE_PROFILE_ID=fast-runtime-candidate             -e CANDIDATE_YEARS_EXPERIENCE=3             -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,HTML,CSS,Tailwind'             -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer'             -e CANDIDATE_LOCATION=India             -e CANDIDATE_PREFERRED_LOCATIONS='Bengaluru,Bangalore,India,Remote'             -e PUBLIC_HIRING_POST_MAX_QUERIES=11             -e PUBLIC_HIRING_POST_DIAGNOSTICS=true             job-agent:fast-outcome npm run content-first:once 2>&1 | tee fast-content-outcome.log
+          ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-content-outcome.log
+          grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' fast-content-outcome.log
+          grep -Eq '"feature"[[:space:]]*:[[:space:]]*"CONTENT_FIRST"' fast-content-outcome.log
+          grep -Eq '"realResultCount"[[:space:]]*:[[:space:]]*[1-9][0-9]*' fast-content-outcome.log
+
+      - name: Run bounded real public recruiter discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-fast-outcome \
+            -e NODE_ENV=test \
+            -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-fast-outcome-postgres:5432/job_agent \
+            -e CANDIDATE_PROFILE_ID=fast-runtime-candidate \
+            -e CANDIDATE_YEARS_EXPERIENCE=3 \
+            -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,HTML,CSS,Tailwind' \
+            -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer' \
+            -e CANDIDATE_PREFERRED_LOCATIONS='Bengaluru,Bangalore,India,Remote' \
+            -e CANDIDATE_REMOTE_ELIGIBLE=true \
+            -e PROACTIVE_RECRUITER_ENABLED=true \
+            -e PROACTIVE_RECRUITER_FIXTURE=false \
+            -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
+            -e PROACTIVE_RECRUITER_MAX_QUERIES=6 \
+            -e PROACTIVE_RECRUITER_TARGET_CANDIDATES=3 \
+            -e PUBLIC_HIRING_POST_MAX_QUERIES=8 \
+            -e PUBLIC_HIRING_POST_DIAGNOSTICS=true \
+            -e RECRUITER_OUTREACH_ENABLED=false \
+            -e RECRUITER_OUTREACH_DRY_RUN=true \
+            -e RECRUITER_OUTREACH_ACTIVATION=disabled \
+            -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false \
+            -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
+            -e GMAIL_ENABLED=false \
+            -e OUTBOUND_ENABLED=false \
+            -e AUTOMATION_ENABLED=false \
+            -e APPLICATION_DRY_RUN=true \
+            job-agent:fast-outcome npm run proactive-recruiter:once 2>&1 | tee fast-recruiter-outcome.log
+          ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-recruiter-outcome.log
+          grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' fast-recruiter-outcome.log
+          grep -q '"sendEnabled":false' fast-recruiter-outcome.log
+
+      - name: Run independent real public contact-resource discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network job-agent-fast-outcome             -e NODE_ENV=test             -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-fast-outcome-postgres:5432/job_agent             -e CANDIDATE_PROFILE_ID=fast-runtime-candidate             -e CANDIDATE_YEARS_EXPERIENCE=3             -e CANDIDATE_LOCATION=India             -e CANDIDATE_PREFERRED_LOCATIONS='Bengaluru,Bangalore,India,Remote'             -e CANDIDATE_SKILLS='React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS'             -e CANDIDATE_TARGET_TITLES='Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer'             -e GMAIL_ENABLED=false             -e OUTBOUND_ENABLED=false             -e AUTOMATION_ENABLED=false             -e APPLICATION_DRY_RUN=true             -e APPLICATION_LIVE_ENABLED=false             -e RECRUITER_OUTREACH_ENABLED=false             job-agent:fast-outcome npm run public-contact-resources:once 2>&1 | tee fast-contact-resource-outcome.log
+          ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-contact-resource-outcome.log
+          grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' fast-contact-resource-outcome.log
+          grep -Eq '"feature"[[:space:]]*:[[:space:]]*"PUBLIC_CONTACT_RESOURCE"' fast-contact-resource-outcome.log
+          grep -Eq '"resourcesDiscovered"[[:space:]]*:[[:space:]]*[1-9][0-9]*' fast-contact-resource-outcome.log
+          grep -Eq '"resourcesProcessed"[[:space:]]*:[[:space:]]*[1-9][0-9]*' fast-contact-resource-outcome.log
+          grep -Eq '"emailsExtracted"[[:space:]]*:[[:space:]]*[1-9][0-9]*' fast-contact-resource-outcome.log
+          grep -Eq '"contactsPersisted"[[:space:]]*:[[:space:]]*[1-9][0-9]*' fast-contact-resource-outcome.log
+
+      - name: Verify fast runtime side effects and persist result snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          sent="$(docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE status='SENT';" | tr -d '[:space:]')"
+          submitted="$(docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications WHERE status IN ('SUBMITTED','IN_PROGRESS');" | tr -d '[:space:]')"
+          jobs="$(docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities;" | tr -d '[:space:]')"
+          matches="$(docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM match_decisions;" | tr -d '[:space:]')"
+          recruiters="$(docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts;" | tr -d '[:space:]')"
+          test "$sent" = '0'
+          test "$submitted" = '0'
+          test "$jobs" -gt 0
+          test "$matches" -gt 0
+          printf 'FAST_RUNTIME_SAFETY sent=%s submitted=%s jobs=%s matches=%s recruiters=%s\n' "$sent" "$submitted" "$jobs" "$matches" "$recruiters"
+          echo 'FAST_RUNTIME_MATCHED_JOBS'
+          docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -P pager=off -c "SELECT j.company_name, j.title, j.location, j.canonical_url, m.decision, m.match_score, m.reason FROM match_decisions m JOIN job_opportunities j ON j.id=m.job_opportunity_id ORDER BY m.match_score DESC, j.posted_at DESC NULLS LAST LIMIT 10;"
+          echo 'FAST_RUNTIME_RECRUITERS'
+          docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -P pager=off -c "SELECT c.full_name, c.company_name, c.title, c.email, c.email_status, c.verified, c.mailbox_evidence, c.confidence, c.relevance_status FROM recruiter_contacts c ORDER BY c.updated_at DESC LIMIT 10;"
+          echo 'FAST_RUNTIME_RECRUITER_JOB_DOMAIN_GATE'
+          docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -P pager=off -c "SELECT j.company_name, j.title, j.company_domain, j.canonical_url, m.decision, m.match_score, (r.job_opportunity_id IS NOT NULL) AS ranking_persisted, EXISTS (SELECT 1 FROM tasks t WHERE t.task_type='DISCOVER_RECRUITERS' AND t.payload->>'jobOpportunityId'=j.id::text) AS recruiter_task_created FROM job_opportunities j JOIN match_decisions m ON m.job_opportunity_id=j.id LEFT JOIN job_rankings r ON r.job_opportunity_id=j.id AND r.candidate_profile_id='fast-runtime-candidate' WHERE m.decision IN ('APPLY','REVIEW') ORDER BY m.match_score DESC, j.posted_at DESC NULLS LAST LIMIT 25;"
+          docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -P pager=off -c "SELECT status, COUNT(*) FROM tasks GROUP BY status ORDER BY status;"
+
+      - name: Verify dashboard API against the same runtime PostgreSQL records
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name job-agent-fast-outcome-api --network job-agent-fast-outcome \
+            -e NODE_ENV=test \
+            -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-fast-outcome-postgres:5432/job_agent \
+            -e API_HOST=0.0.0.0 \
+            -e API_PORT=3000 \
+            -e CANDIDATE_PROFILE_ID=fast-runtime-candidate \
+            -e AUTOMATION_ENABLED=false \
+            -e JOB_DISCOVERY_ENABLED=false \
+            -e PROACTIVE_RECRUITER_ENABLED=false \
+            job-agent:fast-outcome node dist/api/bootstrap.js
+
+          for i in $(seq 1 30); do
+            if docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome node -e "fetch('http://job-agent-fast-outcome-api:3000/healthz').then(async r=>{console.log(await r.text());process.exit(r.ok?0:1)}).catch(()=>process.exit(1))" >/tmp/job-agent-api-health.log 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+
+          set +e
+          : > api-dashboard-diagnostics.log
+          echo 'API_CONTAINER_NAME=job-agent-fast-outcome-api' | tee -a api-dashboard-diagnostics.log
+          echo 'API_CONTAINER_STATUS' | tee -a api-dashboard-diagnostics.log
+          docker inspect --format '{{.State.Status}} exit={{.State.ExitCode}} running={{.State.Running}}' job-agent-fast-outcome-api 2>&1 | tee -a api-dashboard-diagnostics.log
+          echo 'API_PROCESS_STATUS' | tee -a api-dashboard-diagnostics.log
+          docker exec job-agent-fast-outcome-api sh -c 'ps -o pid,stat,comm,args 2>/dev/null || true' 2>&1 | tee -a api-dashboard-diagnostics.log
+          echo 'API_DATABASE_CONTEXT host=job-agent-fast-outcome-postgres port=5432 database=job_agent' | tee -a api-dashboard-diagnostics.log
+
+          echo 'HEALTH_STATUS' | tee -a api-dashboard-diagnostics.log
+          health_probe="$(docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome node -e "fetch('http://job-agent-fast-outcome-api:3000/healthz').then(async r=>{console.log('STATUS='+r.status); console.log('BODY='+await r.text()); process.exit(r.ok?0:2)}).catch(e=>{console.error('FETCH_ERROR='+e.stack); process.exit(3)})" 2>&1)"
+          health_status=$?
+          printf '%s\n' "$health_probe" | tee -a api-dashboard-diagnostics.log
+          echo "HEALTH_PROBE_EXIT=$health_status" | tee -a api-dashboard-diagnostics.log
+
+          echo 'SUMMARY_STATUS' | tee -a api-dashboard-diagnostics.log
+          summary_probe="$(docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome node -e '
+          (async () => {
+            try {
+              const r = await fetch("http://job-agent-fast-outcome-api:3000/api/summary");
+              const body = await r.text();
+              console.log("SUMMARY_STATUS=" + r.status);
+              console.log("SUMMARY_BODY=" + body);
+              let parsed;
+              try {
+                parsed = JSON.parse(body);
+              } catch (e) {
+                console.log("SUMMARY_JSON_ERROR=" + (e && e.stack ? e.stack : String(e)));
+                process.exit(4);
+              }
+              const failures = [];
+              if (!r.ok) failures.push("HTTP_STATUS=" + r.status);
+              if (Number(parsed.jobs) <= 0) failures.push("jobs=" + parsed.jobs);
+              if (Number(parsed.matches) <= 0) failures.push("matches=" + parsed.matches);
+              if (Number(parsed.matchApply) + Number(parsed.matchReview) + Number(parsed.matchReject) !== Number(parsed.matches)) failures.push("match_partition=" + [parsed.matchApply, parsed.matchReview, parsed.matchReject, parsed.matches].join("/"));
+              if (Number(parsed.recruiters) < 0) failures.push("recruiters=" + parsed.recruiters);
+              if (Number(parsed.outreachSent) !== 0) failures.push("outreachSent=" + parsed.outreachSent);
+              if (!Number.isInteger(Number(parsed.applications)) || Number(parsed.applications) < 0) failures.push("applications=" + parsed.applications);
+              if (!Array.isArray(parsed.topMatches)) failures.push("topMatches_not_array");
+              if (!Array.isArray(parsed.recruiterLeads)) failures.push("recruiterLeads_not_array");
+              if (failures.length) {
+                console.log("SUMMARY_ASSERTION_FAILED=" + failures.join("; "));
+                process.exit(5);
+              }
+              console.log("SUMMARY_ASSERTIONS=PASS");
+              process.exit(0);
+            } catch (e) {
+              console.log("SUMMARY_FETCH_ERROR=" + (e && e.stack ? e.stack : String(e)));
+              process.exit(6);
+            }
+          })();
+          ' 2>&1)"
+          summary_status=$?
+          printf '%s\n' "$summary_probe" | tee -a api-dashboard-diagnostics.log
+
+          if ! printf '%s\n' "$summary_probe" | grep -q '^SUMMARY_STATUS='; then
+            echo 'SUMMARY_FETCH_ERROR=probe produced no SUMMARY_STATUS output' | tee -a api-dashboard-diagnostics.log
+            summary_status=7
+          elif ! printf '%s\n' "$summary_probe" | grep -q '^SUMMARY_BODY='; then
+            echo 'SUMMARY_FETCH_ERROR=probe produced no SUMMARY_BODY output' | tee -a api-dashboard-diagnostics.log
+            summary_status=7
+          elif [ "$summary_status" -eq 0 ] && ! printf '%s\n' "$summary_probe" | grep -q '^SUMMARY_ASSERTIONS=PASS$'; then
+            echo 'SUMMARY_FETCH_ERROR=successful probe produced no SUMMARY_ASSERTIONS=PASS' | tee -a api-dashboard-diagnostics.log
+            summary_status=7
+          fi
+          echo "SUMMARY_PROBE_EXIT=$summary_status" | tee -a api-dashboard-diagnostics.log
+
+          echo 'API_CONTAINER_LOG' | tee -a api-dashboard-diagnostics.log
+          docker logs job-agent-fast-outcome-api 2>&1 | tee -a api-dashboard-diagnostics.log
+          echo 'API_CONTAINER_LOG_END' | tee -a api-dashboard-diagnostics.log
+
+          echo 'DASHBOARD_DIAGNOSTIC_ENV' | tee -a api-dashboard-diagnostics.log
+          docker inspect --format 'image={{.Config.Image}} network={{range $k,$v := .NetworkSettings.Networks}}{{$k}} ip={{$v.IPAddress}}{{end}}' job-agent-fast-outcome-api 2>&1 | tee -a api-dashboard-diagnostics.log
+          echo 'SAFE_API_ENV' | tee -a api-dashboard-diagnostics.log
+          docker inspect --format '{{range .Config.Env}}{{if or (eq . "NODE_ENV=test") (eq . "API_HOST=0.0.0.0") (eq . "API_PORT=3000") (eq . "AUTOMATION_ENABLED=false") (eq . "JOB_DISCOVERY_ENABLED=false") (eq . "PROACTIVE_RECRUITER_ENABLED=false")}}{{println .}}{{end}}{{end}}' job-agent-fast-outcome-api 2>&1 | tee -a api-dashboard-diagnostics.log
+
+          if [ "$health_status" -ne 0 ] || [ "$summary_status" -ne 0 ]; then
+            echo 'DASHBOARD_API_VERIFICATION_FAILED' | tee -a api-dashboard-diagnostics.log
+            docker rm -f job-agent-fast-outcome-api >/dev/null 2>&1 || true
+            exit 1
+          fi
+
+          docker rm -f job-agent-fast-outcome-api >/dev/null 2>&1 || true
+
+      - name: Upload fast runtime logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fast-real-data-outcome-logs
+          path: |
+            fast-job-outcome.log
+            fast-job-diagnostics.log
+            fast-recruiter-outcome.log
+            fast-content-outcome.log
+            fast-application-email-outcome.log
+            fast-contact-resource-outcome.log
+            api-dashboard-diagnostics.log
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f job-agent-fast-outcome-postgres >/dev/null 2>&1 || true
+          docker network rm job-agent-fast-outcome >/dev/null 2>&1 || true
