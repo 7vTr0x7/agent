@@ -117,7 +117,7 @@ async function fetchText(url:string):Promise<FetchResult>{
   clearTimeout(timeout);
  }
 }
-async function mapLimit<T,R>(items:T[],limit:number,fn:(x:T)=>Promise<R>){const out:R[]=[];let next=0;async function worker(){for(;;){const i=next++;if(i>=items.length)return;out[i]=await fn(items[i])}}await Promise.all(Array.from({length:Math.min(limit,items.length)},()=>worker()));return out}
+async function mapLimit<T,R>(items:T[],limit:number,fn:(x:T)=>Promise<R>){const out:R[]=[];let next=0;async function worker(){for(;;){const i=next++;if(i>=items.length)return;const item=items[i];if(item===undefined)continue;out[i]=await fn(item)}}await Promise.all(Array.from({length:Math.min(limit,items.length)},()=>worker()));return out}
 export function urlsFromSearch(text:string){
  const candidates=text.match(/https?:\/\/[^\s<>()\]]+/gi)??[];
  return [...new Set(candidates.map(v=>v.replace(/[>"'.,;:!?]+$/g,"")).map(canonical))].filter(legitimate)
@@ -146,7 +146,7 @@ async function main(){
   let persisted=0,duplicates=0,invalid=0;
   for(const email of emails){
    const status=await validation(email);if(status==="INVALID"){invalid++;continue}
-   const score=relevance(email,`${resource.url} ${text}`,profile.skills);if(score<60)continue;
+   const score=relevance(email,`${resource.url} ${text}`,[...profile.skills]);if(score<60)continue;
    const domain=email.split("@")[1]?.toLowerCase()??"";
    const existing=await db.query<{id:string}>("SELECT id FROM recruiter_contacts WHERE LOWER(email)=LOWER($1) LIMIT 1",[email]);
    if(existing.rowCount){duplicates++;continue}
