@@ -87,6 +87,47 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(candidate.discoveryEvidence.join(" ")).toContain("hr@synergytalententerprise.com");
   });
 
+  it("discovers a recruiter from a public LinkedIn job poster page", async () => {
+    const jobUrl = "https://in.linkedin.com/jobs/view/fullstack-architect-net-react-at-tredence-inc-4459913211";
+    const searchPage = [
+      jobUrl,
+      "Fullstack Architect (.NET & React)",
+      "Tredence Inc. Bengaluru, Karnataka, India",
+      "Direct message the job poster from Tredence Inc.",
+      "Anusha V",
+      "Anusha V",
+      "Senior Technical Recruiter Talent Acquisition",
+      "We're looking for a Full Stack Architect using React."
+    ].join("\n");
+    const jobPage = [
+      "<title>Fullstack Architect (.NET & React) | Tredence Inc.</title>",
+      "Fullstack Architect (.NET & React)",
+      "Tredence Inc. Bengaluru, Karnataka, India",
+      "Direct message the job poster from Tredence Inc.",
+      "Anusha V",
+      "Senior Technical Recruiter Talent Acquisition | Healthcare | Automotive | Banking",
+      "We're looking for a Full Stack Architect using .NET and React.",
+      "Experience: 9-12yrs"
+    ].join("\n");
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => new Response(String(input) === jobUrl ? jobPage : searchPage, { status: 200, headers: { "content-type": "text/plain" } })) as typeof fetch;
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({
+      targetRoles: ["Full Stack Engineer — React"],
+      skills: ["React", "TypeScript"],
+      preferredLocations: ["Bengaluru", "India"],
+      maxQueries: 1
+    });
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      recruiterName: "Anusha V",
+      employer: "Tredence Inc.",
+      discoveryUrl: jobUrl,
+      evidenceType: "job_hiring_evidence"
+    });
+    expect(result.metrics.validatedIdentities).toBe(1);
+    expect(result.metrics.publicPostUrls).toBeGreaterThan(0);
+  });
+
   it("considers every configured search provider without an arbitrary provider-count ceiling", async () => {
     const observed = new Set<string>();
     const provider = new PublicHiringPostDiscoveryProvider();
