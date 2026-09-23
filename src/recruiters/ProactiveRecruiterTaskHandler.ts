@@ -114,7 +114,19 @@ export class ProactiveRecruiterTaskHandler {
         }
       }
       const recruiterContactId = await this.repository.persistCandidate(payload.candidateProfileId, candidate);
-      if (!recruiterContactId) continue;
+      if (!recruiterContactId) {
+        this.logger.info({
+          recruiterName: candidate.recruiterName,
+          employer: candidate.employer,
+          employerDomain: candidate.employerDomain ?? null,
+          email: candidate.email ?? null,
+          emailStatus: candidate.emailStatus,
+          discoveryUrl: candidate.discoveryUrl,
+          evidenceType: candidate.evidenceType,
+          evidenceFreshness: candidate.evidenceFreshness
+        }, "Proactive recruiter candidate rejected by persistence boundary");
+        continue;
+      }
       persisted += 1;
 
       const mailboxEvidence = hasExplicitMailboxEvidence(candidate.verificationEvidence ?? []);
