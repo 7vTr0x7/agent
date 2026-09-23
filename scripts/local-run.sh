@@ -10,15 +10,15 @@ DB_PASSWORD="${JOB_AGENT_LOCAL_DB_PASSWORD:-local_runtime_password}"
 
 cleanup() {
   if [[ "${JOB_AGENT_LOCAL_CLEANUP:-false}" == "true" ]]; then
-    docker rm -f "$POSTGRES" >/dev/null 2>&1 || true
-    docker network rm "$NETWORK" >/dev/null 2>&1 || true
+    if docker rm -f "$POSTGRES" >/dev/null 2>&1; then :; fi
+    if docker network rm "$NETWORK" >/dev/null 2>&1; then :; fi
   fi
 }
 trap cleanup EXIT
 
 command -v docker >/dev/null || { echo "Docker is required." >&2; exit 1; }
 docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK" >/dev/null
-docker rm -f "$POSTGRES" >/dev/null 2>&1 || true
+if docker rm -f "$POSTGRES" >/dev/null 2>&1; then :; fi
 docker run -d --name "$POSTGRES" --network "$NETWORK" \
   -e POSTGRES_DB="$DB_NAME" -e POSTGRES_USER="$DB_USER" -e POSTGRES_PASSWORD="$DB_PASSWORD" \
   postgres:17-alpine >/dev/null
