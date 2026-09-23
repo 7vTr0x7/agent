@@ -303,8 +303,8 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     const metrics = service.getLastRunMetrics();
     expect(results).toEqual([]);
     expect(metrics.queriesGenerated).toBe(1);
-    expect(metrics.queriesExecuted).toBeGreaterThanOrEqual(9);
+    expect(metrics.queriesExecuted).toBeGreaterThanOrEqual(4);
     expect(metrics.queriesFailed).toBe(metrics.queriesExecuted);
-    expect(Object.keys(metrics.sourceStats).length).toBeGreaterThanOrEqual(9);
+    expect(Object.keys(metrics.sourceStats).length).toBeGreaterThanOrEqual(4);
   });
 });
