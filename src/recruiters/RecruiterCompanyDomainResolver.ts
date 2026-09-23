@@ -291,13 +291,13 @@ async function fetchProviderSearchResults(query: string): Promise<string[]> {
 function decodeBingSearchRedirect(value: string): string | null {
   try {
     const url = new URL(value);
-    if (!/^(?:www\\.)?bing\\.com$/i.test(url.hostname) || !/^\\/ck\\/a$/i.test(url.pathname)) return null;
+    if (!/^(?:www\.)?bing\.com$/i.test(url.hostname) || !/^\/ck\/a$/i.test(url.pathname)) return null;
     const encoded = url.searchParams.get("u");
     if (!encoded) return null;
     const payload = encoded.startsWith("a1") ? encoded.slice(2) : encoded;
     const normalized = payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "=");
     const decoded = Buffer.from(normalized, "base64").toString("utf8");
-    return /^https?:\\/\\//i.test(decoded) ? decoded : null;
+    return /^https?:\/\//i.test(decoded) ? decoded : null;
   } catch {
     return null;
   }
@@ -318,14 +318,14 @@ function extractSearchDestinationUrls(text: string): string[] {
     }
     try {
       const url = new URL(current);
-      if (/^https?:\\/\\//i.test(current)) values.add(url.toString());
+      if (/^https?:\/\//i.test(current)) values.add(url.toString());
     } catch {
       // Ignore malformed search-result URLs.
     }
   };
-  for (const rawUrl of text.match(/https?:\\/\\/[^\\s<>"'()]+/gi) ?? []) add(rawUrl);
-  for (const match of text.matchAll(/\\[[^\\]]+\\]\\((https?:[^)]+)\\)/gi)) add(match[1] ?? "");
-  for (const match of text.matchAll(/\\bhref\\s*=\\s*["']([^"']+)["']/gi)) add(match[1] ?? "");
+  for (const rawUrl of text.match(/https?:\/\/[^\s<>"'()]+/gi) ?? []) add(rawUrl);
+  for (const match of text.matchAll(/\[[^\]]+\]\((https?:[^)]+)\)/gi)) add(match[1] ?? "");
+  for (const match of text.matchAll(/\bhref\s*=\s*["']([^"']+)["']/gi)) add(match[1] ?? "");
   return [...values];
 }
 
