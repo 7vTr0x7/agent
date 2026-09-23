@@ -237,6 +237,14 @@ function decodeBingSearchRedirect(value: string): string | null {
 
 function decodeSearchResultUrl(value: string): string {
   let current = value.replace(/&amp;/gi, "&").replace(/\\u0026/gi, "&").replace(/\\u003d/gi, "=").replace(/\\u002f/gi, "/");
+  if (current.startsWith("/url?") || current.startsWith("/ck/a?")) {
+    try {
+      const relativeHost = current.startsWith("/ck/a?") ? "https://www.bing.com" : "https://www.google.com";
+      current = new URL(current, relativeHost).toString();
+    } catch {
+      // Ignore malformed relative search redirects.
+    }
+  }
   const bingDestination = decodeBingSearchRedirect(current);
   if (bingDestination) return bingDestination;
   for (let i = 0; i < 2; i += 1) {
