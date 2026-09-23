@@ -142,6 +142,33 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(observed.size).toBeGreaterThan(2);
   });
 
+  it("unwraps DuckDuckGo result redirects to a legitimate public hiring page", async () => {
+    const jobUrl = "https://example.com/careers/frontend-react";
+    const redirect = "https://duckduckgo.com/l/?uddg=" + encodeURIComponent(jobUrl);
+    const searchPage = [
+      `<a class="result__a" href="${redirect}">Frontend Developer — Example Corp</a>`,
+      "We're hiring a Frontend Developer with React and TypeScript in Bengaluru."
+    ].join("\n");
+    const jobPage = [
+      "<title>Frontend Developer | Example Corp</title>",
+      "We're hiring a Frontend Developer with React and TypeScript.",
+      "Location: Bengaluru",
+      "Experience: 2-4 years",
+      "Send your resume to jobs@example.com"
+    ].join("\n");
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => new Response(String(input) === jobUrl ? jobPage : searchPage, { status: 200, headers: { "content-type": "text/html" } })) as typeof fetch;
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({
+      targetRoles: ["Frontend Developer", "React Developer"],
+      skills: ["React", "TypeScript"],
+      preferredLocations: ["Bengaluru", "India"],
+      maxQueries: 1
+    });
+    expect(result.metrics.normalizedResults).toBeGreaterThan(0);
+    expect(result.metrics.hiringIntentPosts).toBeGreaterThan(0);
+    expect(result.candidates.length).toBeGreaterThan(0);
+  });
+
   it("rejects Qwant search-shell infrastructure URLs while preserving legitimate external result URLs", async () => {
     const qwantShell = [
       "<html><head><title>\"Frontend Engineer\" hiring React – Qwant Search</title></head><body>",
