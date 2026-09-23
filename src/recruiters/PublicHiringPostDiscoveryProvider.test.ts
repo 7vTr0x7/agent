@@ -188,6 +188,14 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       discoveryUrl: postUrl
     });
     expect(result.candidates[0]?.discoveryEvidence.join(" ")).toContain("job@nextgraph.org");
+    expect(result.contentResults).toHaveLength(1);
+    expect(result.contentResults[0]).toMatchObject({
+      url: postUrl,
+      role: "Frontend Developer",
+      employer: "Nextgraph",
+      employerDomain: "nextgraph.org"
+    });
+    expect(result.contentResults[0]?.discoveryEvidence.join(" ")).toContain("We are hiring");
   });
 
   it("rejects generic prose employers and automated mailbox evidence", async () => {
