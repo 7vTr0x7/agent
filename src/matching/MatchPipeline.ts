@@ -80,7 +80,16 @@ function combine(deterministic: DeterministicMatchResult, semantic: SemanticMatc
   }
 
   const score = Math.round(deterministic.matchScore * 0.6 + semantic.score * 0.4);
-  const decision = score >= APPLY_THRESHOLD ? "APPLY" : score >= REVIEW_THRESHOLD ? "REVIEW" : "REJECT";
+  // Deterministic matching owns hard eligibility and may never be upgraded by
+  // semantic output. AI can refine an already-eligible APPLY into REVIEW, but
+  // it cannot turn a deterministic REVIEW/REJECT into APPLY.
+  const decision = deterministic.decision === "REJECT"
+    ? "REJECT"
+    : deterministic.decision === "REVIEW"
+      ? "REVIEW"
+      : score >= 60
+        ? "APPLY"
+        : "REVIEW";
 
   return {
     score,
