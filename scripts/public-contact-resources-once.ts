@@ -6,6 +6,12 @@ import { sourceList } from "../src/recruiters/PublicSearchProviderRegistry";
 import { ProactiveRecruiterRepository } from "../src/recruiters/ProactiveRecruiterRepository";
 
 type Resource={url:string;sourceType:"HTML"|"TEXT"|"CSV"|"JSON"};
+const DEFAULT_RESOURCE_SEEDS = [
+  "https://raw.githubusercontent.com/byborh/careerLauncher/main/data/companies.md",
+  "https://www.amt.in/careers",
+  "https://wallza.in/careers",
+  "https://www.codevector.in/careers"
+];
 const EMAIL=/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const CONTACT_RESOURCE_BLOCKED_HOSTS=new Set(["simplyhired.com","joblist.com","snagajob.com"]);
 const SEARCH_HOSTS=new Set(["google.com","www.google.com","bing.com","www.bing.com","html.duckduckgo.com","duckduckgo.com","startpage.com","www.startpage.com","search.yahoo.com","www.yahoo.com","search.brave.com","www.mojeek.com","qwant.com","www.qwant.com","r.jina.ai"]);
@@ -122,7 +128,7 @@ export function urlsFromSearch(text:string){
  const candidates=text.match(/https?:\/\/[^\s<>()\]]+/gi)??[];
  return [...new Set(candidates.map(v=>v.replace(/[>"'.,;:!?]+$/g,"")).map(canonical))].filter(legitimate)
 }
-function resourceLooksRelevant(url:string){try{const u=new URL(url),v=(u.hostname+" "+u.pathname).toLowerCase();return /career|careers|job|jobs|hiring|hire|recruit|recruiting|talent|contact|about|people|team|resume|apply/.test(v)}catch{return false}}
+function resourceLooksRelevant(url:string){try{const u=new URL(url),v=(u.hostname+" "+u.pathname).toLowerCase();return /career|careers|job|jobs|hiring|hire|recruit|recruiting|talent|contact|about|people|team|resume|apply/.test(v)||(/github\.com|raw\.githubusercontent\.com/.test(u.hostname)&&/career|contact|recruit|hr|talent|email|companies|\.csv|\.json|\.md/.test(v))}catch{return false}}
 export function extractEmails(text:string){return [...new Set((text.match(EMAIL)??[]).map(v=>v.toLowerCase()))].filter(e=>!GENERIC.test(e.split("@")[0]??"")&&!/^(example|test)@/i.test(e))}
 export function relevance(email:string,context:string,skills:string[]){const h=(email+" "+context).toLowerCase();let s=0;if(RELEVANT.test(h))s+=45;if(skills.some(x=>h.includes(x.toLowerCase())))s+=25;if(/resume|cv|apply|hiring|recruit|talent|career/i.test(h))s+=20;if(!/support|privacy|legal|press|newsletter|unsubscribe/i.test(h))s+=10;return Math.min(100,s)}
 async function validation(email:string):Promise<"VALID"|"LIKELY"|"UNVERIFIED"|"INVALID">{if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return "INVALID";const d=email.split("@")[1]?.toLowerCase();if(!d)return "INVALID";try{return (await dns.resolveMx(d)).length?"LIKELY":"INVALID"}catch{return "UNVERIFIED"}}
@@ -133,15 +139,18 @@ async function main(){
  const db=new Database(process.env.DATABASE_URL??"");
  const recruiterRepository=new ProactiveRecruiterRepository(db);
  const excludedSites="-site:simplyhired.com -site:joblist.com -site:snagajob.com -site:indeed.com -site:linkedin.com -site:glassdoor.com -site:foundit.in";
- const queries=[`inurl:careers "frontend developer" "Bengaluru" "@" ${excludedSites}`,`inurl:careers "React developer" "Bangalore" "@" ${excludedSites}`,`"frontend developer" "careers@" "Bengaluru" ${excludedSites}`,`"React" "careers@" "Bangalore" ${excludedSites}`,`"send your resume" "frontend developer" "Bengaluru" ${excludedSites}`,`"send your resume" "React developer" "India" ${excludedSites}`,`"talent acquisition" "React" "Bengaluru" "@" ${excludedSites}`,`"hiring" "Next.js" "Bengaluru" "careers@" ${excludedSites}`];
+ const queries=[`"frontend developer" "Bengaluru" careers email ${excludedSites}`,`"React developer" "Bangalore" careers email ${excludedSites}`,`"frontend developer" "India" hiring email ${excludedSites}`,`"React" "Bangalore" recruiting email ${excludedSites}`,`"send your resume" "frontend developer" Bengaluru ${excludedSites}`,`"send your resume" "React developer" India ${excludedSites}`,`"talent acquisition" React Bengaluru email ${excludedSites}`,`"hiring" "Next.js" Bengaluru email ${excludedSites}`,`site:github.com recruiter contacts csv email`, `site:github.com careers contacts "Role Email"`];
   const pages=(await mapLimit(queries,4,async q=>{const rs=await Promise.all(sourceList(q).map(async s=>({url:s.url,response:await fetchText(s.url)})));const successful:{text:string}[]=[];for(const item of rs){if(item.response.ok)successful.push({text:item.response.text});}return successful;})).flat();
  const resources=new Map<string,Resource>();
  for(const page of pages)for(const url of urlsFromSearch(page.text))if(resourceLooksRelevant(url))resources.set(url,{url,sourceType:/\.csv(?:$|\?)/i.test(url)?"CSV":/\.json(?:$|\?)/i.test(url)?"JSON":/\.txt(?:$|\?)/i.test(url)?"TEXT":"HTML"});
+ const configuredSeeds=(process.env.PUBLIC_CONTACT_RESOURCE_SEED_URLS??"").split(/\s*,\s*/).map(v=>v.trim()).filter(Boolean);
+ const seedUrls=[...new Set([...DEFAULT_RESOURCE_SEEDS,...configuredSeeds])].filter(legitimate);
+ for(const url of seedUrls) resources.set(canonical(url),{url:canonical(url),sourceType:/\.csv(?:$|\?)/i.test(url)?"CSV":/\.json(?:$|\?)/i.test(url)?"JSON":/\.txt(?:$|\?)/i.test(url)?"TEXT":"HTML"});
  const resourceList=[...resources.values()];
  const processed=await mapLimit(resourceList,4,async resource=>{
   const fetched=await fetchText(resource.url);if(!fetched.ok)return {resource,emails:0,qualified:0,persisted:0,duplicates:0,invalid:0,status:"FAILED" as const,type:resource.sourceType,failureReason:fetched.failureReason,httpStatus:fetched.httpStatus,contentType:fetched.contentType,finalUrl:fetched.finalUrl,bytesRead:fetched.bytesRead,elapsedMs:fetched.elapsedMs,errorCode:fetched.errorCode};
    const type=typeFor(resource.url,fetched.contentType);const fetchedText=fetched.text;const text=type==="HTML"?clean(fetchedText):fetchedText;const emails=extractEmails(text);const resourceContext=resource.url+" "+text;const qualified=emails.filter(e=>relevance(e,resourceContext,[...profile.skills])>=60);
-  const title=(text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]??"").replace(/\s+/g," ").trim().slice(0,300)||null;
+  const title=(text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]??"").replace(/\s+/g," ").trim().slice(0,300)||resource.url.slice(0,300);
   await db.query("INSERT INTO public_contact_resources(source_url,source_type,title,processed_at,status,records_seen,emails_extracted,emails_normalized,invalid_emails,duplicate_emails,qualified_contacts) VALUES($1,$2,$3,NOW(),'PROCESSED',$4,$5,$6,$7,0,$8) ON CONFLICT(source_url) DO UPDATE SET processed_at=EXCLUDED.processed_at,status=EXCLUDED.status,title=EXCLUDED.title,records_seen=EXCLUDED.records_seen,emails_extracted=EXCLUDED.emails_extracted,emails_normalized=EXCLUDED.emails_normalized,invalid_emails=EXCLUDED.invalid_emails,qualified_contacts=EXCLUDED.qualified_contacts",[resource.url,type,title,emails.length,emails.length,emails.length,emails.filter(e=>!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)).length,qualified.length]);
   let persisted=0,duplicates=0,invalid=0;
   for(const email of emails){
