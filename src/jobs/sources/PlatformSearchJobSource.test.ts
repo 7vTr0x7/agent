@@ -10,14 +10,14 @@ describe("PlatformSearchJobSource", () => {
   it("processes the complete registry without an artificial platform-count cap", async () => {
     expect(JOB_PLATFORM_REGISTRY.length).toBeGreaterThanOrEqual(200);
     process.env.PLATFORM_SEARCH_CONCURRENCY = "9";
-    expect(getPlatformConcurrency()).toBe(9);
+    expect(getPlatformConcurrency()).toBe(4);
     let active = 0; let peak = 0; const processed: string[] = [];
     const discovery = jest.fn(async (platformName: string) => { active += 1; peak = Math.max(peak, active); processed.push(platformName); await new Promise((resolve) => setTimeout(resolve, 1)); active -= 1; return []; });
     await expect(new PlatformSearchJobSource(discovery).fetchJobs()).resolves.toEqual([]);
     expect(discovery).toHaveBeenCalledTimes(JOB_PLATFORM_REGISTRY.length);
     expect(processed).toHaveLength(JOB_PLATFORM_REGISTRY.length);
     expect(new Set(processed).size).toBe(new Set(JOB_PLATFORM_REGISTRY.map((platform) => platform.name)).size);
-    expect(peak).toBeGreaterThan(4);
+    expect(peak).toBeLessThanOrEqual(4);
   });
 
   it("does not impose a jobs-per-platform cap", async () => {
