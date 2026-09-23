@@ -228,5 +228,42 @@ export async function resolveEmployerDomainFromPublicSearch(companyName: string)
   }
 
   const ranked = [...counts.entries()].filter(([, count]) => count >= 2).sort((a, b) => b[1] - a[1]);
-  return ranked[0]?.[0] ?? null;
+  if (ranked[0]?.[0]) return ranked[0][0];
+
+  // A single public search engine can be sufficient when the returned domain
+  // independently proves the employer identity. This keeps the resolver
+  // evidence-first: the domain must come from a public search result AND the
+  // fetched site must contain a company-name token (or the hostname itself
+  // must contain one). We never construct a domain from the company name.
+  const singleEngineCandidates = [...counts.keys()].slice(0, 8);
+  for (const domain of singleEngineCandidates) {
+    if (await publicSiteConfirmsCompany(domain, name)) return domain;
+  }
+  return null;
+}
+
+async function publicSiteConfirmsCompany(domain: string, companyName: string): Promise<boolean> {
+  const tokens = companyTokens(companyName);
+  if (tokens.length === 0) return false;
+  if (tokens.some((token) => domain.split(".")[0]?.includes(token))) return true;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4_000);
+  try {
+    const response = await fetch(`https://${domain}/`, {
+      signal: controller.signal,
+      redirect: "follow",
+      headers: {
+        accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
+        "user-agent": "job-agent-employer-domain-verifier/1.0"
+      }
+    });
+    if (!response.ok) return false;
+    const text = (await response.text()).replace(/<[^>]+>/g, " ").toLowerCase().slice(0, 100_000);
+    return tokens.some((token) => text.includes(token));
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
