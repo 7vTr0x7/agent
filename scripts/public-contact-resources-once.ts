@@ -220,9 +220,39 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
+function decodeSearchResultUrl(value: string): string {
+  let current = value.replace(/&amp;/gi, "&").replace(/\\u0026/gi, "&").replace(/\\u003d/gi, "=").replace(/\\u002f/gi, "/");
+  for (let i = 0; i < 2; i += 1) {
+    try {
+      const decoded = decodeURIComponent(current);
+      if (decoded === current) break;
+      current = decoded;
+    } catch { break; }
+  }
+  try {
+    const parsed = new URL(current);
+    if (SEARCH_HOSTS.has(parsed.hostname.toLowerCase())) {
+      for (const key of ["uddg", "url", "u", "target", "dest", "destination", "q"]) {
+        const raw = parsed.searchParams.get(key);
+        if (!raw) continue;
+        try { return decodeURIComponent(raw); } catch { return raw; }
+      }
+    }
+  } catch {}
+  return current;
+}
+
 export function urlsFromSearch(text: string): string[] {
-  const candidates = text.match(/https?:\/\/[^\s<>()\]]+/gi) ?? [];
-  return [...new Set(candidates.map((value) => value.replace(/[>"'.,;:!?]+$/g, "")).map(canonical))].filter(legitimate);
+  const candidates = [
+    ...(text.match(/https?:\/\/[^\s<>()\]]+/gi) ?? []),
+    ...[...text.matchAll(/\\bhref\\s*=\\s*["']([^"']+)["']/gi)].map((m) => String(m[1] ?? "")),
+    ...[...text.matchAll(/\\[[^\\]]+\\]\\((https?:[^)]+)\\)/gi)].map((m) => String(m[1] ?? ""))
+  ];
+  return [...new Set(candidates
+    .map((value) => value.replace(/[>"'.,;:!?]+$/g, ""))
+    .map(decodeSearchResultUrl)
+    .map(canonical))]
+    .filter(legitimate);
 }
 
 function resourceLooksRelevant(url: string): boolean {
