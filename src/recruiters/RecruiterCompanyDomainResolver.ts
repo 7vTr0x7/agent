@@ -1,3 +1,5 @@
+import { sourceList } from "./PublicSearchProviderRegistry";
+
 const BLOCKED_HOSTS = new Set([
   "naukri.com", "linkedin.com", "indeed.com", "glassdoor.com", "greenhouse.io", "boards.greenhouse.io", "lever.co", "jobs.lever.co",
   "ashbyhq.com", "jobs.ashbyhq.com", "myworkdayjobs.com", "workday.com", "smartrecruiters.com", "jobs.smartrecruiters.com",
@@ -228,5 +230,169 @@ export async function resolveEmployerDomainFromPublicSearch(companyName: string)
   }
 
   const ranked = [...counts.entries()].filter(([, count]) => count >= 2).sort((a, b) => b[1] - a[1]);
-  return ranked[0]?.[0] ?? null;
+  if (ranked[0]?.[0]) return ranked[0][0];
+
+  // A single public search engine can be sufficient when the returned domain
+  // independently proves the employer identity. This keeps the resolver
+  // evidence-first: the domain must come from a public search result AND the
+  // fetched site must contain a company-name token (or the hostname itself
+  // must contain one). We never construct a domain from the company name.
+  const singleEngineCandidates = [...counts.keys()].slice(0, 8);
+  for (const domain of singleEngineCandidates) {
+    if (await publicSiteConfirmsCompany(domain, name)) return domain;
+  }
+
+  // The older four-engine resolver can return no usable URLs when providers
+  // serve anti-bot/search-infrastructure responses. Reuse the application's
+  // broader public-search registry as a bounded second pass. Candidates still
+  // require direct public-site corroboration before acceptance.
+  const registryResults = await fetchProviderSearchResults(query);
+  const registryDomains = new Set<string>();
+  for (const result of registryResults) {
+    for (const domain of domainsFromSearchText(result, name)) registryDomains.add(domain);
+  }
+  for (const domain of [...registryDomains].slice(0, 8)) {
+    if (await publicSiteConfirmsCompany(domain, name)) return domain;
+  }
+
+  const linkedinCompanyDomain = await resolveEmployerDomainFromLinkedInCompanyPage(name);
+  if (linkedinCompanyDomain) return linkedinCompanyDomain;
+
+  return null;
+}
+
+async function fetchProviderSearchResults(query: string): Promise<string[]> {
+  const sources = sourceList(query).filter(source =>
+    ["google-direct","bing-direct","google-jina","bing-jina","duckduckgo-jina","startpage-jina","ecosia-jina","qwant-direct"].includes(source.id)
+  ).slice(0, 8);
+  const results = await Promise.all(sources.map(async (source) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5_000);
+    try {
+      const response = await fetch(source.url, {
+        signal: controller.signal,
+        redirect: "follow",
+        headers: {
+          accept: "text/plain,text/html,application/xhtml+xml,*/*;q=0.8",
+          "user-agent": "job-agent-employer-domain-resolver/2.0",
+          ...(source.headers ?? {})
+        }
+      });
+      return response.ok ? await response.text() : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }));
+  return results.filter((value): value is string => Boolean(value));
+}
+
+function decodeBingSearchRedirect(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (!/^(?:www\.)?bing\.com$/i.test(url.hostname) || !/^\/ck\/a$/i.test(url.pathname)) return null;
+    const encoded = url.searchParams.get("u");
+    if (!encoded) return null;
+    const payload = encoded.startsWith("a1") ? encoded.slice(2) : encoded;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "=");
+    const decoded = Buffer.from(normalized, "base64").toString("utf8");
+    return /^https?:\/\//i.test(decoded) ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractSearchDestinationUrls(text: string): string[] {
+  const values = new Set<string>();
+  const add = (value: string): void => {
+    let current = value.replace(/&amp;/gi, "&").replace(/\\u002f/gi, "/");
+    for (let i = 0; i < 3; i++) {
+      const bing = decodeBingSearchRedirect(current);
+      if (bing) { current = bing; break; }
+      try {
+        const decoded = decodeURIComponent(current);
+        if (decoded === current) break;
+        current = decoded;
+      } catch { break; }
+    }
+    try {
+      const url = new URL(current);
+      if (/^https?:\/\//i.test(current)) values.add(url.toString());
+    } catch {
+      // Ignore malformed search-result URLs.
+    }
+  };
+  for (const rawUrl of text.match(/https?:\/\/[^\s<>"'()]+/gi) ?? []) add(rawUrl);
+  for (const match of text.matchAll(/\[[^\]]+\]\((https?:[^)]+)\)/gi)) add(match[1] ?? "");
+  for (const match of text.matchAll(/\bhref\s*=\s*["']([^"']+)["']/gi)) add(match[1] ?? "");
+  return [...values];
+}
+
+async function resolveEmployerDomainFromLinkedInCompanyPage(companyName: string): Promise<string | null> {
+  const query = `site:linkedin.com/company "${companyName}"`;
+  const results = await fetchProviderSearchResults(query);
+  const companyUrls = new Set<string>();
+  for (const result of results) {
+    for (const rawUrl of extractSearchDestinationUrls(result)) {
+      try {
+        const url = new URL(rawUrl);
+        if (url.hostname.toLowerCase().endsWith("linkedin.com") && /^\/company\//i.test(url.pathname)) {
+          companyUrls.add(`https://www.linkedin.com${url.pathname}`);
+        }
+      } catch {
+        // Ignore malformed search-result URLs.
+      }
+    }
+  }
+
+  for (const companyUrl of [...companyUrls].slice(0, 5)) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5_000);
+    try {
+      const response = await fetch(companyUrl, {
+        signal: controller.signal,
+        redirect: "follow",
+        headers: {
+          accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
+          "user-agent": "job-agent-employer-domain-resolver/3.0"
+        }
+      });
+      if (!response.ok) continue;
+      const html = await response.text();
+      const domain = domainsFromSearchText(html, companyName).find(Boolean);
+      if (domain) return domain;
+    } catch {
+      // Continue to the next independently discovered company page.
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return null;
+}
+
+async function publicSiteConfirmsCompany(domain: string, companyName: string): Promise<boolean> {
+  const tokens = companyTokens(companyName);
+  if (tokens.length === 0) return false;
+  if (tokens.some((token) => domain.split(".")[0]?.includes(token))) return true;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4_000);
+  try {
+    const response = await fetch(`https://${domain}/`, {
+      signal: controller.signal,
+      redirect: "follow",
+      headers: {
+        accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
+        "user-agent": "job-agent-employer-domain-verifier/1.0"
+      }
+    });
+    if (!response.ok) return false;
+    const text = (await response.text()).replace(/<[^>]+>/g, " ").toLowerCase().slice(0, 100_000);
+    return tokens.some((token) => text.includes(token));
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }

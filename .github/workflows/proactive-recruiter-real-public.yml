@@ -108,7 +108,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run -d --name job-agent-proactive-api --network job-agent-proactive             -e NODE_ENV=test             -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-proactive-postgres:5432/job_agent             job-agent:proactive-recruiter-real             node -e "require('./dist/api/bootstrap')"
+          docker run -d --name job-agent-proactive-api --network job-agent-proactive             -e NODE_ENV=test             -e API_HOST=0.0.0.0             -e API_PORT=3000             -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-proactive-postgres:5432/job_agent             job-agent:proactive-recruiter-real             node -e "require('./dist/api/bootstrap')"
           for i in $(seq 1 30); do
             if docker run --rm --network job-agent-proactive curlimages/curl:8.12.1 -fsS http://job-agent-proactive-api:3000/healthz >/dev/null 2>&1; then break; fi
             sleep 1
