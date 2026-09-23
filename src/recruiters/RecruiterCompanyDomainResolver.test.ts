@@ -175,6 +175,30 @@ describe("RecruiterCompanyDomainResolver", () => {
     }
   });
 
+
+  it("decodes an encoded employer website from a public search result", async () => {
+    const originalFetch = globalThis.fetch;
+    const employerUrl = "https://omnicomgroup.com/careers";
+    const payload = Buffer.from(employerUrl, "utf8").toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+    globalThis.fetch = jest.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("bing.com/search")) return new Response(
+        `<a href="https://www.bing.com/ck/a?u=a1${payload}">Omnicom Group official website</a>`,
+        { status: 200 }
+      );
+      if (url.includes("omnicomgroup.com")) return new Response(
+        "<html><title>Omnicom Group</title><body>Omnicom Group careers</body></html>",
+        { status: 200 }
+      );
+      return new Response("", { status: 503 });
+    }) as typeof fetch;
+    try {
+      await expect(resolveEmployerDomainFromPublicSearch("Omnicom")).resolves.toBe("omnicomgroup.com");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("does not accept a single search result when the fetched site does not corroborate the employer", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = jest.fn(async (input: string | URL) => {

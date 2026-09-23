@@ -138,14 +138,18 @@ async function fetchSearchResult(query: string, engine: "google" | "bing" | "duc
 
 function domainsFromSearchText(text: string, companyName: string): string[] {
   const found = new Set<string>();
-  for (const rawUrl of text.match(SEARCH_URL_PATTERN) ?? []) {
+  const rawUrls = [
+    ...(text.match(SEARCH_URL_PATTERN) ?? []),
+    ...extractSearchDestinationUrls(text)
+  ];
+  for (const rawUrl of rawUrls) {
     try {
       const url = new URL(rawUrl);
       const domain = normalizeEmployerHost(url.hostname);
       if (!domain || !domainMatchesCompany(domain, companyName)) continue;
       found.add(domain);
     } catch {
-      // Ignore malformed search-result URLs.
+      // Ignore malformed or encoded search-result URLs.
     }
   }
   return [...found];

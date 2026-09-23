@@ -15,18 +15,25 @@ const SEARCH_HOSTS = new Set([
   "www.yahoo.com", "search.brave.com", "www.mojeek.com", "qwant.com", "www.qwant.com",
   "r.jina.ai"
 ]);
-const GENERIC = /^(noreply|no-reply|postmaster|webmaster|admin|support|privacy|legal|press|media|marketing|sales)$/i;
+const GENERIC = /^(noreply|no-reply|postmaster|webmaster|admin|support|privacy|legal|press|media|marketing|sales|security|billing|accommodations?|accessibility|helpdesk)$/i;
 const HIRING_INTENT = /we['’]?re\s+hiring|we\s+are\s+hiring|hiring\s+(?:for|a|an)|looking\s+for\s+(?:a|an)?\s*(?:frontend|front-end|react|next\.js|javascript|typescript|software|full[ -]?stack)|send\s+(?:your|me\s+your)\s+(?:resume|cv)|share\s+your\s+(?:resume|cv)|apply\s+(?:here|now)|referrals?\s+welcome|talent\s+acquisition|recruit(?:er|ing)|join\s+(?:our|my)\s+team/i;
 const ROLE_OR_SKILL = /frontend|front-end|react(?:\.js|js)?|next(?:\.js|js)?|typescript|javascript|software\s+engineer|developer|engineering/i;
 const RESOURCE_SIGNAL = /career|careers|job|jobs|hiring|hire|recruit|recruiting|talent|contact|about|people|team|resume|apply/i;
 
-function clean(value: string): string {
+function decodeHtmlEntities(value: string): string {
   return value
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#x27;/gi, "'");
+}
+
+function clean(value: string): string {
+  return decodeHtmlEntities(value
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -220,6 +227,39 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
+function sanitizeEmbeddedJsonUrl(value: string): string {
+  const markers = [
+    /%22(?:%2c|,)%22/i,
+    /%22%3a%22/i,
+    /%7d(?:%2c|,)%7b/i,
+    /%22(?:%2c|,)%22(?:email|logo|sameAs|@context|@type)/i,
+    /"%2c"%22(?:email|logo|sameAs|@context|@type)/i
+  ];
+  const parsed = (() => {
+    try { return new URL(value); } catch { return null; }
+  })();
+  if (!parsed) return value;
+  const target = parsed.pathname + parsed.search;
+  const encodedQuoteInPath = parsed.pathname.search(/%22/i);
+  let cutAt = encodedQuoteInPath >= 0 ? encodedQuoteInPath : -1;
+  for (const marker of markers) {
+    const match = marker.exec(target);
+    if (match?.index !== undefined && (cutAt === -1 || match.index < cutAt)) cutAt = match.index;
+  }
+  if (cutAt < 0) return value;
+  const prefixLength = parsed.pathname.length + (parsed.search ? 1 : 0);
+  const targetCut = Math.min(cutAt, target.length);
+  if (targetCut < parsed.pathname.length) {
+    parsed.pathname = parsed.pathname.slice(0, targetCut);
+    parsed.search = "";
+  } else {
+    const searchCut = targetCut - prefixLength;
+    parsed.search = searchCut > 0 ? parsed.search.slice(0, searchCut + 1) : "";
+  }
+  parsed.hash = "";
+  return parsed.toString().replace(/\/$/, "");
+}
+
 function decodeSearchResultUrl(value: string): string {
   let current = value.replace(/&amp;/gi, "&").replace(/\\u0026/gi, "&").replace(/\\u003d/gi, "=").replace(/\\u002f/gi, "/");
   for (let i = 0; i < 2; i += 1) {
@@ -252,6 +292,7 @@ export function urlsFromSearch(text: string): string[] {
   return [...new Set(candidates
     .map((value) => value.replace(/[>"'.,;:!?]+$/g, ""))
     .map(decodeSearchResultUrl)
+    .map(sanitizeEmbeddedJsonUrl)
     .map(canonical))]
     .filter(legitimate);
 }
@@ -264,6 +305,15 @@ function resourceLooksRelevant(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function qualifiesJobPageAsContactResource(url: string, text: string, skills: string[]): boolean {
+  if (!legitimate(url)) return false;
+  const cleaned = clean(text);
+  if (!HIRING_INTENT.test(cleaned) || !ROLE_OR_SKILL.test(cleaned)) return false;
+  return extractEmailContextsFromResource(text, "HTML").some((item) =>
+    relevance(item.email, `${url} ${item.context}`, skills, cleaned) >= 60
+  );
 }
 
 export function extractEmails(text: string): string[] {
@@ -285,8 +335,49 @@ function extractEmailContexts(text: string): Array<{ email: string; context: str
   return [...output.entries()].map(([email, context]) => ({ email, context }));
 }
 
-export function relevance(email: string, context: string, skills: string[]): number {
+function extractHtmlEmailContexts(html: string): Array<{ email: string; context: string }> {
+  const decoded = decodeHtmlEntities(html);
+  const candidates = new Map<string, string>();
+
+  const addMatches = (source: string, contextSource: string): void => {
+    for (const match of source.matchAll(EMAIL)) {
+      const email = String(match[0]).toLowerCase();
+      if (GENERIC.test(email.split("@")[0] ?? "") || /^(example|test)@/i.test(email)) continue;
+      const index = match.index ?? 0;
+      const start = Math.max(0, index - 900);
+      const end = Math.min(contextSource.length, index + email.length + 900);
+      candidates.set(email, contextSource.slice(start, end));
+    }
+  };
+
+  addMatches(decoded, decoded);
+
+  for (const match of decoded.matchAll(/(?:href|data-email|content|value)\\s*=\\s*["']([^"']*mailto:[^"']+)["']/gi)) {
+    const target = match[1] ?? "";
+    addMatches(target.replace(/^mailto:/i, ""), match[0]);
+  }
+
+  for (const match of decoded.matchAll(/(?:email|contactEmail|recruiterEmail|applicationEmail)\\s*["']?\\s*[:=]\\s*["']([^"']+)["']/gi)) {
+    addMatches(match[1] ?? "", match[0]);
+  }
+
+  return [...candidates.entries()].map(([email, context]) => ({ email, context }));
+}
+
+function extractEmailContextsFromResource(raw: string, type: Resource["sourceType"]): Array<{ email: string; context: string }> {
+  const structured = type === "HTML" ? extractHtmlEmailContexts(raw) : extractEmailContexts(raw);
+  const visible = extractEmailContexts(type === "HTML" ? clean(raw) : raw);
+  const merged = new Map<string, string>();
+  for (const item of [...structured, ...visible]) merged.set(item.email, item.context);
+  return [...merged.entries()].map(([email, context]) => ({ email, context }));
+}
+
+export function relevance(email: string, context: string, skills: string[], pageContext = ""): number {
+  if (GENERIC.test(email.split("@")[0] ?? "")) return 0;
   const haystack = (email + " " + context).toLowerCase();
+  const pageHaystack = pageContext.toLowerCase();
+  const pageCanSupplyHiringEvidence = Boolean(pageContext) && HIRING_INTENT.test(pageHaystack) && ROLE_OR_SKILL.test(pageHaystack);
+  if (!HIRING_INTENT.test(haystack) && !pageCanSupplyHiringEvidence) return 0;
   let score = 0;
   if (HIRING_INTENT.test(haystack)) score += 40;
   if (ROLE_OR_SKILL.test(haystack)) score += 25;
@@ -357,6 +448,7 @@ async function main(): Promise<void> {
 
   const pages = [...searchPages, ...jobPages];
   const resources = new Map<string, Resource>();
+  const prefetchedResources = new Map<string, FetchResult>();
   for (const page of pages) {
     for (const url of urlsFromSearch(page.text)) {
       if (resourceLooksRelevant(url)) {
@@ -364,6 +456,13 @@ async function main(): Promise<void> {
           url,
           sourceType: /\.csv(?:$|\?)/i.test(url) ? "CSV" : /\.json(?:$|\?)/i.test(url) ? "JSON" : /\.txt(?:$|\?)/i.test(url) ? "TEXT" : "HTML"
         });
+      }
+    }
+    if (jobPages.some((jobPage) => jobPage.source === page.source) && qualifiesJobPageAsContactResource(page.source, page.text, [...profile.skills])) {
+      const fetched = await fetchText(page.source);
+      if (fetched.ok) {
+        resources.set(page.source, { url: page.source, sourceType: typeFor(page.source, fetched.contentType) });
+        prefetchedResources.set(page.source, fetched);
       }
     }
   }
@@ -379,7 +478,7 @@ async function main(): Promise<void> {
 
   const resourceList = [...resources.values()];
   const processed = await mapLimit(resourceList, 4, async (resource) => {
-    const fetched = await fetchText(resource.url);
+    const fetched = prefetchedResources.get(resource.url) ?? await fetchText(resource.url);
     if (!fetched.ok) {
       return {
         resource, emails: 0, qualified: 0, persisted: 0, duplicates: 0, invalid: 0,
@@ -391,9 +490,9 @@ async function main(): Promise<void> {
 
     const type = typeFor(resource.url, fetched.contentType);
     const text = type === "HTML" ? clean(fetched.text) : fetched.text;
-    const emailContexts = extractEmailContexts(text);
+    const emailContexts = extractEmailContextsFromResource(fetched.text, type);
     const emails = emailContexts.map((item) => item.email);
-    const qualified = emailContexts.filter((item) => relevance(item.email, `${resource.url} ${item.context}`, [...profile.skills]) >= 60);
+    const qualified = emailContexts.filter((item) => relevance(item.email, `${resource.url} ${item.context}`, [...profile.skills], text) >= 60);
 
     const title = (text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "")
       .replace(/\s+/g, " ").trim().slice(0, 300) || resource.url.slice(0, 300);
@@ -430,7 +529,7 @@ async function main(): Promise<void> {
           continue;
         }
 
-        const score = relevance(item.email, `${resource.url} ${item.context}`, [...profile.skills]);
+        const score = relevance(item.email, `${resource.url} ${item.context}`, [...profile.skills], text);
         if (score < 60) continue;
 
         const domain = item.email.split("@")[1]?.toLowerCase();
