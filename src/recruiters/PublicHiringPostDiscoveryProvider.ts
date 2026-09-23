@@ -31,8 +31,22 @@ export interface PublicHiringPostDiscoveryMetrics {
   deduplicatedResults: number;
 }
 
+export interface PublicHiringContentResult {
+  source: string;
+  url: string;
+  title: string;
+  employer?: string;
+  employerDomain?: string;
+  role: string;
+  roleMatchScore: number;
+  hiringEvidenceScore: number;
+  evidenceFreshness: ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"];
+  discoveryEvidence: string[];
+}
+
 export interface PublicHiringPostDiscoveryResult {
   candidates: ProactiveRecruiterDiscoveryCandidate[];
+  contentResults: PublicHiringContentResult[];
   metrics: PublicHiringPostDiscoveryMetrics;
 }
 
@@ -123,7 +137,7 @@ function extractAuthor(text: string, postUrl: string): { name?: string; profileU
   }
   return { profileUrl };
 }
-function extractEmployer(text: string, email?: string, profileText?: string): { name?: string; domain?: string } {
+function extractEmployer(text: string, email?: string, profileText?: string, sourceUrl?: string): { name?: string; domain?: string } {
   const haystack = [text, profileText ?? ""].join(" ");
   const emailDomain = email?.split("@")[1]?.toLowerCase();
   const strongAt = haystack.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80})(?=\s*[.!?](?:\s|$)|\s+(?:Location|Experience|Skills?)\s*:|$)/)?.[1]?.trim();
@@ -133,7 +147,9 @@ function extractEmployer(text: string, email?: string, profileText?: string): { 
   const urlDomains = [...haystack.matchAll(/https?:\/\/([^\s/<>"']+)/gi)]
     .map(m => normalizeDomain(m[1] ?? ""))
     .filter(d => d && !SEARCH_HOSTS.has(d) && !d.endsWith("linkedin.com"));
-  const domain = emailDomain || urlDomains.find(d => d && !/^lnkd\.in$/i.test(d));
+  const sourceDomain = sourceUrl ? (() => { try { const d = new URL(sourceUrl).hostname.toLowerCase().replace(/^www\./, ""); return d && !SEARCH_HOSTS.has(d) && !d.endsWith("linkedin.com") ? d : undefined; } catch { return undefined; } })() : undefined;
+  const sourceRoot = sourceDomain?.split(".")[0]?.replace(/[-_]+/g, "").toLowerCase();
+  const domain = emailDomain || urlDomains.find(d => d && !/^lnkd\.in$/i.test(d)) || (sourceDomain && sourceRoot && haystack.toLowerCase().replace(/[^a-z0-9]/g, "").includes(sourceRoot) ? sourceDomain : undefined);
   if (emailDomain && name && /\b(?:hiring[- ]frontend|frontend[- ]developer|hiring[- ]react|react[- ]developer|min\s+read|skip\s+to|navigation)\b/i.test(name)) name = undefined;
   if (!name && domain) name = domain.split(".")[0]?.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   if (name && domain) return { name: name.replace(/[|•,.-]+$/, "").trim(), domain };
@@ -333,6 +349,7 @@ export class PublicHiringPostDiscoveryProvider {
       validatedIdentities: 0, validatedContacts: 0, directEmails: 0, publiclyDiscoveredEmails: 0, rejectedPosts: 0, duplicatePosts: 0, sourceStats: {}
     };
     const candidates = new Map<string, ProactiveRecruiterDiscoveryCandidate>();
+    const contentResults = new Map<string, PublicHiringContentResult>();
     const configuredProviderIds = new Set<string>();
     const postEvidence = new Map<string, { url: string; text: string; discoveryText: string; source: string }>();
 
@@ -369,6 +386,24 @@ export class PublicHiringPostDiscoveryProvider {
             console.error(JSON.stringify({ event: "public-hiring-post-evidence", source: result.source, url, evidence: evidence.slice(0, 5000) }));
           }
           postEvidence.set(url, { url, text: evidence, discoveryText: discoveryEvidence, source: result.source });
+          const extractedRoleForContent = extractedRole;
+          const contentFreshness = freshness(evidence);
+          if (contentFreshness !== "unknown") {
+            const employer = extractEmployer(evidence, undefined, undefined, url);
+            const title = (evidence.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)?.[1] ?? "").replace(/\\s+/g, " ").trim().slice(0, 300) || extractedRoleForContent.role!;
+            contentResults.set(canonicalUrl(url), {
+              source: result.source,
+              url: canonicalUrl(url),
+              title,
+              ...(employer.name ? { employer: employer.name } : {}),
+              ...(employer.domain ? { employerDomain: normalizeDomain(employer.domain) } : {}),
+              role: extractedRoleForContent.role!,
+              roleMatchScore: extractedRoleForContent.score,
+              hiringEvidenceScore: 90,
+              evidenceFreshness: contentFreshness,
+              discoveryEvidence: [evidence.slice(0, 3500), discoveryEvidence.slice(0, 1200)].filter(Boolean)
+            });
+          }
         }
       }
     }
@@ -561,6 +596,6 @@ export class PublicHiringPostDiscoveryProvider {
       }
     }
 
-    return { candidates: [...candidates.values()], metrics };
+    return { candidates: [...candidates.values()], contentResults: [...contentResults.values()], metrics };
   }
 }
