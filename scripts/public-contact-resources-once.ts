@@ -220,9 +220,19 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
-export function urlsFromSearch(text: string): string[] {
+export function urlsFromSearch(text: string, baseUrl?: string): string[] {
   const candidates = text.match(/https?:\/\/[^\s<>()\]]+/gi) ?? [];
-  return [...new Set(candidates.map((value) => value.replace(/[>"'.,;:!?]+$/g, "")).map(canonical))].filter(legitimate);
+  const hrefs = [...text.matchAll(/href\\s*=\\s*["']([^"']+)["']/gi)]
+    .map((match) => String(match[1] ?? "").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"'))
+    .filter((value) => value && !value.startsWith("javascript:") && !value.startsWith("#"))
+    .map((value) => {
+      if (!baseUrl) return value;
+      try { return new URL(value, baseUrl).toString(); } catch { return value; }
+    });
+  return [...new Set([...candidates, ...hrefs]
+    .map((value) => value.replace(/[>"'.,;:!?]+$/g, ""))
+    .map(canonical))]
+    .filter(legitimate);
 }
 
 function resourceLooksRelevant(url: string): boolean {
@@ -306,7 +316,7 @@ async function main(): Promise<void> {
 
   const resources = new Map<string, Resource>();
   for (const page of pages) {
-    for (const url of urlsFromSearch(page.text)) {
+    for (const url of urlsFromSearch(page.text, page.source)) {
       if (resourceLooksRelevant(url)) {
         resources.set(url, {
           url,
