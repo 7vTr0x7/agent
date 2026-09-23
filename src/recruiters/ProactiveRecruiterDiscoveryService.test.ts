@@ -69,6 +69,19 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(service.getLastRunMetrics().profilesParsed).toBeGreaterThan(0);
   });
 
+  it("decodes slash-escaped LinkedIn profile URLs returned by search providers", async () => {
+    const target = "https://www.linkedin.com/in/jane-doe";
+    const search = String.raw`Jane Doe — Technical Recruiter <https:\\/\\/www.linkedin.com\\/in\\/jane-doe>`;
+    const profile = `<title>Jane Doe | Technical Recruiter | Acme Corp</title><body>Technical Recruiter at Acme Corp hiring React engineers in Bengaluru.</body>`;
+    const service = new ProactiveRecruiterDiscoveryService({
+      maxQueries: 1,
+      fetchText: async (url) => url === target ? profile : search
+    });
+    const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
+    expect(results[0]?.discoveryUrl).toBe(target);
+    expect(service.getLastRunMetrics().linkedinUrlsExtracted).toBeGreaterThan(0);
+  });
+
   it("extracts a LinkedIn public profile from a search-result HTML href before profile fetch", async () => {
     const target = "https://www.linkedin.com/in/jane-doe?trk=public_profile";
     const search = `<html><body><a href="${target}">Jane Doe — Technical Recruiter at Acme Corp</a></body></html>`;
