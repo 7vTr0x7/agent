@@ -22,12 +22,12 @@ const RESOURCE_SIGNAL = /career|careers|job|jobs|hiring|hire|recruit|recruiting|
 
 function clean(value: string): string {
   return value
-    .replace(/<script[\\s\\S]*?<\\/script>/gi, " ")
-    .replace(/<style[\\s\\S]*?<\\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
-    .replace(/\\s+/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -35,7 +35,7 @@ function canonical(value: string): string {
   try {
     const url = new URL(value);
     url.hash = "";
-    return url.toString().replace(/\\/$/, "");
+    return url.toString().replace(/\/$/, "");
   } catch {
     return value;
   }
@@ -43,7 +43,7 @@ function canonical(value: string): string {
 
 function host(value: string): string {
   try {
-    return new URL(value).hostname.toLowerCase().replace(/^www\\./, "");
+    return new URL(value).hostname.toLowerCase().replace(/^www\./, "");
   } catch {
     return "";
   }
@@ -53,9 +53,9 @@ function typeFor(url: string, contentType: string): Resource["sourceType"] {
   const pathname = (() => {
     try { return new URL(url).pathname.toLowerCase(); } catch { return ""; }
   })();
-  if (/\\.csv(?:$|\\?)/.test(pathname) || contentType.includes("csv")) return "CSV";
-  if (/\\.json(?:$|\\?)/.test(pathname) || contentType.includes("json")) return "JSON";
-  if (/\\.txt(?:$|\\?)/.test(pathname) || contentType.startsWith("text/plain")) return "TEXT";
+  if (/\.csv(?:$|\?)/.test(pathname) || contentType.includes("csv")) return "CSV";
+  if (/\.json(?:$|\?)/.test(pathname) || contentType.includes("json")) return "JSON";
+  if (/\.txt(?:$|\?)/.test(pathname) || contentType.startsWith("text/plain")) return "TEXT";
   return "HTML";
 }
 
@@ -72,8 +72,8 @@ function legitimate(url: string): boolean {
     if (!/^https?:$/.test(parsed.protocol) || !hostname || isSearchHost || isBlockedResourceHost || hostname === "localhost" || hostname.endsWith(".local")) {
       return false;
     }
-    if (/^\\/(?:api|search|query|suggest|autocomplete|static|assets?|scripts?|css|js)(?:\\/|$)/.test(pathname)) return false;
-    if (/\\.(?:js|css|map|svg|png|jpe?g|gif|webp|ico|woff2?|ttf|eot)(?:$|[?#])/i.test(pathname)) return false;
+    if (/^\/(?:api|search|query|suggest|autocomplete|static|assets?|scripts?|css|js)(?:\/|$)/.test(pathname)) return false;
+    if (/\.(?:js|css|map|svg|png|jpe?g|gif|webp|ico|woff2?|ttf|eot)(?:$|[?#])/i.test(pathname)) return false;
     return true;
   } catch {
     return false;
@@ -221,7 +221,7 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 }
 
 export function urlsFromSearch(text: string): string[] {
-  const candidates = text.match(/https?:\\/\\/[^\\s<>()\\]]+/gi) ?? [];
+  const candidates = text.match(/https?:\/\/[^\s<>()\]]+/gi) ?? [];
   return [...new Set(candidates.map((value) => value.replace(/[>"'.,;:!?]+$/g, "")).map(canonical))].filter(legitimate);
 }
 
@@ -265,7 +265,7 @@ export function relevance(email: string, context: string, skills: string[]): num
 }
 
 async function validation(email: string): Promise<ValidationStatus> {
-  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return "INVALID";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "INVALID";
   const domain = email.split("@")[1]?.toLowerCase();
   if (!domain) return "INVALID";
   try {
@@ -294,7 +294,7 @@ async function main(): Promise<void> {
   ];
 
   const configuredSeeds = (process.env.PUBLIC_CONTACT_RESOURCE_SEED_URLS ?? "")
-    .split(/\\s*,\\s*/)
+    .split(/\s*,\s*/)
     .map((value) => value.trim())
     .filter(Boolean);
 
@@ -309,7 +309,7 @@ async function main(): Promise<void> {
       if (resourceLooksRelevant(url)) {
         resources.set(url, {
           url,
-          sourceType: /\\.csv(?:$|\\?)/i.test(url) ? "CSV" : /\\.json(?:$|\\?)/i.test(url) ? "JSON" : /\\.txt(?:$|\\?)/i.test(url) ? "TEXT" : "HTML"
+          sourceType: /\.csv(?:$|\?)/i.test(url) ? "CSV" : /\.json(?:$|\?)/i.test(url) ? "JSON" : /\.txt(?:$|\?)/i.test(url) ? "TEXT" : "HTML"
         });
       }
     }
@@ -319,7 +319,7 @@ async function main(): Promise<void> {
     if (legitimate(seed)) {
       resources.set(canonical(seed), {
         url: canonical(seed),
-        sourceType: /\\.csv(?:$|\\?)/i.test(seed) ? "CSV" : /\\.json(?:$|\\?)/i.test(seed) ? "JSON" : /\\.txt(?:$|\\?)/i.test(seed) ? "TEXT" : "HTML"
+        sourceType: /\.csv(?:$|\?)/i.test(seed) ? "CSV" : /\.json(?:$|\?)/i.test(seed) ? "JSON" : /\.txt(?:$|\?)/i.test(seed) ? "TEXT" : "HTML"
       });
     }
   }
@@ -342,8 +342,8 @@ async function main(): Promise<void> {
     const emails = emailContexts.map((item) => item.email);
     const qualified = emailContexts.filter((item) => relevance(item.email, \`${resource.url} ${item.context}\`, [...profile.skills]) >= 60);
 
-    const title = (text.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)?.[1] ?? "")
-      .replace(/\\s+/g, " ").trim().slice(0, 300) || resource.url.slice(0, 300);
+    const title = (text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "")
+      .replace(/\s+/g, " ").trim().slice(0, 300) || resource.url.slice(0, 300);
 
     const resourceRow = await db.query<{ id: string }>(
       `INSERT INTO public_contact_resources(
@@ -361,7 +361,7 @@ async function main(): Promise<void> {
          qualified_contacts=EXCLUDED.qualified_contacts
        RETURNING id`,
       [resource.url, type, title, emails.length, emails.length, emails.length,
-       emails.filter((email) => !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)).length, qualified.length]
+       emails.filter((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)).length, qualified.length]
     );
 
     const resourceId = resourceRow.rows[0]?.id;
