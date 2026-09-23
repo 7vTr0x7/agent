@@ -73,9 +73,10 @@ const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com","outlook.com","hotmail.com","
 // Bound destination fan-out so one query cannot turn into an effectively unbounded
 // sequence of 6.5s page fetches. The goal is a reliable vertical slice, not exhaustive
 // crawling of a search-engine result page.
-const MAX_DESTINATION_URLS_PER_SEARCH = 8;
-const MAX_POST_EVIDENCE = 24;
-const MAX_PROFILE_URLS_PER_SEARCH = 6;
+const MAX_DESTINATION_URLS_PER_SEARCH = 4;
+const MAX_POST_EVIDENCE = 16;
+const MAX_PROFILE_URLS_PER_SEARCH = 4;
+const PUBLIC_HIRING_RUNTIME_TIMEOUT_MS = 45_000;
 
 function clean(value: string): string {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/\s+/g, " ").trim();
@@ -316,7 +317,7 @@ function canonicalIdentityKey(name: string | undefined, employer: string, _evide
 
 export class PublicHiringPostDiscoveryProvider {
   async discover(input: PublicHiringPostDiscoveryInput): Promise<PublicHiringPostDiscoveryResult> {
-    const maxQueries = Math.max(1, Math.min(input.maxQueries ?? 8, 12));
+    const runtimeSignal = runtimeSignal\n      ? AbortSignal.any([runtimeSignal, AbortSignal.timeout(PUBLIC_HIRING_RUNTIME_TIMEOUT_MS)])\n      : AbortSignal.timeout(PUBLIC_HIRING_RUNTIME_TIMEOUT_MS);\n    const maxQueries = Math.max(1, Math.min(input.maxQueries ?? 8, 12));
     const roleTerms = input.targetRoles.length ? input.targetRoles.slice(0, 8) : ["Frontend Engineer","Frontend Developer","React Developer"];
     const queries = [
       ...roleTerms.slice(0, 4).map(role => `"${role}" hiring React`),
@@ -345,11 +346,11 @@ export class PublicHiringPostDiscoveryProvider {
     const postEvidence = new Map<string, { url: string; text: string; discoveryText: string; source: string }>();
 
     for (const query of queries) {
-      if (input.signal?.aborted) break;
+      if (runtimeSignal?.aborted) break;
       metrics.queriesExecuted++;
       const providersForQuery = sourceList(query);
       for (const provider of providersForQuery) configuredProviderIds.add(provider.id);
-      const results = await search(query, input.signal, input.fetchText);
+      const results = await search(query, runtimeSignal, input.fetchText);
       for (const result of results) {
         metrics.sourcePagesFetched++;
         metrics.rawSearchResults += (result.text.match(/https?:\/\/[^\s<>"'\\)\\]]+/gi) ?? []).length;
@@ -366,7 +367,7 @@ export class PublicHiringPostDiscoveryProvider {
           // contaminate the candidate.
           if (!isSafePublicDestinationUrl(url)) continue;
           const discoveryEvidence = buildEvidence(result.text, url);
-          const postPage = await (input.fetchText ? input.fetchText(url, input.signal) : fetchText(url, input.signal, 6500));
+          const postPage = await (input.fetchText ? input.fetchText(url, runtimeSignal) : fetchText(url, runtimeSignal, 6500));
           const evidence = postPage ? clean(postPage).slice(0, 12000) : "";
           if (!evidence || !HIRING_INTENT.test(evidence)) continue;
           metrics.hiringIntentPosts++;
@@ -389,14 +390,14 @@ export class PublicHiringPostDiscoveryProvider {
     // Public LinkedIn profile pages are a supported indexed-public source. They often expose
     // the author's recent posts even when search engines do not expose the individual post URL.
     for (const query of profileQueries) {
-      if (input.signal?.aborted) break;
-      const results = await search(query, input.signal, input.fetchText);
+      if (runtimeSignal?.aborted) break;
+      const results = await search(query, runtimeSignal, input.fetchText);
       for (const result of results) {
         metrics.sourcePagesFetched++;
         const profileUrls = extractProfileUrls(result.text).slice(0, MAX_PROFILE_URLS_PER_SEARCH);
         for (const profileUrl of profileUrls) {
           if (profileUrl.includes("/pub/dir/")) continue;
-          const profileText = clean(await (input.fetchText ? input.fetchText(profileUrl, input.signal) : fetchText(profileUrl, input.signal, 6500)) ?? "");
+          const profileText = clean(await (input.fetchText ? input.fetchText(profileUrl, runtimeSignal) : fetchText(profileUrl, runtimeSignal, 6500)) ?? "");
           if (!profileText) continue;
           const authorName = extractProfileName(profileText, profileUrl);
           if (!authorName) continue;
@@ -446,7 +447,7 @@ export class PublicHiringPostDiscoveryProvider {
     metrics.publicPostUrls = Math.max(metrics.publicPostUrls, postEvidence.size);
 
     for (const post of postEvidence.values()) {
-      if (input.signal?.aborted) break;
+      if (runtimeSignal?.aborted) break;
       // The destination page is authoritative for post identity context. Search-result
       // evidence may supplement it, but must never be the sole hiring/role evidence.
       const identitySearchEvidence = `${post.text} ${post.discoveryText}`;
@@ -457,7 +458,7 @@ export class PublicHiringPostDiscoveryProvider {
         const indexedProfileUrl = extractProfileUrls(post.text)[0];
         if (indexedProfileUrl) {
           profileUrl = indexedProfileUrl;
-          profileText = clean(await (input.fetchText ? input.fetchText(profileUrl, input.signal) : fetchText(profileUrl, input.signal, 5000)) ?? "");
+          profileText = clean(await (input.fetchText ? input.fetchText(profileUrl, runtimeSignal) : fetchText(profileUrl, runtimeSignal, 5000)) ?? "");
           const resolvedName = profileText ? extractProfileName(profileText, profileUrl) : undefined;
           if (resolvedName) author = { name: resolvedName, profileUrl };
         }
@@ -505,13 +506,13 @@ export class PublicHiringPostDiscoveryProvider {
       }
       metrics.authorsExtracted++;
       if (!profileUrl || !profileText) {
-        const profileSearch = await search(`site:linkedin.com/in "${author.name}"`, input.signal, input.fetchText);
+        const profileSearch = await search(`site:linkedin.com/in "${author.name}"`, runtimeSignal, input.fetchText);
         for (const result of profileSearch) {
           profileUrl = profileUrl ?? extractProfileUrlFromSearch(result.text, author.name);
           profileText += " " + result.text;
         }
       }
-      if (profileUrl && !profileText) profileText = clean(await (input.fetchText ? input.fetchText(profileUrl, input.signal) : fetchText(profileUrl, input.signal, 5000)) ?? "");
+      if (profileUrl && !profileText) profileText = clean(await (input.fetchText ? input.fetchText(profileUrl, runtimeSignal) : fetchText(profileUrl, runtimeSignal, 5000)) ?? "");
       const employer = extractEmployer(post.text + " " + post.discoveryText, directEmail, profileText);
       if (!employer.name) { metrics.rejectedPosts++; continue; }
       metrics.employersExtracted++;
@@ -556,7 +557,7 @@ export class PublicHiringPostDiscoveryProvider {
     for (const candidate of candidates.values()) {
       if (candidate.email || !candidate.employerDomain) continue;
       const q = `"${candidate.recruiterName}" "${candidate.employer}" "${candidate.employerDomain}" @${candidate.employerDomain}`;
-      const results = await search(q, input.signal);
+      const results = await search(q, runtimeSignal);
       const emails = results.flatMap(r => [...new Set((r.text.match(EMAIL) ?? []).map(e => e.toLowerCase()))]);
       const nameTokens = candidate.recruiterName.toLowerCase().split(/\s+/).filter(Boolean);
       const found = emails.find(email => {
