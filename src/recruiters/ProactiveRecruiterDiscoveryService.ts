@@ -112,15 +112,33 @@ function unwrapSearchResultUrl(value:string):string{
 }
 function extractHrefUrls(value:string,baseUrl:string):string[]{
   const urls:string[]=[];
-  for(const match of value.matchAll(/\\bhref\\s*=\\s*["']([^"']+)["']/gi)){
-    const raw=String(match[1]??"").replace(/&amp;/gi,"&").replace(/&quot;/gi,'"').replace(/\\u002f/gi,"/");
-    if(!raw||raw.startsWith("javascript:")||raw.startsWith("#"))continue;
-    try{
-      const resolved=new URL(raw,baseUrl);
-      if(resolved.protocol==="http:"||resolved.protocol==="https:")urls.push(resolved.toString());
-    }catch{}
-  }
+  const add=(rawValue:string):void=>{
+    const raw=rawValue.replace(/&amp;/gi,"&").replace(/&quot;/gi,'"').replace(/\\u002f/gi,"/");
+    if(!raw||raw.startsWith("javascript:")||raw.startsWith("#"))return;
+    for(const candidate of [raw,decodeHtmlSearchUrl(raw)]){
+      try{
+        const resolved=new URL(candidate,baseUrl);
+        if(resolved.protocol==="http:"||resolved.protocol==="https:")urls.push(resolved.toString());
+      }catch{}
+    }
+  };
+  for(const match of value.matchAll(/\\bhref\\s*=\\s*["']([^"']+)["']/gi))add(String(match[1]??""));
+  for(const match of value.matchAll(/\\[[^\\]]+\\]\\((https?:[^)]+)\\)/gi))add(String(match[1]??""));
   return [...new Set(urls)];
+}
+function decodeHtmlSearchUrl(value:string):string{
+  let current=value.replace(/&amp;/gi,"&").replace(/\\u0026/gi,"&").replace(/\\u003d/gi,"=").replace(/\\u002f/gi,"/");
+  for(let i=0;i<2;i++){try{const decoded=decodeURIComponent(current);if(decoded===current)break;current=decoded;}catch{break;}}
+  try{
+    const url=new URL(current);
+    if(SEARCH_HOSTS.has(url.hostname.toLowerCase())){
+      for(const key of ["uddg","url","u","target","dest","destination","q"]){
+        const raw=url.searchParams.get(key); if(!raw)continue;
+        try{return decodeURIComponent(raw);}catch{return raw;}
+      }
+    }
+  }catch{}
+  return current;
 }
 function extractEmbeddedLinkedInUrls(value:string):string[]{
   const decoded=value
