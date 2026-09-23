@@ -288,12 +288,53 @@ async function fetchProviderSearchResults(query: string): Promise<string[]> {
   return results.filter((value): value is string => Boolean(value));
 }
 
+function decodeBingSearchRedirect(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (!/^(?:www\\.)?bing\\.com$/i.test(url.hostname) || !/^\\/ck\\/a$/i.test(url.pathname)) return null;
+    const encoded = url.searchParams.get("u");
+    if (!encoded) return null;
+    const payload = encoded.startsWith("a1") ? encoded.slice(2) : encoded;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "=");
+    const decoded = Buffer.from(normalized, "base64").toString("utf8");
+    return /^https?:\\/\\//i.test(decoded) ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractSearchDestinationUrls(text: string): string[] {
+  const values = new Set<string>();
+  const add = (value: string): void => {
+    let current = value.replace(/&amp;/gi, "&").replace(/\\u002f/gi, "/");
+    for (let i = 0; i < 3; i++) {
+      const bing = decodeBingSearchRedirect(current);
+      if (bing) { current = bing; break; }
+      try {
+        const decoded = decodeURIComponent(current);
+        if (decoded === current) break;
+        current = decoded;
+      } catch { break; }
+    }
+    try {
+      const url = new URL(current);
+      if (/^https?:\\/\\//i.test(current)) values.add(url.toString());
+    } catch {
+      // Ignore malformed search-result URLs.
+    }
+  };
+  for (const rawUrl of text.match(/https?:\\/\\/[^\\s<>"'()]+/gi) ?? []) add(rawUrl);
+  for (const match of text.matchAll(/\\[[^\\]]+\\]\\((https?:[^)]+)\\)/gi)) add(match[1] ?? "");
+  for (const match of text.matchAll(/\\bhref\\s*=\\s*["']([^"']+)["']/gi)) add(match[1] ?? "");
+  return [...values];
+}
+
 async function resolveEmployerDomainFromLinkedInCompanyPage(companyName: string): Promise<string | null> {
   const query = `site:linkedin.com/company "${companyName}"`;
   const results = await fetchProviderSearchResults(query);
   const companyUrls = new Set<string>();
   for (const result of results) {
-    for (const rawUrl of result.match(/https?:\/\/[^\s<>"'()]+/gi) ?? []) {
+    for (const rawUrl of extractSearchDestinationUrls(result)) {
       try {
         const url = new URL(rawUrl);
         if (url.hostname.toLowerCase().endsWith("linkedin.com") && /^\/company\//i.test(url.pathname)) {
