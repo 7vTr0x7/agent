@@ -266,6 +266,15 @@ function resourceLooksRelevant(url: string): boolean {
   }
 }
 
+export function qualifiesJobPageAsContactResource(url: string, text: string, skills: string[]): boolean {
+  if (!legitimate(url)) return false;
+  const cleaned = clean(text);
+  if (!HIRING_INTENT.test(cleaned) || !ROLE_OR_SKILL.test(cleaned)) return false;
+  return extractEmailContexts(cleaned).some((item) =>
+    relevance(item.email, `${url} ${item.context}`, skills) >= 60
+  );
+}
+
 export function extractEmails(text: string): string[] {
   return [...new Set((text.match(EMAIL) ?? []).map((value) => value.toLowerCase()))]
     .filter((email) => !GENERIC.test(email.split("@")[0] ?? "") && !/^(example|test)@/i.test(email));
@@ -357,6 +366,7 @@ async function main(): Promise<void> {
 
   const pages = [...searchPages, ...jobPages];
   const resources = new Map<string, Resource>();
+  const prefetchedResources = new Map<string, FetchResult>();
   for (const page of pages) {
     for (const url of urlsFromSearch(page.text)) {
       if (resourceLooksRelevant(url)) {
@@ -364,6 +374,13 @@ async function main(): Promise<void> {
           url,
           sourceType: /\.csv(?:$|\?)/i.test(url) ? "CSV" : /\.json(?:$|\?)/i.test(url) ? "JSON" : /\.txt(?:$|\?)/i.test(url) ? "TEXT" : "HTML"
         });
+      }
+    }
+    if (jobPages.some((jobPage) => jobPage.source === page.source) && qualifiesJobPageAsContactResource(page.source, page.text, [...profile.skills])) {
+      const fetched = await fetchText(page.source);
+      if (fetched.ok) {
+        resources.set(page.source, { url: page.source, sourceType: typeFor(page.source, fetched.contentType) });
+        prefetchedResources.set(page.source, fetched);
       }
     }
   }
@@ -379,7 +396,7 @@ async function main(): Promise<void> {
 
   const resourceList = [...resources.values()];
   const processed = await mapLimit(resourceList, 4, async (resource) => {
-    const fetched = await fetchText(resource.url);
+    const fetched = prefetchedResources.get(resource.url) ?? await fetchText(resource.url);
     if (!fetched.ok) {
       return {
         resource, emails: 0, qualified: 0, persisted: 0, duplicates: 0, invalid: 0,
