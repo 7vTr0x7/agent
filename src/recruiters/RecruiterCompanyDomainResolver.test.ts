@@ -135,4 +135,43 @@ describe("RecruiterCompanyDomainResolver", () => {
       ""
     )).toBeNull();
   });
+
+
+  it("accepts a single public search result when the fetched site independently identifies the employer", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("google.com/search")) {
+        return new Response('<a href="https://www.piplnow.com/">PiplNow</a>', { status: 200 });
+      }
+      if (url.includes("piplnow.com")) {
+        return new Response("<html><title>PiplNow LLC</title><body>Discover Talent with PiplNow</body></html>", { status: 200 });
+      }
+      return new Response("", { status: 503 });
+    }) as typeof fetch;
+    try {
+      await expect(resolveEmployerDomainFromPublicSearch("PiplNow LLC")).resolves.toBe("piplnow.com");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("does not accept a single search result when the fetched site does not corroborate the employer", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("google.com/search")) {
+        return new Response('<a href="https://example.com/">Example</a>', { status: 200 });
+      }
+      if (url.includes("example.com")) {
+        return new Response("<html><title>Unrelated Site</title></html>", { status: 200 });
+      }
+      return new Response("", { status: 503 });
+    }) as typeof fetch;
+    try {
+      await expect(resolveEmployerDomainFromPublicSearch("PiplNow LLC")).resolves.toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
