@@ -298,7 +298,7 @@ async function main(): Promise<void> {
     .map((value) => value.trim())
     .filter(Boolean);
 
-  const pages = (await mapLimit(queries, 4, async (query) => {
+  const searchRequests = queries.flatMap((query) => sourceList(query).map((source) => ({ query, source })));\n  const pages = (await mapLimit(searchRequests, 4, async ({ source }) => {
     const responses = await Promise.all(sourceList(query).map(async (source) => ({ source: source.url, response: await fetchText(source.url) })));
     return responses.filter((item) => item.response.ok).map((item) => ({ source: item.source, text: item.response.text }));
   })).flat();
