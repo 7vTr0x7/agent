@@ -330,11 +330,31 @@ async function main(): Promise<void> {
     .filter(Boolean);
 
   const searchRequests = queries.flatMap((query) => sourceList(query).map((source) => ({ query, source })));
-  const pages = (await mapLimit(searchRequests, 4, async ({ source }) => {
+  const searchPages = (await mapLimit(searchRequests, 4, async ({ source }) => {
     const response = await fetchText(source.url);
     return response.ok ? [{ source: source.url, text: response.text }] : [];
   })).flat();
 
+  // Search providers can expose only search infrastructure/anti-bot pages. The
+  // core runtime already has real public job URLs, so use those first-party job
+  // pages as an additional evidence source and extract only links actually
+  // present on the fetched page. This does not invent /careers or /contact URLs.
+  const matchedJobUrls = (await db.query<{ canonical_url: string }>(
+    `SELECT DISTINCT j.canonical_url
+       FROM job_opportunities j
+       JOIN match_decisions m ON m.job_opportunity_id=j.id
+      WHERE m.decision IN ('APPLY','REVIEW')
+        AND j.canonical_url IS NOT NULL
+      ORDER BY j.posted_at DESC NULLS LAST
+      LIMIT 40`
+  )).rows.map((row) => row.canonical_url).filter(Boolean);
+
+  const jobPages = (await mapLimit(matchedJobUrls, 4, async (url) => {
+    const response = await fetchText(url);
+    return response.ok ? [{ source: url, text: response.text }] : [];
+  })).flat();
+
+  const pages = [...searchPages, ...jobPages];
   const resources = new Map<string, Resource>();
   for (const page of pages) {
     for (const url of urlsFromSearch(page.text)) {
