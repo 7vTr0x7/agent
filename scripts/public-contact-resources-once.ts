@@ -164,9 +164,9 @@ async function main(){
   const title=(text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]??"").replace(/\s+/g," ").trim().slice(0,300)||resource.url.slice(0,300);
   await db.query("INSERT INTO public_contact_resources(source_url,source_type,title,processed_at,status,records_seen,emails_extracted,emails_normalized,invalid_emails,duplicate_emails,qualified_contacts) VALUES($1,$2,$3,NOW(),'PROCESSED',$4,$5,$6,$7,0,$8) ON CONFLICT(source_url) DO UPDATE SET processed_at=EXCLUDED.processed_at,status=EXCLUDED.status,title=EXCLUDED.title,records_seen=EXCLUDED.records_seen,emails_extracted=EXCLUDED.emails_extracted,emails_normalized=EXCLUDED.emails_normalized,invalid_emails=EXCLUDED.invalid_emails,qualified_contacts=EXCLUDED.qualified_contacts",[resource.url,type,title,emails.length,emails.length,emails.length,emails.filter(e=>!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)).length,qualified.length]);
   let persisted=0,duplicates=0,invalid=0;
-  for(const email of emails){
+  for(const {email,context} of emailContexts){
    const status=await validation(email);if(status==="INVALID"){invalid++;continue}
-   const score=relevance(email,`${resource.url} ${text}`,[...profile.skills]);if(score<60)continue;
+   const score=relevance(email,`${resource.url} ${context}`,[...profile.skills]);if(score<60)continue;
    const domain=email.split("@")[1]?.toLowerCase()??"";
    const existing=await db.query<{id:string}>("SELECT id FROM recruiter_contacts WHERE LOWER(email)=LOWER($1) LIMIT 1",[email]);
    if(existing.rowCount){duplicates++;continue}
