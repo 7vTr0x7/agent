@@ -373,6 +373,7 @@ function extractEmailContextsFromResource(raw: string, type: Resource["sourceTyp
 }
 
 export function relevance(email: string, context: string, skills: string[], pageContext = ""): number {
+  if (GENERIC.test(email.split("@")[0] ?? "")) return 0;
   const haystack = (email + " " + context).toLowerCase();
   const pageHaystack = pageContext.toLowerCase();
   const pageCanSupplyHiringEvidence = Boolean(pageContext) && HIRING_INTENT.test(pageHaystack) && ROLE_OR_SKILL.test(pageHaystack);
