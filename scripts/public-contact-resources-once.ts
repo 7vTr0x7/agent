@@ -220,6 +220,21 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
+function unwrapSearchResultUrl(value: string): string {
+  try {
+    const parsed = new URL(value, "https://duckduckgo.com");
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    if (host === "duckduckgo.com" && parsed.pathname.startsWith("/l/")) {
+      const target = parsed.searchParams.get("uddg");
+      if (target) return decodeURIComponent(target);
+    }
+    if (host === "google.com" && parsed.pathname === "/url") {
+      const target = parsed.searchParams.get("q") ?? parsed.searchParams.get("url");
+      if (target) return decodeURIComponent(target);
+    }
+  } catch {}
+  return value;
+}
 export function urlsFromSearch(text: string): string[] {
   const decoded = text
     .replace(/&amp;/gi, "&")
@@ -237,6 +252,7 @@ export function urlsFromSearch(text: string): string[] {
   ];
   return [...new Set(candidates
     .map((value) => value.replace(/[>"'.,;:!?]+$/g, ""))
+    .map(unwrapSearchResultUrl)
     .map(canonical))]
     .filter(legitimate);
 }
