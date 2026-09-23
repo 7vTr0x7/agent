@@ -65,7 +65,7 @@ jobs:
             -e API_HOST=0.0.0.0 \
             -e API_PORT=3000 \
             -e DATABASE_URL=postgres://job_agent:ci@job-agent-runtime-postgres:5432/job_agent \
-            -e AUTOMATION_ENABLED=true \
+            -e AUTOMATION_ENABLED=false \
             -e APPLICATION_DRY_RUN=true \
             -e OUTBOUND_ENABLED=false \
             -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false \
