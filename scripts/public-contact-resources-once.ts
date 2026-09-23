@@ -130,6 +130,17 @@ export function urlsFromSearch(text:string){
 }
 function resourceLooksRelevant(url:string){try{const u=new URL(url),v=(u.hostname+" "+u.pathname).toLowerCase();return /career|careers|job|jobs|hiring|hire|recruit|recruiting|talent|contact|about|people|team|resume|apply/.test(v)||(/github\.com|raw\.githubusercontent\.com/.test(u.hostname)&&/career|contact|recruit|hr|talent|email|companies|\.csv|\.json|\.md/.test(v))}catch{return false}}
 export function extractEmails(text:string){return [...new Set((text.match(EMAIL)??[]).map(v=>v.toLowerCase()))].filter(e=>!GENERIC.test(e.split("@")[0]??"")&&!/^(example|test)@/i.test(e))}
+function extractEmailContexts(text:string){
+ const matches=[...text.matchAll(EMAIL)];
+ const out=new Map<string,string>();
+ for(const match of matches){
+  const email=String(match[0]).toLowerCase();
+  if(GENERIC.test(email.split("@")[0]??"")||/^(example|test)@/i.test(email))continue;
+  const start=Math.max(0,match.index??0-900),end=Math.min(text.length,(match.index??0)+email.length+900);
+  out.set(email,text.slice(start,end));
+ }
+ return [...out.entries()].map(([email,context])=>({email,context}));
+}
 export function relevance(email:string,context:string,skills:string[]){const h=(email+" "+context).toLowerCase();let s=0;if(RELEVANT.test(h))s+=45;if(skills.some(x=>h.includes(x.toLowerCase())))s+=25;if(/resume|cv|apply|hiring|recruit|talent|career/i.test(h))s+=20;if(!/support|privacy|legal|press|newsletter|unsubscribe/i.test(h))s+=10;return Math.min(100,s)}
 async function validation(email:string):Promise<"VALID"|"LIKELY"|"UNVERIFIED"|"INVALID">{if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return "INVALID";const d=email.split("@")[1]?.toLowerCase();if(!d)return "INVALID";try{return (await dns.resolveMx(d)).length?"LIKELY":"INVALID"}catch{return "UNVERIFIED"}}
 
@@ -149,7 +160,7 @@ async function main(){
  const resourceList=[...resources.values()];
  const processed=await mapLimit(resourceList,4,async resource=>{
   const fetched=await fetchText(resource.url);if(!fetched.ok)return {resource,emails:0,qualified:0,persisted:0,duplicates:0,invalid:0,status:"FAILED" as const,type:resource.sourceType,failureReason:fetched.failureReason,httpStatus:fetched.httpStatus,contentType:fetched.contentType,finalUrl:fetched.finalUrl,bytesRead:fetched.bytesRead,elapsedMs:fetched.elapsedMs,errorCode:fetched.errorCode};
-   const type=typeFor(resource.url,fetched.contentType);const fetchedText=fetched.text;const text=type==="HTML"?clean(fetchedText):fetchedText;const emails=extractEmails(text);const resourceContext=resource.url+" "+text;const qualified=emails.filter(e=>relevance(e,resourceContext,[...profile.skills])>=60);
+   const type=typeFor(resource.url,fetched.contentType);const fetchedText=fetched.text;const text=type==="HTML"?clean(fetchedText):fetchedText;const emailContexts=extractEmailContexts(text);const emails=emailContexts.map(x=>x.email);const qualified=emailContexts.filter(x=>relevance(x.email,`${resource.url} ${x.context}`,[...profile.skills])>=60).map(x=>x.email);
   const title=(text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]??"").replace(/\s+/g," ").trim().slice(0,300)||resource.url.slice(0,300);
   await db.query("INSERT INTO public_contact_resources(source_url,source_type,title,processed_at,status,records_seen,emails_extracted,emails_normalized,invalid_emails,duplicate_emails,qualified_contacts) VALUES($1,$2,$3,NOW(),'PROCESSED',$4,$5,$6,$7,0,$8) ON CONFLICT(source_url) DO UPDATE SET processed_at=EXCLUDED.processed_at,status=EXCLUDED.status,title=EXCLUDED.title,records_seen=EXCLUDED.records_seen,emails_extracted=EXCLUDED.emails_extracted,emails_normalized=EXCLUDED.emails_normalized,invalid_emails=EXCLUDED.invalid_emails,qualified_contacts=EXCLUDED.qualified_contacts",[resource.url,type,title,emails.length,emails.length,emails.length,emails.filter(e=>!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)).length,qualified.length]);
   let persisted=0,duplicates=0,invalid=0;
@@ -171,7 +182,7 @@ async function main(){
     overallConfidence:Math.min(100,Math.max(80,score)),
     discoverySource:"public-web" as const,
     discoveryUrl:resource.url,
-    discoveryEvidence:[text.slice(0,3500)],
+    discoveryEvidence:[context.slice(0,3500)],
     evidenceType:"job_hiring_evidence" as const,
     evidenceDate:new Date().toISOString(),
     evidenceFreshness:"current" as const,
