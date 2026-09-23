@@ -1,4 +1,4 @@
-import { extractEmails, isPrivateAddress, relevance, urlsFromSearch } from "./public-contact-resources-once";
+import { extractEmails, isPrivateAddress, relevance, urlsFromSearch, qualifiesJobPageAsContactResource } from "./public-contact-resources-once";
 
 describe("public contact resource extraction", () => {
   it("normalizes discovered emails and excludes generic machine mailboxes", () => {
@@ -24,6 +24,22 @@ describe("public contact resource extraction", () => {
   it("rejects known blocked job-board hosts while preserving unrelated domains", () => {
     expect(urlsFromSearch("https://www.simplyhired.com/jobs https://foo.simplyhired.com/careers https://www.joblist.com https://www.snagajob.com https://example.com/careers"))
       .toEqual(["https://example.com/careers"]);
+  });
+
+  it("accepts a matched job page when it directly publishes a relevant hiring email", () => {
+    expect(qualifiesJobPageAsContactResource(
+      "https://example.com/jobs/frontend-developer",
+      "Frontend Developer — Bengaluru. We are hiring a React developer. Send your resume to careers@example.com.",
+      ["React", "Next.js"]
+    )).toBe(true);
+  });
+
+  it("does not accept a matched job page with an unrelated support email", () => {
+    expect(qualifiesJobPageAsContactResource(
+      "https://example.com/jobs/frontend-developer",
+      "Frontend Developer — Bengaluru. We are hiring a React developer. For account support contact support@example.com.",
+      ["React", "Next.js"]
+    )).toBe(false);
   });
 
   it("does not treat search infrastructure as a public resource", () => {
