@@ -16,10 +16,15 @@ export class ProactiveRecruiterRepository {
     // through the existing conservative public-search resolver, which requires
     // independent public evidence and never guesses from the company name.
     const employerName = candidate.employer.trim();
-    const domain = normalizeDomain(candidate.employerDomain ?? "") || (employerName ? await resolveEmployerDomainFromPublicSearch(employerName) : "");
-    if (!domain) return null;
     const email = candidate.email?.trim().toLowerCase() || null;
-    if (email && email.split("@")[1]?.toLowerCase() !== domain) return null;
+    const emailDomain = email?.split("@")[1]?.toLowerCase() ?? "";
+    const domain =
+      normalizeDomain(candidate.employerDomain ?? "") ||
+      (emailDomain && isCompanyMatchingDomain(emailDomain, employerName) ? normalizeDomain(emailDomain) : "") ||
+      (employerName ? await resolveEmployerDomainFromPersistedJobs(employerName) : "") ||
+      (employerName ? await resolveEmployerDomainFromPublicSearch(employerName) : "");
+    if (!domain) return null;
+    if (email && emailDomain !== domain) return null;
 
     const relevanceStatus = candidate.hiringEvidenceScore > 0 ? (candidate.evidenceFreshness === "current" ? "CURRENT" : candidate.evidenceFreshness === "recent" ? "RECENT" : candidate.evidenceFreshness === "historical" ? "HISTORICAL" : "UNKNOWN") : "UNKNOWN";
     const verificationEvidence = candidate.verificationEvidence ?? [];
@@ -186,4 +191,26 @@ function buildIdentityKey(candidate: ProactiveRecruiterDiscoveryCandidate, domai
 function isLinkedInProfile(value: string): boolean { try { const url = new URL(value); return url.hostname.toLowerCase().endsWith("linkedin.com") && /^\/in\/[^/]+/i.test(url.pathname); } catch { return false; } }
 function canonicalLinkedIn(value: string): string { try { const url = new URL(value); const profile = url.pathname.match(/^\/in\/([^/?#]+)/i)?.[1]; return profile ? `https://www.linkedin.com/in/${profile.toLowerCase()}` : value.toLowerCase().replace(/\/+$/, ""); } catch { return value.toLowerCase().replace(/\/+$/, ""); } }
 function canonicalUrl(value: string): string { try { const url = new URL(value); url.hash = ""; ["utm_source","utm_medium","utm_campaign","utm_term","utm_content","trk","trackingId","refId","lipi"].forEach((key) => url.searchParams.delete(key)); return url.toString().replace(/\/$/, ""); } catch { return value.toLowerCase().replace(/\/+$/, ""); } }
+async function resolveEmployerDomainFromPersistedJobs(employerName: string): Promise<string> {
+  const result = await this.database.query<{ company_domain: string | null }>(
+    `SELECT company_domain
+       FROM job_opportunities
+      WHERE company_domain IS NOT NULL
+        AND LOWER(TRIM(company_name)) = LOWER(TRIM($1))
+      ORDER BY posted_at DESC NULLS LAST
+      LIMIT 5`,
+    [employerName]
+  );
+  const domains = result.rows.map((row) => normalizeDomain(row.company_domain ?? "")).filter(Boolean);
+  return domains.find((domain) => isCompanyMatchingDomain(domain, employerName)) ?? "";
+}
+
+function isCompanyMatchingDomain(domain: string, companyName: string): boolean {
+  const host = normalizeDomain(domain).split(".")[0] ?? "";
+  const tokens = companyName.toLowerCase().replace(/&/g, " and ").split(/[^a-z0-9]+/).filter((token) =>
+    token.length >= 3 && !["the","and","inc","ltd","llc","corp","company","limited","private","pvt"].includes(token)
+  );
+  return tokens.some((token) => host.includes(token));
+}
+
 function normalizeDomain(value: string): string { return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? ""; }
