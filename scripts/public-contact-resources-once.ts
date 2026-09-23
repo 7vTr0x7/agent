@@ -6,7 +6,8 @@ import { ProactiveRecruiterRepository } from "../src/recruiters/ProactiveRecruit
 
 type Resource={url:string;sourceType:"HTML"|"TEXT"|"CSV"|"JSON"};
 const EMAIL=/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const CONTACT_RESOURCE_BLOCKED_HOSTS=new Set(["simplyhired.com","joblist.com","snagajob.com"]);\nconst SEARCH_HOSTS=new Set(["google.com","www.google.com","bing.com","www.bing.com","html.duckduckgo.com","duckduckgo.com","startpage.com","www.startpage.com","search.yahoo.com","www.yahoo.com","search.brave.com","www.mojeek.com","qwant.com","www.qwant.com","r.jina.ai"]);
+const CONTACT_RESOURCE_BLOCKED_HOSTS=new Set(["simplyhired.com","joblist.com","snagajob.com"]);
+const SEARCH_HOSTS=new Set(["google.com","www.google.com","bing.com","www.bing.com","html.duckduckgo.com","duckduckgo.com","startpage.com","www.startpage.com","search.yahoo.com","www.yahoo.com","search.brave.com","www.mojeek.com","qwant.com","www.qwant.com","r.jina.ai"]);
 const GENERIC=/^(noreply|no-reply|postmaster|webmaster|admin|support|privacy|legal|press|media|marketing|sales)$/i;
 const RELEVANT=/recruit|recruiting|talent acquisition|talent|hiring|hire|human resources|\bhr\b|career|jobs?|engineering manager|engineering lead|people operations|resume|cv|frontend|react|next\.js|software engineer|developer/i;
 
