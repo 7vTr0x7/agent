@@ -33,6 +33,14 @@ describe("public contact resource extraction", () => {
       .toEqual(["https://example.com/careers"]);
   });
 
+  it("extracts hiring emails from HTML structured data and mailto links", () => {
+    expect(qualifiesJobPageAsContactResource(
+      "https://example.com/jobs/frontend-developer",
+      `<html><head><script type="application/ld+json">{"@type":"JobPosting","hiringOrganization":{"email":"jobs@example.com"}}</script></head><body><a href="mailto:careers@example.com">Apply</a><p>We are hiring a React developer.</p></body></html>`,
+      ["React", "Next.js"]
+    )).toBe(true);
+  });
+
   it("accepts a matched job page when it directly publishes a relevant hiring email", () => {
     expect(qualifiesJobPageAsContactResource(
       "https://example.com/jobs/frontend-developer",
