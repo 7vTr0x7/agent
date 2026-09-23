@@ -51,18 +51,15 @@ const extractLI = (text:string) => {
   const decoded = text
     .replace(/&amp;/gi, "&")
     .replace(/&#x2f;|&#47;/gi, "/")
-    .replace(/\\u002f/gi, "/")
-    .replace(/\\\//g, "/")
+    .replaceAll("\\\\u002f", "/")
+    .replaceAll("\\\\/", "/")
     .replace(/%3A/gi, ":")
     .replace(/%2F/gi, "/")
     .replace(/%3F/gi, "?")
     .replace(/%3D/gi, "=")
     .replace(/%26/gi, "&")
     .replace(/%25/gi, "%");
-  const matches = [
-    ...(decoded.match(LI) ?? []),
-    ...(decoded.match(/(?:https?:\\/\\/)?(?:www\\.)?(?:[a-z]{2}\\.)?linkedin\\.com\\/in\\/[a-z0-9][a-z0-9-_%]*(?:[/?#][^\\s<>()"'\\]]*)?/gi) ?? [])
-  ];
+  const matches = decoded.match(/(?:https?:\\/\\/)?(?:www\\.)?(?:[a-z]{2}\\.)?linkedin\\.com\\/in\\/[a-z0-9][a-z0-9-_%]*/gi) ?? [];
   return [...new Set(matches.map((value) => {
     const candidate = /^https?:\\/\\//i.test(value) ? value : `https://${value}`;
     return canonicalLI(candidate);
