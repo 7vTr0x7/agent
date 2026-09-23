@@ -179,11 +179,11 @@ describe("RecruiterCompanyDomainResolver", () => {
   it("decodes an encoded employer website from a public search result", async () => {
     const originalFetch = globalThis.fetch;
     const employerUrl = "https://omnicomgroup.com/careers";
-    const payload = encodeURIComponent(employerUrl);
+    const payload = Buffer.from(employerUrl, "utf8").toString("base64").replace(/=/g, "").replace(/\\+/g, "-").replace(/\\//g, "_");
     globalThis.fetch = jest.fn(async (input: string | URL) => {
       const url = String(input);
       if (url.includes("bing.com/search")) return new Response(
-        `<a href="https://www.bing.com/ck/a?u=${payload}">Omnicom Group official website</a>`,
+        `<a href="https://www.bing.com/ck/a?u=a1${payload}">Omnicom Group official website</a>`,
         { status: 200 }
       );
       if (url.includes("omnicomgroup.com")) return new Response(
