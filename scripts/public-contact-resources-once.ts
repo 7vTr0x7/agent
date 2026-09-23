@@ -20,13 +20,20 @@ const HIRING_INTENT = /we['’]?re\s+hiring|we\s+are\s+hiring|hiring\s+(?:for|a|
 const ROLE_OR_SKILL = /frontend|front-end|react(?:\.js|js)?|next(?:\.js|js)?|typescript|javascript|software\s+engineer|developer|engineering/i;
 const RESOURCE_SIGNAL = /career|careers|job|jobs|hiring|hire|recruit|recruiting|talent|contact|about|people|team|resume|apply/i;
 
-function clean(value: string): string {
+function decodeHtmlEntities(value: string): string {
   return value
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#x27;/gi, "'");
+}
+
+function clean(value: string): string {
+  return decodeHtmlEntities(value
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -304,7 +311,7 @@ export function qualifiesJobPageAsContactResource(url: string, text: string, ski
   if (!legitimate(url)) return false;
   const cleaned = clean(text);
   if (!HIRING_INTENT.test(cleaned) || !ROLE_OR_SKILL.test(cleaned)) return false;
-  return extractEmailContexts(cleaned).some((item) =>
+  return extractEmailContextsFromResource(text, "HTML").some((item) =>
     relevance(item.email, `${url} ${item.context}`, skills) >= 60
   );
 }
@@ -326,6 +333,43 @@ function extractEmailContexts(text: string): Array<{ email: string; context: str
     output.set(email, text.slice(start, end));
   }
   return [...output.entries()].map(([email, context]) => ({ email, context }));
+}
+
+function extractHtmlEmailContexts(html: string): Array<{ email: string; context: string }> {
+  const decoded = decodeHtmlEntities(html);
+  const candidates = new Map<string, string>();
+
+  const addMatches = (source: string, contextSource: string): void => {
+    for (const match of source.matchAll(EMAIL)) {
+      const email = String(match[0]).toLowerCase();
+      if (GENERIC.test(email.split("@")[0] ?? "") || /^(example|test)@/i.test(email)) continue;
+      const index = match.index ?? 0;
+      const start = Math.max(0, index - 900);
+      const end = Math.min(contextSource.length, index + email.length + 900);
+      candidates.set(email, contextSource.slice(start, end));
+    }
+  };
+
+  addMatches(decoded, decoded);
+
+  for (const match of decoded.matchAll(/(?:href|data-email|content|value)\\s*=\\s*["']([^"']*mailto:[^"']+)["']/gi)) {
+    const target = match[1] ?? "";
+    addMatches(target.replace(/^mailto:/i, ""), match[0]);
+  }
+
+  for (const match of decoded.matchAll(/(?:email|contactEmail|recruiterEmail|applicationEmail)\\s*["']?\\s*[:=]\\s*["']([^"']+)["']/gi)) {
+    addMatches(match[1] ?? "", match[0]);
+  }
+
+  return [...candidates.entries()].map(([email, context]) => ({ email, context }));
+}
+
+function extractEmailContextsFromResource(raw: string, type: Resource["sourceType"]): Array<{ email: string; context: string }> {
+  const structured = type === "HTML" ? extractHtmlEmailContexts(raw) : extractEmailContexts(raw);
+  const visible = extractEmailContexts(type === "HTML" ? clean(raw) : raw);
+  const merged = new Map<string, string>();
+  for (const item of [...structured, ...visible]) merged.set(item.email, item.context);
+  return [...merged.entries()].map(([email, context]) => ({ email, context }));
 }
 
 export function relevance(email: string, context: string, skills: string[]): number {
@@ -442,7 +486,7 @@ async function main(): Promise<void> {
 
     const type = typeFor(resource.url, fetched.contentType);
     const text = type === "HTML" ? clean(fetched.text) : fetched.text;
-    const emailContexts = extractEmailContexts(text);
+    const emailContexts = extractEmailContextsFromResource(fetched.text, type);
     const emails = emailContexts.map((item) => item.email);
     const qualified = emailContexts.filter((item) => relevance(item.email, `${resource.url} ${item.context}`, [...profile.skills]) >= 60);
 
