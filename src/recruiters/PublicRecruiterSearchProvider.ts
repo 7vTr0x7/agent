@@ -59,10 +59,10 @@ const extractLI = (text:string) => {
     .replace(/%3D/gi, "=")
     .replace(/%26/gi, "&")
     .replace(/%25/gi, "%");
-  const pattern = String.raw`(?:https?:\\/\\/)?(?:www\\.)?(?:[a-z]{2}\\.)?linkedin\\.com\\/in\\/[a-z0-9][a-z0-9-_%]*`;
+  const pattern = "(?:https?://)?(?:www\\.)?(?:[a-z]{2}\\.)?linkedin\\.com/in/[a-z0-9][a-z0-9-_%]*";
   const matches = decoded.match(new RegExp(pattern, "gi")) ?? [];
   return [...new Set(matches.map((value) => {
-    const candidate = /^https?:\\/\\//i.test(value) ? value : `https://${value}`;
+    const candidate = value.startsWith("http://") || value.startsWith("https://") ? value : `https://${value}`;
     return canonicalLI(candidate);
   }))];
 };
