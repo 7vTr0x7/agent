@@ -340,12 +340,13 @@ async function main(): Promise<void> {
   // pages as an additional evidence source and extract only links actually
   // present on the fetched page. This does not invent /careers or /contact URLs.
   const matchedJobUrls = (await db.query<{ canonical_url: string }>(
-    `SELECT DISTINCT j.canonical_url
+    `SELECT j.canonical_url
        FROM job_opportunities j
        JOIN match_decisions m ON m.job_opportunity_id=j.id
       WHERE m.decision IN ('APPLY','REVIEW')
         AND j.canonical_url IS NOT NULL
-      ORDER BY j.posted_at DESC NULLS LAST
+      GROUP BY j.canonical_url
+      ORDER BY MAX(j.posted_at) DESC NULLS LAST
       LIMIT 40`
   )).rows.map((row) => row.canonical_url).filter(Boolean);
 
