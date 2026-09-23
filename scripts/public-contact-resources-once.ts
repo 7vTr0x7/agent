@@ -220,9 +220,40 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
+function decodeSearchResultUrl(value: string): string {
+  let current = value.replace(/&amp;/gi, "&").replace(/\\u0026/gi, "&").replace(/\\u003d/gi, "=").replace(/\\u002f/gi, "/");
+  for (let i = 0; i < 2; i += 1) {
+    try {
+      const decoded = decodeURIComponent(current);
+      if (decoded === current) break;
+      current = decoded;
+    } catch { break; }
+  }
+  try {
+    const parsed = new URL(current);
+    if (SEARCH_HOSTS.has(parsed.hostname.toLowerCase())) {
+      for (const key of ["uddg", "url", "u", "target", "dest", "destination", "q"]) {
+        const raw = parsed.searchParams.get(key);
+        if (!raw) continue;
+        try { return decodeURIComponent(raw); } catch { return raw; }
+      }
+    }
+  } catch {}
+  return current;
+}
+
 export function urlsFromSearch(text: string): string[] {
-  const candidates = text.match(/https?:\/\/[^\s<>()\]]+/gi) ?? [];
-  return [...new Set(candidates.map((value) => value.replace(/[>"'.,;:!?]+$/g, "")).map(canonical))].filter(legitimate);
+  const candidates = [
+    ...(text.match(/https?:\/\/[^\s<>()\]]+/gi) ?? []),
+    ...[...text.matchAll(/\bhref\s*=\s*["']([^"']+)["']/gi)].map((m) => String(m[1] ?? "")),
+    ...[...text.matchAll(/\b(?:data-)?(?:href|url|target|destination|clickurl|targeturl)\s*[:=]\s*["']?((?:https?:|\/\/|%3A|%2F|\\u00)[^"'<>,\s}]+)["']?/gi)].map((m) => String(m[1] ?? "")),
+    ...[...text.matchAll(/\[[^\]]+\]\((https?:[^)]+)\)/gi)].map((m) => String(m[1] ?? ""))
+  ];
+  return [...new Set(candidates
+    .map((value) => value.replace(/[>"'.,;:!?]+$/g, ""))
+    .map(decodeSearchResultUrl)
+    .map(canonical))]
+    .filter(legitimate);
 }
 
 function resourceLooksRelevant(url: string): boolean {
@@ -299,11 +330,32 @@ async function main(): Promise<void> {
     .filter(Boolean);
 
   const searchRequests = queries.flatMap((query) => sourceList(query).map((source) => ({ query, source })));
-  const pages = (await mapLimit(searchRequests, 4, async ({ source }) => {
+  const searchPages = (await mapLimit(searchRequests, 4, async ({ source }) => {
     const response = await fetchText(source.url);
     return response.ok ? [{ source: source.url, text: response.text }] : [];
   })).flat();
 
+  // Search providers can expose only search infrastructure/anti-bot pages. The
+  // core runtime already has real public job URLs, so use those first-party job
+  // pages as an additional evidence source and extract only links actually
+  // present on the fetched page. This does not invent /careers or /contact URLs.
+  const matchedJobUrls = (await db.query<{ canonical_url: string }>(
+    `SELECT j.canonical_url
+       FROM job_opportunities j
+       JOIN match_decisions m ON m.job_opportunity_id=j.id
+      WHERE m.decision IN ('APPLY','REVIEW')
+        AND j.canonical_url IS NOT NULL
+      GROUP BY j.canonical_url
+      ORDER BY MAX(j.posted_at) DESC NULLS LAST
+      LIMIT 40`
+  )).rows.map((row) => row.canonical_url).filter(Boolean);
+
+  const jobPages = (await mapLimit(matchedJobUrls, 4, async (url) => {
+    const response = await fetchText(url);
+    return response.ok ? [{ source: url, text: response.text }] : [];
+  })).flat();
+
+  const pages = [...searchPages, ...jobPages];
   const resources = new Map<string, Resource>();
   for (const page of pages) {
     for (const url of urlsFromSearch(page.text)) {
