@@ -21,7 +21,7 @@ export class ProactiveRecruiterRepository {
     const domain =
       normalizeDomain(candidate.employerDomain ?? "") ||
       (emailDomain && isCompanyMatchingDomain(emailDomain, employerName) ? normalizeDomain(emailDomain) : "") ||
-      (employerName ? await resolveEmployerDomainFromPersistedJobs(employerName) : "") ||
+      (employerName ? await resolveEmployerDomainFromPersistedJobs(this.database, employerName) : "") ||
       (employerName ? await resolveEmployerDomainFromPublicSearch(employerName) : "");
     if (!domain) return null;
     if (email && emailDomain !== domain) return null;
@@ -191,8 +191,8 @@ function buildIdentityKey(candidate: ProactiveRecruiterDiscoveryCandidate, domai
 function isLinkedInProfile(value: string): boolean { try { const url = new URL(value); return url.hostname.toLowerCase().endsWith("linkedin.com") && /^\/in\/[^/]+/i.test(url.pathname); } catch { return false; } }
 function canonicalLinkedIn(value: string): string { try { const url = new URL(value); const profile = url.pathname.match(/^\/in\/([^/?#]+)/i)?.[1]; return profile ? `https://www.linkedin.com/in/${profile.toLowerCase()}` : value.toLowerCase().replace(/\/+$/, ""); } catch { return value.toLowerCase().replace(/\/+$/, ""); } }
 function canonicalUrl(value: string): string { try { const url = new URL(value); url.hash = ""; ["utm_source","utm_medium","utm_campaign","utm_term","utm_content","trk","trackingId","refId","lipi"].forEach((key) => url.searchParams.delete(key)); return url.toString().replace(/\/$/, ""); } catch { return value.toLowerCase().replace(/\/+$/, ""); } }
-async function resolveEmployerDomainFromPersistedJobs(employerName: string): Promise<string> {
-  const result = await this.database.query<{ company_domain: string | null }>(
+async function resolveEmployerDomainFromPersistedJobs(database: Database, employerName: string): Promise<string> {
+  const result = await database.query<{ company_domain: string | null }>(
     `SELECT company_domain
        FROM job_opportunities
       WHERE company_domain IS NOT NULL
