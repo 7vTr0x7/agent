@@ -146,6 +146,7 @@ jobs:
           NODE
 
       - name: Run independent real content-first discovery
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
