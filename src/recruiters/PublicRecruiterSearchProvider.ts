@@ -47,7 +47,25 @@ const plausiblePersonName = (name:string) => {
 export function isPlausibleRecruiterEmail(value:string):boolean { const e=emailOf(value), local=e.split("@")[0]??""; return !/%[0-9a-f]{2}/i.test(e) && !/^[^@]+%[^@]*@/i.test(e) && /^[a-z0-9][a-z0-9._+\-]*@[a-z0-9.-]+\.[a-z]{2,}$/i.test(e) && !/^\d+$/.test(local) && !local.startsWith(".") && !local.endsWith(".") && !local.includes(".."); }
 const recruitingMailbox = (e:string) => MAILBOX.test(emailOf(e).split("@")[0]?.replace(/[._+\-]/g,"")??"") || /^(recruit|talent|hr|hiring|career|jobs?)/i.test(emailOf(e).split("@")[0]??"");
 const extractEmails = (text:string,domain:string) => [...new Map([...clean(text).matchAll(EMAIL)].map(m=>[emailOf(m[0]??""),{email:emailOf(m[0]??""),context:context(clean(text),m.index??0)}])).values()].filter(x=>isPlausibleRecruiterEmail(x.email) && x.email.split("@")[1]===domain && !NON_RECRUITING.test(x.context) && (RECRUITING.test(x.context)||recruitingMailbox(x.email)));
-const extractLI = (text:string) => [...new Set((text.match(LI)??[]).map(canonicalLI))];
+const extractLI = (text:string) => {
+  const decoded = text
+    .replace(/&amp;/gi, "&")
+    .replace(/&#x2f;|&#47;/gi, "/")
+    .replaceAll("\\u002f", "/")
+    .replaceAll("\\/", "/")
+    .replace(/%3A/gi, ":")
+    .replace(/%2F/gi, "/")
+    .replace(/%3F/gi, "?")
+    .replace(/%3D/gi, "=")
+    .replace(/%26/gi, "&")
+    .replace(/%25/gi, "%");
+  const pattern = "(?:https?://)?(?:www\\.)?(?:[a-z]{2}\\.)?linkedin\\.com/in/[a-z0-9][a-z0-9-_%]*";
+  const matches = decoded.match(new RegExp(pattern, "gi")) ?? [];
+  return [...new Set(matches.map((value) => {
+    const candidate = value.startsWith("http://") || value.startsWith("https://") ? value : `https://${value}`;
+    return canonicalLI(candidate);
+  }))];
+};
 function sourceList(query:string):Source[] { const q=encodeURIComponent(query); const s:Source[]=[{id:"google-jina",url:`https://r.jina.ai/https://www.google.com/search?q=${q}&gbv=1`},{id:"bing-jina",url:`https://r.jina.ai/https://www.bing.com/search?q=${q}`},{id:"duckduckgo-jina",url:`https://r.jina.ai/https://html.duckduckgo.com/html/?q=${q}`},{id:"startpage-jina",url:`https://r.jina.ai/https://www.startpage.com/sp/search?query=${q}`},{id:"ecosia-jina",url:`https://r.jina.ai/https://www.ecosia.org/search?q=${q}`}]; if(process.env.JINA_API_KEY?.trim()) s.push({id:"jina-search",url:`https://s.jina.ai/${q}`,headers:{authorization:`Bearer ${process.env.JINA_API_KEY.trim()}`}}); if(process.env.BRAVE_SEARCH_API_KEY?.trim()) s.push({id:"brave-api",url:`https://api.search.brave.com/res/v1/web/search?q=${q}&count=20&extra_snippets=true`,headers:{"x-subscription-token":process.env.BRAVE_SEARCH_API_KEY.trim(),accept:"application/json"}}); if(process.env.MOJEEK_API_KEY?.trim()) s.push({id:"mojeek-api",url:`https://api.mojeek.com/search?q=${q}&api_key=${encodeURIComponent(process.env.MOJEEK_API_KEY.trim())}&fmt=json&t=20`,headers:{accept:"application/json"}}); return s; }
 const stats = ():Record<string,Stats> => ({});
 const stat = (all:Record<string,Stats>,id:string):Stats => all[id]??(all[id]={attempted:0,succeeded:0,empty:0,timeouts:0,http403:0,http429:0,http5xx:0,otherHttpErrors:0,parseablePages:0,usefulPages:0,candidates:0,duplicateCandidates:0});
@@ -88,7 +106,14 @@ async function mapLimit<T,R>(items:T[],limit:number,worker:(item:T)=>Promise<R>)
 const technologies=(input:RecruiterDiscoveryInput)=>["react","react.js","next.js","nextjs","typescript","javascript","node.js","nodejs","frontend","front-end","full stack","full-stack","web"].filter(x=>`${input.jobTitle} ${input.jobDescription}`.toLowerCase().includes(x)).slice(0,4);
 function queries(input:RecruiterDiscoveryInput,max:number):string[] { const company=input.companyName.trim(),domain=domainOf(input.companyDomain),title=input.jobTitle.trim(),location=input.location?.trim()||"India",tech=technologies(input)[0]??title; return [...new Set([`site:linkedin.com/in "${company}" "${title}" recruiter`,`site:linkedin.com/in "${company}" recruiter`,`site:linkedin.com/in "${company}" "technical recruiter"`,`site:linkedin.com/in "${company}" "talent acquisition"`,`site:linkedin.com/in "${company}" "head of talent"`,`site:linkedin.com/in "${company}" "head of global talent"`,`site:linkedin.com/in "${company}" "talent partner"`,`site:linkedin.com/in "${company}" "technical sourcer"`,`site:linkedin.com/in "${company}" "hiring manager" "${title}"`,`site:linkedin.com/in "${company}" recruiter "${location}"`,`site:linkedin.com/in recruiter "${title}" "${location}"`,`site:linkedin.com/in recruiter "${tech}" "${location}"`,`site:${domain} recruiter`,`site:${domain} "talent acquisition"`,`site:${domain} "technical recruiter"`,`site:${domain} (recruiting OR hiring OR careers OR talent)`,`"${company}" "${title}" recruiter "${location}"`,`"${company}" "${tech}" recruiter`,`"${company}" recruiter India`])].slice(0,Math.max(1,max)); }
 async function employerPages(domain:string,signal?:AbortSignal,fetcher?:PublicRecruiterSearchOptions["fetchText"]):Promise<Array<{url:string,text:string}>> { const urls=EMPLOYER_PATHS.map(p=>`https://${domain}${p}`); const pages=await mapLimit(urls,CONCURRENCY,async url=>{const text=fetcher?await fetcher(url,EMPLOYER_TIMEOUT,signal):(await fetchDefault(url,EMPLOYER_TIMEOUT,signal)).text;return text?{url,text}:null;});return pages.filter((p):p is {url:string,text:string}=>Boolean(p)); }
-function identity(url:string,text:string,domain:string):RecruiterIdentityCandidate|null { const i=text.toLowerCase().indexOf(url.toLowerCase()),snippet=text.slice(Math.max(0,i-360),Math.min(text.length,i+700)); if(!RECRUITING.test(snippet)||NON_RECRUITING.test(snippet))return null; const m=snippet.match(/([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|•|\||:)\s*([^|•]{3,120})/),name=m?.[1]?.trim(); if(!name || !plausiblePersonName(name))return null;const words=name.split(/\s+/);if(words.length<2||words.length>5||!words.every(w=>/^[A-Z][A-Za-z.'-]+$/.test(w)))return null; return {fullName:name,title:m?.[2]?.trim(),department:"recruiting",confidence:90,verified:false,verificationStatus:"identity_public_source",provider:"public-web",companyDomain:domain,recruitingContext:m?.[2]?.trim()||snippet.slice(0,300),discoveryEvidence:[snippet.slice(0,700)],discoveredAt:new Date(),linkedinProfileUrl:url,sources:[{url,type:"public_linkedin_search",confidence:90}]}; }
+function identity(url:string,text:string,domain:string):RecruiterIdentityCandidate|null {
+  const lowered=text.toLowerCase();
+  const normalizedUrl=url.toLowerCase();
+  const variants=[normalizedUrl,normalizedUrl.replace("https://www.","").replace("http://www.","").replace("https://","").replace("http://","")];
+  const i=Math.max(...variants.map((value)=>lowered.indexOf(value)));
+  if(i<0)return null;
+  const snippet=text.slice(Math.max(0,i-360),Math.min(text.length,i+700));
+  if(!RECRUITING.test(snippet)||NON_RECRUITING.test(snippet))return null; const m=snippet.match(/([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|•|\||:)\s*([^|•]{3,120})/),name=m?.[1]?.trim(); if(!name || !plausiblePersonName(name))return null;const words=name.split(/\s+/);if(words.length<2||words.length>5||!words.every(w=>/^[A-Z][A-Za-z.'-]+$/.test(w)))return null; return {fullName:name,title:m?.[2]?.trim(),department:"recruiting",confidence:90,verified:false,verificationStatus:"identity_public_source",provider:"public-web",companyDomain:domain,recruitingContext:m?.[2]?.trim()||snippet.slice(0,300),discoveryEvidence:[snippet.slice(0,700)],discoveredAt:new Date(),linkedinProfileUrl:url,sources:[{url,type:"public_linkedin_search",confidence:90}]}; }
 async function dohMx(domain:string):Promise<boolean|null>{ for(const endpoint of [`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain)}&type=MX`,`https://dns.google/resolve?name=${encodeURIComponent(domain)}&type=MX`]){const c=new AbortController(),timer=setTimeout(()=>c.abort(),5000);try{const r=await fetch(endpoint,{signal:c.signal,headers:{accept:"application/dns-json"}});if(!r.ok)continue;const p=await r.json() as {Answer?:Array<{type?:number}>};return (p.Answer??[]).some(x=>x.type===15);}catch{}finally{clearTimeout(timer);}}return null; }
 export class PublicRecruiterSearchProvider implements RecruiterDiscoveryProvider {
   readonly name="public-web"; private readonly fetcher?:PublicRecruiterSearchOptions["fetchText"];private readonly maxQueries:number;private readonly target:number;private readonly signal?:AbortSignal;
