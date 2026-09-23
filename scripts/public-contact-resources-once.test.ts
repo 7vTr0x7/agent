@@ -11,6 +11,11 @@ describe("public contact resource extraction", () => {
     expect(relevance("person@example.com","privacy policy and newsletter subscription",["React","Next.js"])).toBeLessThan(60);
   });
 
+  it("does not qualify a plain company directory without hiring evidence", () => {
+    expect(relevance("person@example.com", "Company directory and generic contact information", ["React", "Next.js"])).toBeLessThan(60);
+    expect(relevance("person@example.com", "We are hiring a React developer — send your resume to this recruiting contact", ["React", "Next.js"])).toBeGreaterThanOrEqual(60);
+  });
+
   it("removes search-result punctuation instead of fetching quoted URLs", () => {
     expect(urlsFromSearch('https://example.com/careers" https://example.com/jobs, https://example.com/team)'))
       .toEqual(["https://example.com/careers","https://example.com/jobs","https://example.com/team"]);
