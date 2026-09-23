@@ -241,7 +241,6 @@ function sanitizeEmbeddedJsonUrl(value: string): string {
   if (cutAt < 0) return value;
   const prefixLength = parsed.pathname.length + (parsed.search ? 1 : 0);
   const targetCut = Math.min(cutAt, target.length);
-  const pathEnd = Math.min(parsed.pathname.length, targetCut);
   if (targetCut < parsed.pathname.length) {
     parsed.pathname = parsed.pathname.slice(0, targetCut);
     parsed.search = "";
