@@ -1,5 +1,5 @@
 export type SourceId =
-  | "google-jina" | "google-direct" | "bing-jina" | "bing-direct" | "duckduckgo-jina" | "startpage-jina" | "ecosia-jina"
+  | "google-jina" | "google-direct" | "bing-jina" | "bing-direct" | "duckduckgo-jina" | "duckduckgo-lite-direct" | "startpage-jina" | "ecosia-jina"
   | "jina-search" | "brave-api" | "mojeek-api" | "brave-direct" | "mojeek-direct"
   | "qwant-direct" | "yahoo-direct";
 
@@ -17,6 +17,7 @@ export function sourceList(query: string): Source[] {
     { id: "google-jina", url: `https://r.jina.ai/https://www.google.com/search?q=${q}&gbv=1` },
     { id: "bing-jina", url: `https://r.jina.ai/https://www.bing.com/search?q=${q}` },
     { id: "duckduckgo-jina", url: `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${q}` },
+    { id: "duckduckgo-lite-direct", url: `https://lite.duckduckgo.com/lite/?q=${q}` },
     { id: "startpage-jina", url: `https://r.jina.ai/https://www.startpage.com/sp/search?query=${q}` },
     { id: "ecosia-jina", url: `https://r.jina.ai/https://www.ecosia.org/search?q=${q}` },
     { id: "brave-direct", url: `https://search.brave.com/search?q=${q}&source=web` },
