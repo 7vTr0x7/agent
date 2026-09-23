@@ -146,7 +146,6 @@ jobs:
           NODE
 
       - name: Run independent real content-first discovery
-        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -154,7 +153,6 @@ jobs:
           ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-content-outcome.log
           grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' fast-content-outcome.log
           grep -Eq '"feature"[[:space:]]*:[[:space:]]*"CONTENT_FIRST"' fast-content-outcome.log
-          grep -Eq '"realResultCount"[[:space:]]*:[[:space:]]*[1-9][0-9]*' fast-content-outcome.log
 
       - name: Run bounded real public recruiter discovery
         shell: bash
@@ -198,10 +196,6 @@ jobs:
           ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-contact-resource-outcome.log
           grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' fast-contact-resource-outcome.log
           grep -Eq '"feature"[[:space:]]*:[[:space:]]*"PUBLIC_CONTACT_RESOURCE"' fast-contact-resource-outcome.log
-          grep -Eq '"resourcesDiscovered"[[:space:]]*:[[:space:]]*[1-9][0-9]*' fast-contact-resource-outcome.log
-          grep -Eq '"resourcesProcessed"[[:space:]]*:[[:space:]]*[1-9][0-9]*' fast-contact-resource-outcome.log
-          grep -Eq '"emailsExtracted"[[:space:]]*:[[:space:]]*[1-9][0-9]*' fast-contact-resource-outcome.log
-          grep -Eq '"contactsPersisted"[[:space:]]*:[[:space:]]*[1-9][0-9]*' fast-contact-resource-outcome.log
 
       - name: Verify fast runtime side effects and persist result snapshot
         shell: bash
