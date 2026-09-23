@@ -390,7 +390,7 @@ export class PublicHiringPostDiscoveryProvider {
           const contentFreshness = freshness(evidence);
           if (contentFreshness !== "unknown") {
             const employer = extractEmployer(evidence, undefined, undefined, url);
-            const title = (evidence.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)?.[1] ?? "").replace(/\\s+/g, " ").trim().slice(0, 300) || extractedRoleForContent.role!;
+            const title = (evidence.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)?.[1] ?? "").replace(/\s+/g, " ").trim().slice(0, 300) || extractedRoleForContent.role!;
             contentResults.set(canonicalUrl(url), {
               source: result.source,
               url: canonicalUrl(url),
