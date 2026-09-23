@@ -220,6 +220,39 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
+function sanitizeEmbeddedJsonUrl(value: string): string {
+  const markers = [
+    /%22(?:%2c|,)%22/i,
+    /%22%3a%22/i,
+    /%7d(?:%2c|,)%7b/i,
+    /%22(?:%2c|,)%22(?:email|logo|sameAs|@context|@type)/i,
+    /"%2c"%22(?:email|logo|sameAs|@context|@type)/i
+  ];
+  const parsed = (() => {
+    try { return new URL(value); } catch { return null; }
+  })();
+  if (!parsed) return value;
+  const target = parsed.pathname + parsed.search;
+  let cutAt = -1;
+  for (const marker of markers) {
+    const match = marker.exec(target);
+    if (match?.index !== undefined && (cutAt === -1 || match.index < cutAt)) cutAt = match.index;
+  }
+  if (cutAt < 0) return value;
+  const prefixLength = parsed.pathname.length + (parsed.search ? 1 : 0);
+  const targetCut = Math.min(cutAt, target.length);
+  const pathEnd = Math.min(parsed.pathname.length, targetCut);
+  if (targetCut < parsed.pathname.length) {
+    parsed.pathname = parsed.pathname.slice(0, targetCut);
+    parsed.search = "";
+  } else {
+    const searchCut = targetCut - prefixLength;
+    parsed.search = searchCut > 0 ? parsed.search.slice(0, searchCut + 1) : "";
+  }
+  parsed.hash = "";
+  return parsed.toString().replace(/\\/$/, "");
+}
+
 function decodeSearchResultUrl(value: string): string {
   let current = value.replace(/&amp;/gi, "&").replace(/\\u0026/gi, "&").replace(/\\u003d/gi, "=").replace(/\\u002f/gi, "/");
   for (let i = 0; i < 2; i += 1) {
@@ -252,6 +285,7 @@ export function urlsFromSearch(text: string): string[] {
   return [...new Set(candidates
     .map((value) => value.replace(/[>"'.,;:!?]+$/g, ""))
     .map(decodeSearchResultUrl)
+    .map(sanitizeEmbeddedJsonUrl)
     .map(canonical))]
     .filter(legitimate);
 }
