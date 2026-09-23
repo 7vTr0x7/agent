@@ -319,7 +319,8 @@ export class PublicHiringPostDiscoveryProvider {
   async discover(input: PublicHiringPostDiscoveryInput): Promise<PublicHiringPostDiscoveryResult> {
     const runtimeSignal = input.signal
       ? AbortSignal.any([input.signal, AbortSignal.timeout(PUBLIC_HIRING_RUNTIME_TIMEOUT_MS)])
-      : AbortSignal.timeout(PUBLIC_HIRING_RUNTIME_TIMEOUT_MS);\n    const maxQueries = Math.max(1, Math.min(input.maxQueries ?? 8, 12));
+      : AbortSignal.timeout(PUBLIC_HIRING_RUNTIME_TIMEOUT_MS);
+    const maxQueries = Math.max(1, Math.min(input.maxQueries ?? 8, 12));
     const roleTerms = input.targetRoles.length ? input.targetRoles.slice(0, 8) : ["Frontend Engineer","Frontend Developer","React Developer"];
     const queries = [
       ...roleTerms.slice(0, 4).map(role => `"${role}" hiring React`),
