@@ -5,7 +5,7 @@ import { MatchPipeline } from "./MatchPipeline";
 import { MatchDecisionRepository } from "./MatchDecisionRepository";
 import { SemanticJobMatcher } from "./SemanticJobMatcher";
 
-const profile: CandidateProfile = { id: "candidate-1", yearsExperience: 3, skills: ["React", "TypeScript"], targetTitles: ["Frontend Engineer"] };
+const profile: CandidateProfile = { id: "candidate-1", yearsExperience: 3, currentCompensationLpa: 6.5, skills: ["React", "TypeScript"], targetTitles: ["Frontend Engineer"] };
 const job: JobOpportunity = { id: "job-1", canonicalId: "canonical-1", canonicalUrl: "https://example.com/job-1", title: "Frontend Engineer", companyName: "Example", location: "Bengaluru", country: "India", workplaceType: "hybrid", employmentType: "full-time", description: "React and TypeScript application development.", postedAt: null, sourceUpdatedAt: new Date(), lastSeenAt: new Date(), closedAt: null, status: "ACTIVE", createdAt: new Date(), updatedAt: new Date() };
 
 describe("MatchPipeline", () => {
