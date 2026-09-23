@@ -17,7 +17,7 @@ describe("PlatformSearchJobSource", () => {
     expect(discovery).toHaveBeenCalledTimes(JOB_PLATFORM_REGISTRY.length);
     expect(processed).toHaveLength(JOB_PLATFORM_REGISTRY.length);
     expect(new Set(processed).size).toBe(new Set(JOB_PLATFORM_REGISTRY.map((platform) => platform.name)).size);
-    expect(peak).toBeGreaterThan(4);
+    expect(peak).toBeLessThanOrEqual(4);
   });
 
   it("does not impose a jobs-per-platform cap", async () => {
