@@ -254,6 +254,10 @@ export async function resolveEmployerDomainFromPublicSearch(companyName: string)
   for (const domain of [...registryDomains].slice(0, 8)) {
     if (await publicSiteConfirmsCompany(domain, name)) return domain;
   }
+
+  const linkedinCompanyDomain = await resolveEmployerDomainFromLinkedInCompanyPage(name);
+  if (linkedinCompanyDomain) return linkedinCompanyDomain;
+
   return null;
 }
 
@@ -282,6 +286,48 @@ async function fetchProviderSearchResults(query: string): Promise<string[]> {
     }
   }));
   return results.filter((value): value is string => Boolean(value));
+}
+
+async function resolveEmployerDomainFromLinkedInCompanyPage(companyName: string): Promise<string | null> {
+  const query = `site:linkedin.com/company "${companyName}"`;
+  const results = await fetchProviderSearchResults(query);
+  const companyUrls = new Set<string>();
+  for (const result of results) {
+    for (const rawUrl of result.match(/https?:\\/\\/[^\\s<>"'()]+/gi) ?? []) {
+      try {
+        const url = new URL(rawUrl);
+        if (url.hostname.toLowerCase().endsWith("linkedin.com") && /^\\/company\\//i.test(url.pathname)) {
+          companyUrls.add(`https://www.linkedin.com${url.pathname}`);
+        }
+      } catch {
+        // Ignore malformed search-result URLs.
+      }
+    }
+  }
+
+  for (const companyUrl of [...companyUrls].slice(0, 5)) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5_000);
+    try {
+      const response = await fetch(companyUrl, {
+        signal: controller.signal,
+        redirect: "follow",
+        headers: {
+          accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
+          "user-agent": "job-agent-employer-domain-resolver/3.0"
+        }
+      });
+      if (!response.ok) continue;
+      const html = await response.text();
+      const domain = domainsFromSearchText(html, companyName).find(Boolean);
+      if (domain) return domain;
+    } catch {
+      // Continue to the next independently discovered company page.
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return null;
 }
 
 async function publicSiteConfirmsCompany(domain: string, companyName: string): Promise<boolean> {
