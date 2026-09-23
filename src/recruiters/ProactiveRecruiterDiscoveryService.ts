@@ -122,9 +122,15 @@ function extractHrefUrls(value:string,baseUrl:string):string[]{
       }catch{}
     }
   };
-  for(const match of value.matchAll(/\\bhref\\s*=\\s*["']([^"']+)["']/gi))add(String(match[1]??""));
-  for(const match of value.matchAll(/\\[[^\\]]+\\]\\((https?:[^)]+)\\)/gi))add(String(match[1]??""));
+  for(const match of value.matchAll(/\bhref\s*=\s*["']([^"']+)["']/gi))add(String(match[1]??""));
+  for(const match of value.matchAll(/\b(?:data-)?(?:href|url|target|destination|clickurl|targeturl)\s*[:=]\s*["']?((?:https?:|\/\/|%3A|%2F|\\u00)[^"'<>,\s}]+)["']?/gi))add(String(match[1]??""));
+  for(const match of value.matchAll(/\[[^\]]+\]\((https?:[^)]+)\)/gi))add(String(match[1]??""));
   return [...new Set(urls)];
+}
+function decodeEscapedUrlText(value:string):string{
+  let current=value.replace(/\\u003A/gi,":").replace(/\\u003a/gi,":").replace(/\\u002F/gi,"/").replace(/\\u002f/gi,"/").replace(/\\u0026/gi,"&").replace(/\\u003D/gi,"=").replace(/\\u003d/gi,"=").replace(/\\u002E/gi,".").replace(/\\u002e/gi,".").replace(/\\\//g,"/");
+  for(let i=0;i<3;i++){try{const decoded=decodeURIComponent(current);if(decoded===current)break;current=decoded;}catch{break;}}
+  return current;
 }
 function decodeHtmlSearchUrl(value:string):string{
   let current=value.replace(/&amp;/gi,"&").replace(/\\u0026/gi,"&").replace(/\\u003d/gi,"=").replace(/\\u002f/gi,"/");
