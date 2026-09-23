@@ -71,7 +71,7 @@ async function main(): Promise<void> {
             candidate.email = sameIdentity.email;
             candidate.emailStatus = "UNVERIFIED";
             candidate.verificationEvidence = [];
-            hiringPostResult.metrics.publicEmailsFound += 1;
+
           }
         } catch (error) {
           logger.error({ error: error instanceof Error ? error.message : String(error), employer: candidate.employer }, "Public email enrichment for hiring-post author failed");
