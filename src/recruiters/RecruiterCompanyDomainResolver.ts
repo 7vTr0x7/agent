@@ -1,3 +1,5 @@
+import { sourceList } from "./PublicSearchProviderRegistry";
+
 const BLOCKED_HOSTS = new Set([
   "naukri.com", "linkedin.com", "indeed.com", "glassdoor.com", "greenhouse.io", "boards.greenhouse.io", "lever.co", "jobs.lever.co",
   "ashbyhq.com", "jobs.ashbyhq.com", "myworkdayjobs.com", "workday.com", "smartrecruiters.com", "jobs.smartrecruiters.com",
@@ -239,7 +241,47 @@ export async function resolveEmployerDomainFromPublicSearch(companyName: string)
   for (const domain of singleEngineCandidates) {
     if (await publicSiteConfirmsCompany(domain, name)) return domain;
   }
+
+  // The older four-engine resolver can return no usable URLs when providers
+  // serve anti-bot/search-infrastructure responses. Reuse the application's
+  // broader public-search registry as a bounded second pass. Candidates still
+  // require direct public-site corroboration before acceptance.
+  const registryResults = await fetchProviderSearchResults(query);
+  const registryDomains = new Set<string>();
+  for (const result of registryResults) {
+    for (const domain of domainsFromSearchText(result, name)) registryDomains.add(domain);
+  }
+  for (const domain of [...registryDomains].slice(0, 8)) {
+    if (await publicSiteConfirmsCompany(domain, name)) return domain;
+  }
   return null;
+}
+
+async function fetchProviderSearchResults(query: string): Promise<string[]> {
+  const sources = sourceList(query).filter(source =>
+    ["google-direct","bing-direct","google-jina","bing-jina","duckduckgo-jina","startpage-jina","ecosia-jina","qwant-direct"].includes(source.id)
+  ).slice(0, 8);
+  const results = await Promise.all(sources.map(async (source) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5_000);
+    try {
+      const response = await fetch(source.url, {
+        signal: controller.signal,
+        redirect: "follow",
+        headers: {
+          accept: "text/plain,text/html,application/xhtml+xml,*/*;q=0.8",
+          "user-agent": "job-agent-employer-domain-resolver/2.0",
+          ...(source.headers ?? {})
+        }
+      });
+      return response.ok ? await response.text() : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }));
+  return results.filter((value): value is string => Boolean(value));
 }
 
 async function publicSiteConfirmsCompany(domain: string, companyName: string): Promise<boolean> {
