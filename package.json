@@ -37,7 +37,8 @@
     "diagnostics:fast-jobs": "tsx scripts/fast-job-diagnostics.ts",
     "content-first:once": "tsx scripts/public-hiring-posts-once.ts",
     "public-contact-resources:once": "tsx scripts/public-contact-resources-once.ts",
-    "application-email:once": "tsx scripts/application-email-outcome-once.ts"
+    "application-email:once": "tsx scripts/application-email-outcome-once.ts",
+    "typecheck:scripts": "tsc --noEmit --target ES2022 --module CommonJS --moduleResolution Node --strict --esModuleInterop --skipLibCheck --noUncheckedIndexedAccess --noImplicitOverride $(find scripts -maxdepth 1 -name '*.ts' ! -name '*.test.ts' -print)"
   },
   "dependencies": {
     "dotenv": "^17.2.1",
