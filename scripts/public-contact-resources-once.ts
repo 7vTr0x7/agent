@@ -21,7 +21,7 @@ type FetchResult =
  | {ok:true;text:string;contentType:string;finalUrl:string;httpStatus:number;bytesRead:number;elapsedMs:number}
  | {ok:false;failureReason:"HTTP_NON_2XX"|"TIMEOUT"|"NETWORK_ERROR"|"REDIRECT_ERROR"|"CONTENT_TOO_LARGE"|"EMPTY_BODY"|"UNSUPPORTED_CONTENT_TYPE"|"PARSER_ERROR"|"EMAIL_EXTRACTION_ERROR";httpStatus?:number;contentType?:string;finalUrl?:string;bytesRead?:number;elapsedMs:number;errorCode?:string};
 
-function isPrivateAddress(address:string):boolean{
+export function isPrivateAddress(address:string):boolean{
  const version=isIP(address);
  if(version===4){
   const p=address.split(".").map(Number);if(p.length!==4||p.some(n=>!Number.isInteger(n)))return true;
