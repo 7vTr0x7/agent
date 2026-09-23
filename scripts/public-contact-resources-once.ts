@@ -245,8 +245,9 @@ function decodeSearchResultUrl(value: string): string {
 export function urlsFromSearch(text: string): string[] {
   const candidates = [
     ...(text.match(/https?:\/\/[^\s<>()\]]+/gi) ?? []),
-    ...[...text.matchAll(/\\bhref\\s*=\\s*["']([^"']+)["']/gi)].map((m) => String(m[1] ?? "")),
-    ...[...text.matchAll(/\\[[^\\]]+\\]\\((https?:[^)]+)\\)/gi)].map((m) => String(m[1] ?? ""))
+    ...[...text.matchAll(/\bhref\s*=\s*["']([^"']+)["']/gi)].map((m) => String(m[1] ?? "")),
+    ...[...text.matchAll(/\b(?:data-)?(?:href|url|target|destination|clickurl|targeturl)\s*[:=]\s*["']?((?:https?:|\/\/|%3A|%2F|\\u00)[^"'<>,\s}]+)["']?/gi)].map((m) => String(m[1] ?? "")),
+    ...[...text.matchAll(/\[[^\]]+\]\((https?:[^)]+)\)/gi)].map((m) => String(m[1] ?? ""))
   ];
   return [...new Set(candidates
     .map((value) => value.replace(/[>"'.,;:!?]+$/g, ""))
