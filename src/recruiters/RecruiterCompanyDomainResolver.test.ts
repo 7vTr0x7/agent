@@ -157,6 +157,24 @@ describe("RecruiterCompanyDomainResolver", () => {
     }
   });
 
+  it("decodes an encoded LinkedIn company search result before fetching company evidence", async () => {
+    const originalFetch = globalThis.fetch;
+    const companyUrl = "https://www.linkedin.com/company/piplnow-llc";
+    const payload = Buffer.from(companyUrl, "utf8").toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+    const redirect = `https://www.bing.com/ck/a?u=a1${payload}`;
+    globalThis.fetch = jest.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("bing.com/search")) return new Response(`<a href="${redirect}">PiplNow LLC | LinkedIn</a>`, { status: 200 });
+      if (url === companyUrl) return new Response('<html>Website: https://www.piplnow.com</html>', { status: 200 });
+      return new Response("", { status: 503 });
+    }) as typeof fetch;
+    try {
+      await expect(resolveEmployerDomainFromPublicSearch("PiplNow LLC")).resolves.toBe("piplnow.com");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("does not accept a single search result when the fetched site does not corroborate the employer", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = jest.fn(async (input: string | URL) => {
