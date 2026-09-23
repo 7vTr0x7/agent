@@ -1,4 +1,4 @@
-import { extractEmails, relevance, urlsFromSearch } from "./public-contact-resources-once";
+import { extractEmails, isPrivateAddress, relevance, urlsFromSearch } from "./public-contact-resources-once";
 
 describe("public contact resource extraction", () => {
   it("normalizes discovered emails and excludes generic machine mailboxes", () => {
@@ -24,5 +24,14 @@ describe("public contact resource extraction", () => {
   it("does not treat search infrastructure as a public resource", () => {
     expect(urlsFromSearch('https://www.qwant.com/?q=frontend https://api.qwant.com/v3 https://about.qwant.com/en/" https://example.com/careers'))
       .toEqual(["https://example.com/careers"]);
+  });
+
+  it("blocks private and non-routable fetch addresses", () => {
+    expect(isPrivateAddress("127.0.0.1")).toBe(true);
+    expect(isPrivateAddress("10.0.0.8")).toBe(true);
+    expect(isPrivateAddress("192.168.1.10")).toBe(true);
+    expect(isPrivateAddress("::1")).toBe(true);
+    expect(isPrivateAddress("fc00::1")).toBe(true);
+    expect(isPrivateAddress("8.8.8.8")).toBe(false);
   });
 });
