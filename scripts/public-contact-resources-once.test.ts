@@ -21,6 +21,11 @@ describe("public contact resource extraction", () => {
       .toEqual(["https://example.com/careers","https://example.com/jobs","https://example.com/team"]);
   });
 
+  it("does not turn embedded Schema.org JSON into a resource URL", () => {
+    const noisy = 'https://remotefirstjobs.com/companies/example/jobs/frontend%22,%22email%22:%22careers@example.com%22,%22logo%22:%22https://example.com/logo.png%22';
+    expect(urlsFromSearch(noisy)).toEqual(["https://remotefirstjobs.com/companies/example/jobs/frontend"]);
+  });
+
   it("rejects known blocked job-board hosts while preserving unrelated domains", () => {
     expect(urlsFromSearch("https://www.simplyhired.com/jobs https://foo.simplyhired.com/careers https://www.joblist.com https://www.snagajob.com https://example.com/careers"))
       .toEqual(["https://example.com/careers"]);
