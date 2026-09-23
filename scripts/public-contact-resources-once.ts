@@ -249,7 +249,7 @@ function sanitizeEmbeddedJsonUrl(value: string): string {
     parsed.search = searchCut > 0 ? parsed.search.slice(0, searchCut + 1) : "";
   }
   parsed.hash = "";
-  return parsed.toString().replace(/\\/$/, "");
+  return parsed.toString().replace(/\/$/, "");
 }
 
 function decodeSearchResultUrl(value: string): string {
