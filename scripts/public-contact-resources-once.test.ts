@@ -34,4 +34,8 @@ describe("public contact resource extraction", () => {
     expect(isPrivateAddress("fc00::1")).toBe(true);
     expect(isPrivateAddress("8.8.8.8")).toBe(false);
   });
+
+  it("rejects non-http resource URLs", () => {
+    expect(urlsFromSearch("ftp://example.com/contacts https://example.com/careers")).toEqual(["https://example.com/careers"]);
+  });
 });
