@@ -233,7 +233,8 @@ function sanitizeEmbeddedJsonUrl(value: string): string {
   })();
   if (!parsed) return value;
   const target = parsed.pathname + parsed.search;
-  let cutAt = -1;
+  const encodedQuoteInPath = parsed.pathname.search(/%22/i);
+  let cutAt = encodedQuoteInPath >= 0 ? encodedQuoteInPath : -1;
   for (const marker of markers) {
     const match = marker.exec(target);
     if (match?.index !== undefined && (cutAt === -1 || match.index < cutAt)) cutAt = match.index;
