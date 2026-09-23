@@ -45,8 +45,7 @@ async function main(): Promise<void> {
       yearsExperience: profile.yearsExperience,
       location: profile.location,
       preferredLocations,
-      remoteEligible: process.env.CANDIDATE_REMOTE_ELIGIBLE !== "false"
-    }, {
+      remoteEligible: process.env.CANDIDATE_REMOTE_ELIGIBLE !== "false",
       maxQueries: Number.parseInt(process.env.PUBLIC_HIRING_POST_MAX_QUERIES ?? "8", 10)
     });
 
