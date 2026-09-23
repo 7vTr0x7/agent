@@ -113,7 +113,9 @@ function unwrapSearchResultUrl(value:string):string{
 function extractHrefUrls(value:string,baseUrl:string):string[]{
   const urls:string[]=[];
   for(const match of value.matchAll(/\\bhref\\s*=\\s*["']([^"']+)["']/gi)){
-    const raw=String(match[1]??"").replace(/&amp;/gi,"&").replace(/&quot;/gi,'"').replace(/\\u002f/gi,"/");
+    const raw=String(match[1]??"").replace(/&amp;/gi,"&").replace(/&quot;/gi,'"').replace(/\\u002f/gi,"/")
+    .replace(/\\\//g,"/")
+    .replace(/&#x2f;|&#47;/gi,"/");
     if(!raw||raw.startsWith("javascript:")||raw.startsWith("#"))continue;
     try{
       const resolved=new URL(raw,baseUrl);
