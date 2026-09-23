@@ -290,7 +290,7 @@ async function main(): Promise<void> {
     `"send your resume" "React developer" India ${excludedSites}`,
     `"talent acquisition" React Bengaluru email ${excludedSites}`,
     `"hiring" "Next.js" Bengaluru email ${excludedSites}`,
-    `site:github.com careers contact recruiter email ${excludedSites}`
+    `site:github.com careers contact recruiter email ${excludedSites}`,`site:stackforce.co/talent recruiter React Bengaluru`,`site:stackforce.co/talent technical recruiter Bangalore`,`site:humantic.ai/public-profile recruiter React Bengaluru`,`site:tilt.io/profiles recruiter Bengaluru`,`"send your resume" "technical recruiter" Bengaluru ${excludedSites}`
   ];
 
   const configuredSeeds = (process.env.PUBLIC_CONTACT_RESOURCE_SEED_URLS ?? "")
