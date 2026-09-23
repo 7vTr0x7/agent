@@ -220,8 +220,25 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
+function decodeBingSearchRedirect(value: string): string | null {
+  try {
+    const parsed = new URL(value);
+    if (!/^(?:www\\.)?bing\\.com$/i.test(parsed.hostname) || parsed.pathname.toLowerCase() !== "/ck/a") return null;
+    const encoded = parsed.searchParams.get("u");
+    if (!encoded) return null;
+    const payload = encoded.startsWith("a1") ? encoded.slice(2) : encoded;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "=");
+    const decoded = Buffer.from(normalized, "base64").toString("utf8");
+    return /^https?:\\/\\//i.test(decoded) ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
 function decodeSearchResultUrl(value: string): string {
   let current = value.replace(/&amp;/gi, "&").replace(/\\u0026/gi, "&").replace(/\\u003d/gi, "=").replace(/\\u002f/gi, "/");
+  const bingDestination = decodeBingSearchRedirect(current);
+  if (bingDestination) return bingDestination;
   for (let i = 0; i < 2; i += 1) {
     try {
       const decoded = decodeURIComponent(current);
