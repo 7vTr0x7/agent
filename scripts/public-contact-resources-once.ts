@@ -221,8 +221,24 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 }
 
 export function urlsFromSearch(text: string): string[] {
-  const candidates = text.match(/https?:\/\/[^\s<>()\]]+/gi) ?? [];
-  return [...new Set(candidates.map((value) => value.replace(/[>"'.,;:!?]+$/g, "")).map(canonical))].filter(legitimate);
+  const decoded = text
+    .replace(/&amp;/gi, "&")
+    .replace(/\\u002f/gi, "/")
+    .replace(/\\\//g, "/")
+    .replace(/&#x2f;|&#47;/gi, "/")
+    .replace(/%3A/gi, ":")
+    .replace(/%2F/gi, "/")
+    .replace(/%3F/gi, "?")
+    .replace(/%3D/gi, "=")
+    .replace(/%26/gi, "&");
+  const candidates = [
+    ...(decoded.match(/https?:\/\/[^\s<>()\]]+/gi) ?? []),
+    ...[...decoded.matchAll(/href\\s*=\\s*["']([^"']+)["']/gi)].map((match) => match[1] ?? "")
+  ];
+  return [...new Set(candidates
+    .map((value) => value.replace(/[>"'.,;:!?]+$/g, ""))
+    .map(canonical))]
+    .filter(legitimate);
 }
 
 function resourceLooksRelevant(url: string): boolean {
