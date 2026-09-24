@@ -144,7 +144,7 @@ function extractEmployer(text: string, email?: string, profileText?: string, sou
   const strongAt = haystack.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80})(?=\s*[.!?](?:\s|$)|\s+(?:Location|Experience|Skills?)\s*:|$)/)?.[1]?.trim();
   const linkedinEmployer = haystack.match(/(?:^|\n)[^\n]{1,120}?\s+-\s+([A-Z][A-Za-z0-9&.' -]{2,80})\s+\|\s+LinkedIn/i)?.[1]?.trim();
   const hiringEmployer = haystack.match(/([A-Z][A-Za-z0-9&.' -]{2,80})\s+(?:is|are)\s+(?:hiring|looking for)/i)?.[1]?.trim();
-  const explicitCompany = haystack.match(/\b(?:company|employer|organization|organisation)\s*[:=-]\s*([A-Z][A-Za-z0-9&.' -]{2,80})/i)?.[1]?.trim();
+  const explicitCompany = haystack.match(/\b(?:company|employer|organization|organisation)\s*[:=-]\s*([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\s+(?:frontend|front-end|react|next\.js|javascript|typescript|software|full[ -]?stack|job\s+description|responsibilities|qualifications|employment\s+type|apply\s+(?:now|here)|\d{4})\b|$)/i)?.[1]?.trim();
   let name = strongAt || linkedinEmployer || hiringEmployer || explicitCompany;
   const urlDomains = [...haystack.matchAll(/https?:\/\/([^\s/<>"']+)/gi)]
     .map(m => normalizeDomain(m[1] ?? ""))
