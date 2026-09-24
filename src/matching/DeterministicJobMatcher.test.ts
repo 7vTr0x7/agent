@@ -143,6 +143,7 @@ describe("DeterministicJobMatcher", () => {
     expect(result.matchScore).toBeGreaterThanOrEqual(70);
     expect(result.decision).toBe("APPLY");
   });
+
   it("auto-applies a strong worldwide remote target role", () => {
     const worldwide: JobOpportunity = {
       ...job("React, Next.js and TypeScript are required. Remote worldwide."),
@@ -155,6 +156,20 @@ describe("DeterministicJobMatcher", () => {
     const result = matcher.evaluate(worldwide, profile);
     expect(result.geography).toBe("REMOTE_WORLDWIDE");
     expect(result.decision).toBe("APPLY");
+  });
+
+  it("routes senior worldwide roles to review when applicant-location evidence is not present", () => {
+    const worldwideSenior: JobOpportunity = {
+      ...job("React, Next.js and Node.js are required. Remote worldwide.", "Senior Full Stack Engineer"),
+      location: "Worldwide",
+      country: null,
+      workplaceType: "remote",
+      postedAt: new Date("2026-09-24T12:00:00Z")
+    };
+    const result = matcher.evaluate(worldwideSenior, profile);
+    expect(result.geography).toBe("REMOTE_WORLDWIDE");
+    expect(result.seniority).toBe("SENIOR_COMPATIBLE");
+    expect(result.decision).toBe("REVIEW");
   });
 
   it("rejects a remote role explicitly restricted to a foreign country in the title", () => {
