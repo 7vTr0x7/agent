@@ -21,13 +21,22 @@ if [[ "${JOB_AGENT_LOCAL_RESET:-false}" == "true" ]]; then
 fi
 
 if ! docker inspect "$POSTGRES" >/dev/null 2>&1; then
-  docker run -d --name "$POSTGRES" --network "$NETWORK" \
+  if ! docker create --name "$POSTGRES" --network "$NETWORK" \
     -e POSTGRES_DB="$DB_NAME" -e POSTGRES_USER="$DB_USER" -e POSTGRES_PASSWORD="$DB_PASSWORD" \
     --restart unless-stopped \
-    postgres:17-alpine >/dev/null
+    postgres:17-alpine >/dev/null; then
+    echo "Failed to create PostgreSQL container." >&2
+    docker network inspect "$NETWORK" >&2 || true
+    exit 1
+  fi
 fi
 
 docker network connect "$NETWORK" "$POSTGRES" >/dev/null 2>&1 || true
+if ! docker start "$POSTGRES" >/dev/null 2>&1; then
+  echo "Failed to start PostgreSQL container; container logs follow." >&2
+  docker logs "$POSTGRES" >&2 || true
+  exit 1
+fi
 for i in $(seq 1 60); do
   if docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then break; fi
   sleep 1
@@ -80,8 +89,6 @@ for i in $(seq 1 30); do
 done
 curl -fsS "http://127.0.0.1:${API_PORT}/healthz" >/dev/null
 
-# Opportunistic enrichments run independently so a contact/content source failure
-# never stops the primary discovery/matching/application-dry-run worker.
 docker exec -d "$APP" env \
   DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
   CANDIDATE_PROFILE_ID="${CANDIDATE_PROFILE_ID:-local-runtime-candidate}" \
