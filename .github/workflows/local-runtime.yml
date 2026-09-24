@@ -52,16 +52,18 @@ jobs:
       - name: Verify current product APIs and dashboard
         run: |
           set -euo pipefail
+          failed=0
           check_endpoint() {
             local name="$1"
             local url="$2"
             local body="/tmp/${name}.json"
             local code
             code="$(curl -sS -o "$body" -w "%{http_code}" "$url" || true)"
+            printf "%s" "$code" > "/tmp/${name}.status"
             echo "${name} HTTP ${code}"
             if [ "$code" != "200" ]; then
               cat "$body" >&2 || true
-              exit 1
+              failed=1
             fi
           }
           check_endpoint api-matches 'http://127.0.0.1:3100/api/matches?limit=100'
@@ -70,6 +72,7 @@ jobs:
           check_endpoint api-content 'http://127.0.0.1:3100/api/content?limit=100'
           check_endpoint api-source-health 'http://127.0.0.1:3100/api/source-health'
           check_endpoint dashboard 'http://127.0.0.1:3100/'
+          if [ "$failed" -ne 0 ]; then exit 1; fi
           grep -q 'Top Matches' /tmp/dashboard.json
           grep -q 'Recruiter Leads' /tmp/dashboard.json
           grep -q 'Public Contact Evidence' /tmp/dashboard.json
@@ -192,7 +195,7 @@ jobs:
           set -euo pipefail
           rm -rf /tmp/job-agent-local-runtime-evidence
           mkdir -p /tmp/job-agent-local-runtime-evidence
-          for file in /tmp/health.json /tmp/summary.json /tmp/jobs.json /tmp/applications.json /tmp/run1-summary.json /tmp/run1-applications.json /tmp/run1-jobs.txt /tmp/run1-matches.txt /tmp/run1-applications.txt /tmp/run2-summary.json /tmp/run2-jobs.txt /tmp/run2-matches.txt /tmp/run3-summary.json /tmp/run3-jobs.txt /tmp/run3-matches.txt /tmp/local-status.txt /tmp/local-agent.log /tmp/job-agent-local-recruiter.txt /tmp/job-agent-local-contacts.txt /tmp/job-agent-local-content.txt; do
+          for file in /tmp/health.json /tmp/summary.json /tmp/jobs.json /tmp/applications.json /tmp/run1-summary.json /tmp/run1-applications.json /tmp/run1-jobs.txt /tmp/run1-matches.txt /tmp/run1-applications.txt /tmp/run2-summary.json /tmp/run2-jobs.txt /tmp/run2-matches.txt /tmp/run3-summary.json /tmp/run3-jobs.txt /tmp/run3-matches.txt /tmp/local-status.txt /tmp/local-agent.log /tmp/job-agent-local-recruiter.txt /tmp/job-agent-local-contacts.txt /tmp/job-agent-local-content.txt /tmp/api-*.json /tmp/api-*.status; do
             test ! -e "$file" || cp -f "$file" /tmp/job-agent-local-runtime-evidence/
           done
           docker logs job-agent-local-recruiter 2>&1 > /tmp/job-agent-local-runtime-evidence/recruiter-container.log || true
