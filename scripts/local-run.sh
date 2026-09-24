@@ -11,6 +11,7 @@ DB_PASSWORD="${JOB_AGENT_LOCAL_DB_PASSWORD:-local_runtime_password}"
 API_PORT="${JOB_AGENT_LOCAL_API_PORT:-3000}"
 
 command -v docker >/dev/null || { echo "Docker is required." >&2; exit 1; }
+command -v curl >/dev/null || { echo "curl is required." >&2; exit 1; }
 
 docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK" >/dev/null
 
@@ -79,11 +80,31 @@ for i in $(seq 1 30); do
 done
 curl -fsS "http://127.0.0.1:${API_PORT}/healthz" >/dev/null
 
+# Opportunistic enrichments run independently so a contact/content source failure
+# never stops the primary discovery/matching/application-dry-run worker.
+docker exec -d "$APP" env \
+  DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
+  CANDIDATE_PROFILE_ID="${CANDIDATE_PROFILE_ID:-local-runtime-candidate}" \
+  CANDIDATE_YEARS_EXPERIENCE="${CANDIDATE_YEARS_EXPERIENCE:-3}" \
+  CANDIDATE_SKILLS="${CANDIDATE_SKILLS:-React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS}" \
+  CANDIDATE_TARGET_TITLES="${CANDIDATE_TARGET_TITLES:-Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer}" \
+  CANDIDATE_LOCATION="${CANDIDATE_LOCATION:-India}" \
+  CANDIDATE_PREFERRED_LOCATIONS="${CANDIDATE_PREFERRED_LOCATIONS:-Bengaluru,Bangalore,India,Remote}" \
+  CANDIDATE_REMOTE_ELIGIBLE=true \
+  npm run public-contact-resources:once >/tmp/job-agent-contact-resources.log 2>&1 || true
+
+docker exec -d "$APP" env \
+  DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
+  CANDIDATE_PROFILE_ID="${CANDIDATE_PROFILE_ID:-local-runtime-candidate}" \
+  npm run content-first:once >/tmp/job-agent-content.log 2>&1 || true
+
 echo "Job Agent local runtime is running."
 echo "Dashboard: http://127.0.0.1:${API_PORT}/"
 echo "API summary: http://127.0.0.1:${API_PORT}/api/summary"
 echo "App container: $APP"
 echo "PostgreSQL container: $POSTGRES"
 echo "Logs: docker logs -f $APP"
+echo "Contact enrichment log: docker exec $APP cat /tmp/job-agent-contact-resources.log"
+echo "Content enrichment log: docker exec $APP cat /tmp/job-agent-content.log"
 echo "Stop: npm run local:stop"
 echo "Reset database: JOB_AGENT_LOCAL_RESET=true npm run local:run"
