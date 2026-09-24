@@ -210,8 +210,42 @@ export class JobAgentApiServer {
       return;
     }
 
-    if (url.pathname === "/api/summary") {
-      const summary = await this.database.query<SummaryRow>(
+    if (url.pathname === "/api/matches") {
+      const limit = parseLimit(url.searchParams.get("limit"));
+      const decisionParam = (url.searchParams.get("decision") ?? "").trim().toUpperCase();
+      const params: unknown[] = [];
+      let where = "";
+      if (["APPLY","REVIEW","REJECT"].includes(decisionParam)) { params.push(decisionParam); where = "WHERE latest.decision=$1"; }
+      params.push(limit);
+      const limitParam = `${params.length}`;
+      const matches = await this.database.query(
+        `WITH latest AS (
+           SELECT DISTINCT ON (job_opportunity_id)
+             job_opportunity_id,decision,match_score,reason,created_at
+           FROM match_decisions
+           ORDER BY job_opportunity_id,created_at DESC
+         )
+         SELECT latest.job_opportunity_id AS "jobId",
+                j.company_name AS company,
+                j.title AS role,
+                j.location,
+                j.canonical_url AS url,
+                latest.decision,
+                latest.match_score AS score,
+                latest.reason,
+                latest.created_at AS "decidedAt"
+           FROM latest
+           JOIN job_opportunities j ON j.id=latest.job_opportunity_id
+          ${where}
+          ORDER BY latest.match_score DESC NULLS LAST,j.posted_at DESC NULLS LAST
+          LIMIT ${limitParam}`,
+        params
+      );
+      writeJson(response, 200, { matches: matches.rows });
+      return;
+    }
+
+    if (url.pathname === "/api/summary") {      const summary = await this.database.query<SummaryRow>(
         `WITH latest_matches AS (
            SELECT DISTINCT ON (job_opportunity_id)
              job_opportunity_id,decision,match_score,reason,created_at
