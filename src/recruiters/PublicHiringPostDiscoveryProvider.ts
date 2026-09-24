@@ -391,9 +391,12 @@ export class PublicHiringPostDiscoveryProvider {
           // be fetched, so author/employer context is not lost merely because the shell
           // contains hiring keywords.
           const fetchedPostPage = await (input.fetchText ? input.fetchText(url, runtimeSignal) : fetchText(url, runtimeSignal, 6500));
-          const evidence = fetchedPostPage
-            ? clean(fetchedPostPage).slice(0, 12000)
-            : (indexedPost ? clean(discoveryEvidence).slice(0, 7000) : "");
+          const fetchedEvidence = fetchedPostPage ? clean(fetchedPostPage).slice(0, 12000) : "";
+          const jobLikeDestination = /(?:\/(?:jobs?|careers?|vacanc(?:y|ies)|positions?|openings?|roles?|hiring)(?:\/|$))/i.test(new URL(url).pathname);
+          const searchEvidenceIsUsable = HIRING_INTENT.test(discoveryEvidence) && (indexedPost || jobLikeDestination);
+          const evidence = HIRING_INTENT.test(fetchedEvidence)
+            ? fetchedEvidence
+            : (searchEvidenceIsUsable ? clean(discoveryEvidence).slice(0, 7000) : "");
           if (!evidence || !hasHiringIntent(evidence)) continue;
           metrics.hiringIntentPosts++;
           const extractedRole = extractRole(evidence);
