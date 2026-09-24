@@ -10,6 +10,38 @@ describe("PlatformJobPageParser", () => {
     expect(result.diagnostics.parser).toBe("json-ld");
   });
 
+
+  it("parses a Cutshort public job detail page without structured data", () => {
+    const html = `
+      <html>
+        <head><link rel="canonical" href="https://cutshort.io/job/Full-Stack-Engineer-Frontend-Focus-Bengaluru-Auxo-fkTnz"></head>
+        <body>
+          <h1>Full Stack Engineer (Frontend Focus)</h1>
+          <h2>at <a href="/company/auxo-ai">Auxo AI</a></h2>
+          <div>3 - 10 yrs</div>
+          <div>₹10L - ₹55L / yr</div>
+          <div>Location : Hyderabad/Bangalore/Gurgaon/Mumbai</div>
+          <div>Skills</div>
+          <div>React.js NextJs (Next.js) TypeScript Javascript RESTful APIs NodeJS (Node.js)</div>
+          <h3>Role Summary</h3>
+          <p>We're looking for a Full Stack Engineer with a frontend focus to build React and Next.js applications.</p>
+          <p>Minimum Qualifications: 3–7 years of software engineering experience. Strong experience with React, Next.js, TypeScript and JavaScript.</p>
+          <h3>Users love Cutshort</h3>
+        </body>
+      </html>`;
+    const result = parsePlatformJobPage(html, "https://cutshort.io/job/Full-Stack-Engineer-Frontend-Focus-Bengaluru-Auxo-fkTnz", "Cutshort");
+    expect(result.job).not.toBeNull();
+    expect(result.job).toMatchObject({
+      title: "Full Stack Engineer (Frontend Focus)",
+      companyName: "Auxo AI",
+      location: "Hyderabad/Bangalore/Gurgaon/Mumbai",
+      country: "India",
+      workplaceType: "onsite"
+    });
+    expect(result.job?.description).toContain("React and Next.js");
+    expect(result.diagnostics.parser).toBe("html-labels");
+  });
+
   it("uses applicant location requirements instead of inventing Worldwide", () => {
     const html = `<script type="application/ld+json">{"@type":"JobPosting","title":"Frontend Engineer","description":"Build React apps","hiringOrganization":{"name":"Acme"},"jobLocationType":"TELECOMMUTE","applicantLocationRequirements":{"@type":"Country","name":"India"}}</script>`;
     const result = parsePlatformJobPage(html, "https://jobs.example/acme/remote", "Example Board");
