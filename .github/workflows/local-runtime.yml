@@ -60,8 +60,9 @@ jobs:
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities;"
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM match_decisions;"
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;"
-          grep -q 'automationEnabled":true' /tmp/local-agent.log
+          grep -q 'automationEnabled":false' /tmp/local-agent.log
           grep -q 'applicationDryRun":true' /tmp/local-agent.log
+          grep -q 'safeDryRunWorkerEnabled":true' /tmp/local-agent.log
           grep -q 'applicationLiveEnabled":false' /tmp/local-agent.log
           grep -q 'gmailEnabled":false' /tmp/local-agent.log
           grep -q 'outboundEnabled":false' /tmp/local-agent.log
