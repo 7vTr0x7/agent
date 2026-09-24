@@ -22,37 +22,20 @@ async function main(): Promise<void> {
     await new MigrationRunner(database).run();
     const profile = await ConfiguredCandidateProfileResolver.fromEnvironment().getById(process.env.CANDIDATE_PROFILE_ID ?? "");
     if (!profile) throw new Error("Configured candidate profile could not be resolved.");
-    const target = await database.query<{job_opportunity_id:string;company_name:string;title:string;canonical_url:string;company_domain:string|null;description:string;location:string|null;country:string|null;workplace_type:"onsite"|"remote"|"hybrid"|null;employment_type:string|null;posted_at:Date|null;updated_at:Date|null}>(
-      `SELECT jo.id AS job_opportunity_id, jo.company_name, jo.title, jo.canonical_url, jo.company_domain, jo.description, jo.location, jo.country, jo.workplace_type, jo.employment_type, jo.posted_at, jo.updated_at FROM job_opportunities jo JOIN match_decisions md ON md.job_opportunity_id=jo.id AND md.candidate_profile_id=$1 WHERE md.decision='APPLY' AND jo.status='ACTIVE' AND jo.canonical_url IS NOT NULL AND jo.canonical_url <> '' ORDER BY md.match_score DESC, jo.posted_at DESC NULLS LAST LIMIT 1`, [profile.id]);
+    const target = await database.query<{job_opportunity_id:string;company_name:string;title:string;canonical_url:string;company_domain:string|null;description:string;location:string|null;country:string|null;workplace_type:"onsite"|"remote"|"hybrid"|null;employment_type:string|null;posted_at:Date|null;updated_at:Date|null}>(`SELECT jo.id AS job_opportunity_id, jo.company_name, jo.title, jo.canonical_url, jo.company_domain, jo.description, jo.location, jo.country, jo.workplace_type, jo.employment_type, jo.posted_at, jo.updated_at FROM job_opportunities jo JOIN match_decisions md ON md.job_opportunity_id=jo.id AND md.candidate_profile_id=$1 WHERE md.decision='APPLY' AND jo.status='ACTIVE' AND jo.canonical_url IS NOT NULL AND jo.canonical_url <> '' ORDER BY md.match_score DESC, jo.posted_at DESC NULLS LAST LIMIT 1`, [profile.id]);
     const candidate = target.rows[0];
     if (!candidate) throw new Error("No ACTIVE APPLY job is available for application/email runtime.");
     let job = candidate;
     if (!job.company_domain) {
       const trustedDomain = await resolveEmployerDomainFromTrustedJobSource(job.canonical_url, job.company_name);
-      if (trustedDomain) {
-        await database.query(`UPDATE job_opportunities SET company_domain=$1, updated_at=NOW() WHERE id=$2`, [trustedDomain, job.job_opportunity_id]);
-        job = { ...job, company_domain: trustedDomain };
-        events.push({ event:"application-employer-domain-enriched", company:job.company_name, domain:trustedDomain, sourceUrl:job.canonical_url, evidence:"trusted-job-source" });
-      }
+      if (trustedDomain) { await database.query(`UPDATE job_opportunities SET company_domain=$1, updated_at=NOW() WHERE id=$2`, [trustedDomain, job.job_opportunity_id]); job = { ...job, company_domain: trustedDomain }; events.push({ event:"application-employer-domain-enriched", company:job.company_name, domain:trustedDomain, sourceUrl:job.canonical_url, evidence:"trusted-job-source" }); }
     }
     if (!job.company_domain) {
       const enricher = new JobDetailEnricher({ timeoutMs:15_000, concurrency:1, maxRedirects:3 });
       const enriched = await enricher.enrich({source:"application-preflight",sourceJobId:job.job_opportunity_id,url:job.canonical_url,title:job.title,companyName:job.company_name,location:job.location,country:job.country,workplaceType:job.workplace_type,employmentType:job.employment_type,description:job.description,postedAt:job.posted_at,updatedAt:job.updated_at,contentHash:job.job_opportunity_id}, undefined, true);
-      if (enriched.companyDomain) {
-        await database.query(`UPDATE job_opportunities SET company_domain=$1, updated_at=NOW() WHERE id=$2`, [enriched.companyDomain, job.job_opportunity_id]);
-        job = { ...job, company_domain: enriched.companyDomain };
-        events.push({ event:"application-employer-domain-enriched", company:job.company_name, domain:enriched.companyDomain, sourceUrl:job.canonical_url, evidence:"job-detail" });
-      }
+      if (enriched.companyDomain) { await database.query(`UPDATE job_opportunities SET company_domain=$1, updated_at=NOW() WHERE id=$2`, [enriched.companyDomain, job.job_opportunity_id]); job = { ...job, company_domain: enriched.companyDomain }; events.push({ event:"application-employer-domain-enriched", company:job.company_name, domain:enriched.companyDomain, sourceUrl:job.canonical_url, evidence:"job-detail" }); }
     }
-    if (!job.company_domain) {
-      const companyPageEvidence = await resolveEmployerDomainFromPlatformCompanyPage(job.canonical_url, job.company_name);
-      if (companyPageEvidence) {
-        await database.query(`UPDATE job_opportunities SET company_domain=$1, updated_at=NOW() WHERE id=$2`, [companyPageEvidence.domain, job.job_opportunity_id]);
-        job = { ...job, company_domain: companyPageEvidence.domain };
-        events.push({ event:"application-employer-domain-enriched", company:job.company_name, domain:companyPageEvidence.domain, sourceUrl:companyPageEvidence.sourceUrl, evidence:"platform-company-page" });
-      }
-    }
-    if (!job.company_domain) throw new Error("No ACTIVE APPLY job has validated employer-domain evidence after application preflight enrichment.");
+    if (!job.company_domain) events.push({ event:"application-email-discovery-blocked", company:job.company_name, reason:"validated employer-domain evidence unavailable; application may continue safely without email discovery" });
     const queue = new TaskQueue(database);
     const taskId = await queue.enqueue({taskType:APPLY_JOB_TASK,payload:{jobOpportunityId:job.job_opportunity_id,candidateProfileId:profile.id},priority:100,dedupeKey:`fast-application-email:${job.job_opportunity_id}:${profile.id}`});
     const workerId=`fast-application-email-${process.pid}`;
