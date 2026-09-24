@@ -500,7 +500,8 @@ export class PublicHiringPostDiscoveryProvider {
         const employerContact = extractEmployer(post.text + " " + post.discoveryText, directEmail, profileText, post.url);
         const employerEmail = directEmail?.toLowerCase();
         const extractedRole = extractRole(post.text);
-        const contactFreshness = freshness(post.text);
+        const contactFreshnessValue = freshness(post.text);
+        const contactFreshness = contactFreshnessValue === "unknown" ? freshness(post.discoveryText) : contactFreshnessValue;
         if (employerContact.name && extractedRole.role && extractedRole.score >= 75 && contactFreshness !== "unknown") {
           metrics.employersExtracted++;
           metrics.validatedContacts++;
