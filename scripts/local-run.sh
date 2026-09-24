@@ -58,7 +58,7 @@ docker run -d --name "$APP" --network "$NETWORK" -p "${API_PORT}:3000" \
   -e GMAIL_ENABLED=false \
   -e EMAIL_ENABLED=false \
   -e JOB_DISCOVERY_ENABLED=true \
-  -e PROACTIVE_RECRUITER_ENABLED=true \
+  -e PROACTIVE_RECRUITER_ENABLED=false \
   -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
   -e RECRUITER_OUTREACH_ENABLED=false \
   -e RECRUITER_OUTREACH_DRY_RUN=true \
@@ -92,6 +92,18 @@ if ! curl -fsS "http://127.0.0.1:${API_PORT}/healthz" >/dev/null 2>&1; then
   exit 1
 fi
 
+# Slow enrichment runs independently so it can never occupy the core job/matching worker.
+docker exec -d "$APP" env \
+  DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
+  CANDIDATE_PROFILE_ID="${CANDIDATE_PROFILE_ID:-local-runtime-candidate}" \
+  CANDIDATE_YEARS_EXPERIENCE="${CANDIDATE_YEARS_EXPERIENCE:-3}" \
+  CANDIDATE_SKILLS="${CANDIDATE_SKILLS:-React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS}" \
+  CANDIDATE_TARGET_TITLES="${CANDIDATE_TARGET_TITLES:-Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer}" \
+  CANDIDATE_LOCATION="${CANDIDATE_LOCATION:-India}" \
+  CANDIDATE_PREFERRED_LOCATIONS="${CANDIDATE_PREFERRED_LOCATIONS:-Bengaluru,Bangalore,India,Remote}" \
+  CANDIDATE_REMOTE_ELIGIBLE=true \
+  bash -lc 'while true; do npm run proactive-recruiter:once >>/tmp/job-agent-proactive-recruiter.log 2>&1 || true; sleep 900; done'
+
 docker exec -d "$APP" env \
   DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
   CANDIDATE_PROFILE_ID="${CANDIDATE_PROFILE_ID:-local-runtime-candidate}" \
@@ -114,6 +126,7 @@ echo "API summary: http://127.0.0.1:${API_PORT}/api/summary"
 echo "App container: $APP"
 echo "PostgreSQL container: $POSTGRES"
 echo "Logs: docker logs -f $APP"
+echo "Recruiter enrichment log: docker exec $APP tail -n 200 /tmp/job-agent-proactive-recruiter.log"
 echo "Contact enrichment log: docker exec $APP cat /tmp/job-agent-contact-resources.log"
 echo "Content enrichment log: docker exec $APP cat /tmp/job-agent-content.log"
 echo "Stop: npm run local:stop"
