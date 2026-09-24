@@ -48,6 +48,10 @@ export interface PublicHiringPostDiscoveryInput {
 }
 
 const HIRING_INTENT = /(?:we['’]?re\s+hiring|we\s+are\s+hiring|my\s+team\s+is\s+hiring|we['’]?re\s+looking\s+for|we\s+are\s+looking\s+for|looking\s+for\s+(?:a|an)?\s*(?:frontend|front-end|react|next\.js|javascript|typescript|software|full[ -]?stack)\s*(?:developer|engineer|developers|engineers)|hiring\s+(?:for\s+)?(?:a\s+)?(?:frontend|front-end|react|next\.js|javascript|typescript|software|full[ -]?stack)|join\s+(?:our|my)\s+team|send\s+(?:your|me\s+your)\s+(?:resume|cv)|share\s+your\s+(?:resume|cv)|dm\s+(?:me|us)\s+(?:if|for)|reach\s+out\s+(?:with|to)|apply\s+(?:here|now)|referrals?\s+welcome|know\s+someone\s+who)/i;
+const JOB_POSTING_INTENT = /(?:apply\s*(?:now|here)|apply\s+for\s+(?:this|the)\s+(?:job|role)|job\s+description|responsibilities|qualifications|required\s+(?:skills|experience)|employment\s+type|job\s+type|submit\s+(?:an\s+)?application|application\s+instructions|easy\s+apply)/i;
+function hasHiringIntent(text: string): boolean {
+  return HIRING_INTENT.test(text) || (ROLE_PATTERNS.some(([, pattern]) => pattern.test(text)) && JOB_POSTING_INTENT.test(text));
+}
 const ROLE_PATTERNS: Array<[string, RegExp]> = [
   ["Frontend Engineer", /frontend\s+engineer|front-end\s+engineer/i],
   ["Frontend Developer", /frontend\s+developer|front-end\s+developer/i],
@@ -134,13 +138,14 @@ function extractAuthor(text: string, postUrl: string): { name?: string; profileU
   }
   return { profileUrl };
 }
-function extractEmployer(text: string, email?: string, profileText?: string): { name?: string; domain?: string } {
+function extractEmployer(text: string, email?: string, profileText?: string, sourceUrl?: string): { name?: string; domain?: string } {
   const haystack = [text, profileText ?? ""].join(" ");
   const emailDomain = email?.split("@")[1]?.toLowerCase();
   const strongAt = haystack.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80})(?=\s*[.!?](?:\s|$)|\s+(?:Location|Experience|Skills?)\s*:|$)/)?.[1]?.trim();
   const linkedinEmployer = haystack.match(/(?:^|\n)[^\n]{1,120}?\s+-\s+([A-Z][A-Za-z0-9&.' -]{2,80})\s+\|\s+LinkedIn/i)?.[1]?.trim();
   const hiringEmployer = haystack.match(/([A-Z][A-Za-z0-9&.' -]{2,80})\s+(?:is|are)\s+(?:hiring|looking for)/i)?.[1]?.trim();
-  let name = strongAt || linkedinEmployer || hiringEmployer;
+  const explicitCompany = haystack.match(/\b(?:company|employer|organization|organisation)\s*[:=-]\s*([A-Z][A-Za-z0-9&.' -]{2,80})/i)?.[1]?.trim();
+  let name = strongAt || linkedinEmployer || hiringEmployer || explicitCompany;
   const urlDomains = [...haystack.matchAll(/https?:\/\/([^\s/<>"']+)/gi)]
     .map(m => normalizeDomain(m[1] ?? ""))
     .filter(d => d && !SEARCH_HOSTS.has(d) && !d.endsWith("linkedin.com"));
@@ -376,7 +381,7 @@ export class PublicHiringPostDiscoveryProvider {
           // contaminate the candidate.
           if (!isSafePublicDestinationUrl(url)) continue;
           const discoveryEvidence = buildEvidence(result.text, url);
-          const indexedPost = LINKEDIN_POST_URL.test(url) && HIRING_INTENT.test(discoveryEvidence);
+          const indexedPost = LINKEDIN_POST_URL.test(url) && hasHiringIntent(discoveryEvidence);
           // Prefer the authoritative public post page whenever it is reachable. Indexed
           // search-shell evidence is a bounded fallback for LinkedIn pages that cannot
           // be fetched, so author/employer context is not lost merely because the shell
@@ -385,7 +390,7 @@ export class PublicHiringPostDiscoveryProvider {
           const evidence = fetchedPostPage
             ? clean(fetchedPostPage).slice(0, 12000)
             : (indexedPost ? clean(discoveryEvidence).slice(0, 7000) : "");
-          if (!evidence || !HIRING_INTENT.test(evidence)) continue;
+          if (!evidence || !hasHiringIntent(evidence)) continue;
           metrics.hiringIntentPosts++;
           const extractedRole = extractRole(evidence);
           if (!extractedRole.role || extractedRole.score < 75 || !experienceCompatible(evidence, input.yearsExperience ?? 3)) { metrics.rejectedPosts++; continue; }
@@ -485,7 +490,7 @@ export class PublicHiringPostDiscoveryProvider {
         // A public hiring page can establish a legitimate employer recruiting
         // contact without establishing a person identity. Keep that contact
         // distinct from recruiter/person identities; never manufacture an author.
-        const employerContact = extractEmployer(post.text + " " + post.discoveryText, directEmail, profileText);
+        const employerContact = extractEmployer(post.text + " " + post.discoveryText, directEmail, profileText, post.url);
         const employerEmail = directEmail?.toLowerCase();
         const extractedRole = extractRole(post.text);
         const contactFreshness = freshness(post.text);
