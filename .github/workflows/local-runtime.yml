@@ -9,6 +9,20 @@ jobs:
   local-runtime:
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    env:
+      JOB_AGENT_LOCAL_API_PORT: 3100
+      JOB_AGENT_LOCAL_RESET: true
+      JOB_DISCOVERY_INTERVAL_MS: 120000
+      DISCOVERY_SOURCE_TIMEOUT_MS: 20000
+      DISCOVERY_SOURCE_RETRIES: 0
+      FAST_MATCHING_LIMIT: 150
+      CANDIDATE_PROFILE_ID: local-ci-candidate
+      CANDIDATE_YEARS_EXPERIENCE: 3
+      CANDIDATE_SKILLS: React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS
+      CANDIDATE_TARGET_TITLES: Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer
+      CANDIDATE_LOCATION: India
+      CANDIDATE_PREFERRED_LOCATIONS: Bengaluru,Bangalore,India,Remote
+      CANDIDATE_REMOTE_ELIGIBLE: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,20 +37,6 @@ jobs:
         run: npm ci
 
       - name: Start local Job Agent
-        env:
-          JOB_AGENT_LOCAL_API_PORT: 3100
-          JOB_AGENT_LOCAL_RESET: true
-          JOB_DISCOVERY_INTERVAL_MS: 120000
-          DISCOVERY_SOURCE_TIMEOUT_MS: 20000
-          DISCOVERY_SOURCE_RETRIES: 0
-          FAST_MATCHING_LIMIT: 150
-          CANDIDATE_PROFILE_ID: local-ci-candidate
-          CANDIDATE_YEARS_EXPERIENCE: 3
-          CANDIDATE_SKILLS: React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS
-          CANDIDATE_TARGET_TITLES: Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer
-          CANDIDATE_LOCATION: India
-          CANDIDATE_PREFERRED_LOCATIONS: Bengaluru,Bangalore,India,Remote
-          CANDIDATE_REMOTE_ELIGIBLE: true
         run: npm run local:run
 
       - name: Verify live dashboard and API
@@ -48,8 +48,8 @@ jobs:
           grep -q '"jobs"' /tmp/summary.json
           grep -q '"topMatches"' /tmp/summary.json
 
-      - name: Allow first discovery cycle to complete
-        run: sleep 120
+      - name: Allow first discovery and matching cycle to complete
+        run: sleep 180
 
       - name: Capture real local runtime result
         run: |
