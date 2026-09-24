@@ -17,6 +17,10 @@ export interface JobPageDiagnostics {
 export interface ParsedJobPage { readonly job: Job | null; readonly diagnostics: JobPageDiagnostics; }
 
 export function parsePlatformJobPage(html: string, sourceUrl: string, platformName: string): ParsedJobPage {
+  if (platformName === "Cutshort") {
+    const cutshort = extractCutshortHtmlJob(html);
+    if (cutshort) return buildJob(cutshort, sourceUrl, platformName, "html-labels");
+  }
   const jsonLd = extractJobPostingFromJsonLd(html);
   if (jsonLd) return buildJob(jsonLd, sourceUrl, platformName, "json-ld");
   const embedded = extractEmbeddedJob(html);
@@ -31,6 +35,41 @@ export function parsePlatformJobPage(html: string, sourceUrl: string, platformNa
 }
 
 type RawPosting = Record<string, unknown>;
+
+function extractCutshortHtmlJob(html: string): RawPosting | null {
+  const text = stripHtml(html).replace(/s+/g, " ").trim();
+  if (!text || !/cutshort/i.test(html)) return null;
+  const title = cleanText(html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? "");
+  if (!title || title.length < 4) return null;
+
+  const header = text.slice(0, 2400);
+  const employer = cleanText(
+    header.match(/\bat\s+([A-Z][A-Za-z0-9&.'()\- ]{1,90})(?=\s+(?:Company|Home|Posted by|Posted|Apply|Skills|\d+\s*(?:-|to)\s*\d+\s*yrs?))/i)?.[1] ?? ""
+  );
+  if (!employer) return null;
+
+  const location = cleanText(
+    text.match(/\bLocation\s*:\s*([^|•]{3,260})/i)?.[1] ??
+    text.match(/\b(Remote(?:,\s*[^|•]{2,180})?|Bengaluru\s*\(Bangalore\)(?:,\s*[^|•]{2,180})?)/i)?.[1] ??
+    ""
+  ) || null;
+
+  const descriptionMatch = text.match(/(?:Role\s+Summary|Job\s+Summary|About\s+the\s+Role|Profile\s+Overview|Job\s+Description)\s+([\s\S]{80,16000}?)(?=\s+Users\s+love\s+Cutshort|\s+Companies\s+hiring\s+on\s+Cutshort|$)/i);
+  const description = cleanText(descriptionMatch?.[1] ?? text.slice(Math.min(header.length, 1000), Math.min(text.length, 12000)));
+  if (description.length < 40) return null;
+
+  const datePosted = text.match(/\bPosted\s+(?:on\s+)?(\d{1,2}\s+[A-Z][a-z]{2}\s+20\d{2})\b/i)?.[1] ?? "";
+  const employmentType = /\bfull[- ]?time\b/i.test(text) ? "FULL_TIME" : null;
+  return {
+    title,
+    description,
+    hiringOrganization: { name: employer },
+    ...(location ? { jobLocation: location } : {}),
+    ...(employmentType ? { employmentType } : {}),
+    ...(datePosted ? { datePosted } : {}),
+    url: html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)?.[1] ?? ""
+  };
+}
 
 function buildJob(posting: RawPosting, sourceUrl: string, platformName: string, parser: JobPageDiagnostics["parser"]): ParsedJobPage {
   const title = cleanText(valueAt(posting, "title"));
