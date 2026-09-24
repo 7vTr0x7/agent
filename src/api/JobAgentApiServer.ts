@@ -217,7 +217,7 @@ export class JobAgentApiServer {
       let where = "";
       if (["APPLY","REVIEW","REJECT"].includes(decisionParam)) { params.push(decisionParam); where = "WHERE latest.decision=$1"; }
       params.push(limit);
-      const limitParam = `${params.length}`;
+      const limitParam = `$${params.length}`;
       const matches = await this.database.query(
         `WITH latest AS (
            SELECT DISTINCT ON (job_opportunity_id)
