@@ -493,7 +493,8 @@ export class PublicHiringPostDiscoveryProvider {
       }
       const directEmail = extractDirectEmail(post.text) ?? extractDirectEmail(post.discoveryText);
       if (directEmail) metrics.directEmails++;
-      if (!author.name || !plausibleName(author.name)) {
+      const validatedAuthorIdentity = Boolean(author.name && plausibleName(author.name) && (profileText || profileUrl || AUTHOR_ROLE.test(identitySearchEvidence)));
+      if (!validatedAuthorIdentity) {
         // A public hiring page can establish a legitimate employer recruiting
         // contact without establishing a person identity. Keep that contact
         // distinct from recruiter/person identities; never manufacture an author.
