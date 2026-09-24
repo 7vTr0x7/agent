@@ -54,7 +54,10 @@ if ! docker inspect "$POSTGRES" >/dev/null 2>&1; then
     postgres:17-alpine >/dev/null
 fi
 
-if ! docker network inspect "$NETWORK" --format '{{json .Containers}}' | grep -q '\"Name\":\"'"$POSTGRES"'\"'; then
+# `docker run --network` already attaches a newly created container. Use Docker's
+# structured container-name output here instead of grepping the JSON representation,
+# which is sensitive to Docker's formatting and failed on a clean runner.
+if ! docker network inspect "$NETWORK" --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' | grep -Fxq "$POSTGRES"; then
   docker network connect "$NETWORK" "$POSTGRES" >/dev/null
 fi
 if [[ "$(docker inspect -f '{{.State.Running}}' "$POSTGRES")" != "true" ]]; then
