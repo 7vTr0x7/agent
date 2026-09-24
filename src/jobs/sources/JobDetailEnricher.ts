@@ -255,6 +255,8 @@ function extractJobPostingDetails(html: string, companyName: string): { descript
   }
   const linkedEmployerDomain = extractEmployerDomainFromHtml(html, companyName);
   companyDomain ??= linkedEmployerDomain;
+  const contactEmployerDomain = extractEmployerDomainFromContactEmail(html, companyName);
+  companyDomain ??= contactEmployerDomain;
   const mainMatch = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
   if (mainMatch?.[1]) {
     const mainText = clean(mainMatch[1].replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>/gi, " "));
@@ -344,6 +346,20 @@ function extractEmployerDomainFromHtml(html: string, companyName: string): strin
     } catch {
       // Ignore malformed links.
     }
+  }
+  return null;
+}
+
+function extractEmployerDomainFromContactEmail(html: string, companyName: string): string | null {
+  const tokens = companyName.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 3 && !["the", "and", "inc", "ltd", "llc", "corp", "company"].includes(token));
+  if (tokens.length === 0) return null;
+  for (const match of html.matchAll(/[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})/gi)) {
+    const rawHost = match[1];
+    if (!rawHost) continue;
+    const host = rawHost.toLowerCase().replace(/^www\./, "");
+    const labels = host.split(".").filter(Boolean);
+    if (labels.length < 2) continue;
+    if (tokens.some((token) => labels.some((label) => label.includes(token)))) return host;
   }
   return null;
 }
