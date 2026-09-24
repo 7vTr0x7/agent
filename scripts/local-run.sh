@@ -10,6 +10,7 @@ DB_NAME="${JOB_AGENT_LOCAL_DB:-job_agent}"
 DB_USER="${JOB_AGENT_LOCAL_DB_USER:-job_agent}"
 DB_PASSWORD="${JOB_AGENT_LOCAL_DB_PASSWORD:-local_runtime_password}"
 API_PORT="${JOB_AGENT_LOCAL_API_PORT:-3000}"
+ENRICHMENT_INTERVAL_MS="${ENRICHMENT_INTERVAL_MS:-900000}"
 
 command -v docker >/dev/null || { echo "Docker is required." >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required." >&2; exit 1; }
@@ -115,7 +116,8 @@ docker exec -d "$APP" env \
   CANDIDATE_LOCATION="${CANDIDATE_LOCATION:-India}" \
   CANDIDATE_PREFERRED_LOCATIONS="${CANDIDATE_PREFERRED_LOCATIONS:-Bengaluru,Bangalore,India,Remote}" \
   CANDIDATE_REMOTE_ELIGIBLE=true \
-  bash -lc 'while true; do if ! npm run proactive-recruiter:once >>/tmp/job-agent-proactive-recruiter.log 2>&1; then echo "proactive recruiter cycle failed" >>/tmp/job-agent-proactive-recruiter.log; fi; sleep 900; done'
+  ENRICHMENT_INTERVAL_MS="$ENRICHMENT_INTERVAL_MS" \
+  bash -lc 'while true; do if ! npm run proactive-recruiter:once >>/tmp/job-agent-proactive-recruiter.log 2>&1; then echo "proactive recruiter cycle failed" >>/tmp/job-agent-proactive-recruiter.log; fi; sleep "$ENRICHMENT_INTERVAL_MS"; done'
 
 docker exec -d "$APP" env \
   DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
@@ -126,21 +128,24 @@ docker exec -d "$APP" env \
   CANDIDATE_LOCATION="${CANDIDATE_LOCATION:-India}" \
   CANDIDATE_PREFERRED_LOCATIONS="${CANDIDATE_PREFERRED_LOCATIONS:-Bengaluru,Bangalore,India,Remote}" \
   CANDIDATE_REMOTE_ELIGIBLE=true \
-  bash -lc 'if ! npm run public-contact-resources:once >/tmp/job-agent-contact-resources.log 2>&1; then echo "contact resource cycle failed" >>/tmp/job-agent-contact-resources.log; fi'
+  ENRICHMENT_INTERVAL_MS="$ENRICHMENT_INTERVAL_MS" \
+  bash -lc 'while true; do if ! npm run public-contact-resources:once >>/tmp/job-agent-contact-resources.log 2>&1; then echo "contact resource cycle failed" >>/tmp/job-agent-contact-resources.log; fi; sleep "$ENRICHMENT_INTERVAL_MS"; done'
 
 docker exec -d "$APP" env \
   DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
   CANDIDATE_PROFILE_ID="${CANDIDATE_PROFILE_ID:-local-runtime-candidate}" \
-  bash -lc 'if ! npm run content-first:once >/tmp/job-agent-content.log 2>&1; then echo "content discovery cycle failed" >>/tmp/job-agent-content.log; fi'
+  ENRICHMENT_INTERVAL_MS="$ENRICHMENT_INTERVAL_MS" \
+  bash -lc 'while true; do if ! npm run content-first:once >>/tmp/job-agent-content.log 2>&1; then echo "content discovery cycle failed" >>/tmp/job-agent-content.log; fi; sleep "$ENRICHMENT_INTERVAL_MS"; done'
 
 echo "Job Agent local runtime is running."
 echo "Dashboard: http://127.0.0.1:${API_PORT}/"
 echo "API summary: http://127.0.0.1:${API_PORT}/api/summary"
 echo "App container: $APP"
 echo "PostgreSQL container: $POSTGRES"
+echo "Enrichment interval: ${ENRICHMENT_INTERVAL_MS}ms"
 echo "Logs: docker logs -f $APP"
 echo "Recruiter enrichment log: docker exec $APP tail -n 200 /tmp/job-agent-proactive-recruiter.log"
-echo "Contact enrichment log: docker exec $APP cat /tmp/job-agent-contact-resources.log"
-echo "Content enrichment log: docker exec $APP cat /tmp/job-agent-content.log"
+echo "Contact enrichment log: docker exec $APP tail -n 200 /tmp/job-agent-contact-resources.log"
+echo "Content enrichment log: docker exec $APP tail -n 200 /tmp/job-agent-content.log"
 echo "Stop: npm run local:stop"
 echo "Reset database: JOB_AGENT_LOCAL_RESET=true npm run local:run"
