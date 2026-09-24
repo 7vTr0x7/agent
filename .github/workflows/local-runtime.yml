@@ -1,0 +1,75 @@
+name: Local Runtime
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  local-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start local Job Agent
+        env:
+          JOB_AGENT_LOCAL_API_PORT: 3100
+          JOB_AGENT_LOCAL_RESET: true
+          JOB_DISCOVERY_INTERVAL_MS: 120000
+          DISCOVERY_SOURCE_TIMEOUT_MS: 20000
+          DISCOVERY_SOURCE_RETRIES: 0
+          FAST_MATCHING_LIMIT: 150
+          CANDIDATE_PROFILE_ID: local-ci-candidate
+          CANDIDATE_YEARS_EXPERIENCE: 3
+          CANDIDATE_SKILLS: React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS
+          CANDIDATE_TARGET_TITLES: Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer
+          CANDIDATE_LOCATION: India
+          CANDIDATE_PREFERRED_LOCATIONS: Bengaluru,Bangalore,India,Remote
+          CANDIDATE_REMOTE_ELIGIBLE: true
+        run: npm run local:run
+
+      - name: Verify live dashboard and API
+        run: |
+          set -euo pipefail
+          curl --fail --silent http://127.0.0.1:3100/healthz | tee /tmp/health.json
+          curl --fail --silent http://127.0.0.1:3100/api/summary | tee /tmp/summary.json
+          grep -q '"status":"ok"' /tmp/health.json
+          grep -q '"jobs"' /tmp/summary.json
+          grep -q '"topMatches"' /tmp/summary.json
+
+      - name: Allow first discovery cycle to complete
+        run: sleep 120
+
+      - name: Capture real local runtime result
+        run: |
+          set -euo pipefail
+          npm run local:status | tee /tmp/local-status.txt
+          curl --fail --silent http://127.0.0.1:3100/api/summary | tee /tmp/final-summary.json
+          docker logs job-agent-local-app 2>&1 | tail -n 200 | tee /tmp/local-agent.log
+          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities;"
+          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM match_decisions;"
+          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;"
+          grep -q 'AUTOMATION_ENABLED' /tmp/local-agent.log
+          grep -q 'APPLICATION_DRY_RUN' /tmp/local-agent.log
+
+      - name: Repeat status check for continuous operation
+        run: |
+          set -euo pipefail
+          sleep 20
+          npm run local:status
+          curl --fail --silent http://127.0.0.1:3100/healthz
+
+      - name: Stop local runtime
+        if: always()
+        run: JOB_AGENT_LOCAL_CLEANUP=true npm run local:stop
