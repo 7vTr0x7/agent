@@ -40,12 +40,12 @@ function buildJob(posting: RawPosting, sourceUrl: string, platformName: string, 
   if (!description) return failure(sourceUrl, parser, "missing-description");
   if (!employer) return failure(sourceUrl, parser, "missing-employer");
   const url = normalizeUrl(valueAt(posting, "url"), sourceUrl);
-  const location = locationText(posting.jobLocation ?? posting.location) || cleanText(valueAt(posting, "jobLocationType")) || "Worldwide";
-  const remote = /telecommute|remote|work from anywhere|distributed/i.test(`${valueAt(posting, "jobLocationType")} ${location}`);
-  const hybrid = /hybrid/i.test(location);
+  const location = locationText(posting.jobLocation ?? posting.location) || locationText(posting.applicantLocationRequirements) || cleanText(valueAt(posting, "jobLocationType")) || null;
+  const remote = /telecommute|remote|work from anywhere|distributed/i.test(`${valueAt(posting, "jobLocationType")} ${location ?? ""}`);
+  const hybrid = /hybrid/i.test(location ?? "");
   const sourceJobId = `${platformName}:${url}`;
   const contentHash = createHash("sha256").update([platformName, sourceJobId, title, url, description].join("|"), "utf8").digest("hex");
-  return { job: { source: `platform-search:${platformName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, sourceJobId, url, title, companyName: employer.name, companyDomain: employer.domain, location, country: inferCountry(location), workplaceType: remote ? "remote" : hybrid ? "hybrid" : "onsite", employmentType: cleanText(valueAt(posting, "employmentType")) || null, description, postedAt: parseDate(valueAt(posting, "datePosted")), updatedAt: parseDate(valueAt(posting, "dateModified")), contentHash }, diagnostics: { url: sourceUrl, parsed: true, parser } };
+  return { job: { source: `platform-search:${platformName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, sourceJobId, url, title, companyName: employer.name, companyDomain: employer.domain, location, country: inferCountry(location), workplaceType: remote ? "remote" : hybrid ? "hybrid" : location ? "onsite" : null, employmentType: cleanText(valueAt(posting, "employmentType")) || null, description, postedAt: parseDate(valueAt(posting, "datePosted")), updatedAt: parseDate(valueAt(posting, "dateModified")), contentHash }, diagnostics: { url: sourceUrl, parsed: true, parser } };
 }
 
 function failure(url: string, parser: JobPageDiagnostics["parser"], failureReason: JobPageParseFailure): ParsedJobPage { return { job: null, diagnostics: { url, parsed: false, parser, failure: failureReason } }; }
@@ -194,7 +194,7 @@ function locationText(value: unknown): string | null {
     if (!item || typeof item !== "object") continue;
     const record = item as RawPosting;
     const address = record.address && typeof record.address === "object" ? record.address as RawPosting : record;
-    const part = [valueAt(address, "addressLocality"), valueAt(address, "addressRegion"), valueAt(address, "addressCountry")].map(cleanText).filter(Boolean).join(", ");
+    const part = [valueAt(address, "name"), valueAt(address, "addressLocality"), valueAt(address, "addressRegion"), valueAt(address, "addressCountry")].map(cleanText).filter(Boolean).join(", ");
     if (part) parts.push(part);
   }
   return parts.filter(Boolean).join("; ") || null;
