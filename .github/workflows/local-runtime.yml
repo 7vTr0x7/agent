@@ -49,6 +49,40 @@ jobs:
           curl --fail --silent 'http://127.0.0.1:3100/api/jobs?limit=5' | tee /tmp/jobs.json
           curl --fail --silent 'http://127.0.0.1:3100/api/applications?limit=5' | tee /tmp/applications.json
           node -e "const fs=require('fs'); const s=JSON.parse(fs.readFileSync('/tmp/summary.json')); const j=JSON.parse(fs.readFileSync('/tmp/jobs.json')); const a=JSON.parse(fs.readFileSync('/tmp/applications.json')); if(Number(s.jobs)>0 && j.jobs.length===0) process.exit(1); if(Number(s.applications)>0 && a.applications.length===0) process.exit(1); console.log(JSON.stringify({summaryJobs:s.jobs,apiJobs:j.jobs.length,summaryApplications:s.applications,apiApplications:a.applications.length}))"
+      - name: Verify current product APIs and dashboard
+        run: |
+          set -euo pipefail
+          curl --fail --silent 'http://127.0.0.1:3100/api/matches?limit=100' | tee /tmp/api-matches.json
+          curl --fail --silent 'http://127.0.0.1:3100/api/recruiters?limit=100' | tee /tmp/api-recruiters.json
+          curl --fail --silent 'http://127.0.0.1:3100/api/contacts?limit=100' | tee /tmp/api-contacts.json
+          curl --fail --silent 'http://127.0.0.1:3100/api/content?limit=100' | tee /tmp/api-content.json
+          curl --fail --silent 'http://127.0.0.1:3100/api/source-health' | tee /tmp/api-source-health.json
+          curl --fail --silent 'http://127.0.0.1:3100/' | tee /tmp/dashboard.html >/dev/null
+          grep -q 'Top Matches' /tmp/dashboard.html
+          grep -q 'Recruiter Leads' /tmp/dashboard.html
+          grep -q 'Public Contact Evidence' /tmp/dashboard.html
+          grep -q 'Hiring Content Evidence' /tmp/dashboard.html
+          node - <<'NODE'
+          const fs = require('fs');
+          const cp = require('child_process');
+          const read = (name) => JSON.parse(fs.readFileSync(name, 'utf8'));
+          const scalar = (sql) => Number(cp.execFileSync('docker',['exec','job-agent-local-postgres','psql','-U','job_agent','-d','job_agent','-tAc',sql]).toString().trim());
+          const apiMatches = read('/tmp/api-matches.json').matches || [];
+          const apiRecruiters = read('/tmp/api-recruiters.json').recruiters || [];
+          const apiContacts = read('/tmp/api-contacts.json').contacts || [];
+          const apiContent = read('/tmp/api-content.json').content || [];
+          const summary = read('/tmp/summary.json');
+          const dbMatches = scalar('WITH latest AS (SELECT DISTINCT ON (job_opportunity_id) job_opportunity_id FROM match_decisions ORDER BY job_opportunity_id,created_at DESC) SELECT COUNT(*) FROM latest');
+          const dbRecruiters = scalar("SELECT COUNT(*) FROM recruiter_contacts WHERE relevance_status IN ('CURRENT','RECENT')");
+          const dbContacts = scalar("SELECT COUNT(*) FROM public_contact_resource_contacts WHERE validation_status <> 'INVALID' AND relevance_score > 0");
+          const dbContent = scalar("SELECT COUNT(*) FROM recruiter_contact_sources WHERE LOWER(COALESCE(source_type,'')) IN ('job_posting','current_job_posting','current_role','recent_job_posting','recent_role','job_hiring_evidence')");
+          if (dbMatches <= 100 && apiMatches.length !== dbMatches) throw new Error(JSON.stringify({dbMatches,apiMatches:apiMatches.length}));
+          if (dbRecruiters > 0 && apiRecruiters.length === 0) throw new Error(JSON.stringify({dbRecruiters,apiRecruiters:apiRecruiters.length}));
+          if (dbContacts > 0 && apiContacts.length === 0) throw new Error(JSON.stringify({dbContacts,apiContacts:apiContacts.length}));
+          if (dbContent > 0 && apiContent.length === 0) throw new Error(JSON.stringify({dbContent,apiContent:apiContent.length}));
+          if (Number(summary.recruiters) !== dbRecruiters) throw new Error(JSON.stringify({summaryRecruiters:summary.recruiters,dbRecruiters}));
+          console.log(JSON.stringify({dbMatches,apiMatches:apiMatches.length,dbRecruiters,apiRecruiters:apiRecruiters.length,dbContacts,apiContacts:apiContacts.length,dbContent,apiContent:apiContent.length}));
+          NODE
       - name: Verify all runtime containers are alive
         run: |
           set -euo pipefail
