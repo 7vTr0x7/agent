@@ -39,7 +39,10 @@
     "public-contact-resources:once": "tsx scripts/public-contact-resources-once.ts",
     "application-email:once": "tsx scripts/application-email-outcome-once.ts",
     "typecheck:scripts": "tsc --noEmit --target ES2022 --module CommonJS --moduleResolution Node --strict --esModuleInterop --skipLibCheck --noUncheckedIndexedAccess --noImplicitOverride scripts/fast-outcome-jobs.ts scripts/proactive-recruiter-once.ts scripts/public-contact-resources-once.ts",
-    "local:run": "bash scripts/local-run.sh"
+    "local:run": "bash scripts/local-run.sh",
+    "local:watch": "bash scripts/local-run.sh",
+    "local:status": "bash scripts/local-status.sh",
+    "local:stop": "bash scripts/local-stop.sh"
   },
   "dependencies": {
     "dotenv": "^17.2.1",
@@ -51,7 +54,6 @@
     "@types/node": "^24.3.0",
     "@types/pg": "^8.15.5",
     "jest": "^30.1.3",
-    "playwright": "^1.63.0",
     "ts-jest": "^29.4.1",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
