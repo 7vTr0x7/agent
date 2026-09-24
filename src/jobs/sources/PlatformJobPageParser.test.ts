@@ -1,4 +1,4 @@
-import { parsePlatformJobPage } from "./PlatformJobPageParser";
+import { parseCutshortListingPage, parsePlatformJobPage } from "./PlatformJobPageParser";
 
 describe("PlatformJobPageParser", () => {
   it("finds nested JobPosting inside @graph and arrays", () => {
@@ -40,6 +40,37 @@ describe("PlatformJobPageParser", () => {
     });
     expect(result.job?.description).toContain("React and Next.js");
     expect(result.diagnostics.parser).toBe("html-labels");
+  });
+
+
+  it("extracts multiple real Cutshort listing cards into job opportunities", () => {
+    const html = `
+      <html><body>
+        <h1>96 NextJs (Next.js) Jobs in Bangalore (Bengaluru)</h1>
+        <section class="job-card">
+          <a href="/job/ReactJS-Developer-Bengaluru-appscrip-abc123">ReactJS Developer</a>
+          <h3>at appscrip</h3>
+          <div>Bengaluru (Bangalore)</div>
+          <div>0 - 1.5 years</div>
+          <div>React.js HTML/CSS NextJs (Next.js) Javascript</div>
+          <div>NEED TO HAVE: Have some knowledge of front end like React.JS. Strong in JavaScript concepts.</div>
+        </section>
+        <section class="job-card">
+          <a href="/job/Full-Stack-Developer-Bengaluru-Vivtaa-xyz789">Full Stack Developer</a>
+          <h3>at Vivtaa Technology</h3>
+          <div>Bengaluru (Bangalore)</div>
+          <div>3 - 6 years</div>
+          <div>React.js NodeJS (Node.js) React Native NextJs (Next.js)</div>
+          <div>What we need: Experience in both Web + Mobile development. Build responsive web applications using React.js / Next.js.</div>
+        </section>
+      </body></html>`;
+    const jobs = parseCutshortListingPage(html, "https://cutshort.io/jobs/nextjs-next-js-jobs-in-bangalore-bengaluru");
+    expect(jobs).toHaveLength(2);
+    expect(jobs.map(job => job.companyName)).toEqual(expect.arrayContaining(["appscrip", "Vivtaa Technology"]));
+    expect(jobs[0]?.location).toContain("Bengaluru");
+    expect(jobs[0]?.country).toBe("India");
+    expect(jobs.some(job => /ReactJS Developer/.test(job.title))).toBe(true);
+    expect(jobs.some(job => /Full Stack Developer/.test(job.title))).toBe(true);
   });
 
   it("uses applicant location requirements instead of inventing Worldwide", () => {
