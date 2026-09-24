@@ -2,6 +2,27 @@
 
 The production runtime is a single long-lived Node process. It already owns discovery, matching, application-queue processing, stale-submission recovery, Gmail sync, interview reminders, follow-ups, recruiter maintenance, and retry-safe task processing. This deployment layer keeps that process alive across container restarts and runs PostgreSQL and Ollama beside it.
 
+## Local product runtime
+
+For the documented local product path:
+
+```bash
+npm run local:run
+```
+
+The local runtime uses five long-lived containers: the main application, PostgreSQL, and three restartable enrichment workers for recruiter, public-contact, and content discovery. Each enrichment worker runs its cycle, records the result, waits for `ENRICHMENT_INTERVAL_MS`, and repeats. Because enrichment is containerized separately from the API/application process, restarting the app does not silently kill enrichment.
+
+Use:
+
+```bash
+npm run local:status
+npm run local:watch
+npm run local:restart
+npm run local:stop
+```
+
+`local:watch` is observational only: it prints container health and the live API summary and does not start a second runtime. `local:restart` recreates the application and enrichment workers while preserving PostgreSQL data unless `JOB_AGENT_LOCAL_RESET=true` is explicitly used.
+
 ## One-time setup
 
 1. Copy `.env.example` to `.env`.
@@ -36,6 +57,7 @@ Those settings are deliberate. Discovery, matching, learning, and internal queue
 - Ollama models persist in `ollama_data`.
 - Generated resume/browser state persists in named volumes.
 - The application container restarts automatically after process/container failure.
+- Local enrichment workers restart automatically after worker/container failure.
 - Database migrations run automatically when the application starts.
 - Source-level discovery failures are isolated by the existing discovery runtime, so one broken feed does not stop the whole process.
 
