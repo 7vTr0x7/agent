@@ -1,5 +1,5 @@
 import { Job } from "../domain/Job";
-import { parsePlatformJobPage } from "./PlatformJobPageParser";
+import { parseCutshortListingPage, parsePlatformJobPage } from "./PlatformJobPageParser";
 
 export interface ParsedJobCollection {
   readonly jobs: readonly Job[];
@@ -8,8 +8,11 @@ export interface ParsedJobCollection {
 
 /** Generic multi-record parser. It delegates validation/normalization to the existing page parser. */
 export function parsePlatformJobPageCollection(html: string, sourceUrl: string, platformName: string): ParsedJobCollection {
-  const candidates = extractJobPostingJsonCandidates(html);
   const jobs = new Map<string, Job>();
+  if (platformName === "Cutshort") {
+    for (const job of parseCutshortListingPage(html, sourceUrl, platformName)) jobs.set(job.url.toLowerCase(), job);
+  }
+  const candidates = extractJobPostingJsonCandidates(html);
   for (const candidate of candidates) {
     const parsed = parsePlatformJobPage(`<script type="application/ld+json">${escapeJsonScript(JSON.stringify(candidate))}</script>`, sourceUrl, platformName);
     if (parsed.job) jobs.set(parsed.job.url.toLowerCase(), parsed.job);
