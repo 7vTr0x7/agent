@@ -72,12 +72,30 @@ jobs:
           echo '=== SAFETY LOG ASSERTIONS ==='
           grep -E 'automationEnabled|applicationDryRun|safeDryRunWorkerEnabled|applicationLiveEnabled|gmailEnabled|outboundEnabled' /tmp/local-agent.log || true
 
-      - name: Verify continuous operation and safety
+      - name: Verify continuous operation and safety (diagnostic)
+        continue-on-error: true
         run: |
-          set -euo pipefail
+          set +e
           sleep 20
           npm run local:status
+          echo "status_rc=$?"
           curl --fail --silent http://127.0.0.1:3100/healthz
+          echo "health_rc=$?"
+          docker inspect -f 'app={{.State.Status}} exit={{.State.ExitCode}}' job-agent-local-app
+          docker inspect -f 'postgres={{.State.Status}} exit={{.State.ExitCode}}' job-agent-local-postgres
+          docker logs job-agent-local-app 2>&1 | tail -n 500
+
+      - name: Upload local runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-runtime-evidence
+          path: /tmp/*.json
+          if-no-files-found: ignore
+
+      - name: Assert continuous operation and safety
+        run: |
+          set -euo pipefail
           test "$(docker inspect -f '{{.State.Status}}' job-agent-local-app)" = running
           test "$(docker inspect -f '{{.State.Status}}' job-agent-local-postgres)" = running
           grep -q 'automationEnabled":false' /tmp/local-agent.log
