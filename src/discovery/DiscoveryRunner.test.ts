@@ -82,6 +82,66 @@ describe("DiscoveryRunner", () => {
     expect(runs.start).not.toHaveBeenCalled();
   });
 
+  it("bounds platform federation with a dedicated finite timeout", async () => {
+    const original = process.env.DISCOVERY_FEDERATION_TIMEOUT_MS;
+    process.env.DISCOVERY_FEDERATION_TIMEOUT_MS = "5";
+    try {
+      const federationDescriptor = {
+        id: "platform-search:federation",
+        name: "Platform Federation",
+        type: "api" as const,
+        policy: { status: "APPROVED" as const, allowedSourceTypes: ["api"] as const }
+      };
+      const federationSource: RegisteredSource = {
+        descriptor: federationDescriptor,
+        source: { name: federationDescriptor.id, fetchJobs: jest.fn() }
+      };
+      const discovery = {
+        discover: jest.fn((_source: unknown, signal: AbortSignal) =>
+          new Promise((_, reject) => {
+            const timer = setTimeout(() => reject(new Error("federation should have timed out")), 1000);
+            signal.addEventListener("abort", () => {
+              clearTimeout(timer);
+              reject(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
+            }, { once: true });
+          })
+        )
+      };
+      const health = { canRun: jest.fn().mockResolvedValue(true) };
+      const runs = {
+        start: jest.fn().mockResolvedValue("run-federation"),
+        complete: jest.fn().mockResolvedValue(undefined),
+        recordError: jest.fn().mockResolvedValue(undefined)
+      };
+      const matchDispatcher = { dispatch: jest.fn() };
+
+      const runner = new DiscoveryRunner(
+        discovery as never,
+        health as never,
+        runs as never,
+        matchDispatcher as never,
+        [federationSource]
+      );
+
+      await expect(runner.runOnce()).resolves.toEqual([]);
+      expect(discovery.discover).toHaveBeenCalledTimes(1);
+      expect(runs.recordError).toHaveBeenCalledWith("run-federation", federationDescriptor.id, {
+        classification: "TRANSIENT",
+        message: expect.stringContaining("exceeded 0.005s timeout")
+      });
+      expect(runs.complete).toHaveBeenCalledWith(
+        "run-federation",
+        federationDescriptor.id,
+        "FAILED",
+        { fetched: 0, inserted: 0, duplicates: 0 },
+        expect.stringContaining("exceeded 0.005s timeout")
+      );
+    } finally {
+      if (original === undefined) delete process.env.DISCOVERY_FEDERATION_TIMEOUT_MS;
+      else process.env.DISCOVERY_FEDERATION_TIMEOUT_MS = original;
+    }
+  });
+
   it("records a failed source run and continues without crashing the runner", async () => {
     const error = new Error("source unavailable");
     const discovery = { discover: jest.fn().mockRejectedValue(error) };

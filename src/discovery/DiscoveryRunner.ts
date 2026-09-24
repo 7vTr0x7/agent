@@ -13,7 +13,7 @@ export interface DiscoveryRunResult {
 
 export const SOURCE_CONCURRENCY = 4;
 const DEFAULT_SOURCE_TIMEOUT_MS = 3 * 60 * 1000;
-const PLATFORM_FEDERATION_TIMEOUT_MS = 60 * 60 * 1000;
+const DEFAULT_PLATFORM_FEDERATION_TIMEOUT_MS = 2 * 60 * 1000;
 const DEFAULT_SOURCE_RETRIES = 2;
 
 function envPositiveInteger(name: string, fallback: number): number {
@@ -57,7 +57,7 @@ export class DiscoveryRunner {
     const runId = await this.runs.start(descriptor);
     const isPlatformFederation = descriptor.id === "platform-search:federation";
     const timeoutMs = isPlatformFederation
-      ? PLATFORM_FEDERATION_TIMEOUT_MS
+      ? envPositiveInteger("DISCOVERY_FEDERATION_TIMEOUT_MS", DEFAULT_PLATFORM_FEDERATION_TIMEOUT_MS)
       : envPositiveInteger("DISCOVERY_SOURCE_TIMEOUT_MS", DEFAULT_SOURCE_TIMEOUT_MS);
     // Platform federation already isolates failures per platform. Retrying the
     // entire 200+ platform cycle would multiply runtime and duplicate traffic.
