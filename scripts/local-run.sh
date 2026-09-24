@@ -44,7 +44,7 @@ docker run -d --name "$APP" --network "$NETWORK" -p "${API_PORT}:3000" \
   -e DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
   -e API_HOST=0.0.0.0 \
   -e API_PORT=3000 \
-  -e AUTOMATION_ENABLED=true \
+  -e AUTOMATION_ENABLED=false \
   -e APPLICATION_DRY_RUN=true \
   -e APPLICATION_LIVE_ENABLED=false \
   -e OUTBOUND_ENABLED=false \
