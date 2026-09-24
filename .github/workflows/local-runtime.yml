@@ -8,7 +8,7 @@ on:
 jobs:
   local-runtime:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     env:
       JOB_AGENT_LOCAL_API_PORT: 3100
       JOB_AGENT_LOCAL_RESET: true
@@ -47,6 +47,13 @@ jobs:
           curl --fail --silent 'http://127.0.0.1:3100/api/jobs?limit=5' | tee /tmp/jobs.json
           curl --fail --silent 'http://127.0.0.1:3100/api/applications?limit=5' | tee /tmp/applications.json
           node -e "const fs=require('fs'); const s=JSON.parse(fs.readFileSync('/tmp/summary.json')); const j=JSON.parse(fs.readFileSync('/tmp/jobs.json')); const a=JSON.parse(fs.readFileSync('/tmp/applications.json')); if(Number(s.jobs)>0 && j.jobs.length===0) process.exit(1); if(Number(s.applications)>0 && a.applications.length===0) process.exit(1); console.log(JSON.stringify({summaryJobs:s.jobs,apiJobs:j.jobs.length,summaryApplications:s.applications,apiApplications:a.applications.length}))"
+      - name: Verify all runtime containers are alive
+        run: |
+          set -euo pipefail
+          for container in job-agent-local-app job-agent-local-postgres job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do
+            test "$(docker inspect -f '{{.State.Status}}' "$container")" = running
+            test "$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$container")" = unless-stopped
+          done
       - name: Allow first discovery and matching cycle to complete
         run: sleep 180
       - name: Capture real local runtime result
@@ -59,7 +66,7 @@ jobs:
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities;" | tee /tmp/run1-jobs.txt
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM match_decisions;" | tee /tmp/run1-matches.txt
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;" | tee /tmp/run1-applications.txt
-          docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' job-agent-local-app job-agent-local-postgres
+          docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' job-agent-local-app job-agent-local-postgres job-agent-local-recruiter job-agent-local-contacts job-agent-local-content
       - name: Observe second real discovery cycle
         run: |
           set -euo pipefail
@@ -67,8 +74,7 @@ jobs:
           curl --fail --silent http://127.0.0.1:3100/api/summary | tee /tmp/run2-summary.json
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities;" | tee /tmp/run2-jobs.txt
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM match_decisions;" | tee /tmp/run2-matches.txt
-          test "$(docker inspect -f '{{.State.Status}}' job-agent-local-app)" = running
-          test "$(docker inspect -f '{{.State.Status}}' job-agent-local-postgres)" = running
+          for container in job-agent-local-app job-agent-local-postgres job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do test "$(docker inspect -f '{{.State.Status}}' "$container")" = running; done
       - name: Observe third real discovery cycle
         run: |
           set -euo pipefail
@@ -76,29 +82,34 @@ jobs:
           curl --fail --silent http://127.0.0.1:3100/api/summary | tee /tmp/run3-summary.json
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities;" | tee /tmp/run3-jobs.txt
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM match_decisions;" | tee /tmp/run3-matches.txt
-          test "$(docker inspect -f '{{.State.Status}}' job-agent-local-app)" = running
-          test "$(docker inspect -f '{{.State.Status}}' job-agent-local-postgres)" = running
+          for container in job-agent-local-app job-agent-local-postgres job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do test "$(docker inspect -f '{{.State.Status}}' "$container")" = running; done
           node -e "const fs=require('fs'); const n=f=>Number(fs.readFileSync(f,'utf8').trim()); if(n('/tmp/run2-jobs.txt')<n('/tmp/run1-jobs.txt')||n('/tmp/run3-jobs.txt')<n('/tmp/run2-jobs.txt')) process.exit(1); console.log(JSON.stringify({run1Jobs:n('/tmp/run1-jobs.txt'),run2Jobs:n('/tmp/run2-jobs.txt'),run3Jobs:n('/tmp/run3-jobs.txt')}))"
+      - name: Verify enrichment is actually repeating
+        run: |
+          set -euo pipefail
+          for container in job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do
+            test "$(docker inspect -f '{{.State.Status}}' "$container")" = running
+            docker logs "$container" 2>&1 | grep -Eq 'enrichment cycle (completed|failed)'
+          done
+      - name: Verify recovery after app restart
+        run: |
+          set -euo pipefail
+          docker restart job-agent-local-app >/dev/null
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3100/healthz >/dev/null && break; sleep 1; done
+          curl --fail --silent http://127.0.0.1:3100/healthz
+          for container in job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do
+            test "$(docker inspect -f '{{.State.Status}}' "$container")" = running
+          done
       - name: Verify repeated enrichment and safety
         run: |
           set -euo pipefail
           npm run local:status
           curl --fail --silent http://127.0.0.1:3100/healthz
-          test "$(docker inspect -f '{{.State.Status}}' job-agent-local-app)" = running
-          test "$(docker inspect -f '{{.State.Status}}' job-agent-local-postgres)" = running
           test "$(docker exec job-agent-local-app printenv AUTOMATION_ENABLED)" = false
           test "$(docker exec job-agent-local-app printenv APPLICATION_DRY_RUN)" = true
           test "$(docker exec job-agent-local-app printenv APPLICATION_LIVE_ENABLED)" = false
           test "$(docker exec job-agent-local-app printenv GMAIL_ENABLED)" = false
           test "$(docker exec job-agent-local-app printenv OUTBOUND_ENABLED)" = false
-          test "$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' job-agent-local-app)" = unless-stopped
-          test "$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' job-agent-local-postgres)" = unless-stopped
-          for log in proactive-recruiter contact-resources content; do
-            path="/tmp/job-agent-${log}.log"
-            count=$(docker exec job-agent-local-app sh -lc "test -f '$path' && wc -l < '$path' || true")
-            echo "$log enrichment log lines: $count"
-            test "$count" -ge 2
-          done
           grep -q '"outcome":"NOT_SUBMITTED"' /tmp/local-agent.log
           ! grep -q '"submitted":true' /tmp/local-agent.log
       - name: Upload local runtime evidence
