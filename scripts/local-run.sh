@@ -95,7 +95,7 @@ docker run -d --restart unless-stopped --name "$APP" --network "$NETWORK" -p "${
   -e GMAIL_ENABLED=false \
   -e EMAIL_ENABLED=false \
   -e JOB_DISCOVERY_ENABLED=true \
-  -e PROACTIVE_RECRUITER_ENABLED=false \
+  -e PROACTIVE_RECRUITER_ENABLED=true \
   -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
   -e RECRUITER_OUTREACH_ENABLED=false \
   -e RECRUITER_OUTREACH_DRY_RUN=true \
