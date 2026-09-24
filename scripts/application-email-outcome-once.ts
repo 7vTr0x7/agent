@@ -11,7 +11,7 @@ import { ApplicationSubmissionService } from "../src/applications/ApplicationSub
 import { BrowserSessionService } from "../src/applications/BrowserSession";
 import { ApplicationAdapterRegistry } from "../src/applications/ApplicationAdapter";
 import { createHostedAtsApplicationAdapters } from "../src/applications/AtsApplicationAdapters";
-import { JobDetailEnricher } from "../src/jobs/sources/JobDetailEnricher";
+import { JobDetailEnricher, validatePublicHttpUrl } from "../src/jobs/sources/JobDetailEnricher";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -41,7 +41,8 @@ async function main(): Promise<void> {
 
     let job = candidate;
     if (!job.company_domain) {
-      const enriched = await new JobDetailEnricher({ timeoutMs: 15_000, concurrency: 1, maxRedirects: 3 }).enrich({
+      const enricher = new JobDetailEnricher({ timeoutMs: 15_000, concurrency: 1, maxRedirects: 3 });
+      const enriched = await enricher.enrich({
         source: "application-preflight",
         sourceJobId: job.job_opportunity_id,
         url: job.canonical_url,
@@ -59,7 +60,15 @@ async function main(): Promise<void> {
       if (enriched.companyDomain) {
         await database.query(`UPDATE job_opportunities SET company_domain=$1, updated_at=NOW() WHERE id=$2`, [enriched.companyDomain, job.job_opportunity_id]);
         job = { ...job, company_domain: enriched.companyDomain };
-        events.push({ event:"application-employer-domain-enriched", company:job.company_name, domain:enriched.companyDomain, sourceUrl:job.canonical_url });
+        events.push({ event:"application-employer-domain-enriched", company:job.company_name, domain:enriched.companyDomain, sourceUrl:job.canonical_url, evidence:"job-detail" });
+      }
+    }
+    if (!job.company_domain) {
+      const companyPageEvidence = await resolveEmployerDomainFromPlatformCompanyPage(job.canonical_url, job.company_name);
+      if (companyPageEvidence) {
+        await database.query(`UPDATE job_opportunities SET company_domain=$1, updated_at=NOW() WHERE id=$2`, [companyPageEvidence.domain, job.job_opportunity_id]);
+        job = { ...job, company_domain: companyPageEvidence.domain };
+        events.push({ event:"application-employer-domain-enriched", company:job.company_name, domain:companyPageEvidence.domain, sourceUrl:companyPageEvidence.sourceUrl, evidence:"platform-company-page" });
       }
     }
     if (!job.company_domain) throw new Error("No ACTIVE APPLY job has validated employer-domain evidence after application preflight enrichment.");
@@ -144,4 +153,64 @@ async function main(): Promise<void> {
     await database.close();
   }
 }
+
+async function resolveEmployerDomainFromPlatformCompanyPage(jobUrl: string, companyName: string): Promise<{domain:string;sourceUrl:string}|null> {
+  let parsed: URL;
+  try {
+    parsed = new URL(jobUrl);
+  } catch {
+    return null;
+  }
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  const companyIndex = segments.indexOf("companies");
+  if (companyIndex < 0 || !segments[companyIndex + 1]) return null;
+  const companySlug = segments[companyIndex + 1];
+  const companyPageUrl = new URL(`/companies/${encodeURIComponent(companySlug)}`, `${parsed.protocol}//${parsed.host}`).toString();
+  let validatedPageUrl: string;
+  try {
+    validatedPageUrl = await validatePublicHttpUrl(companyPageUrl);
+  } catch {
+    return null;
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(validatedPageUrl, {
+      signal: controller.signal,
+      headers: {
+        accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+        "user-agent": "Mozilla/5.0 (compatible; JobAgent/0.1; +https://github.com/7vTr0x7/agent)"
+      }
+    });
+    if (!response.ok) return null;
+    const html = await response.text();
+    const companyTokens = companyName.toLowerCase().split(/[^a-z0-9]+/).filter(token => token.length >= 3 && !["the","and","inc","ltd","llc","corp","company"].includes(token));
+    if (!companyTokens.length) return null;
+    for (const match of html.matchAll(/<a\b[^>]*href=["'](https?:\/\/[^"'\s>]+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+      const rawUrl = match[1];
+      const anchorText = stripHtml(match[2] ?? "").toLowerCase();
+      if (!rawUrl) continue;
+      let candidate: URL;
+      try { candidate = new URL(rawUrl); } catch { continue; }
+      if (candidate.protocol !== "https:" && candidate.protocol !== "http:") continue;
+      if (candidate.host.toLowerCase() === parsed.host.toLowerCase()) continue;
+      const host = candidate.hostname.toLowerCase().replace(/^www\./, "");
+      const labels = host.split(".").filter(Boolean);
+      if (labels.length < 2 || host === "linkedin.com" || host.endsWith(".linkedin.com")) continue;
+      const companyMatch = companyTokens.some(token => labels.slice(-3).some(label => label.includes(token)));
+      if (!companyMatch) continue;
+      return { domain:host, sourceUrl:validatedPageUrl };
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
 main().catch(error => { console.error(JSON.stringify({status:"FAILED", error:error instanceof Error ? error.message : String(error)}, null, 2)); process.exitCode=1; });
