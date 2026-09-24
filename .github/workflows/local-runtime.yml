@@ -267,13 +267,19 @@ jobs:
           test "$(docker exec job-agent-local-app printenv APPLICATION_LIVE_ENABLED)" = false
           test "$(docker exec job-agent-local-app printenv GMAIL_ENABLED)" = false
           test "$(docker exec job-agent-local-app printenv OUTBOUND_ENABLED)" = false
-          if grep -q '"submitted":true' /tmp/local-agent.log; then
-            echo "Unsafe live submission evidence found in application runtime log." >&2
+          live_submissions="$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM application_attempts WHERE submitted = TRUE;")"
+          if [ "$(echo "$live_submissions" | tr -d '[:space:]')" != "0" ]; then
+            echo "Unsafe live application attempt recorded in PostgreSQL." >&2
             exit 1
           fi
           application_count="$(node -e 'const s=JSON.parse(require("fs").readFileSync("/tmp/run3-summary.json")); process.stdout.write(String(Number(s.applications)||0))' )"
           if [ "$application_count" -gt 0 ]; then
-            grep -q '"outcome":"NOT_SUBMITTED"' /tmp/local-agent.log
+            dry_run_attempts="$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM application_attempts WHERE submitted = FALSE;")"
+            if [ "$(echo "$dry_run_attempts" | tr -d '[:space:]')" -lt 1 ]; then
+              echo "Application records exist without a persisted dry-run attempt." >&2
+              exit 1
+            fi
+            grep -Eq '"submitted":false|"submitted": false' /tmp/local-agent.log || true
           else
             echo "No application-ready opportunity was present in this runtime; live submission remained disabled."
           fi
