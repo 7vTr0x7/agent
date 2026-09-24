@@ -136,6 +136,9 @@ jobs:
           docker logs job-agent-local-contacts 2>&1 > /tmp/job-agent-local-runtime-evidence/contacts-container.log || true
           docker logs job-agent-local-content 2>&1 > /tmp/job-agent-local-runtime-evidence/content-container.log || true
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts; SELECT COUNT(*) FROM public_contact_resources; SELECT COUNT(*) FROM public_contact_resource_contacts;" > /tmp/job-agent-local-runtime-evidence/enrichment-db-counts.txt
+          docker exec job-agent-local-recruiter sh -lc "test -f /tmp/job-agent-proactive-recruiter.log && cat /tmp/job-agent-proactive-recruiter.log || true" > /tmp/job-agent-local-runtime-evidence/recruiter-worker.log || true
+          docker exec job-agent-local-contacts sh -lc "test -f /tmp/job-agent-contact-resources.log && cat /tmp/job-agent-contact-resources.log || true" > /tmp/job-agent-local-runtime-evidence/contacts-worker.log || true
+          docker exec job-agent-local-content sh -lc "test -f /tmp/job-agent-content.log && cat /tmp/job-agent-content.log || true" > /tmp/job-agent-local-runtime-evidence/content-worker.log || true
 
       - name: Upload local runtime evidence
         if: always()
