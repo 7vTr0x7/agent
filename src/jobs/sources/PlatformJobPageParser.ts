@@ -115,7 +115,7 @@ export function parseCutshortListingPage(html: string, sourceUrl: string, platfo
       ...(location ? { jobLocation: location } : {}),
       ...(experience ? { experienceRequirements: experience } : {}),
       ...(posted ? { datePosted: posted } : {}),
-      ...(\bfull[- ]?time\b/i.test(cardText) ? { employmentType: "FULL_TIME" } : {})
+      ...(/\bfull[- ]?time\b/i.test(cardText) ? { employmentType: "FULL_TIME" } : {})
     };
     const parsed = buildJob(posting, sourceUrl, platformName, "html-labels");
     if (parsed.job) jobs.set(parsed.job.url.toLowerCase(), parsed.job);
