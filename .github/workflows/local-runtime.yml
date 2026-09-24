@@ -53,26 +53,39 @@ jobs:
 
       - name: Capture real local runtime result
         run: |
-          set -euo pipefail
+          set +e
+          echo '=== LOCAL STATUS ==='
           npm run local:status | tee /tmp/local-status.txt
+          echo "local_status_rc=${PIPESTATUS[0]}"
+          echo '=== API SUMMARY ==='
           curl --fail --silent http://127.0.0.1:3100/api/summary | tee /tmp/final-summary.json
-          docker logs job-agent-local-app 2>&1 | tail -n 200 | tee /tmp/local-agent.log
+          echo "api_summary_rc=${PIPESTATUS[0]}"
+          echo '=== APP LOGS ==='
+          docker logs job-agent-local-app 2>&1 | tail -n 300 | tee /tmp/local-agent.log
+          echo "docker_logs_rc=${PIPESTATUS[0]}"
+          echo '=== DATABASE COUNTS ==='
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities;"
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM match_decisions;"
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;"
+          echo '=== CONTAINER STATES ==='
+          docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' job-agent-local-app job-agent-local-postgres 2>&1
+          echo '=== SAFETY LOG ASSERTIONS ==='
+          grep -E 'automationEnabled|applicationDryRun|safeDryRunWorkerEnabled|applicationLiveEnabled|gmailEnabled|outboundEnabled' /tmp/local-agent.log || true
+
+      - name: Verify continuous operation and safety
+        run: |
+          set -euo pipefail
+          sleep 20
+          npm run local:status
+          curl --fail --silent http://127.0.0.1:3100/healthz
+          test "$(docker inspect -f '{{.State.Status}}' job-agent-local-app)" = running
+          test "$(docker inspect -f '{{.State.Status}}' job-agent-local-postgres)" = running
           grep -q 'automationEnabled":false' /tmp/local-agent.log
           grep -q 'applicationDryRun":true' /tmp/local-agent.log
           grep -q 'safeDryRunWorkerEnabled":true' /tmp/local-agent.log
           grep -q 'applicationLiveEnabled":false' /tmp/local-agent.log
           grep -q 'gmailEnabled":false' /tmp/local-agent.log
           grep -q 'outboundEnabled":false' /tmp/local-agent.log
-
-      - name: Repeat status check for continuous operation
-        run: |
-          set -euo pipefail
-          sleep 20
-          npm run local:status
-          curl --fail --silent http://127.0.0.1:3100/healthz
 
       - name: Stop local runtime
         if: always()
