@@ -108,9 +108,10 @@ function toJob(item: JobPostingJsonLd, options: StructuredDataJobSourceOptions):
   if (!title || !description || !companyName || !url) return null;
 
   const sourceJobId = createHash("sha256").update(`${companyName}|${title}|${url}`).digest("hex").slice(0, 40);
-  const location = locationText(item.jobLocation);
-  const country = locationCountry(item.jobLocation);
-  const workplaceType = item.jobLocationType?.toLowerCase().includes("telecommute") ? "remote" : null;
+  const location = locationText(item.jobLocation) ?? applicantLocationText(item.applicantLocationRequirements) ?? (item.jobLocationType ? clean(item.jobLocationType) : null);
+  const country = locationCountry(item.jobLocation) ?? inferCountryFromText(location);
+  const remote = /telecommute|remote|work from anywhere|distributed/i.test(`${item.jobLocationType ?? ""} ${location ?? ""}`);
+  const workplaceType = remote ? "remote" : location ? "onsite" : null;
   const employmentType = Array.isArray(item.employmentType) ? item.employmentType.join(", ") : item.employmentType ?? null;
 
   return {
@@ -145,8 +146,28 @@ function locationText(value: unknown): string | null {
 }
 
 function locationCountry(value: unknown): string | null {
-  const text = locationText(value);
+  const text = locationText(value) ?? applicantLocationText(value);
   return text?.split(", ").pop() ?? null;
+}
+
+function applicantLocationText(value: unknown): string | null {
+  const values = Array.isArray(value) ? value : [value];
+  const texts = values.map((entry) => {
+    if (typeof entry === "string") return clean(entry);
+    if (!entry || typeof entry !== "object") return null;
+    const record = entry as Record<string, unknown>;
+    return clean(String(record.name ?? record.addressCountry ?? record.addressLocality ?? ""));
+  }).filter((entry): entry is string => Boolean(entry));
+  return texts.length ? [...new Set(texts)].join("; ") : null;
+}
+
+function inferCountryFromText(value: string | null): string | null {
+  const text = (value ?? "").toLowerCase();
+  if (/india|bengaluru|bangalore|mumbai|pune|hyderabad|chennai|delhi|gurugram|noida/.test(text)) return "India";
+  if (/singapore/.test(text)) return "Singapore";
+  if (/japan|tokyo|osaka|kyoto/.test(text)) return "Japan";
+  if (/united states|\busa\b|u\.s\./.test(text)) return "United States";
+  return null;
 }
 
 function parseDate(value: string | undefined): Date | null {
