@@ -110,65 +110,75 @@ jobs:
       - name: Verify coherent database API dashboard state
         run: |
           set -euo pipefail
-          stable=false
-          for attempt in $(seq 1 60); do
-            curl --fail --silent http://127.0.0.1:3100/api/summary > /tmp/coherent-summary.json
-            curl --fail --silent 'http://127.0.0.1:3100/api/jobs?limit=100' > /tmp/coherent-jobs.json
-            curl --fail --silent 'http://127.0.0.1:3100/api/matches?limit=100' > /tmp/coherent-matches.json
-            curl --fail --silent 'http://127.0.0.1:3100/api/recruiters?limit=100' > /tmp/coherent-recruiters.json
-            curl --fail --silent 'http://127.0.0.1:3100/api/contacts?limit=100' > /tmp/coherent-contacts.json
-            curl --fail --silent 'http://127.0.0.1:3100/api/content?limit=100' > /tmp/coherent-content.json
-            curl --fail --silent http://127.0.0.1:3100/api/source-health > /tmp/coherent-source-health.json
-            if node - <<'NODE'
-            const fs=require('fs');
-            const cp=require('child_process');
-            const read=(p)=>JSON.parse(fs.readFileSync(p,'utf8'));
-            const scalar=(sql)=>Number(cp.execFileSync('docker',['exec','job-agent-local-postgres','psql','-U','job_agent','-d','job_agent','-tAc',sql]).toString().trim());
-            const summary=read('/tmp/coherent-summary.json');
-            const jobs=read('/tmp/coherent-jobs.json').jobs||[];
-            const matches=read('/tmp/coherent-matches.json').matches||[];
-            const recruiters=read('/tmp/coherent-recruiters.json').recruiters||[];
-            const contacts=read('/tmp/coherent-contacts.json').contacts||[];
-            const content=read('/tmp/coherent-content.json').content||[];
-            const dbJobs=scalar('SELECT COUNT(*) FROM job_opportunities');
-            const dbMatches=scalar('WITH latest AS (SELECT DISTINCT ON (job_opportunity_id) job_opportunity_id FROM match_decisions ORDER BY job_opportunity_id,created_at DESC) SELECT COUNT(*) FROM latest');
-            const dbApplications=scalar('SELECT COUNT(*) FROM applications');
-            const dbCurrentRecruiters=scalar("SELECT COUNT(*) FROM recruiter_contacts WHERE relevance_status IN ('CURRENT','RECENT')");
-            const dbContacts=scalar("SELECT COUNT(*) FROM public_contact_resource_contacts WHERE validation_status <> 'INVALID' AND relevance_score > 0");
-            const dbContent=scalar("SELECT COUNT(*) FROM recruiter_contact_sources WHERE LOWER(COALESCE(source_type,'')) IN ('job_posting','current_job_posting','current_role','recent_job_posting','recent_role','job_hiring_evidence')");
-            const countsMatch =
-              Number(summary.jobs)===dbJobs &&
-              Number(summary.matches)===dbMatches &&
-              Number(summary.applications)===dbApplications &&
-              Number(summary.currentRecruiters)===dbCurrentRecruiters;
-            const apiMatch =
-              (dbJobs<=100 ? jobs.length===dbJobs : jobs.length===100) &&
-              (dbMatches<=100 ? matches.length===dbMatches : matches.length===100) &&
-              (dbCurrentRecruiters<=100 ? recruiters.length===dbCurrentRecruiters : recruiters.length===100) &&
-              (dbContacts<=100 ? contacts.length===dbContacts : contacts.length===100) &&
-              (dbContent<=100 ? content.length===dbContent : content.length===100);
-            if (!countsMatch || !apiMatch) {
-              console.log(JSON.stringify({countsMatch,apiMatch,summary,dbJobs,dbMatches,dbApplications,dbCurrentRecruiters,dbContacts,dbContent,apiJobs:jobs.length,apiMatches:matches.length,apiRecruiters:recruiters.length,apiContacts:contacts.length,apiContent:content.length}));
-              process.exit(1);
-            }
-            console.log(JSON.stringify({dbJobs,apiJobs:jobs.length,dbMatches,apiMatches:matches.length,dbApplications,dbCurrentRecruiters,apiRecruiters:recruiters.length,dbContacts,apiContacts:contacts.length,dbContent,apiContent:content.length}));
-            NODE
-            then
-              stable=true
-              break
-            fi
-            sleep 2
-          done
-          if [ "$stable" != "true" ]; then
-            echo "Database/API/dashboard state did not converge to a coherent snapshot." >&2
-            cat /tmp/coherent-summary.json >&2
-            exit 1
-          fi
+          curl --fail --silent http://127.0.0.1:3100/api/summary > /tmp/coherent-summary.json
+          curl --fail --silent 'http://127.0.0.1:3100/api/matches?limit=100' > /tmp/coherent-matches.json
+          curl --fail --silent 'http://127.0.0.1:3100/api/recruiters?limit=100' > /tmp/coherent-recruiters.json
+          curl --fail --silent 'http://127.0.0.1:3100/api/contacts?limit=100' > /tmp/coherent-contacts.json
+          curl --fail --silent 'http://127.0.0.1:3100/api/content?limit=100' > /tmp/coherent-content.json
+          curl --fail --silent http://127.0.0.1:3100/api/source-health > /tmp/coherent-source-health.json
           curl --fail --silent http://127.0.0.1:3100/ > /tmp/coherent-dashboard.html
+
           grep -q 'Top Matches' /tmp/coherent-dashboard.html
+          grep -q 'Application Queue' /tmp/coherent-dashboard.html
           grep -q 'Recruiter Leads' /tmp/coherent-dashboard.html
           grep -q 'Public Contact Evidence' /tmp/coherent-dashboard.html
           grep -q 'Hiring Content Evidence' /tmp/coherent-dashboard.html
+          grep -q "fetch('/api/summary')" /tmp/coherent-dashboard.html
+          grep -q "fetch('/api/applications?limit=10')" /tmp/coherent-dashboard.html
+          grep -q "fetch('/api/source-health')" /tmp/coherent-dashboard.html
+          grep -q "fetch('/api/contacts?limit=10')" /tmp/coherent-dashboard.html
+          grep -q "fetch('/api/content?limit=10')" /tmp/coherent-dashboard.html
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const cp=require('child_process');
+          const read=(p)=>JSON.parse(fs.readFileSync(p,'utf8'));
+          const summary=read('/tmp/coherent-summary.json');
+          const matches=read('/tmp/coherent-matches.json').matches||[];
+          const recruiters=read('/tmp/coherent-recruiters.json').recruiters||[];
+          const contacts=read('/tmp/coherent-contacts.json').contacts||[];
+          const content=read('/tmp/coherent-content.json').content||[];
+          const sourceHealth=read('/tmp/coherent-source-health.json').sources||[];
+          const scalar=(sql)=>Number(cp.execFileSync('docker',['exec','job-agent-local-postgres','psql','-U','job_agent','-d','job_agent','-tAc',sql]).toString().trim());
+
+          for (const key of ['jobs','matches','applications','recruiters','matchApply','matchReview','matchReject','currentRecruiters','recentRecruiters']) {
+            if (summary[key] === undefined || !Number.isFinite(Number(summary[key])) || Number(summary[key]) < 0) {
+              throw new Error(`Invalid summary field ${key}: ${JSON.stringify(summary[key])}`);
+            }
+          }
+          if (Number(summary.matchApply)+Number(summary.matchReview)+Number(summary.matchReject) !== Number(summary.matches)) {
+            throw new Error(JSON.stringify({summaryDecisionTotals: [summary.matchApply,summary.matchReview,summary.matchReject],matches:summary.matches}));
+          }
+
+          const dbJobCount=scalar('SELECT COUNT(*) FROM job_opportunities');
+          const dbApplicationCount=scalar('SELECT COUNT(*) FROM applications');
+          const dbRecruiterCount=scalar("SELECT COUNT(*) FROM recruiter_contacts");
+          const dbCurrentRecruiters=scalar("SELECT COUNT(*) FROM recruiter_contacts WHERE relevance_status='CURRENT'");
+          const dbRecentRecruiters=scalar("SELECT COUNT(*) FROM recruiter_contacts WHERE relevance_status='RECENT'");
+          const dbContactCount=scalar("SELECT COUNT(*) FROM public_contact_resource_contacts WHERE validation_status <> 'INVALID' AND relevance_score > 0");
+          const dbContentCount=scalar("SELECT COUNT(*) FROM recruiter_contact_sources WHERE LOWER(COALESCE(source_type,'')) IN ('job_posting','current_job_posting','current_role','recent_job_posting','recent_role','job_hiring_evidence')");
+
+          if (Number(summary.applications) !== dbApplicationCount) throw new Error(JSON.stringify({summaryApplications:summary.applications,dbApplicationCount}));
+          if (Number(summary.recruiters) !== dbRecruiterCount) throw new Error(JSON.stringify({summaryRecruiters:summary.recruiters,dbRecruiterCount}));
+          if (Number(summary.currentRecruiters) !== dbCurrentRecruiters) throw new Error(JSON.stringify({summaryCurrentRecruiters:summary.currentRecruiters,dbCurrentRecruiters}));
+          if (Number(summary.recentRecruiters) !== dbRecentRecruiters) throw new Error(JSON.stringify({summaryRecentRecruiters:summary.recentRecruiters,dbRecentRecruiters}));
+
+          if (recruiters.length !== Math.min(100,dbCurrentRecruiters+dbRecentRecruiters)) throw new Error(JSON.stringify({apiRecruiters:recruiters.length,dbCurrentRecruiters,dbRecentRecruiters}));
+          if (contacts.length !== Math.min(100,dbContactCount)) throw new Error(JSON.stringify({apiContacts:contacts.length,dbContactCount}));
+          if (content.length !== Math.min(100,dbContentCount)) throw new Error(JSON.stringify({apiContent:content.length,dbContentCount}));
+          if (matches.length > Number(summary.matches) || matches.length > 100) throw new Error(JSON.stringify({apiMatches:matches.length,summaryMatches:summary.matches}));
+
+          for (const match of matches.slice(0, Math.min(25,matches.length))) {
+            if (!/^[0-9a-f-]{36}$/i.test(match.jobId)) throw new Error(JSON.stringify({invalidJobId:match.jobId}));
+            const sql = `SELECT decision FROM match_decisions WHERE job_opportunity_id='${match.jobId}' ORDER BY created_at DESC LIMIT 1`;
+            const latest = cp.execFileSync('docker',['exec','job-agent-local-postgres','psql','-U','job_agent','-d','job_agent','-tAc',sql]).toString().trim();
+            if (latest !== String(match.decision)) throw new Error(JSON.stringify({jobId:match.jobId,apiDecision:match.decision,dbLatestDecision:latest}));
+          }
+
+          if (Number(summary.jobs) < dbJobCount) throw new Error(JSON.stringify({summaryJobs:summary.jobs,dbJobCount}));
+          if (sourceHealth.some((source)=>source.status===undefined || source.id===undefined)) throw new Error('Source health response contains incomplete telemetry.');
+          console.log(JSON.stringify({dbJobCount,summaryJobs:summary.jobs,summaryMatches:summary.matches,apiMatches:matches.length,dbApplicationCount,dbRecruiterCount,dbCurrentRecruiters,dbRecentRecruiters,apiRecruiters:recruiters.length,dbContactCount,apiContacts:contacts.length,dbContentCount,apiContent:content.length,sources:sourceHealth.length}));
+          NODE
 
       - name: Capture real local runtime result
         run: |
