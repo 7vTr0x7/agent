@@ -24,7 +24,7 @@ export interface DiscoverRecruitersTaskPayload {
 export class RecruiterDiscoveryTaskDispatcher {
   constructor(private readonly queue: TaskQueue) {}
 
-  async enqueue(payload: DiscoverRecruitersTaskPayload, priority = 40): Promise<string> {
+  async enqueue(payload: DiscoverRecruitersTaskPayload, priority = -5): Promise<string> {
     const refreshBucket = Math.floor(Date.now() / RECRUITER_DISCOVERY_REFRESH_BUCKET_MS);
     return this.queue.enqueue<DiscoverRecruitersTaskPayload>({
       taskType: DISCOVER_RECRUITERS_TASK,
