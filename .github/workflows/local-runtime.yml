@@ -70,7 +70,7 @@ jobs:
           echo '=== CONTAINER STATES ==='
           docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' job-agent-local-app job-agent-local-postgres 2>&1
           echo '=== SAFETY LOG ASSERTIONS ==='
-          grep -E 'automationEnabled|applicationDryRun|safeDryRunWorkerEnabled|applicationLiveEnabled|gmailEnabled|outboundEnabled' /tmp/local-agent.log || true
+          grep -E 'automationEnabled|applicationDryRun|safeDryRunWorkerEnabled|applicationLiveEnabled|gmailEnabled' /tmp/local-agent.log || true
 
       - name: Verify continuous operation and safety (diagnostic)
         continue-on-error: true
@@ -83,6 +83,11 @@ jobs:
           echo "health_rc=$?"
           docker inspect -f 'app={{.State.Status}} exit={{.State.ExitCode}}' job-agent-local-app
           docker inspect -f 'postgres={{.State.Status}} exit={{.State.ExitCode}}' job-agent-local-postgres
+          docker exec job-agent-local-app printenv AUTOMATION_ENABLED
+          docker exec job-agent-local-app printenv APPLICATION_DRY_RUN
+          docker exec job-agent-local-app printenv APPLICATION_LIVE_ENABLED
+          docker exec job-agent-local-app printenv GMAIL_ENABLED
+          docker exec job-agent-local-app printenv OUTBOUND_ENABLED
           docker logs job-agent-local-app 2>&1 | tail -n 500
 
       - name: Upload local runtime evidence
@@ -103,7 +108,11 @@ jobs:
           grep -q 'safeDryRunWorkerEnabled":true' /tmp/local-agent.log
           grep -q 'applicationLiveEnabled":false' /tmp/local-agent.log
           grep -q 'gmailEnabled":false' /tmp/local-agent.log
-          grep -q 'outboundEnabled":false' /tmp/local-agent.log
+          test "$(docker exec job-agent-local-app printenv AUTOMATION_ENABLED)" = false
+          test "$(docker exec job-agent-local-app printenv APPLICATION_DRY_RUN)" = true
+          test "$(docker exec job-agent-local-app printenv APPLICATION_LIVE_ENABLED)" = false
+          test "$(docker exec job-agent-local-app printenv GMAIL_ENABLED)" = false
+          test "$(docker exec job-agent-local-app printenv OUTBOUND_ENABLED)" = false
 
       - name: Stop local runtime
         if: always()
