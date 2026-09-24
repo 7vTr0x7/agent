@@ -40,7 +40,7 @@
     "application-email:once": "tsx scripts/application-email-outcome-once.ts",
     "typecheck:scripts": "tsc --noEmit --target ES2022 --module CommonJS --moduleResolution Node --strict --esModuleInterop --skipLibCheck --noUncheckedIndexedAccess --noImplicitOverride scripts/fast-outcome-jobs.ts scripts/proactive-recruiter-once.ts scripts/public-contact-resources-once.ts",
     "local:run": "bash scripts/local-run.sh",
-    "local:watch": "bash scripts/local-run.sh",
+    "local:watch": "bash scripts/local-watch.sh",
     "local:status": "bash scripts/local-status.sh",
     "local:stop": "bash scripts/local-stop.sh",
     "local:restart": "bash scripts/local-restart.sh"
