@@ -304,7 +304,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(result.metrics.validatedContacts).toBe(0);
   });
 
-  it("rejects relevant-looking posts when the author lacks hiring-role evidence", async () => {
+  it("accepts hiring-post employer evidence without inventing a person identity", async () => {
     const postUrl = "https://www.linkedin.com/posts/example-user_hiring-frontend-activity-1234567890-test";
     const searchPage = [
       postUrl,
@@ -328,8 +328,16 @@ describe("PublicHiringPostDiscoveryProvider", () => {
 
     expect(result.metrics.hiringIntentPosts).toBeGreaterThan(0);
     expect(result.metrics.relevantRolePosts).toBeGreaterThan(0);
-    expect(result.candidates).toHaveLength(0);
+    expect(result.candidates).toHaveLength(1);
     expect(result.metrics.validatedIdentities).toBe(0);
+    expect(result.metrics.validatedContacts).toBe(1);
+    expect(result.candidates[0]).toMatchObject({
+      contactType: "EMPLOYER",
+      recruiterName: "Employer recruiting contact",
+      employer: "Example Corp",
+      evidenceType: "job_hiring_evidence",
+      discoveryUrl: postUrl
+    });
   });
 
   it("deduplicates the same canonical post returned by multiple search providers", async () => {
