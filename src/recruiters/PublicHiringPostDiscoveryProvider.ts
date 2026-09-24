@@ -66,6 +66,7 @@ const EXPLICIT_RECRUITING_ACTION = /(?:my|our)\s+team\s+is\s+hiring|\bi['’]?m\
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const POST_URL = /(?:https?:\/\/)?(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"'\\)]+|feed\/update\/urn:li:activity:\d+)/gi;
 const PROFILE_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
+const LINKEDIN_POST_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"]+|feed\/update\/urn:li:activity:\d+)/i;
 const SEARCH_HOSTS = new Set(["google.com","www.google.com","bing.com","www.bing.com","duckduckgo.com","html.duckduckgo.com","startpage.com","www.startpage.com","search.yahoo.com","www.yahoo.com","search.brave.com","www.mojeek.com","qwant.com","www.qwant.com"]);
 const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com","outlook.com","hotmail.com","yahoo.com","icloud.com","proton.me","protonmail.com"]);
 
@@ -370,8 +371,9 @@ export class PublicHiringPostDiscoveryProvider {
           // contaminate the candidate.
           if (!isSafePublicDestinationUrl(url)) continue;
           const discoveryEvidence = buildEvidence(result.text, url);
-          const postPage = await (input.fetchText ? input.fetchText(url, runtimeSignal) : fetchText(url, runtimeSignal, 6500));
-          const evidence = postPage ? clean(postPage).slice(0, 12000) : "";
+          const indexedPost = LINKEDIN_POST_URL.test(url) && HIRING_INTENT.test(discoveryEvidence);
+          const postPage = indexedPost ? null : await (input.fetchText ? input.fetchText(url, runtimeSignal) : fetchText(url, runtimeSignal, 6500));
+          const evidence = postPage ? clean(postPage).slice(0, 12000) : (indexedPost ? clean(discoveryEvidence).slice(0, 7000) : "");
           if (!evidence || !HIRING_INTENT.test(evidence)) continue;
           metrics.hiringIntentPosts++;
           const extractedRole = extractRole(evidence);
@@ -476,7 +478,7 @@ export class PublicHiringPostDiscoveryProvider {
         const employerEmail = directEmail?.toLowerCase();
         const extractedRole = extractRole(post.text);
         const contactFreshness = freshness(post.text);
-        if (employerContact.name && employerContact.domain && employerEmail && usableDirectEmail(employerEmail, employerContact.domain) && hasRecruitingEmailEvidence(post.text, employerEmail) && extractedRole.role && extractedRole.score >= 75 && contactFreshness !== "unknown") {
+        if (employerContact.name && extractedRole.role && extractedRole.score >= 75 && contactFreshness !== "unknown") {
           metrics.employersExtracted++;
           metrics.validatedContacts++;
           const candidate: ProactiveRecruiterDiscoveryCandidate = {
@@ -484,7 +486,7 @@ export class PublicHiringPostDiscoveryProvider {
             recruiterName: "Employer recruiting contact",
             recruiterRole: "Employer recruiting contact",
             employer: employerContact.name,
-            employerDomain: normalizeDomain(employerContact.domain),
+            ...(employerContact.domain ? { employerDomain: normalizeDomain(employerContact.domain) } : {}),
             targetRoles: extractedRole.terms,
             roleMatchScore: extractedRole.score,
             hiringEvidenceScore: 85,
@@ -495,7 +497,7 @@ export class PublicHiringPostDiscoveryProvider {
             evidenceType: "job_hiring_evidence",
             evidenceDate: new Date().toISOString(),
             evidenceFreshness: contactFreshness,
-            email: employerEmail,
+            ...(employerEmail && employerContact.domain && usableDirectEmail(employerEmail, employerContact.domain) && hasRecruitingEmailEvidence(post.text, employerEmail) ? { email: employerEmail } : {}),
             emailStatus: "UNVERIFIED"
           };
           const key = canonicalIdentityKey(undefined, employerContact.name, post.url, employerEmail);
