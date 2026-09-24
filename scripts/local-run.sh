@@ -15,6 +15,15 @@ ENRICHMENT_INTERVAL_MS="${ENRICHMENT_INTERVAL_MS:-900000}"
 command -v docker >/dev/null || { echo "Docker is required." >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required." >&2; exit 1; }
 
+if ! [[ "$ENRICHMENT_INTERVAL_MS" =~ ^[0-9]+$ ]] || (( ENRICHMENT_INTERVAL_MS < 1000 )); then
+  echo "ENRICHMENT_INTERVAL_MS must be an integer >= 1000 milliseconds." >&2
+  exit 1
+fi
+ENRICHMENT_SLEEP_SECONDS=$(( (ENRICHMENT_INTERVAL_MS + 999) / 1000 ))
+
+command -v docker >/dev/null || { echo "Docker is required." >&2; exit 1; }
+command -v curl >/dev/null || { echo "curl is required." >&2; exit 1; }
+
 if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
   docker network create "$NETWORK" >/dev/null
 fi
@@ -25,12 +34,12 @@ if [[ "${JOB_AGENT_LOCAL_RESET:-false}" == "true" ]]; then
 fi
 
 if ! docker inspect "$POSTGRES" >/dev/null 2>&1; then
-  docker run -d --name "$POSTGRES" --network "$NETWORK" \
+  docker run -d --restart unless-stopped --name "$POSTGRES" --network "$NETWORK" \
     -e POSTGRES_DB="$DB_NAME" -e POSTGRES_USER="$DB_USER" -e POSTGRES_PASSWORD="$DB_PASSWORD" \
     postgres:17-alpine >/dev/null
 fi
 
-if ! docker network inspect "$NETWORK" --format '{{json .Containers}}' | grep -q '"Name":"'"$POSTGRES"'"'; then
+if ! docker network inspect "$NETWORK" --format '{{json .Containers}}' | grep -q '\"Name\":\"'"$POSTGRES"'\"'; then
   docker network connect "$NETWORK" "$POSTGRES" >/dev/null
 fi
 if [[ "$(docker inspect -f '{{.State.Running}}' "$POSTGRES")" != "true" ]]; then
@@ -58,7 +67,7 @@ docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null
 docker build --tag "$IMAGE" .
 if docker inspect "$APP" >/dev/null 2>&1; then docker rm -f "$APP" >/dev/null; fi
 
-docker run -d --name "$APP" --network "$NETWORK" -p "${API_PORT}:3000" \
+docker run -d --restart unless-stopped --name "$APP" --network "$NETWORK" -p "${API_PORT}:3000" \
   -e NODE_ENV=production \
   -e LOG_LEVEL="${LOG_LEVEL:-info}" \
   -e DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
@@ -117,7 +126,8 @@ docker exec -d "$APP" env \
   CANDIDATE_PREFERRED_LOCATIONS="${CANDIDATE_PREFERRED_LOCATIONS:-Bengaluru,Bangalore,India,Remote}" \
   CANDIDATE_REMOTE_ELIGIBLE=true \
   ENRICHMENT_INTERVAL_MS="$ENRICHMENT_INTERVAL_MS" \
-  bash -lc 'while true; do if ! npm run proactive-recruiter:once >>/tmp/job-agent-proactive-recruiter.log 2>&1; then echo "proactive recruiter cycle failed" >>/tmp/job-agent-proactive-recruiter.log; fi; sleep "$ENRICHMENT_INTERVAL_MS"; done'
+  ENRICHMENT_SLEEP_SECONDS="$ENRICHMENT_SLEEP_SECONDS" \
+  bash -lc 'while true; do if ! npm run proactive-recruiter:once >>/tmp/job-agent-proactive-recruiter.log 2>&1; then echo "proactive recruiter cycle failed" >>/tmp/job-agent-proactive-recruiter.log; fi; sleep "$ENRICHMENT_SLEEP_SECONDS"; done'
 
 docker exec -d "$APP" env \
   DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
@@ -129,20 +139,22 @@ docker exec -d "$APP" env \
   CANDIDATE_PREFERRED_LOCATIONS="${CANDIDATE_PREFERRED_LOCATIONS:-Bengaluru,Bangalore,India,Remote}" \
   CANDIDATE_REMOTE_ELIGIBLE=true \
   ENRICHMENT_INTERVAL_MS="$ENRICHMENT_INTERVAL_MS" \
-  bash -lc 'while true; do if ! npm run public-contact-resources:once >>/tmp/job-agent-contact-resources.log 2>&1; then echo "contact resource cycle failed" >>/tmp/job-agent-contact-resources.log; fi; sleep "$ENRICHMENT_INTERVAL_MS"; done'
+  ENRICHMENT_SLEEP_SECONDS="$ENRICHMENT_SLEEP_SECONDS" \
+  bash -lc 'while true; do if ! npm run public-contact-resources:once >>/tmp/job-agent-contact-resources.log 2>&1; then echo "contact resource cycle failed" >>/tmp/job-agent-contact-resources.log; fi; sleep "$ENRICHMENT_SLEEP_SECONDS"; done'
 
 docker exec -d "$APP" env \
   DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
   CANDIDATE_PROFILE_ID="${CANDIDATE_PROFILE_ID:-local-runtime-candidate}" \
   ENRICHMENT_INTERVAL_MS="$ENRICHMENT_INTERVAL_MS" \
-  bash -lc 'while true; do if ! npm run content-first:once >>/tmp/job-agent-content.log 2>&1; then echo "content discovery cycle failed" >>/tmp/job-agent-content.log; fi; sleep "$ENRICHMENT_INTERVAL_MS"; done'
+  ENRICHMENT_SLEEP_SECONDS="$ENRICHMENT_SLEEP_SECONDS" \
+  bash -lc 'while true; do if ! npm run content-first:once >>/tmp/job-agent-content.log 2>&1; then echo "content discovery cycle failed" >>/tmp/job-agent-content.log; fi; sleep "$ENRICHMENT_SLEEP_SECONDS"; done'
 
 echo "Job Agent local runtime is running."
 echo "Dashboard: http://127.0.0.1:${API_PORT}/"
 echo "API summary: http://127.0.0.1:${API_PORT}/api/summary"
 echo "App container: $APP"
 echo "PostgreSQL container: $POSTGRES"
-echo "Enrichment interval: ${ENRICHMENT_INTERVAL_MS}ms"
+echo "Enrichment interval: ${ENRICHMENT_INTERVAL_MS}ms (${ENRICHMENT_SLEEP_SECONDS}s sleep)"
 echo "Logs: docker logs -f $APP"
 echo "Recruiter enrichment log: docker exec $APP tail -n 200 /tmp/job-agent-proactive-recruiter.log"
 echo "Contact enrichment log: docker exec $APP tail -n 200 /tmp/job-agent-contact-resources.log"
