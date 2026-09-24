@@ -42,7 +42,8 @@
     "local:run": "bash scripts/local-run.sh",
     "local:watch": "bash scripts/local-run.sh",
     "local:status": "bash scripts/local-status.sh",
-    "local:stop": "bash scripts/local-stop.sh"
+    "local:stop": "bash scripts/local-stop.sh",
+    "local:restart": "bash scripts/local-restart.sh"
   },
   "dependencies": {
     "dotenv": "^17.2.1",

@@ -13,6 +13,7 @@ jobs:
       JOB_AGENT_LOCAL_API_PORT: 3100
       JOB_AGENT_LOCAL_RESET: true
       JOB_DISCOVERY_INTERVAL_MS: 120000
+      ENRICHMENT_INTERVAL_MS: 60000
       DISCOVERY_SOURCE_TIMEOUT_MS: 20000
       DISCOVERY_SOURCE_RETRIES: 0
       FAST_MATCHING_LIMIT: 150
@@ -78,7 +79,7 @@ jobs:
           test "$(docker inspect -f '{{.State.Status}}' job-agent-local-app)" = running
           test "$(docker inspect -f '{{.State.Status}}' job-agent-local-postgres)" = running
           node -e "const fs=require('fs'); const n=f=>Number(fs.readFileSync(f,'utf8').trim()); if(n('/tmp/run2-jobs.txt')<n('/tmp/run1-jobs.txt')||n('/tmp/run3-jobs.txt')<n('/tmp/run2-jobs.txt')) process.exit(1); console.log(JSON.stringify({run1Jobs:n('/tmp/run1-jobs.txt'),run2Jobs:n('/tmp/run2-jobs.txt'),run3Jobs:n('/tmp/run3-jobs.txt')}))"
-      - name: Verify continuous operation and safety
+      - name: Verify repeated enrichment and safety
         run: |
           set -euo pipefail
           npm run local:status
@@ -90,6 +91,14 @@ jobs:
           test "$(docker exec job-agent-local-app printenv APPLICATION_LIVE_ENABLED)" = false
           test "$(docker exec job-agent-local-app printenv GMAIL_ENABLED)" = false
           test "$(docker exec job-agent-local-app printenv OUTBOUND_ENABLED)" = false
+          test "$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' job-agent-local-app)" = unless-stopped
+          test "$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' job-agent-local-postgres)" = unless-stopped
+          for log in proactive-recruiter contact-resources content; do
+            path="/tmp/job-agent-${log}.log"
+            count=$(docker exec job-agent-local-app sh -lc "test -f '$path' && wc -l < '$path' || true")
+            echo "$log enrichment log lines: $count"
+            test "$count" -ge 2
+          done
           grep -q '"outcome":"NOT_SUBMITTED"' /tmp/local-agent.log
           ! grep -q '"submitted":true' /tmp/local-agent.log
       - name: Upload local runtime evidence
