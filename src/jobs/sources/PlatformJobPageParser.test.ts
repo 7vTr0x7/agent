@@ -10,6 +10,21 @@ describe("PlatformJobPageParser", () => {
     expect(result.diagnostics.parser).toBe("json-ld");
   });
 
+  it("uses applicant location requirements instead of inventing Worldwide", () => {
+    const html = `<script type="application/ld+json">{"@type":"JobPosting","title":"Frontend Engineer","description":"Build React apps","hiringOrganization":{"name":"Acme"},"jobLocationType":"TELECOMMUTE","applicantLocationRequirements":{"@type":"Country","name":"India"}}</script>`;
+    const result = parsePlatformJobPage(html, "https://jobs.example/acme/remote", "Example Board");
+    expect(result.job?.location).toBe("India");
+    expect(result.job?.country).toBe("India");
+    expect(result.job?.workplaceType).toBe("remote");
+  });
+
+  it("keeps genuinely missing geography unknown", () => {
+    const html = `<script type="application/ld+json">{"@type":"JobPosting","title":"Frontend Engineer","description":"Build React apps","hiringOrganization":{"name":"Acme"}}</script>`;
+    const result = parsePlatformJobPage(html, "https://jobs.example/acme/unknown", "Example Board");
+    expect(result.job?.location).toBeNull();
+    expect(result.job?.workplaceType).toBeNull();
+  });
+
   it("extracts jobs from Next.js embedded state when JSON-LD is absent", () => {
     const html = `<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"job":{"title":"Frontend Developer","description":"React and TypeScript role","company":{"name":"Bright Labs","url":"https://bright.example"},"location":"Bangalore, India"}}}}</script>`;
     const result = parsePlatformJobPage(html, "https://board.example/jobs/1", "Example Board");
