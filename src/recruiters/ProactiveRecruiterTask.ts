@@ -28,7 +28,7 @@ export class ProactiveRecruiterTaskDispatcher {
     return this.queue.enqueue({
       taskType: PROACTIVE_RECRUITER_DISCOVERY_TASK,
       payload,
-      priority: 35,
+      // Core job matching (priority 0) must drain before this long-running enrichment task.\n      priority: -10,
       dedupeKey: `proactive-recruiter:${payload.candidateProfileId}`
     });
   }
