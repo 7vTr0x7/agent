@@ -110,7 +110,31 @@ jobs:
       - name: Verify coherent database API dashboard state
         run: |
           set -euo pipefail
-          curl --fail --silent http://127.0.0.1:3100/api/summary > /tmp/coherent-summary.json
+          # The runtime is intentionally live while this check runs, so matching can
+          # append a decision between two independent HTTP requests. Capture a
+          # quiescent-enough snapshot by requiring the headline summary to remain
+          # unchanged across consecutive reads before comparing API/DB/dashboard.
+          previous=""
+          stable=0
+          for attempt in $(seq 1 20); do
+            current="$(curl --fail --silent http://127.0.0.1:3100/api/summary)"
+            signature="$(node -e 'const s=JSON.parse(process.argv[1]); process.stdout.write([s.jobs,s.matches,s.applications,s.recruiters,s.matchApply,s.matchReview,s.matchReject,s.currentRecruiters,s.recentRecruiters].join("|"))' "$current")"
+            if [ "$signature" = "$previous" ]; then
+              stable=$((stable+1))
+            else
+              stable=0
+            fi
+            previous="$signature"
+            if [ "$stable" -ge 2 ]; then
+              printf '%s\n' "$current" > /tmp/coherent-summary.json
+              break
+            fi
+            sleep 1
+          done
+          if [ ! -s /tmp/coherent-summary.json ]; then
+            echo "Could not obtain a stable product-state snapshot while matching was active." >&2
+            exit 1
+          fi
           curl --fail --silent 'http://127.0.0.1:3100/api/matches?limit=100' > /tmp/coherent-matches.json
           curl --fail --silent 'http://127.0.0.1:3100/api/recruiters?limit=100' > /tmp/coherent-recruiters.json
           curl --fail --silent 'http://127.0.0.1:3100/api/contacts?limit=100' > /tmp/coherent-contacts.json
