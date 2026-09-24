@@ -32,10 +32,12 @@ if ! docker inspect "$POSTGRES" >/dev/null 2>&1; then
 fi
 
 docker network connect "$NETWORK" "$POSTGRES" >/dev/null 2>&1 || true
-if ! docker start "$POSTGRES" >/dev/null 2>&1; then
-  echo "Failed to start PostgreSQL container; container logs follow." >&2
-  docker logs "$POSTGRES" >&2 || true
-  exit 1
+if [[ "$(docker inspect -f '{{.State.Running}}' "$POSTGRES")" != "true" ]]; then
+  if ! docker start "$POSTGRES" >/dev/null 2>&1; then
+    echo "Failed to start PostgreSQL container; container logs follow." >&2
+    docker logs "$POSTGRES" >&2 || true
+    exit 1
+  fi
 fi
 for i in $(seq 1 60); do
   if docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then break; fi
