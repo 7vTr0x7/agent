@@ -69,6 +69,7 @@ jobs:
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM match_decisions;" | tee /tmp/run1-matches.txt
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;" | tee /tmp/run1-applications.txt
           docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' job-agent-local-app job-agent-local-postgres job-agent-local-recruiter job-agent-local-contacts job-agent-local-content
+          node -e "const fs=require('fs'); const s=JSON.parse(fs.readFileSync('/tmp/run1-summary.json')); const n=f=>Number(fs.readFileSync(f,'utf8').trim()); if(Number(s.jobs)<=0 || Number(s.matches)<=0) process.exit(1); if(Number(s.jobs)!==n('/tmp/run1-jobs.txt')) process.exit(1); if(Number(s.applications)!==n('/tmp/run1-applications.txt')) process.exit(1); console.log(JSON.stringify({jobs:Number(s.jobs),matches:Number(s.matches),apply:Number(s.matchApply),review:Number(s.matchReview),reject:Number(s.matchReject),applications:Number(s.applications)}))"
       - name: Observe second real discovery cycle
         run: |
           set -euo pipefail
@@ -89,9 +90,17 @@ jobs:
       - name: Verify enrichment is actually repeating
         run: |
           set -euo pipefail
-          for container in job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do
+          declare -A logs=(
+            [job-agent-local-recruiter]=/tmp/job-agent-proactive-recruiter.log
+            [job-agent-local-contacts]=/tmp/job-agent-contact-resources.log
+            [job-agent-local-content]=/tmp/job-agent-content.log
+          )
+          for container in "${!logs[@]}"; do
             test "$(docker inspect -f '{{.State.Status}}' "$container")" = running
-            docker logs "$container" 2>&1 | grep -Eq 'enrichment cycle (completed|failed)'
+            path="${logs[$container]}"
+            docker exec "$container" sh -lc "test -f '$path' && grep -Eq 'enrichment cycle (completed|failed)' '$path'"
+            docker exec "$container" sh -lc "grep -Ec 'enrichment cycle (completed|failed)' '$path'" | tee "/tmp/$(echo "$container" | sed 's/job-agent-local-//').txt"
+            test "$(docker exec "$container" sh -lc "grep -Ec 'enrichment cycle (completed|failed)' '$path'")" -ge 2
           done
       - name: Verify recovery after app restart
         run: |
@@ -119,7 +128,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: local-runtime-evidence
-          path: /tmp/*.json
+          path: /tmp/*
           if-no-files-found: ignore
       - name: Stop local runtime
         if: always()
