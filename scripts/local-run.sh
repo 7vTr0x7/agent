@@ -93,7 +93,21 @@ if [[ "$ready" != "true" ]]; then
   exit 1
 fi
 
-docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null
+pg_ready=false
+for i in $(seq 1 30); do
+  if docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then
+    pg_ready=true
+    break
+  fi
+  sleep 1
+done
+if [[ "$pg_ready" != "true" ]]; then
+  echo "PostgreSQL accepted the database probe but did not become ready for the application database." >&2
+  set +e
+  docker inspect -f 'status={{.State.Status}} exit={{.State.ExitCode}}' "$POSTGRES" >&2
+  docker logs --tail 100 "$POSTGRES" >&2
+  exit 1
+fi
 
 docker build --tag "$IMAGE" .
 remove_container "$APP"

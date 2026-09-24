@@ -65,6 +65,20 @@ test("extracts employer domain from a company-matching first-party HTML link whe
   expect(result.companyDomain).toBe("particle41.com");
 });
 
+test("extracts employer domain from a company-matching contact email when the platform exposes no employer link", async () => {
+  const html = "<html><main>Particle41 is hiring for India. For hiring questions contact careers@Particle41.com.</main></html>";
+  jest.mocked(global.fetch).mockResolvedValue(response(html));
+  const result = await new JobDetailEnricher().enrich(job({ companyName: "Particle41", companyDomain: null, description: "" }));
+  expect(result.companyDomain).toBe("particle41.com");
+});
+
+test("does not promote a platform-owned contact email to an employer domain", async () => {
+  const html = "<html><main>Particle41 hiring information. Contact support@himalayas.app.</main></html>";
+  jest.mocked(global.fetch).mockResolvedValue(response(html));
+  const result = await new JobDetailEnricher().enrich(job({ companyName: "Particle41", companyDomain: null, description: "" }));
+  expect(result.companyDomain).toBeNull();
+});
+
 test("extracts the employer domain from trusted JobPosting hiringOrganization data", async () => {
   const html = "<html><script type=\"application/ld+json\">" + JSON.stringify({
     "@type": "JobPosting",

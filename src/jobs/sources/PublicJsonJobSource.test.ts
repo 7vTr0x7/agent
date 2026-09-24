@@ -12,161 +12,85 @@ describe("PublicJsonJobSource", () => {
   it("normalizes Himalayas jobs", async () => {
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
       jobs: [{
-        guid: "h-1",
-        title: "Frontend Engineer",
-        companyName: "Example India",
-        applicationLink: "https://himalayas.app/jobs/h-1",
-        locationRestrictions: ["India"],
-        employmentType: "Full Time",
-        description: "<p>React and TypeScript</p>",
-        pubDate: "2026-09-07T08:00:00Z"
+        guid: "h-1", title: "Frontend Engineer", companyName: "Example India", applicationLink: "https://himalayas.app/jobs/h-1",
+        locationRestrictions: ["India"], employmentType: "Full Time", description: "<p>React and TypeScript</p>", pubDate: "2026-09-07T08:00:00Z"
       }]
     }), { status: 200, headers: { "content-type": "application/json" } }));
-
     const jobs = await new PublicJsonJobSource("himalayas", "https://himalayas.app/jobs/api").fetchJobs();
-
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]).toMatchObject({
-      source: "himalayas:json",
-      sourceJobId: "h-1",
-      title: "Frontend Engineer",
-      companyName: "Example India",
-      country: "India",
-      workplaceType: "remote",
-      description: "React and TypeScript"
-    });
+    expect(jobs[0]).toMatchObject({ source: "himalayas:json", sourceJobId: "h-1", title: "Frontend Engineer", companyName: "Example India", country: "India", workplaceType: "remote", description: "React and TypeScript" });
+  });
+
+  it("preserves employer-domain evidence from a company-matching hiring email", async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      jobs: [{
+        guid: "h-domain", title: "Frontend Developer", companyName: "Particle41", applicationLink: "https://himalayas.app/companies/particle41/jobs/frontend-developer",
+        locationRestrictions: ["India"], description: "React and TypeScript. For hiring questions contact careers@Particle41.com."
+      }]
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const jobs = await new PublicJsonJobSource("himalayas", "https://himalayas.app/jobs/api").fetchJobs();
+    expect(jobs[0]?.companyDomain).toBe("particle41.com");
+  });
+
+  it("does not promote a platform-owned email to an employer domain", async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      jobs: [{
+        guid: "h-platform-email", title: "Frontend Developer", companyName: "Particle41", applicationLink: "https://himalayas.app/companies/particle41/jobs/frontend-developer",
+        locationRestrictions: ["India"], description: "React and TypeScript. Contact support@himalayas.app."
+      }]
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const jobs = await new PublicJsonJobSource("himalayas", "https://himalayas.app/jobs/api").fetchJobs();
+    expect(jobs[0]?.companyDomain).toBeNull();
+  });
+
+  it("preserves structured object location restrictions", async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      jobs: [{
+        guid: "h-location-object", title: "Senior Full Stack Engineer", companyName: "Example", applicationLink: "https://himalayas.app/jobs/h-location-object",
+        locationRestrictions: [{ country: "Australia" }, { country: "Canada" }], description: "React and Node.js. 5 years experience."
+      }]
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const jobs = await new PublicJsonJobSource("himalayas", "https://himalayas.app/jobs/api").fetchJobs();
+    expect(jobs[0]?.location).toBe("Australia, Canada");
+    expect(jobs[0]?.country).toBeNull();
   });
 
   it("preserves an explicit Himalayas experience field in matcher-visible description text", async () => {
-    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
-      jobs: [{
-        guid: "h-exp",
-        title: "Senior Frontend Engineer",
-        companyName: "Example India",
-        applicationLink: "https://himalayas.app/jobs/h-exp",
-        locationRestrictions: ["India"],
-        experience: "7+ years",
-        description: "React and TypeScript"
-      }]
-    }), { status: 200, headers: { "content-type": "application/json" } }));
-
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ jobs: [{ guid: "h-exp", title: "Senior Frontend Engineer", companyName: "Example India", applicationLink: "https://himalayas.app/jobs/h-exp", locationRestrictions: ["India"], experience: "7+ years", description: "React and TypeScript" }] }), { status: 200, headers: { "content-type": "application/json" } }));
     const jobs = await new PublicJsonJobSource("himalayas", "https://himalayas.app/jobs/api").fetchJobs();
-
     expect(jobs[0]?.description).toContain("Experience requirement: 7+ years.");
   });
 
   it("passes normalized public jobs through the existing detail enricher when configured", async () => {
-    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
-      jobs: [{
-        guid: "h-enrich",
-        title: "Senior Frontend Engineer",
-        companyName: "Example India",
-        applicationLink: "https://himalayas.app/jobs/h-enrich",
-        locationRestrictions: ["India"],
-        description: "React and TypeScript"
-      }]
-    }), { status: 200, headers: { "content-type": "application/json" } }));
-
-    const enricher = {
-      enrichJobs: jest.fn(async (jobs) => jobs.map((item: any) => ({ ...item, description: "React and TypeScript. 7 years minimum." })))
-    } as unknown as JobDetailEnricher;
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ jobs: [{ guid: "h-enrich", title: "Senior Frontend Engineer", companyName: "Example India", applicationLink: "https://himalayas.app/jobs/h-enrich", locationRestrictions: ["India"], description: "React and TypeScript" }] }), { status: 200, headers: { "content-type": "application/json" } }));
+    const enricher = { enrichJobs: jest.fn(async (jobs) => jobs.map((item: any) => ({ ...item, description: "React and TypeScript. 7 years minimum." }))) } as unknown as JobDetailEnricher;
     const jobs = await new PublicJsonJobSource("himalayas", "https://himalayas.app/jobs/api", null, enricher).fetchJobs();
-
     expect(enricher.enrichJobs).toHaveBeenCalledTimes(1);
     expect(jobs[0]?.description).toContain("7 years minimum");
   });
 
   it("normalizes Jobicy jobs", async () => {
-    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
-      jobs: [{
-        id: "j-1",
-        jobTitle: "React Developer",
-        companyName: "Example Japan",
-        url: "https://jobicy.com/jobs/j-1",
-        jobGeo: "Japan",
-        jobType: "Full-time",
-        jobDescription: "<p>Build React applications</p>",
-        pubDate: "2026-09-07T08:00:00Z"
-      }]
-    }), { status: 200, headers: { "content-type": "application/json" } }));
-
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ jobs: [{ id: "j-1", jobTitle: "React Developer", companyName: "Example Japan", url: "https://jobicy.com/jobs/j-1", jobGeo: "Japan", jobType: "Full-time", jobDescription: "<p>Build React applications</p>", pubDate: "2026-09-07T08:00:00Z" }] }), { status: 200, headers: { "content-type": "application/json" } }));
     const jobs = await new PublicJsonJobSource("jobicy", "https://jobicy.com/api/v2/remote-jobs").fetchJobs();
-
-    expect(jobs[0]).toMatchObject({
-      source: "jobicy:json",
-      sourceJobId: "j-1",
-      title: "React Developer",
-      companyName: "Example Japan",
-      country: "Japan",
-      description: "Build React applications"
-    });
+    expect(jobs[0]).toMatchObject({ source: "jobicy:json", sourceJobId: "j-1", title: "React Developer", companyName: "Example Japan", country: "Japan", description: "Build React applications" });
   });
 
   it("normalizes Arbeitnow jobs and converts unix timestamps", async () => {
-    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
-      data: [{
-        slug: "frontend-engineer-1",
-        company_name: "Example Germany",
-        title: "Frontend Engineer",
-        description: "<p>React and TypeScript</p>",
-        remote: true,
-        url: "https://www.arbeitnow.com/jobs/frontend-engineer-1",
-        tags: ["Engineering"],
-        job_types: ["Full-time"],
-        location: "Berlin",
-        created_at: 1786357845
-      }]
-    }), { status: 200, headers: { "content-type": "application/json" } }));
-
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ slug: "frontend-engineer-1", company_name: "Example Germany", title: "Frontend Engineer", description: "<p>React and TypeScript</p>", remote: true, url: "https://www.arbeitnow.com/jobs/frontend-engineer-1", tags: ["Engineering"], job_types: ["Full-time"], location: "Berlin", created_at: 1786357845 }] }), { status: 200, headers: { "content-type": "application/json" } }));
     const jobs = await new PublicJsonJobSource("arbeitnow", "https://www.arbeitnow.com/api/job-board-api").fetchJobs();
-
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]).toMatchObject({
-      source: "arbeitnow:json",
-      sourceJobId: "frontend-engineer-1",
-      title: "Frontend Engineer",
-      companyName: "Example Germany",
-      country: "Germany",
-      workplaceType: "remote",
-      employmentType: "Full-time",
-      description: "React and TypeScript"
-    });
+    expect(jobs[0]).toMatchObject({ source: "arbeitnow:json", sourceJobId: "frontend-engineer-1", title: "Frontend Engineer", companyName: "Example Germany", country: "Germany", workplaceType: "remote", employmentType: "Full-time", description: "React and TypeScript" });
     expect(jobs[0]?.postedAt).toBeInstanceOf(Date);
   });
 
   it("uses the regional default country when an Arbeitnow UK posting has no location", async () => {
-    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
-      data: [{
-        slug: "uk-frontend-engineer-1",
-        company_name: "Example UK",
-        title: "Frontend Engineer",
-        description: "<p>React and TypeScript</p>",
-        remote: true,
-        url: "https://www.arbeitnow.co.uk/jobs/uk-frontend-engineer-1",
-        job_types: ["Full-time"],
-        location: "",
-        created_at: 1786357845
-      }]
-    }), { status: 200, headers: { "content-type": "application/json" } }));
-
-    const jobs = await new PublicJsonJobSource(
-      "arbeitnow",
-      "https://www.arbeitnow.co.uk/api/job-board-api",
-      "United Kingdom"
-    ).fetchJobs();
-
-    expect(jobs[0]).toMatchObject({
-      source: "arbeitnow:json",
-      companyName: "Example UK",
-      country: "United Kingdom",
-      location: "Worldwide"
-    });
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ slug: "uk-frontend-engineer-1", company_name: "Example UK", title: "Frontend Engineer", description: "<p>React and TypeScript</p>", remote: true, url: "https://www.arbeitnow.co.uk/jobs/uk-frontend-engineer-1", job_types: ["Full-time"], location: "", created_at: 1786357845 }] }), { status: 200, headers: { "content-type": "application/json" } }));
+    const jobs = await new PublicJsonJobSource("arbeitnow", "https://www.arbeitnow.co.uk/api/job-board-api", "United Kingdom").fetchJobs();
+    expect(jobs[0]).toMatchObject({ source: "arbeitnow:json", companyName: "Example UK", country: "United Kingdom", location: "Worldwide" });
   });
 
   it("fails closed on non-success responses", async () => {
     global.fetch = jest.fn().mockResolvedValue(new Response("rate limited", { status: 429 }));
-
-    await expect(new PublicJsonJobSource("himalayas", "https://example.invalid").fetchJobs())
-      .rejects.toThrow("himalayas request failed: 429");
+    await expect(new PublicJsonJobSource("himalayas", "https://example.invalid").fetchJobs()).rejects.toThrow("himalayas request failed: 429");
   });
 });
