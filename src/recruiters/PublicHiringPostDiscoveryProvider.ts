@@ -69,6 +69,7 @@ const PROFILE_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-
 const LINKEDIN_POST_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"]+|feed\/update\/urn:li:activity:\d+)/i;
 const SEARCH_HOSTS = new Set(["google.com","www.google.com","bing.com","www.bing.com","duckduckgo.com","html.duckduckgo.com","startpage.com","www.startpage.com","search.yahoo.com","www.yahoo.com","search.brave.com","www.mojeek.com","qwant.com","www.qwant.com"]);
 const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com","outlook.com","hotmail.com","yahoo.com","icloud.com","proton.me","protonmail.com"]);
+const GENERIC_EMPLOYER_DOMAINS = new Set(["example.com","example.org","example.net","localhost"]);
 
 // Public-search pages can contain hundreds of unrelated navigation/result URLs.
 // Bound destination fan-out so one query cannot turn into an effectively unbounded
@@ -144,9 +145,10 @@ function extractEmployer(text: string, email?: string, profileText?: string): { 
     .map(m => normalizeDomain(m[1] ?? ""))
     .filter(d => d && !SEARCH_HOSTS.has(d) && !d.endsWith("linkedin.com"));
   const domain = emailDomain || urlDomains.find(d => d && !/^lnkd\.in$/i.test(d));
+  const usableEmployerDomain = domain && !GENERIC_EMPLOYER_DOMAINS.has(domain) ? domain : undefined;
   if (emailDomain && name && /\b(?:hiring[- ]frontend|frontend[- ]developer|hiring[- ]react|react[- ]developer|min\s+read|skip\s+to|navigation)\b/i.test(name)) name = undefined;
-  if (!name && domain) name = domain.split(".")[0]?.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-  if (name && domain) return { name: name.replace(/[|•,.-]+$/, "").trim(), domain };
+  if (!name && usableEmployerDomain) name = usableEmployerDomain.split(".")[0]?.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  if (name && usableEmployerDomain) return { name: name.replace(/[|•,.-]+$/, "").trim(), domain: usableEmployerDomain };
   if (name) return { name: name.replace(/[|•,.-]+$/, "").trim() };
   return {};
 }
@@ -227,7 +229,7 @@ function isLegitimatePublicResultUrl(value: string, infrastructureHosts: Set<str
     if (!/^https?:$/.test(parsed.protocol)) return false;
     const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
     const path = parsed.pathname.toLowerCase();
-    if (!host || host === "localhost" || SEARCH_HOSTS.has(host) || infrastructureHosts.has(host)) return false;
+    if (!host || host === "localhost" || SEARCH_HOSTS.has(host) || host.endsWith(".qwant.com") || infrastructureHosts.has(host)) return false;
     if ([...infrastructureHosts].some(infrastructureHost => host.endsWith(`.\${infrastructureHost}`))) return false;
     if (host === "r.jina.ai" || host.endsWith(".r.jina.ai")) return false;
     if (host.endsWith("linkedin.com") && /^\/(?:jobs|in)\//i.test(parsed.pathname)) return false;
@@ -297,7 +299,10 @@ function buildEvidence(text: string, postUrl: string): string {
   // Search-result evidence must be local to the discovered URL. A whole search-page
   // shell can contain unrelated hiring words from the query/footer and must not
   // become evidence for every external navigation link on that page.
-  return text.slice(Math.max(0, i - 1800), Math.min(text.length, i + 2600)).replace(/\s+/g, " ").trim().slice(0, 4400);
+  const infrastructureHosts = configuredSearchInfrastructureHosts();
+  const window = text.slice(Math.max(0, i - 1800), Math.min(text.length, i + 2600));
+  const sanitized = window.replace(/https?:\/\/[^\s<>"')\]]+/gi, url => isLegitimatePublicResultUrl(url, infrastructureHosts) ? url : "");
+  return sanitized.replace(/\s+/g, " ").trim().slice(0, 4400);
 }
 function freshness(evidence: string): ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"] {
   if (/\b(?:today|1d|2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo)\b/i.test(evidence)) return "current";
