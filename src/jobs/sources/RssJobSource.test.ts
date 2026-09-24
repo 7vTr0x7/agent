@@ -271,6 +271,9 @@ describe("RssJobSource", () => {
     expect(after.matchedSkills).toEqual(expect.arrayContaining(["React", "Next.js", "TypeScript"]));
     expect(before.evidence.some((entry) => entry.type === "SKILL_GAP")).toBe(true);
     expect(after.evidence.some((entry) => entry.type === "SKILL_MATCH" && entry.detail.includes("React"))).toBe(true);
-    expect(after.decision).toBe("APPLY");
+    // The feed advertises a remote role but only gives an ambiguous location ("IL").
+    // Richer skill evidence must not bypass the geography gate; unknown eligibility remains REVIEW.
+    expect(after.geography).toBe("UNKNOWN");
+    expect(after.decision).toBe("REVIEW");
   });
 });
