@@ -123,32 +123,26 @@ jobs:
           test "$(docker exec job-agent-local-app printenv OUTBOUND_ENABLED)" = false
           grep -q '"outcome":"NOT_SUBMITTED"' /tmp/local-agent.log
           ! grep -q '"submitted":true' /tmp/local-agent.log
+      - name: Prepare deterministic runtime evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/job-agent-local-runtime-evidence
+          mkdir -p /tmp/job-agent-local-runtime-evidence
+          for file in /tmp/health.json /tmp/summary.json /tmp/jobs.json /tmp/applications.json /tmp/run1-summary.json /tmp/run1-applications.json /tmp/run1-jobs.txt /tmp/run1-matches.txt /tmp/run1-applications.txt /tmp/run2-summary.json /tmp/run2-jobs.txt /tmp/run2-matches.txt /tmp/run3-summary.json /tmp/run3-jobs.txt /tmp/run3-matches.txt /tmp/local-status.txt /tmp/local-agent.log /tmp/job-agent-local-recruiter.txt /tmp/job-agent-local-contacts.txt /tmp/job-agent-local-content.txt; do
+            test ! -e "$file" || cp -f "$file" /tmp/job-agent-local-runtime-evidence/
+          done
+          docker logs job-agent-local-recruiter 2>&1 > /tmp/job-agent-local-runtime-evidence/recruiter-container.log || true
+          docker logs job-agent-local-contacts 2>&1 > /tmp/job-agent-local-runtime-evidence/contacts-container.log || true
+          docker logs job-agent-local-content 2>&1 > /tmp/job-agent-local-runtime-evidence/content-container.log || true
+          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts; SELECT COUNT(*) FROM public_contact_resources; SELECT COUNT(*) FROM public_contact_resource_contacts;" > /tmp/job-agent-local-runtime-evidence/enrichment-db-counts.txt
+
       - name: Upload local runtime evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: local-runtime-evidence
-          path: |
-            /tmp/health.json
-            /tmp/summary.json
-            /tmp/jobs.json
-            /tmp/applications.json
-            /tmp/run1-summary.json
-            /tmp/run1-applications.json
-            /tmp/run1-jobs.txt
-            /tmp/run1-matches.txt
-            /tmp/run1-applications.txt
-            /tmp/run2-summary.json
-            /tmp/run2-jobs.txt
-            /tmp/run2-matches.txt
-            /tmp/run3-summary.json
-            /tmp/run3-jobs.txt
-            /tmp/run3-matches.txt
-            /tmp/local-status.txt
-            /tmp/local-agent.log
-            /tmp/job-agent-local-recruiter.txt
-            /tmp/job-agent-local-contacts.txt
-            /tmp/job-agent-local-content.txt
+          path: /tmp/job-agent-local-runtime-evidence
           if-no-files-found: ignore
       - name: Stop local runtime
         if: always()
