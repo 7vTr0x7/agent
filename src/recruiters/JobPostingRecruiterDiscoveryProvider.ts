@@ -167,10 +167,13 @@ function parsePublicLinkedInProfiles(html: string): PublicLinkedInProfile[] {
       const url = `https://www.linkedin.com/in/${pathPart}`;
       if (seen.has(url)) continue;
       const position = match.index ?? 0;
-      const snippet = text.slice(Math.max(0, position - 900), Math.min(text.length, position + 900));
+      const snippet = text.slice(Math.max(0, position - 260), Math.min(text.length, position + 360));
+      const nearbyProfiles = snippet.match(LINKEDIN_PROFILE_PATTERN) ?? [];
+      if (nearbyProfiles.length > 1) continue;
       const nameTitle = snippet.match(/([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|—|\||•|:)\s*([^|.]{3,120})/);
       const name = nameTitle?.[1]?.trim() || pathPart.replace(/[-_]+/g, " ");
       const title = nameTitle?.[2]?.trim();
+      if (!isPlausiblePersonName(name)) continue;
       seen.add(url);
       results.push({ name, title, url, snippet });
     } catch { /* ignore malformed search results */ }
