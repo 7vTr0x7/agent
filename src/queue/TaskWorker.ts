@@ -5,13 +5,20 @@ export interface TaskHandler<TPayload = Record<string, unknown>> { handle(task: 
 export type TaskHandlerRegistry = ReadonlyMap<string, TaskHandler<any>>;
 export interface TaskWorkerLogger { info(bindings: Record<string, unknown>, message: string): void; info(message: string): void; warn(bindings: Record<string, unknown>, message: string): void; error(bindings: Record<string, unknown>, message: string): void; }
 const noopLogger: TaskWorkerLogger = { info: () => undefined, warn: () => undefined, error: () => undefined };
-export interface TaskWorkerOptions { workerId?: string; pollIntervalMs?: number; staleRecoveryIntervalMs?: number; heartbeatIntervalMs?: number; logger?: TaskWorkerLogger; }
+export interface TaskWorkerOptions { workerId?: string; pollIntervalMs?: number; staleRecoveryIntervalMs?: number; heartbeatIntervalMs?: number; concurrency?: number; logger?: TaskWorkerLogger; }
+const positiveInteger = (value: string | undefined, fallback: number): number => {
+  if (value === undefined || value.trim() === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error("TASK_WORKER_CONCURRENCY must be a positive integer");
+  return parsed;
+};
 
 export class TaskWorker {
   private readonly workerId: string;
   private readonly pollIntervalMs: number;
   private readonly staleRecoveryIntervalMs: number;
   private readonly heartbeatIntervalMs: number;
+  private readonly concurrency: number;
   private readonly logger: TaskWorkerLogger;
   private stopped = false;
   private lastRecoveryAt = 0;
@@ -21,6 +28,8 @@ export class TaskWorker {
     this.pollIntervalMs = options.pollIntervalMs ?? 1000;
     this.staleRecoveryIntervalMs = options.staleRecoveryIntervalMs ?? 30_000;
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 5_000;
+    this.concurrency = options.concurrency ?? positiveInteger(process.env.TASK_WORKER_CONCURRENCY, 1);
+    if (!Number.isInteger(this.concurrency) || this.concurrency < 1) throw new Error("Task worker concurrency must be a positive integer");
     this.logger = options.logger ?? noopLogger;
   }
 
@@ -65,8 +74,6 @@ export class TaskWorker {
       }
     };
 
-    // Renew immediately after claiming so a task starts with a fresh lease even if
-    // the first handler operation is slow and the normal interval has not fired yet.
     const initiallyOwned = await renewLease();
     if (!initiallyOwned) return true;
 
@@ -95,18 +102,22 @@ export class TaskWorker {
     return true;
   }
 
-  async run(): Promise<void> {
-    this.stopped = false;
-    this.logger.info({ workerId: this.workerId }, "Task worker started");
+  private async runLoop(workerSlot: number): Promise<void> {
     while (!this.stopped) {
       try {
         const processed = await this.runOnce();
         if (!processed) await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
       } catch (error: unknown) {
-        this.logger.error({ workerId: this.workerId, error: error instanceof Error ? error.message : String(error) }, "Task worker iteration failed; continuing");
+        this.logger.error({ workerId: this.workerId, workerSlot, error: error instanceof Error ? error.message : String(error) }, "Task worker iteration failed; continuing");
         await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
       }
     }
+  }
+
+  async run(): Promise<void> {
+    this.stopped = false;
+    this.logger.info({ workerId: this.workerId, concurrency: this.concurrency }, "Task worker started");
+    await Promise.all(Array.from({ length: this.concurrency }, (_, workerSlot) => this.runLoop(workerSlot)));
     this.logger.info({ workerId: this.workerId }, "Task worker stopped");
   }
 
