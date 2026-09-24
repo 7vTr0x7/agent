@@ -188,7 +188,6 @@ async function resolveEmployerDomainFromPlatformCompanyPage(jobUrl: string, comp
     if (!companyTokens.length) return null;
     for (const match of html.matchAll(/<a\b[^>]*href=["'](https?:\/\/[^"'\s>]+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
       const rawUrl = match[1];
-      const anchorText = stripHtml(match[2] ?? "").toLowerCase();
       if (!rawUrl) continue;
       let candidate: URL;
       try { candidate = new URL(rawUrl); } catch { continue; }
@@ -197,7 +196,9 @@ async function resolveEmployerDomainFromPlatformCompanyPage(jobUrl: string, comp
       const host = candidate.hostname.toLowerCase().replace(/^www\./, "");
       const labels = host.split(".").filter(Boolean);
       if (labels.length < 2 || host === "linkedin.com" || host.endsWith(".linkedin.com")) continue;
-      const companyMatch = companyTokens.some(token => labels.slice(-3).some(label => label.includes(token)));
+      const registrableLabels = labels.slice(-2);
+      const ccTldLabels = new Set(["co", "com", "org", "net", "gov", "ac"]);
+      const companyMatch = companyTokens.some(token => registrableLabels.some(label => label.includes(token)) || (ccTldLabels.has(labels[labels.length - 2] ?? "") && labels.slice(-3).some(label => label.includes(token))));
       if (!companyMatch) continue;
       return { domain:host, sourceUrl:validatedPageUrl };
     }
