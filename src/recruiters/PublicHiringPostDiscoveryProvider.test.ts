@@ -233,6 +233,40 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     });
   });
 
+  it("retains strong search evidence for a job-like destination when the destination page is a blocked shell", async () => {
+    const postUrl = "https://acme.test/jobs/frontend-engineer";
+    const searchPage = [
+      postUrl,
+      "Frontend Engineer — Acme",
+      "Acme is hiring a Frontend Engineer with React and TypeScript.",
+      "Posted 2d. Apply for this role."
+    ].join("\n");
+    const blockedDestination = [
+      "<title>Frontend Engineer — Acme</title>",
+      "Enable JavaScript to continue.",
+      "Access requires a browser."
+    ].join("\n");
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return new Response(url === postUrl ? blockedDestination : searchPage, {
+        status: 200,
+        headers: { "content-type": "text/html" }
+      });
+    }) as typeof fetch;
+
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({
+      targetRoles: ["Frontend Engineer"],
+      skills: ["React", "TypeScript"],
+      maxQueries: 1
+    });
+
+    expect(result.metrics.relevantRolePosts).toBeGreaterThan(0);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]?.discoveryUrl).toBe(postUrl);
+    expect(result.candidates[0]?.discoveryEvidence.join(" ")).toContain("Acme is hiring a Frontend Engineer");
+  });
+
   it("rejects generic prose employers and automated mailbox evidence", async () => {
     const postUrl = "https://example.com/hiring-frontend";
     const postPage = [
