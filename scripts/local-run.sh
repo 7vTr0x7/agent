@@ -21,23 +21,14 @@ if [[ "${JOB_AGENT_LOCAL_RESET:-false}" == "true" ]]; then
 fi
 
 if ! docker inspect "$POSTGRES" >/dev/null 2>&1; then
-  if ! docker create --name "$POSTGRES" --network "$NETWORK" \
+  docker run -d --name "$POSTGRES" --network "$NETWORK" \
     -e POSTGRES_DB="$DB_NAME" -e POSTGRES_USER="$DB_USER" -e POSTGRES_PASSWORD="$DB_PASSWORD" \
-    --restart unless-stopped \
-    postgres:17-alpine >/dev/null; then
-    echo "Failed to create PostgreSQL container." >&2
-    docker network inspect "$NETWORK" >&2 || true
-    exit 1
-  fi
+    postgres:17-alpine >/dev/null
 fi
 
 docker network connect "$NETWORK" "$POSTGRES" >/dev/null 2>&1 || true
 if [[ "$(docker inspect -f '{{.State.Running}}' "$POSTGRES")" != "true" ]]; then
-  if ! docker start "$POSTGRES" >/dev/null 2>&1; then
-    echo "Failed to start PostgreSQL container; container logs follow." >&2
-    docker logs "$POSTGRES" >&2 || true
-    exit 1
-  fi
+  docker start "$POSTGRES" >/dev/null
 fi
 for i in $(seq 1 60); do
   if docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then break; fi
@@ -49,7 +40,6 @@ docker build --tag "$IMAGE" .
 docker rm -f "$APP" >/dev/null 2>&1 || true
 
 docker run -d --name "$APP" --network "$NETWORK" -p "${API_PORT}:3000" \
-  --restart unless-stopped \
   -e NODE_ENV=production \
   -e LOG_LEVEL="${LOG_LEVEL:-info}" \
   -e DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
