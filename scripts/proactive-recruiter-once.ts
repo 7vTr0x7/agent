@@ -8,6 +8,10 @@ import { ProactiveRecruiterRepository } from "../src/recruiters/ProactiveRecruit
 import { ProactiveRecruiterTaskHandler } from "../src/recruiters/ProactiveRecruiterTaskHandler";
 import { PublicHiringPostDiscoveryProvider } from "../src/recruiters/PublicHiringPostDiscoveryProvider";
 import { PublicRecruiterSearchProvider } from "../src/recruiters/PublicRecruiterSearchProvider";
+import { JobPostingRecruiterDiscoveryProvider } from "../src/recruiters/JobPostingRecruiterDiscoveryProvider";
+import { PersistentRecruiterDiscoveryService } from "../src/recruiters/PersistentRecruiterDiscoveryService";
+import { RecruiterDiscoveryRepository } from "../src/recruiters/RecruiterDiscoveryRepository";
+import { RecruiterIdentityRepository } from "../src/recruiters/RecruiterIdentityRepository";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -49,6 +53,89 @@ async function main(): Promise<void> {
     });
 
     const hiringPostPersisted: string[] = [];
+
+    // Job-linked recruiter enrichment uses real current APPLY/REVIEW jobs as
+    // hiring evidence and the existing public-web provider for identity discovery.
+    // It is deliberately bounded and cooled down per employer so the 60s worker
+    // loop does not repeatedly hammer the same public sources.
+    const jobLinkedProvider = new JobPostingRecruiterDiscoveryProvider();
+    const jobLinkedDiscovery = new PersistentRecruiterDiscoveryService({
+      provider: jobLinkedProvider,
+      repository: new RecruiterDiscoveryRepository(database),
+      identityRepository: new RecruiterIdentityRepository(database),
+      cooldownHours: 12,
+      minConfidence: 80,
+      requireVerifiedEmail: false
+    });
+    const jobLinkedLimitRaw = Number.parseInt(process.env.PROACTIVE_RECRUITER_JOB_LINKED_LIMIT ?? "3", 10);
+    const jobLinkedLimit = Number.isInteger(jobLinkedLimitRaw) && jobLinkedLimitRaw > 0 ? Math.min(jobLinkedLimitRaw, 5) : 3;
+    const jobLinkedJobs = (await database.query<{
+      job_id: string;
+      company_name: string;
+      company_domain: string;
+      title: string;
+      description: string;
+      location: string | null;
+      canonical_url: string;
+    }>(
+      `SELECT DISTINCT ON (j.company_domain)
+              j.id AS job_id,
+              j.company_name,
+              j.company_domain,
+              j.title,
+              j.description,
+              j.location,
+              j.canonical_url
+         FROM match_decisions m
+         JOIN job_opportunities j ON j.id=m.job_opportunity_id
+        WHERE m.decision IN ('APPLY','REVIEW')
+          AND NULLIF(TRIM(j.company_domain),'') IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+              FROM recruiter_discovery_runs r
+             WHERE LOWER(r.company_domain)=LOWER(j.company_domain)
+               AND r.provider='job-posting-public-web'
+               AND r.status='SUCCEEDED'
+               AND r.started_at >= NOW()-INTERVAL '12 hours'
+          )
+        ORDER BY j.company_domain, m.created_at DESC, j.posted_at DESC NULLS LAST
+        LIMIT $1`,
+      [jobLinkedLimit]
+    )).rows;
+
+    const jobLinkedResults: Array<Record<string, unknown>> = [];
+    for (const job of jobLinkedJobs) {
+      try {
+        const result = await jobLinkedDiscovery.discoverAndPersist({
+          companyName: job.company_name,
+          companyDomain: job.company_domain,
+          jobTitle: job.title,
+          jobDescription: job.description,
+          location: job.location ?? undefined,
+          candidateProfileId: profile.id,
+          jobOpportunityId: job.job_id
+        }, Math.max(3, config.proactiveRecruiter.maxCandidatesPerRun));
+        jobLinkedResults.push({
+          jobId: job.job_id,
+          company: job.company_name,
+          companyDomain: job.company_domain,
+          jobTitle: job.title,
+          status: result.status,
+          reason: result.reason,
+          contacts: result.contacts.length,
+          metrics: result.metrics
+        });
+      } catch (error) {
+        jobLinkedResults.push({
+          jobId: job.job_id,
+          company: job.company_name,
+          companyDomain: job.company_domain,
+          jobTitle: job.title,
+          status: "FAILED",
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
     const hiringPostRepository = new ProactiveRecruiterRepository(database);
     const verifier = new PublicRecruiterSearchProvider();
 
@@ -161,7 +248,11 @@ async function main(): Promise<void> {
       hiringPostCandidates: hiringPostResult.candidates.length,
       hiringPostPersisted: hiringPostPersisted.length,
       hiringPostPersistedIds: hiringPostPersisted,
-      hiringPostPersistedRecords
+      hiringPostPersistedRecords,
+      jobLinkedEnrichment: {
+        candidateJobsConsidered: jobLinkedJobs.length,
+        results: jobLinkedResults
+      }
     }, null, 2));
   } finally {
     await database.close();
