@@ -80,27 +80,7 @@ jobs:
           grep -q 'Recruiter Leads' /tmp/dashboard.json
           grep -q 'Public Contact Evidence' /tmp/dashboard.json
           grep -q 'Hiring Content Evidence' /tmp/dashboard.json
-          node - <<'NODE'
-          const fs = require('fs');
-          const cp = require('child_process');
-          const read = (name) => JSON.parse(fs.readFileSync(name, 'utf8'));
-          const scalar = (sql) => Number(cp.execFileSync('docker',['exec','job-agent-local-postgres','psql','-U','job_agent','-d','job_agent','-tAc',sql]).toString().trim());
-          const apiMatches = read('/tmp/api-matches.json').matches || [];
-          const apiRecruiters = read('/tmp/api-recruiters.json').recruiters || [];
-          const apiContacts = read('/tmp/api-contacts.json').contacts || [];
-          const apiContent = read('/tmp/api-content.json').content || [];
-          const summary = read('/tmp/summary.json');
-          const dbMatches = scalar('WITH latest AS (SELECT DISTINCT ON (job_opportunity_id) job_opportunity_id FROM match_decisions ORDER BY job_opportunity_id,created_at DESC) SELECT COUNT(*) FROM latest');
-          const dbRecruiters = scalar("SELECT COUNT(*) FROM recruiter_contacts WHERE relevance_status IN ('CURRENT','RECENT')");
-          const dbContacts = scalar("SELECT COUNT(*) FROM public_contact_resource_contacts WHERE validation_status <> 'INVALID' AND relevance_score > 0");
-          const dbContent = scalar("SELECT COUNT(*) FROM recruiter_contact_sources WHERE LOWER(COALESCE(source_type,'')) IN ('job_posting','current_job_posting','current_role','recent_job_posting','recent_role','job_hiring_evidence')");
-          if (dbMatches <= 100 && apiMatches.length !== dbMatches) throw new Error(JSON.stringify({dbMatches,apiMatches:apiMatches.length}));
-          if (dbRecruiters > 0 && apiRecruiters.length === 0) throw new Error(JSON.stringify({dbRecruiters,apiRecruiters:apiRecruiters.length}));
-          if (dbContacts > 0 && apiContacts.length === 0) throw new Error(JSON.stringify({dbContacts,apiContacts:apiContacts.length}));
-          if (dbContent > 0 && apiContent.length === 0) throw new Error(JSON.stringify({dbContent,apiContent:apiContent.length}));
-          if (Number(summary.recruiters) !== dbRecruiters) throw new Error(JSON.stringify({summaryRecruiters:summary.recruiters,dbRecruiters}));
-          console.log(JSON.stringify({dbMatches,apiMatches:apiMatches.length,dbRecruiters,apiRecruiters:apiRecruiters.length,dbContacts,apiContacts:apiContacts.length,dbContent,apiContent:apiContent.length}));
-          NODE
+
       - name: Verify all runtime containers are alive
         run: |
           set -euo pipefail
@@ -127,6 +107,59 @@ jobs:
             fi
             sleep 5
           done
+      - name: Verify coherent database API dashboard state
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS+120))
+          while true; do
+            summary="$(curl --fail --silent http://127.0.0.1:3100/api/summary)"
+            pending="$(node -e 'const s=JSON.parse(process.argv[1]); process.stdout.write(String(Number(s.pendingTasks)||0))' "$summary")"
+            if [ "$pending" -eq 0 ] || (( SECONDS >= deadline )); then
+              printf '%s\n' "$summary" > /tmp/coherent-summary.json
+              break
+            fi
+            sleep 3
+          done
+
+          curl --fail --silent 'http://127.0.0.1:3100/api/jobs?limit=100' > /tmp/coherent-jobs.json
+          curl --fail --silent 'http://127.0.0.1:3100/api/matches?limit=100' > /tmp/coherent-matches.json
+          curl --fail --silent 'http://127.0.0.1:3100/api/recruiters?limit=100' > /tmp/coherent-recruiters.json
+          curl --fail --silent 'http://127.0.0.1:3100/api/contacts?limit=100' > /tmp/coherent-contacts.json
+          curl --fail --silent 'http://127.0.0.1:3100/api/content?limit=100' > /tmp/coherent-content.json
+          curl --fail --silent http://127.0.0.1:3100/api/source-health > /tmp/coherent-source-health.json
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const cp=require('child_process');
+          const read=(p)=>JSON.parse(fs.readFileSync(p,'utf8'));
+          const scalar=(sql)=>Number(cp.execFileSync('docker',['exec','job-agent-local-postgres','psql','-U','job_agent','-d','job_agent','-tAc',sql]).toString().trim());
+          const summary=read('/tmp/coherent-summary.json');
+          const jobs=read('/tmp/coherent-jobs.json').jobs||[];
+          const matches=read('/tmp/coherent-matches.json').matches||[];
+          const recruiters=read('/tmp/coherent-recruiters.json').recruiters||[];
+          const contacts=read('/tmp/coherent-contacts.json').contacts||[];
+          const content=read('/tmp/coherent-content.json').content||[];
+          const dbJobs=scalar('SELECT COUNT(*) FROM job_opportunities');
+          const dbMatches=scalar('WITH latest AS (SELECT DISTINCT ON (job_opportunity_id) job_opportunity_id FROM match_decisions ORDER BY job_opportunity_id,created_at DESC) SELECT COUNT(*) FROM latest');
+          const dbApplications=scalar('SELECT COUNT(*) FROM applications');
+          const dbCurrentRecruiters=scalar("SELECT COUNT(*) FROM recruiter_contacts WHERE relevance_status IN ('CURRENT','RECENT')");
+          const dbContacts=scalar("SELECT COUNT(*) FROM public_contact_resource_contacts WHERE validation_status <> 'INVALID' AND relevance_score > 0");
+          const dbContent=scalar("SELECT COUNT(*) FROM recruiter_contact_sources WHERE LOWER(COALESCE(source_type,'')) IN ('job_posting','current_job_posting','current_role','recent_job_posting','recent_role','job_hiring_evidence')");
+          const summaryChecks={
+            jobs:Number(summary.jobs)===dbJobs,
+            matches:Number(summary.matches)===dbMatches,
+            applications:Number(summary.applications)===dbApplications,
+            currentRecruiters:Number(summary.currentRecruiters)===dbCurrentRecruiters
+          };
+          if(!Object.values(summaryChecks).every(Boolean)) throw new Error(JSON.stringify({summaryChecks,summary,dbJobs,dbMatches,dbApplications,dbCurrentRecruiters}));
+          if((dbJobs<=100 && jobs.length!==dbJobs) || (dbJobs>100 && jobs.length!==100)) throw new Error(JSON.stringify({dbJobs,apiJobs:jobs.length}));
+          if((dbMatches<=100 && matches.length!==dbMatches) || (dbMatches>100 && matches.length!==100)) throw new Error(JSON.stringify({dbMatches,apiMatches:matches.length}));
+          if((dbCurrentRecruiters<=100 && recruiters.length!==dbCurrentRecruiters) || (dbCurrentRecruiters>100 && recruiters.length!==100)) throw new Error(JSON.stringify({dbCurrentRecruiters,apiRecruiters:recruiters.length}));
+          if((dbContacts<=100 && contacts.length!==dbContacts) || (dbContacts>100 && contacts.length!==100)) throw new Error(JSON.stringify({dbContacts,apiContacts:contacts.length}));
+          if((dbContent<=100 && content.length!==dbContent) || (dbContent>100 && content.length!==100)) throw new Error(JSON.stringify({dbContent,apiContent:content.length}));
+          console.log(JSON.stringify({dbJobs,apiJobs:jobs.length,dbMatches,apiMatches:matches.length,dbApplications,dbCurrentRecruiters,apiRecruiters:recruiters.length,dbContacts,apiContacts:contacts.length,dbContent,apiContent:content.length,summaryChecks}));
+          NODE
+
       - name: Capture real local runtime result
         run: |
           set +e
