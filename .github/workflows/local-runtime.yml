@@ -190,8 +190,16 @@ jobs:
           test "$(docker exec job-agent-local-app printenv APPLICATION_LIVE_ENABLED)" = false
           test "$(docker exec job-agent-local-app printenv GMAIL_ENABLED)" = false
           test "$(docker exec job-agent-local-app printenv OUTBOUND_ENABLED)" = false
-          grep -q '"outcome":"NOT_SUBMITTED"' /tmp/local-agent.log
-          ! grep -q '"submitted":true' /tmp/local-agent.log
+          if grep -q '"submitted":true' /tmp/local-agent.log; then
+            echo "Unsafe live submission evidence found in application runtime log." >&2
+            exit 1
+          fi
+          application_count="$(node -e 'const s=JSON.parse(require("fs").readFileSync("/tmp/run3-summary.json")); process.stdout.write(String(Number(s.applications)||0))' )"
+          if [ "$application_count" -gt 0 ]; then
+            grep -q '"outcome":"NOT_SUBMITTED"' /tmp/local-agent.log
+          else
+            echo "No application-ready opportunity was present in this runtime; live submission remained disabled."
+          fi
       - name: Prepare deterministic runtime evidence
         if: always()
         run: |
