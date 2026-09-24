@@ -190,6 +190,49 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(result.candidates[0]?.discoveryEvidence.join(" ")).toContain("job@nextgraph.org");
   });
 
+  it("accepts a public job page as hiring evidence without requiring social-post prose", async () => {
+    const postUrl = "https://acme.test/jobs/frontend-engineer-react";
+    const searchPage = [
+      postUrl,
+      "Acme Labs — Frontend Engineer (React)",
+      "Frontend Engineer"
+    ].join("\n");
+    const postPage = [
+      "<title>Frontend Engineer (React) — Acme Labs</title>",
+      "Company: Acme Labs",
+      "Frontend Engineer (React)",
+      "Job Description",
+      "Responsibilities: build React and TypeScript user interfaces.",
+      "Qualifications: 3+ years React, TypeScript and JavaScript.",
+      "Employment Type: Full-time",
+      "Apply Now",
+      "September 24, 2026"
+    ].join("\n");
+
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return new Response(url === postUrl ? postPage : searchPage, { status: 200, headers: { "content-type": "text/plain" } });
+    }) as typeof fetch;
+
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({
+      targetRoles: ["Frontend Engineer", "React Developer"],
+      skills: ["React", "TypeScript"],
+      maxQueries: 1
+    });
+
+    expect(result.metrics.hiringIntentPosts).toBeGreaterThan(0);
+    expect(result.metrics.relevantRolePosts).toBeGreaterThan(0);
+    expect(result.metrics.validatedContacts).toBe(1);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      contactType: "EMPLOYER",
+      recruiterName: "Employer recruiting contact",
+      employer: "Acme Labs",
+      discoveryUrl: postUrl
+    });
+  });
+
   it("rejects generic prose employers and automated mailbox evidence", async () => {
     const postUrl = "https://example.com/hiring-frontend";
     const postPage = [
