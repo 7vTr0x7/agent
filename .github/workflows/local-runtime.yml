@@ -52,16 +52,28 @@ jobs:
       - name: Verify current product APIs and dashboard
         run: |
           set -euo pipefail
-          curl --fail --silent 'http://127.0.0.1:3100/api/matches?limit=100' | tee /tmp/api-matches.json
-          curl --fail --silent 'http://127.0.0.1:3100/api/recruiters?limit=100' | tee /tmp/api-recruiters.json
-          curl --fail --silent 'http://127.0.0.1:3100/api/contacts?limit=100' | tee /tmp/api-contacts.json
-          curl --fail --silent 'http://127.0.0.1:3100/api/content?limit=100' | tee /tmp/api-content.json
-          curl --fail --silent 'http://127.0.0.1:3100/api/source-health' | tee /tmp/api-source-health.json
-          curl --fail --silent 'http://127.0.0.1:3100/' | tee /tmp/dashboard.html >/dev/null
-          grep -q 'Top Matches' /tmp/dashboard.html
-          grep -q 'Recruiter Leads' /tmp/dashboard.html
-          grep -q 'Public Contact Evidence' /tmp/dashboard.html
-          grep -q 'Hiring Content Evidence' /tmp/dashboard.html
+          check_endpoint() {
+            local name="$1"
+            local url="$2"
+            local body="/tmp/${name}.json"
+            local code
+            code="$(curl -sS -o "$body" -w "%{http_code}" "$url" || true)"
+            echo "${name} HTTP ${code}"
+            if [ "$code" != "200" ]; then
+              cat "$body" >&2 || true
+              exit 1
+            fi
+          }
+          check_endpoint api-matches 'http://127.0.0.1:3100/api/matches?limit=100'
+          check_endpoint api-recruiters 'http://127.0.0.1:3100/api/recruiters?limit=100'
+          check_endpoint api-contacts 'http://127.0.0.1:3100/api/contacts?limit=100'
+          check_endpoint api-content 'http://127.0.0.1:3100/api/content?limit=100'
+          check_endpoint api-source-health 'http://127.0.0.1:3100/api/source-health'
+          check_endpoint dashboard 'http://127.0.0.1:3100/'
+          grep -q 'Top Matches' /tmp/dashboard.json
+          grep -q 'Recruiter Leads' /tmp/dashboard.json
+          grep -q 'Public Contact Evidence' /tmp/dashboard.json
+          grep -q 'Hiring Content Evidence' /tmp/dashboard.json
           node - <<'NODE'
           const fs = require('fs');
           const cp = require('child_process');
