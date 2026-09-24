@@ -21,7 +21,7 @@ export interface CombinedMatchResult {
 
 const APPLY_THRESHOLD = 30;
 const REVIEW_THRESHOLD = 20;
-const MATCHER_VERSION = "matcher-v3";
+const MATCHER_VERSION = "matcher-v4";
 
 export class MatchPipeline {
   constructor(
