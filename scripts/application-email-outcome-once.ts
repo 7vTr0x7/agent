@@ -11,6 +11,7 @@ import { ApplicationSubmissionService } from "../src/applications/ApplicationSub
 import { BrowserSessionService } from "../src/applications/BrowserSession";
 import { ApplicationAdapterRegistry } from "../src/applications/ApplicationAdapter";
 import { createHostedAtsApplicationAdapters } from "../src/applications/AtsApplicationAdapters";
+import { JobDetailEnricher } from "../src/jobs/sources/JobDetailEnricher";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -22,19 +23,46 @@ async function main(): Promise<void> {
     if (!profile) throw new Error("Configured candidate profile could not be resolved.");
 
     const target = await database.query<{
-      job_opportunity_id:string; company_name:string; title:string; canonical_url:string; company_domain:string|null;
+      job_opportunity_id:string; company_name:string; title:string; canonical_url:string; company_domain:string|null; description:string;
+      location:string|null; country:string|null; workplace_type:"onsite"|"remote"|"hybrid"|null; employment_type:string|null; posted_at:Date|null; updated_at:Date|null;
     }>(
-      `SELECT jo.id AS job_opportunity_id, jo.company_name, jo.title, jo.canonical_url, jo.company_domain
+      `SELECT jo.id AS job_opportunity_id, jo.company_name, jo.title, jo.canonical_url, jo.company_domain, jo.description,
+              jo.location, jo.country, jo.workplace_type, jo.employment_type, jo.posted_at, jo.updated_at
        FROM job_opportunities jo
        JOIN match_decisions md ON md.job_opportunity_id=jo.id AND md.candidate_profile_id=$1
-       WHERE md.decision='APPLY' AND jo.status='ACTIVE' AND jo.company_domain IS NOT NULL
-         AND jo.company_domain <> '' AND jo.canonical_url IS NOT NULL AND jo.canonical_url <> ''
+       WHERE md.decision='APPLY' AND jo.status='ACTIVE'
+         AND jo.canonical_url IS NOT NULL AND jo.canonical_url <> ''
        ORDER BY md.match_score DESC, jo.posted_at DESC NULLS LAST
        LIMIT 1`,
       [profile.id]
     );
-    const job = target.rows[0];
-    if (!job) throw new Error("No ACTIVE APPLY job with a validated employer domain is available for application/email runtime.");
+    const candidate = target.rows[0];
+    if (!candidate) throw new Error("No ACTIVE APPLY job is available for application/email runtime.");
+
+    let job = candidate;
+    if (!job.company_domain) {
+      const enriched = await new JobDetailEnricher({ timeoutMs: 15_000, concurrency: 1, maxRedirects: 3 }).enrich({
+        source: "application-preflight",
+        sourceJobId: job.job_opportunity_id,
+        url: job.canonical_url,
+        title: job.title,
+        companyName: job.company_name,
+        location: job.location,
+        country: job.country,
+        workplaceType: job.workplace_type,
+        employmentType: job.employment_type,
+        description: job.description,
+        postedAt: job.posted_at,
+        updatedAt: job.updated_at,
+        contentHash: job.job_opportunity_id
+      }, undefined, true);
+      if (enriched.companyDomain) {
+        await database.query(`UPDATE job_opportunities SET company_domain=$1, updated_at=NOW() WHERE id=$2`, [enriched.companyDomain, job.job_opportunity_id]);
+        job = { ...job, company_domain: enriched.companyDomain };
+        events.push({ event:"application-employer-domain-enriched", company:job.company_name, domain:enriched.companyDomain, sourceUrl:job.canonical_url });
+      }
+    }
+    if (!job.company_domain) throw new Error("No ACTIVE APPLY job has validated employer-domain evidence after application preflight enrichment.");
 
     const queue = new TaskQueue(database);
     const taskId = await queue.enqueue({
