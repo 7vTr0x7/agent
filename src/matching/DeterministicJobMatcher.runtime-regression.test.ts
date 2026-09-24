@@ -63,7 +63,7 @@ describe("DeterministicJobMatcher runtime regressions", () => {
     expect(result.matchScore).toBe(0);
   });
 
-  it("allows explicit worldwide remote roles to remain reviewable rather than auto-apply", () => {
+  it("allows explicit worldwide remote roles to auto-apply when the role is a strong target", () => {
     const result = matcher.evaluate(job({
       title: "Frontend Engineer",
       location: "Worldwide",
@@ -73,7 +73,7 @@ describe("DeterministicJobMatcher runtime regressions", () => {
     }), profile);
 
     expect(result.geography).toBe("REMOTE_WORLDWIDE");
-    expect(result.decision).toBe("REVIEW");
+    expect(result.decision).toBe("APPLY");
   });
 
   it("does not auto-apply when geography is unknown", () => {
