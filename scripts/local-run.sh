@@ -14,11 +14,13 @@ API_PORT="${JOB_AGENT_LOCAL_API_PORT:-3000}"
 command -v docker >/dev/null || { echo "Docker is required." >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required." >&2; exit 1; }
 
-docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK" >/dev/null
+if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
+  docker network create "$NETWORK" >/dev/null
+fi
 
 if [[ "${JOB_AGENT_LOCAL_RESET:-false}" == "true" ]]; then
-  docker rm -f "$APP" >/dev/null 2>&1 || true
-  docker rm -f "$POSTGRES" >/dev/null 2>&1 || true
+  if docker inspect "$APP" >/dev/null 2>&1; then docker rm -f "$APP" >/dev/null; fi
+  if docker inspect "$POSTGRES" >/dev/null 2>&1; then docker rm -f "$POSTGRES" >/dev/null; fi
 fi
 
 if ! docker inspect "$POSTGRES" >/dev/null 2>&1; then
@@ -27,7 +29,9 @@ if ! docker inspect "$POSTGRES" >/dev/null 2>&1; then
     postgres:17-alpine >/dev/null
 fi
 
-docker network connect "$NETWORK" "$POSTGRES" >/dev/null 2>&1 || true
+if ! docker network inspect "$NETWORK" --format '{{json .Containers}}' | grep -q '"Name":"'"$POSTGRES"'"'; then
+  docker network connect "$NETWORK" "$POSTGRES" >/dev/null
+fi
 if [[ "$(docker inspect -f '{{.State.Running}}' "$POSTGRES")" != "true" ]]; then
   docker start "$POSTGRES" >/dev/null
 fi
@@ -42,15 +46,16 @@ for i in $(seq 1 60); do
 done
 if [[ "$ready" != "true" ]]; then
   echo "PostgreSQL did not finish initialization; container state and logs follow." >&2
-  docker inspect -f 'status={{.State.Status}} exit={{.State.ExitCode}}' "$POSTGRES" >&2 || true
-  docker logs "$POSTGRES" >&2 || true
+  set +e
+  docker inspect -f 'status={{.State.Status}} exit={{.State.ExitCode}}' "$POSTGRES" >&2
+  docker logs "$POSTGRES" >&2
   exit 1
 fi
 
 docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null
 
 docker build --tag "$IMAGE" .
-docker rm -f "$APP" >/dev/null 2>&1 || true
+if docker inspect "$APP" >/dev/null 2>&1; then docker rm -f "$APP" >/dev/null; fi
 
 docker run -d --name "$APP" --network "$NETWORK" -p "${API_PORT}:3000" \
   -e NODE_ENV=production \
@@ -94,8 +99,9 @@ for i in $(seq 1 30); do
 done
 if ! curl -fsS "http://127.0.0.1:${API_PORT}/healthz" >/dev/null 2>&1; then
   echo "Job Agent API did not become healthy; app logs follow." >&2
-  docker inspect -f 'status={{.State.Status}} exit={{.State.ExitCode}}' "$APP" >&2 || true
-  docker logs "$APP" >&2 || true
+  set +e
+  docker inspect -f 'status={{.State.Status}} exit={{.State.ExitCode}}' "$APP" >&2
+  docker logs "$APP" >&2
   exit 1
 fi
 
@@ -109,7 +115,7 @@ docker exec -d "$APP" env \
   CANDIDATE_LOCATION="${CANDIDATE_LOCATION:-India}" \
   CANDIDATE_PREFERRED_LOCATIONS="${CANDIDATE_PREFERRED_LOCATIONS:-Bengaluru,Bangalore,India,Remote}" \
   CANDIDATE_REMOTE_ELIGIBLE=true \
-  bash -lc 'while true; do npm run proactive-recruiter:once >>/tmp/job-agent-proactive-recruiter.log 2>&1 || true; sleep 900; done'
+  bash -lc 'while true; do if ! npm run proactive-recruiter:once >>/tmp/job-agent-proactive-recruiter.log 2>&1; then echo "proactive recruiter cycle failed" >>/tmp/job-agent-proactive-recruiter.log; fi; sleep 900; done'
 
 docker exec -d "$APP" env \
   DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
@@ -120,12 +126,12 @@ docker exec -d "$APP" env \
   CANDIDATE_LOCATION="${CANDIDATE_LOCATION:-India}" \
   CANDIDATE_PREFERRED_LOCATIONS="${CANDIDATE_PREFERRED_LOCATIONS:-Bengaluru,Bangalore,India,Remote}" \
   CANDIDATE_REMOTE_ELIGIBLE=true \
-  npm run public-contact-resources:once >/tmp/job-agent-contact-resources.log 2>&1 || true
+  bash -lc 'if ! npm run public-contact-resources:once >/tmp/job-agent-contact-resources.log 2>&1; then echo "contact resource cycle failed" >>/tmp/job-agent-contact-resources.log; fi'
 
 docker exec -d "$APP" env \
   DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
   CANDIDATE_PROFILE_ID="${CANDIDATE_PROFILE_ID:-local-runtime-candidate}" \
-  npm run content-first:once >/tmp/job-agent-content.log 2>&1 || true
+  bash -lc 'if ! npm run content-first:once >/tmp/job-agent-content.log 2>&1; then echo "content discovery cycle failed" >>/tmp/job-agent-content.log; fi'
 
 echo "Job Agent local runtime is running."
 echo "Dashboard: http://127.0.0.1:${API_PORT}/"
