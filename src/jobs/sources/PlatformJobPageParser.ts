@@ -49,7 +49,7 @@ function extractCutshortHtmlJob(html: string): RawPosting | null {
   if (!employer) return null;
 
   const location = cleanText(
-    text.match(/\bLocation\s*:\s*([^|•]{3,260})/i)?.[1] ??
+    text.match(/\bLocation\s*:\s*([^|•]{3,260}?)(?=\s+(?:Skills|Role\s+Summary|Job\s+Summary|About\s+the\s+Role|Profile\s+Overview|Job\s+Description|Responsibilities|Requirements)\b|$)/i)?.[1] ??
     text.match(/\b(Remote(?:,\s*[^|•]{2,180})?|Bengaluru\s*\(Bangalore\)(?:,\s*[^|•]{2,180})?)/i)?.[1] ??
     ""
   ) || null;
@@ -76,13 +76,19 @@ export function parseCutshortListingPage(html: string, sourceUrl: string, platfo
   const matches = [...html.matchAll(/<a\b[^>]+href=["'](https?:\/\/(?:www\.)?cutshort\.io\/job\/[^"']+|\/job\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
   const jobs = new Map<string, Job>();
 
-  for (const match of matches) {
-    const rawUrl = match[1] ?? "";
-    const title = cleanText(match[2] ?? "");
+  for (let matchIndex = 0; matchIndex < matches.length; matchIndex += 1) {
+    const match = matches[matchIndex];
+    const rawUrl = match?.[1] ?? "";
+    const title = cleanText(match?.[2] ?? "");
     if (!title || title.length < 4 || /^(?:apply(?: now)?|read more|company|home)$/i.test(title)) continue;
     const url = normalizeUrl(rawUrl, sourceUrl);
-    const index = match.index ?? 0;
-    const cardHtml = html.slice(Math.max(0, index - 900), Math.min(html.length, index + 14000));
+    const index = match?.index ?? 0;
+    // Bound each listing card by the next job link. The previous implementation
+    // used a fixed 14k-character window, which let the next card's company,
+    // location and description overwrite the current listing's fields.
+    const nextIndex = matches[matchIndex + 1]?.index;
+    const cardEnd = nextIndex === undefined ? Math.min(html.length, index + 14000) : nextIndex;
+    const cardHtml = html.slice(index, cardEnd);
     const cardText = stripHtml(cardHtml).replace(/\s+/g, " ").trim();
 
     const employer = cleanText(
