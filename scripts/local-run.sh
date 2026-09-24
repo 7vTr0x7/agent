@@ -35,7 +35,12 @@ for i in $(seq 1 60); do
   if docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then break; fi
   sleep 1
 done
-docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null
+if ! docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then
+  echo "PostgreSQL did not become ready; container state and logs follow." >&2
+  docker inspect -f 'status={{.State.Status}} exit={{.State.ExitCode}}' "$POSTGRES" >&2 || true
+  docker logs "$POSTGRES" >&2 || true
+  exit 1
+fi
 
 docker build --tag "$IMAGE" .
 docker rm -f "$APP" >/dev/null 2>&1 || true
@@ -80,7 +85,12 @@ for i in $(seq 1 30); do
   if curl -fsS "http://127.0.0.1:${API_PORT}/healthz" >/dev/null 2>&1; then break; fi
   sleep 1
 done
-curl -fsS "http://127.0.0.1:${API_PORT}/healthz" >/dev/null
+if ! curl -fsS "http://127.0.0.1:${API_PORT}/healthz" >/dev/null 2>&1; then
+  echo "Job Agent API did not become healthy; app logs follow." >&2
+  docker inspect -f 'status={{.State.Status}} exit={{.State.ExitCode}}' "$APP" >&2 || true
+  docker logs "$APP" >&2 || true
+  exit 1
+fi
 
 docker exec -d "$APP" env \
   DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
