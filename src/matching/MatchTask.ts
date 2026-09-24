@@ -117,7 +117,7 @@ export class MatchTaskHandler {
       candidateLocation: this.profiles.location,
       jobOpportunityId: job.id,
       applicationOutcome: "NOT_ATTEMPTED"
-    }, 40);
+    }, -5);
     recruiterDispatchDiagnostic(job, "DISCOVER_RECRUITERS_ENQUEUED", { companyDomain, taskId });
     return taskId;
   }
