@@ -31,16 +31,23 @@ docker network connect "$NETWORK" "$POSTGRES" >/dev/null 2>&1 || true
 if [[ "$(docker inspect -f '{{.State.Running}}' "$POSTGRES")" != "true" ]]; then
   docker start "$POSTGRES" >/dev/null
 fi
+
+ready=false
 for i in $(seq 1 60); do
-  if docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then break; fi
+  if docker exec "$POSTGRES" psql -U "$DB_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" 2>/dev/null | grep -q '^1$'; then
+    ready=true
+    break
+  fi
   sleep 1
 done
-if ! docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then
-  echo "PostgreSQL did not become ready; container state and logs follow." >&2
+if [[ "$ready" != "true" ]]; then
+  echo "PostgreSQL did not finish initialization; container state and logs follow." >&2
   docker inspect -f 'status={{.State.Status}} exit={{.State.ExitCode}}' "$POSTGRES" >&2 || true
   docker logs "$POSTGRES" >&2 || true
   exit 1
 fi
+
+docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null
 
 docker build --tag "$IMAGE" .
 docker rm -f "$APP" >/dev/null 2>&1 || true
