@@ -4,6 +4,7 @@ trap 'echo "Job Agent local runtime failed at line ${LINENO}." >&2' ERR
 
 NETWORK="${JOB_AGENT_LOCAL_NETWORK:-job-agent-local}"
 POSTGRES="${JOB_AGENT_LOCAL_POSTGRES:-job-agent-local-postgres}"
+POSTGRES_VOLUME="${JOB_AGENT_LOCAL_POSTGRES_VOLUME:-job-agent-local-postgres-data}"
 APP="${JOB_AGENT_LOCAL_APP:-job-agent-local-app}"
 RECRUITER="${JOB_AGENT_LOCAL_RECRUITER:-job-agent-local-recruiter}"
 CONTACTS="${JOB_AGENT_LOCAL_CONTACTS:-job-agent-local-contacts}"
@@ -34,12 +35,20 @@ remove_container() {
   fi
 }
 
+remove_volume() {
+  local volume="$1"
+  if docker volume inspect "$volume" >/dev/null 2>&1; then
+    docker volume rm "$volume" >/dev/null
+  fi
+}
+
 if [[ "${JOB_AGENT_LOCAL_RESET:-false}" == "true" ]]; then
   remove_container "$CONTENT"
   remove_container "$CONTACTS"
   remove_container "$RECRUITER"
   remove_container "$APP"
   remove_container "$POSTGRES"
+  remove_volume "$POSTGRES_VOLUME"
 fi
 
 # Recreate application-side workers on every local:run so a previous runtime cannot leave
@@ -49,7 +58,11 @@ remove_container "$CONTACTS"
 remove_container "$RECRUITER"
 
 if ! docker inspect "$POSTGRES" >/dev/null 2>&1; then
+  if ! docker volume inspect "$POSTGRES_VOLUME" >/dev/null 2>&1; then
+    docker volume create "$POSTGRES_VOLUME" >/dev/null
+  fi
   docker run -d --restart unless-stopped --name "$POSTGRES" --network "$NETWORK" \
+    -v "$POSTGRES_VOLUME:/var/lib/postgresql/data" \
     -e POSTGRES_DB="$DB_NAME" -e POSTGRES_USER="$DB_USER" -e POSTGRES_PASSWORD="$DB_PASSWORD" \
     postgres:17-alpine >/dev/null
 fi
@@ -84,7 +97,6 @@ docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null
 
 docker build --tag "$IMAGE" .
 remove_container "$APP"
-
 docker run -d --restart unless-stopped --name "$APP" --network "$NETWORK" -p "${API_PORT}:3000" \
   -e NODE_ENV=production \
   -e LOG_LEVEL="${LOG_LEVEL:-info}" \
@@ -168,6 +180,7 @@ Dashboard: http://127.0.0.1:${API_PORT}/
 API summary: http://127.0.0.1:${API_PORT}/api/summary
 App container: $APP
 PostgreSQL container: $POSTGRES
+PostgreSQL volume: $POSTGRES_VOLUME
 Recruiter enrichment container: $RECRUITER
 Contact enrichment container: $CONTACTS
 Content enrichment container: $CONTENT
