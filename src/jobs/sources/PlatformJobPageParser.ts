@@ -72,7 +72,7 @@ function extractCutshortHtmlJob(html: string): RawPosting | null {
 }
 
 export function parseCutshortListingPage(html: string, sourceUrl: string, platformName = "Cutshort"): Job[] {
-  if (!/cutshort\.io/i.test(html)) return [];
+  if (!/cutshort\.io/i.test(html) && !/cutshort\.io/i.test(sourceUrl)) return [];
   const matches = [...html.matchAll(/<a\b[^>]+href=["'](https?:\/\/(?:www\.)?cutshort\.io\/job\/[^"']+|\/job\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
   const jobs = new Map<string, Job>();
 
