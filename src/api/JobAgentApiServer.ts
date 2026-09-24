@@ -119,6 +119,68 @@ export class JobAgentApiServer {
       return;
     }
 
+    if (url.pathname === "/api/jobs") {
+      const limit = parseLimit(url.searchParams.get("limit"));
+      const decision = url.searchParams.get("decision");
+      const params: unknown[] = [limit];
+      const decisionClause = decision && ["APPLY", "REVIEW", "REJECT"].includes(decision)
+        ? "WHERE m.decision = $2"
+        : "";
+      if (decisionClause) params.push(decision);
+      const jobs = await this.database.query(`
+        SELECT
+          j.id,
+          j.company_name AS company,
+          j.title AS role,
+          j.location,
+          j.canonical_url AS url,
+          j.posted_at,
+          m.decision,
+          m.match_score AS score,
+          m.reason
+        FROM job_opportunities j
+        LEFT JOIN LATERAL (
+          SELECT decision, match_score, reason
+          FROM match_decisions
+          WHERE job_opportunity_id=j.id
+          ORDER BY created_at DESC
+          LIMIT 1
+        ) m ON true
+        ${decisionClause}
+        ORDER BY j.posted_at DESC NULLS LAST, j.created_at DESC
+        LIMIT $1
+      `, params);
+      writeJson(response, 200, { jobs: jobs.rows });
+      return;
+    }
+
+    if (url.pathname === "/api/applications") {
+      const limit = parseLimit(url.searchParams.get("limit"));
+      const applications = await this.database.query(`
+        SELECT
+          a.id,
+          j.company_name AS company,
+          j.title AS role,
+          j.location,
+          j.canonical_url AS url,
+          m.match_score AS score,
+          m.reason
+        FROM applications a
+        JOIN job_opportunities j ON j.id=a.job_opportunity_id
+        LEFT JOIN LATERAL (
+          SELECT match_score, reason
+          FROM match_decisions
+          WHERE job_opportunity_id=j.id
+          ORDER BY created_at DESC
+          LIMIT 1
+        ) m ON true
+        ORDER BY a.created_at DESC
+        LIMIT $1
+      `, [limit]);
+      writeJson(response, 200, { applications: applications.rows });
+      return;
+    }
+
     if (url.pathname === "/api/summary") {
       const summary = await this.database.query<SummaryRow>(`
         SELECT
@@ -204,6 +266,12 @@ export class JobAgentApiServer {
   }
 }
 
+function parseLimit(value: string | null): number {
+  const parsed = Number(value ?? 25);
+  if (!Number.isInteger(parsed) || parsed < 1) return 25;
+  return Math.min(parsed, 100);
+}
+
 function writeJson(response: ServerResponse, statusCode: number, value: unknown): void {
   response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(value));
@@ -223,6 +291,7 @@ main{max-width:1100px;margin:auto}h1{margin-bottom:4px}.muted{color:#667085}
 .section{margin-top:24px}.result{padding:14px 0;border-bottom:1px solid #eaecf0}.result:last-child{border-bottom:0}
 .result h3{margin:0 0 6px}.meta{margin:3px 0}.reason{margin-top:8px}.pill{display:inline-block;padding:3px 8px;border-radius:999px;background:#eef2f6;margin-right:6px;font-size:12px}
 a{color:inherit}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.toolbar button{border:1px solid #d0d5dd;background:white;border-radius:8px;padding:7px 10px;cursor:pointer}.toolbar button.active{font-weight:700}
 </style>
 </head>
 <body><main>
@@ -230,7 +299,8 @@ a{color:inherit}
 <div class="muted">Live operational dashboard — read-only results</div>
 <div id="status" class="status">Loading…</div>
 <div id="grid" class="grid"></div>
-<section class="section"><h2>Top Matches</h2><div id="matches">Loading…</div></section>
+<section class="section"><h2>Top Matches</h2><div class="toolbar"><button data-filter="APPLY">Match</button><button data-filter="REVIEW">Review</button><button data-filter="REJECT">Skip</button><button data-filter="ALL" class="active">All</button></div><div id="matches">Loading…</div></section>
+<section class="section"><h2>Application Queue</h2><div id="applications">Loading…</div></section>
 <section class="section"><h2>Recruiter Leads</h2><div id="recruiters">Loading…</div></section>
 </main>
 <script>
@@ -238,51 +308,29 @@ function esc(value){return String(value??'').replace(/[&<>"']/g,function(c){retu
 function decisionLabel(value){return value==='APPLY'?'MATCH':value==='REVIEW'?'REVIEW':'SKIP'}
 function renderMatches(items){
   if(!items.length)return '<div class="muted">No match records yet.</div>';
-  return items.map(function(x){
-    return '<article class="result"><h3>'+esc(x.role)+' — '+esc(x.company)+'</h3>'+
-      '<div class="meta">'+esc(x.location||'Location unknown')+'</div>'+
-      '<div class="meta"><span class="pill">'+esc(decisionLabel(x.decision))+'</span><span class="pill">Score '+esc(x.score)+'</span></div>'+
-      '<div class="meta"><a href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer">'+esc(x.url)+'</a></div>'+
-      '<div class="reason">'+esc(x.reason)+'</div></article>';
-  }).join('');
+  return items.map(function(x){return '<article class="result"><h3>'+esc(x.role)+' — '+esc(x.company)+'</h3><div class="meta">'+esc(x.location||'Location unknown')+'</div><div class="meta"><span class="pill">'+esc(decisionLabel(x.decision))+'</span><span class="pill">Score '+esc(x.score)+'</span></div><div class="meta"><a href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer">'+esc(x.url)+'</a></div><div class="reason">'+esc(x.reason)+'</div></article>';}).join('');
+}
+function renderApplications(items){
+  if(!items.length)return '<div class="muted">No application candidates yet.</div>';
+  return items.map(function(x){return '<article class="result"><h3>'+esc(x.role)+' — '+esc(x.company)+'</h3><div class="meta">'+esc(x.location||'Location unknown')+' · score '+esc(x.score??'unknown')+'</div><div class="meta"><a href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer">Open application/job</a></div><div class="reason">'+esc(x.reason||'No match explanation available.')+'</div></article>';}).join('');
 }
 function renderRecruiters(items){
   if(!items.length)return '<div class="muted">No current/recent recruiter leads yet.</div>';
-  return items.map(function(x){
-    return '<article class="result"><h3>'+esc(x.name||'Recruiter identity unavailable')+' — '+esc(x.company)+'</h3>'+
-      '<div class="meta">'+esc(x.role||'Recruiter role unavailable')+' · '+esc(x.relevance)+' relevance</div>'+
-      '<div class="meta">Email: '+esc(x.email)+' · '+esc(x.emailStatus||'UNKNOWN')+(x.eligibleForOutreach?' · ELIGIBLE':'')+'</div>'+
-      '<div class="meta">Confidence: '+esc(x.confidence??'unknown')+' · Mailbox evidence: '+(x.mailboxEvidence?'yes':'no')+'</div>'+
-      (x.profileUrl?'<div class="meta"><a href="'+esc(x.profileUrl)+'" target="_blank" rel="noopener noreferrer">'+esc(x.profileUrl)+'</a></div>':'')+
-      '</article>';
-  }).join('');
+  return items.map(function(x){return '<article class="result"><h3>'+esc(x.name||'Recruiter identity unavailable')+' — '+esc(x.company)+'</h3><div class="meta">'+esc(x.role||'Recruiter role unavailable')+' · '+esc(x.relevance)+' relevance</div><div class="meta">Email: '+esc(x.email)+' · '+esc(x.emailStatus||'UNKNOWN')+(x.eligibleForOutreach?' · ELIGIBLE':'')+'</div><div class="meta">Confidence: '+esc(x.confidence??'unknown')+' · Mailbox evidence: '+(x.mailboxEvidence?'yes':'no')+'</div>'+(x.profileUrl?'<div class="meta"><a href="'+esc(x.profileUrl)+'" target="_blank" rel="noopener noreferrer">Source evidence</a></div>':'')+'</article>';}).join('');
 }
+let latestSummary=null;
 async function refresh(){
   try{
-    const health=await fetch('/healthz');
-    const response=await fetch('/api/summary');
-    const data=await response.json();
+    const health=await fetch('/healthz'); const response=await fetch('/api/summary'); latestSummary=await response.json();
     document.getElementById('status').textContent=health.ok?'Database connected':'Database unavailable';
-    const cards={
-      'JOBS DISCOVERED':data.jobs,
-      'MATCH':data.matchApply,
-      'REVIEW':data.matchReview,
-      'SKIP':data.matchReject,
-      'RECRUITERS':data.recruiters,
-      'VERIFIED EMAILS':data.verifiedRecruiterEmails,
-      'CURRENT RECRUITERS':data.currentRecruiters,
-      'RECENT RECRUITERS':data.recentRecruiters,
-      'EMAILS SENT':data.outreachSent,
-      'APPLICATIONS':data.applications
-    };
-    document.getElementById('grid').innerHTML=Object.entries(cards).map(function(pair){
-      return '<div class="card"><div class="muted">'+esc(pair[0])+'</div><div class="value">'+esc(pair[1])+'</div></div>';
-    }).join('');
+    const data=latestSummary;
+    const cards={'JOBS DISCOVERED':data.jobs,'MATCH':data.matchApply,'REVIEW':data.matchReview,'SKIP':data.matchReject,'RECRUITERS':data.recruiters,'VERIFIED EMAILS':data.verifiedRecruiterEmails,'CURRENT RECRUITERS':data.currentRecruiters,'RECENT RECRUITERS':data.recentRecruiters,'EMAILS SENT':data.outreachSent,'APPLICATIONS':data.applications};
+    document.getElementById('grid').innerHTML=Object.entries(cards).map(function(pair){return '<div class="card"><div class="muted">'+esc(pair[0])+'</div><div class="value">'+esc(pair[1])+'</div></div>';}).join('');
     document.getElementById('matches').innerHTML=renderMatches(data.topMatches||[]);
     document.getElementById('recruiters').innerHTML=renderRecruiters(data.recruiterLeads||[]);
-  }catch(e){
-    document.getElementById('status').textContent='API unavailable';
-  }
+    const app=await fetch('/api/applications?limit=10'); const appData=await app.json(); document.getElementById('applications').innerHTML=renderApplications(appData.applications||[]);
+  }catch(e){document.getElementById('status').textContent='API unavailable';}
 }
+document.querySelectorAll('[data-filter]').forEach(function(button){button.addEventListener('click',async function(){document.querySelectorAll('[data-filter]').forEach(function(b){b.classList.remove('active')});button.classList.add('active');const filter=button.dataset.filter;const url=filter==='ALL'?'/api/jobs?limit=10':'/api/jobs?limit=10&decision='+encodeURIComponent(filter);try{const response=await fetch(url);const data=await response.json();document.getElementById('matches').innerHTML=renderMatches((data.jobs||[]).map(function(x){return {role:x.role,company:x.company,location:x.location,url:x.url,decision:x.decision||'REJECT',score:x.score??0,reason:x.reason||'No match decision recorded.'};}));}catch(e){document.getElementById('matches').textContent='Unable to load jobs.';}})});
 refresh();setInterval(refresh,15000);
 </script></body></html>`;
