@@ -34,7 +34,12 @@ jobs:
             docker exec job-agent-fast-outcome-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1 && break
             sleep 1
           done
-          docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -tAc 'SELECT 1;' | grep -qx '1'
+          for i in $(seq 1 30); do
+            docker exec job-agent-fast-outcome-postgres psql -U job_agent -d job_agent -tAc 'SELECT 1;' 2>/dev/null | grep -qx '1' && exit 0
+            sleep 1
+          done
+          echo 'PostgreSQL did not become query-ready' >&2
+          exit 1
 
       - name: Run bounded real-data discovery and matching
         shell: bash
@@ -98,9 +103,7 @@ jobs:
           const matches = [...text.matchAll(/\n\{\s*"status"\s*:\s*"ok"\s*,/g)];
           if (!matches.length) throw new Error('No valid application runtime JSON found');
           const parsed = JSON.parse(text.slice(matches.at(-1).index + 1).trim());
-          if (parsed.status !== 'ok' || parsed.feature !== 'JOB_FIRST_APPLICATION_EMAIL' || parsed.independentEmailBranch !== true || parsed.application?.handlerInvoked !== true) {
-            throw new Error('Application runtime did not complete its handler path');
-          }
+          if (parsed.status !== 'ok' || parsed.feature !== 'JOB_FIRST_APPLICATION_EMAIL' || parsed.independentEmailBranch !== true || parsed.application?.handlerInvoked !== true) throw new Error('Application runtime did not complete its handler path');
           const email = parsed.emailDiscovery;
           if (email?.started !== true && email?.blocked !== true) throw new Error('Email branch neither started nor reported a safety block');
           if (email?.blocked === true && parsed.target?.companyDomain) throw new Error('Email branch reported blocked despite a validated employer domain');
