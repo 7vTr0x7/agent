@@ -197,7 +197,7 @@ export class JobAgentApiServer {
       const content = await this.database.query(
         `SELECT s.id,c.full_name AS recruiter,c.company_name AS company,c.title AS role,
                 s.source_url AS "sourceUrl",s.source_type AS "sourceType",
-                s.confidence,s.observed_at AS "observedAt",s.evidence
+                s.confidence,s.observed_at AS "observedAt"
          FROM recruiter_contact_sources s
          JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id
          WHERE LOWER(COALESCE(s.source_type,'')) IN

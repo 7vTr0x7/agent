@@ -6,6 +6,20 @@ describe("JobAgentApiServer", () => {
     const database = {
       query: jest.fn(async (sql: string) => {
         if (sql.includes("SELECT 1")) return { rows: [{ "?column?": 1 }] };
+        if (sql.includes("FROM recruiter_contact_sources s")) {
+          return {
+            rows: [{
+              id: "source-1",
+              recruiter: "Jane Doe",
+              company: "Example Corp",
+              role: "React Frontend Engineer",
+              sourceUrl: "https://example.com/jobs/react-frontend",
+              sourceType: "job_posting",
+              confidence: 95,
+              observedAt: "2026-09-24T12:00:00.000Z"
+            }]
+          };
+        }
         return {
           rows: [{
             jobs: "12",
@@ -92,6 +106,19 @@ describe("JobAgentApiServer", () => {
       const queryMock = database.query as unknown as jest.Mock;
       const summaryQuery = queryMock.mock.calls.find(([sql]: [unknown]) => String(sql).includes("match_decisions"))?.[0];
       expect(String(summaryQuery)).toContain('x."relevanceScore"');
+
+      const content = await fetch(`${baseUrl}/api/content?limit=10`);
+      expect(content.status).toBe(200);
+      const contentBody = await content.json();
+      expect(contentBody.content).toEqual([expect.objectContaining({
+        id: "source-1",
+        company: "Example Corp",
+        role: "React Frontend Engineer",
+        sourceType: "job_posting"
+      })]);
+
+      const contentQuery = queryMock.mock.calls.find(([sql]: [unknown]) => String(sql).includes("FROM recruiter_contact_sources s"))?.[0];
+      expect(String(contentQuery)).not.toContain("s.evidence");
     } finally {
       await server.stop();
     }
