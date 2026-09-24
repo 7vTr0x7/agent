@@ -535,10 +535,12 @@ export class PublicHiringPostDiscoveryProvider {
         continue;
       }
       metrics.authorsExtracted++;
+      const validatedAuthorName = author.name;
+      if (!validatedAuthorName) { metrics.rejectedPosts++; continue; }
       if (!profileUrl || !profileText) {
-        const profileSearch = await search(`site:linkedin.com/in "${author.name}"`, runtimeSignal, input.fetchText);
+        const profileSearch = await search(`site:linkedin.com/in "${validatedAuthorName}"`, runtimeSignal, input.fetchText);
         for (const result of profileSearch) {
-          profileUrl = profileUrl ?? extractProfileUrlFromSearch(result.text, author.name);
+          profileUrl = profileUrl ?? extractProfileUrlFromSearch(result.text, validatedAuthorName);
           profileText += " " + result.text;
         }
       }
@@ -557,7 +559,7 @@ export class PublicHiringPostDiscoveryProvider {
       const f = freshness(post.text);
       if (f === "unknown") { metrics.rejectedPosts++; continue; }
       const candidate: ProactiveRecruiterDiscoveryCandidate = {
-        recruiterName: author.name,
+        recruiterName: validatedAuthorName,
         recruiterRole: identityEvidence.match(AUTHOR_ROLE)?.[0] ?? "Hiring Lead",
         employer: employer.name,
         ...(domain ? { employerDomain: normalizeDomain(domain) } : {}),
