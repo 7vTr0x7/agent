@@ -6,7 +6,7 @@ describe("JobAgentApiServer", () => {
     const database = {
       query: jest.fn(async (sql: string) => {
         if (sql.includes("SELECT 1")) return { rows: [{ "?column?": 1 }] };
-        if (sql.includes("FROM recruiter_contact_sources s")) {
+        if (sql.includes('SELECT s.id,c.full_name AS recruiter') && sql.includes("FROM recruiter_contact_sources s")) {
           return {
             rows: [{
               id: "source-1",
