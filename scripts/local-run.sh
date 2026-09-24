@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'echo "Job Agent local runtime failed at line ${LINENO}." >&2' ERR
 
 NETWORK="${JOB_AGENT_LOCAL_NETWORK:-job-agent-local}"
 POSTGRES="${JOB_AGENT_LOCAL_POSTGRES:-job-agent-local-postgres}"
