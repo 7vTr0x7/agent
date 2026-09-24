@@ -82,13 +82,13 @@ export class TaskWorker {
     return true;
   }
 
-  private async runLoop(workerSlot: number): Promise<void> {
+  private async runLoop(): Promise<void> {
     while (!this.stopped) {
       try {
         const processed = await this.runOnce();
         if (!processed) await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
       } catch (error: unknown) {
-        this.logger.error({ workerId: this.workerId, workerSlot, error: error instanceof Error ? error.message : String(error) }, "Task worker iteration failed; continuing");
+        this.logger.error({ workerId: this.workerId, error: error instanceof Error ? error.message : String(error) }, "Task worker iteration failed; continuing");
         await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
       }
     }
@@ -97,7 +97,7 @@ export class TaskWorker {
   async run(): Promise<void> {
     this.stopped = false;
     this.logger.info({ workerId: this.workerId, concurrency: this.concurrency }, "Task worker started");
-    await Promise.all(Array.from({ length: this.concurrency }, (_, workerSlot) => this.runLoop(workerSlot)));
+    await Promise.all(Array.from({ length: this.concurrency }, () => this.runLoop()));
     this.logger.info({ workerId: this.workerId }, "Task worker stopped");
   }
 
