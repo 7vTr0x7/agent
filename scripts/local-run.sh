@@ -5,6 +5,9 @@ trap 'echo "Job Agent local runtime failed at line ${LINENO}." >&2' ERR
 NETWORK="${JOB_AGENT_LOCAL_NETWORK:-job-agent-local}"
 POSTGRES="${JOB_AGENT_LOCAL_POSTGRES:-job-agent-local-postgres}"
 APP="${JOB_AGENT_LOCAL_APP:-job-agent-local-app}"
+RECRUITER="${JOB_AGENT_LOCAL_RECRUITER:-job-agent-local-recruiter}"
+CONTACTS="${JOB_AGENT_LOCAL_CONTACTS:-job-agent-local-contacts}"
+CONTENT="${JOB_AGENT_LOCAL_CONTENT:-job-agent-local-content}"
 IMAGE="${JOB_AGENT_LOCAL_IMAGE:-job-agent:local}"
 DB_NAME="${JOB_AGENT_LOCAL_DB:-job_agent}"
 DB_USER="${JOB_AGENT_LOCAL_DB_USER:-job_agent}"
@@ -19,19 +22,31 @@ if ! [[ "$ENRICHMENT_INTERVAL_MS" =~ ^[0-9]+$ ]] || (( ENRICHMENT_INTERVAL_MS < 
   echo "ENRICHMENT_INTERVAL_MS must be an integer >= 1000 milliseconds." >&2
   exit 1
 fi
-ENRICHMENT_SLEEP_SECONDS=$(( (ENRICHMENT_INTERVAL_MS + 999) / 1000 ))
-
-command -v docker >/dev/null || { echo "Docker is required." >&2; exit 1; }
-command -v curl >/dev/null || { echo "curl is required." >&2; exit 1; }
 
 if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
   docker network create "$NETWORK" >/dev/null
 fi
 
+remove_container() {
+  local container="$1"
+  if docker inspect "$container" >/dev/null 2>&1; then
+    docker rm -f "$container" >/dev/null
+  fi
+}
+
 if [[ "${JOB_AGENT_LOCAL_RESET:-false}" == "true" ]]; then
-  if docker inspect "$APP" >/dev/null 2>&1; then docker rm -f "$APP" >/dev/null; fi
-  if docker inspect "$POSTGRES" >/dev/null 2>&1; then docker rm -f "$POSTGRES" >/dev/null; fi
+  remove_container "$CONTENT"
+  remove_container "$CONTACTS"
+  remove_container "$RECRUITER"
+  remove_container "$APP"
+  remove_container "$POSTGRES"
 fi
+
+# Recreate application-side workers on every local:run so a previous runtime cannot leave
+# stale enrichment processes behind. The workers themselves use restart:unless-stopped.
+remove_container "$CONTENT"
+remove_container "$CONTACTS"
+remove_container "$RECRUITER"
 
 if ! docker inspect "$POSTGRES" >/dev/null 2>&1; then
   docker run -d --restart unless-stopped --name "$POSTGRES" --network "$NETWORK" \
@@ -65,7 +80,7 @@ fi
 docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null
 
 docker build --tag "$IMAGE" .
-if docker inspect "$APP" >/dev/null 2>&1; then docker rm -f "$APP" >/dev/null; fi
+remove_container "$APP"
 
 docker run -d --restart unless-stopped --name "$APP" --network "$NETWORK" -p "${API_PORT}:3000" \
   -e NODE_ENV=production \
@@ -115,49 +130,45 @@ if ! curl -fsS "http://127.0.0.1:${API_PORT}/healthz" >/dev/null 2>&1; then
   exit 1
 fi
 
-# Slow enrichment runs independently so it can never occupy the core job/matching worker.
-docker exec -d "$APP" env \
-  DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
-  CANDIDATE_PROFILE_ID="${CANDIDATE_PROFILE_ID:-local-runtime-candidate}" \
-  CANDIDATE_YEARS_EXPERIENCE="${CANDIDATE_YEARS_EXPERIENCE:-3}" \
-  CANDIDATE_SKILLS="${CANDIDATE_SKILLS:-React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS}" \
-  CANDIDATE_TARGET_TITLES="${CANDIDATE_TARGET_TITLES:-Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer}" \
-  CANDIDATE_LOCATION="${CANDIDATE_LOCATION:-India}" \
-  CANDIDATE_PREFERRED_LOCATIONS="${CANDIDATE_PREFERRED_LOCATIONS:-Bengaluru,Bangalore,India,Remote}" \
-  CANDIDATE_REMOTE_ELIGIBLE=true \
-  ENRICHMENT_INTERVAL_MS="$ENRICHMENT_INTERVAL_MS" \
-  ENRICHMENT_SLEEP_SECONDS="$ENRICHMENT_SLEEP_SECONDS" \
-  bash -lc 'while true; do if ! npm run proactive-recruiter:once >>/tmp/job-agent-proactive-recruiter.log 2>&1; then echo "proactive recruiter cycle failed" >>/tmp/job-agent-proactive-recruiter.log; fi; sleep "$ENRICHMENT_SLEEP_SECONDS"; done'
+COMMON_ENV=(
+  -e "DATABASE_URL=postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME"
+  -e "CANDIDATE_PROFILE_ID=${CANDIDATE_PROFILE_ID:-local-runtime-candidate}"
+  -e "CANDIDATE_YEARS_EXPERIENCE=${CANDIDATE_YEARS_EXPERIENCE:-3}"
+  -e "CANDIDATE_SKILLS=${CANDIDATE_SKILLS:-React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS}"
+  -e "CANDIDATE_TARGET_TITLES=${CANDIDATE_TARGET_TITLES:-Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer}"
+  -e "CANDIDATE_LOCATION=${CANDIDATE_LOCATION:-India}"
+  -e "CANDIDATE_PREFERRED_LOCATIONS=${CANDIDATE_PREFERRED_LOCATIONS:-Bengaluru,Bangalore,India,Remote}"
+  -e CANDIDATE_REMOTE_ELIGIBLE=true
+  -e "ENRICHMENT_INTERVAL_MS=$ENRICHMENT_INTERVAL_MS"
+)
 
-docker exec -d "$APP" env \
-  DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
-  CANDIDATE_PROFILE_ID="${CANDIDATE_PROFILE_ID:-local-runtime-candidate}" \
-  CANDIDATE_YEARS_EXPERIENCE="${CANDIDATE_YEARS_EXPERIENCE:-3}" \
-  CANDIDATE_SKILLS="${CANDIDATE_SKILLS:-React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS}" \
-  CANDIDATE_TARGET_TITLES="${CANDIDATE_TARGET_TITLES:-Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer}" \
-  CANDIDATE_LOCATION="${CANDIDATE_LOCATION:-India}" \
-  CANDIDATE_PREFERRED_LOCATIONS="${CANDIDATE_PREFERRED_LOCATIONS:-Bengaluru,Bangalore,India,Remote}" \
-  CANDIDATE_REMOTE_ELIGIBLE=true \
-  ENRICHMENT_INTERVAL_MS="$ENRICHMENT_INTERVAL_MS" \
-  ENRICHMENT_SLEEP_SECONDS="$ENRICHMENT_SLEEP_SECONDS" \
-  bash -lc 'while true; do if ! npm run public-contact-resources:once >>/tmp/job-agent-contact-resources.log 2>&1; then echo "contact resource cycle failed" >>/tmp/job-agent-contact-resources.log; fi; sleep "$ENRICHMENT_SLEEP_SECONDS"; done'
+start_enrichment_worker() {
+  local name="$1"
+  local mode="$2"
+  docker run -d --restart unless-stopped --name "$name" --network "$NETWORK" \
+    "${COMMON_ENV[@]}" \
+    "$IMAGE" bash scripts/local-enrichment-loop.sh "$mode" >/dev/null
+}
 
-docker exec -d "$APP" env \
-  DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
-  CANDIDATE_PROFILE_ID="${CANDIDATE_PROFILE_ID:-local-runtime-candidate}" \
-  ENRICHMENT_INTERVAL_MS="$ENRICHMENT_INTERVAL_MS" \
-  ENRICHMENT_SLEEP_SECONDS="$ENRICHMENT_SLEEP_SECONDS" \
-  bash -lc 'while true; do if ! npm run content-first:once >>/tmp/job-agent-content.log 2>&1; then echo "content discovery cycle failed" >>/tmp/job-agent-content.log; fi; sleep "$ENRICHMENT_SLEEP_SECONDS"; done'
+start_enrichment_worker "$RECRUITER" recruiter
+start_enrichment_worker "$CONTACTS" contacts
+start_enrichment_worker "$CONTENT" content
 
-echo "Job Agent local runtime is running."
-echo "Dashboard: http://127.0.0.1:${API_PORT}/"
-echo "API summary: http://127.0.0.1:${API_PORT}/api/summary"
-echo "App container: $APP"
-echo "PostgreSQL container: $POSTGRES"
-echo "Enrichment interval: ${ENRICHMENT_INTERVAL_MS}ms (${ENRICHMENT_SLEEP_SECONDS}s sleep)"
-echo "Logs: docker logs -f $APP"
-echo "Recruiter enrichment log: docker exec $APP tail -n 200 /tmp/job-agent-proactive-recruiter.log"
-echo "Contact enrichment log: docker exec $APP tail -n 200 /tmp/job-agent-contact-resources.log"
-echo "Content enrichment log: docker exec $APP tail -n 200 /tmp/job-agent-content.log"
-echo "Stop: npm run local:stop"
-echo "Reset database: JOB_AGENT_LOCAL_RESET=true npm run local:run"
+cat <<EOF
+Job Agent local runtime is running.
+Dashboard: http://127.0.0.1:${API_PORT}/
+API summary: http://127.0.0.1:${API_PORT}/api/summary
+App container: $APP
+PostgreSQL container: $POSTGRES
+Recruiter enrichment container: $RECRUITER
+Contact enrichment container: $CONTACTS
+Content enrichment container: $CONTENT
+Enrichment interval: ${ENRICHMENT_INTERVAL_MS}ms
+Logs: docker logs -f $APP
+Recruiter enrichment log: docker logs -f $RECRUITER
+Contact enrichment log: docker logs -f $CONTACTS
+Content enrichment log: docker logs -f $CONTENT
+Stop: npm run local:stop
+Restart: npm run local:restart
+Reset database: JOB_AGENT_LOCAL_RESET=true npm run local:run
+EOF
