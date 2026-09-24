@@ -52,7 +52,7 @@ export class DeterministicJobMatcher {
   let score=titleScore(title,technicalOrientation,titleMatch)+Math.min(30,Math.round((matchedSkills.length/Math.max(1,Math.min(profile.skills.length,8)))*30))+seniorityScore(seniority,requiredYears,profile.yearsExperience)+geographyScore(geography)+(freshnessScore(freshness))+(salary??0);
   if(geography==="REMOTE_WORLDWIDE")score-=8; if(freshness==="STALE")score-=25; if(freshness==="MODERATELY_OLD")score-=10; if(seniority==="SENIOR_HIGH"||seniority==="LEAD"||seniority==="STAFF")score-=18; if(seniority==="SENIOR_COMPATIBLE")score-=4;
   score=Math.max(0,Math.min(100,Math.round(score))); let decision:JobDecision=score>=this.applyThreshold?"APPLY":score>=this.reviewThreshold?"REVIEW":"REJECT";
-  const riskReview=(salary!==null&&salary<0)||geography==="REMOTE_WORLDWIDE"||seniority==="SENIOR_HIGH"||seniority==="LEAD"||seniority==="STAFF"||experienceMismatch(requiredYears,experienceRange,profile.yearsExperience);
+  const riskReview=(salary!==null&&salary<0)||geography==="UNKNOWN"||geography==="REMOTE_WORLDWIDE"||seniority==="SENIOR_HIGH"||seniority==="LEAD"||seniority==="STAFF"||experienceMismatch(requiredYears,experienceRange,profile.yearsExperience);
   if(riskReview&&decision==="APPLY")decision="REVIEW"; if(freshness==="STALE"&&decision!=="REJECT")decision="REVIEW";
   return{matchScore:score,decision,matchedSkills,missingSkills,evidence,reason:`${matchedSkills.length} skills matched; role=${technicalOrientation}; geography=${geography}; seniority=${seniority}; freshness=${freshness}.`,geography,freshness,seniority,technicalOrientation};
  }

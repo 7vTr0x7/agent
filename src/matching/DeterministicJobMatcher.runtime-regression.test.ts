@@ -76,6 +76,19 @@ describe("DeterministicJobMatcher runtime regressions", () => {
     expect(result.decision).toBe("REVIEW");
   });
 
+  it("does not auto-apply when geography is unknown", () => {
+    const result = matcher.evaluate(job({
+      title: "Frontend Engineer",
+      location: null,
+      country: null,
+      workplaceType: null,
+      description: "React and TypeScript required."
+    }), profile);
+
+    expect(result.geography).toBe("UNKNOWN");
+    expect(result.decision).toBe("REVIEW");
+  });
+
   it("rejects backend-specific Ruby on Rails roles despite frontend keywords in the description", () => {
     const result = matcher.evaluate(job({
       title: "Senior Ruby on Rails Developer",
