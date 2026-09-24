@@ -115,16 +115,9 @@ jobs:
           for attempt in $(seq 1 90); do
             current="$(curl --fail --silent http://127.0.0.1:3100/api/summary)"
             signature="$(node -e 'const s=JSON.parse(process.argv[1]); process.stdout.write([s.jobs,s.matches,s.applications,s.recruiters,s.matchApply,s.matchReview,s.matchReject,s.currentRecruiters,s.recentRecruiters].join("|"))' "$current")"
-            if [ "$signature" = "$previous" ]; then
-              stable=$((stable+1))
-            else
-              stable=0
-            fi
+            if [ "$signature" = "$previous" ]; then stable=$((stable+1)); else stable=0; fi
             previous="$signature"
-            if [ "$stable" -ge 2 ]; then
-              printf '%s\n' "$current" > /tmp/coherent-summary.json
-              break
-            fi
+            if [ "$stable" -ge 2 ]; then printf '%s\n' "$current" > /tmp/coherent-summary.json; break; fi
             sleep 1
           done
           if [ ! -s /tmp/coherent-summary.json ]; then
@@ -138,7 +131,6 @@ jobs:
           curl --fail --silent 'http://127.0.0.1:3100/api/applications?limit=100' > /tmp/coherent-applications.json
           curl --fail --silent http://127.0.0.1:3100/api/source-health > /tmp/coherent-source-health.json
           curl --fail --silent http://127.0.0.1:3100/ > /tmp/coherent-dashboard.html
-
           grep -q 'Top Matches' /tmp/coherent-dashboard.html
           grep -q 'Application Queue' /tmp/coherent-dashboard.html
           grep -q 'Recruiter Leads' /tmp/coherent-dashboard.html
@@ -149,60 +141,17 @@ jobs:
           grep -q "fetch('/api/source-health')" /tmp/coherent-dashboard.html
           grep -q "fetch('/api/contacts?limit=10')" /tmp/coherent-dashboard.html
           grep -q "fetch('/api/content?limit=10')" /tmp/coherent-dashboard.html
-
           node - <<'NODE'
-          const fs=require('fs');
-          const cp=require('child_process');
-          const read=(p)=>JSON.parse(fs.readFileSync(p,'utf8'));
-          const summary=read('/tmp/coherent-summary.json');
-          const matches=read('/tmp/coherent-matches.json').matches||[];
-          const recruiters=read('/tmp/coherent-recruiters.json').recruiters||[];
-          const contacts=read('/tmp/coherent-contacts.json').contacts||[];
-          const content=read('/tmp/coherent-content.json').content||[];
-          const applications=read('/tmp/coherent-applications.json').applications||[];
-          const sourceHealth=read('/tmp/coherent-source-health.json').sources||[];
-          const scalar=(sql)=>Number(cp.execFileSync('docker',['exec','job-agent-local-postgres','psql','-U','job_agent','-d','job_agent','-tAc',sql]).toString().trim());
-
-          for (const key of ['jobs','matches','applications','recruiters','matchApply','matchReview','matchReject','currentRecruiters','recentRecruiters']) {
-            if (summary[key] === undefined || !Number.isFinite(Number(summary[key])) || Number(summary[key]) < 0) {
-              throw new Error(`Invalid summary field ${key}: ${JSON.stringify(summary[key])}`);
-            }
-          }
-          if (Number(summary.matchApply)+Number(summary.matchReview)+Number(summary.matchReject) !== Number(summary.matches)) {
-            throw new Error(JSON.stringify({summaryDecisionTotals: [summary.matchApply,summary.matchReview,summary.matchReject],matches:summary.matches}));
-          }
-
-          const dbJobCount=scalar('SELECT COUNT(*) FROM job_opportunities');
-          const dbApplicationCount=scalar('SELECT COUNT(*) FROM applications');
-          const dbRecruiterCount=scalar("SELECT COUNT(*) FROM recruiter_contacts");
-          const dbCurrentRecruiters=scalar("SELECT COUNT(*) FROM recruiter_contacts WHERE relevance_status='CURRENT'");
-          const dbRecentRecruiters=scalar("SELECT COUNT(*) FROM recruiter_contacts WHERE relevance_status='RECENT'");
-          const dbContactCount=scalar("SELECT COUNT(*) FROM public_contact_resource_contacts WHERE validation_status <> 'INVALID' AND relevance_score > 0");
-          const dbContentCount=scalar("SELECT COUNT(*) FROM recruiter_contact_sources WHERE LOWER(COALESCE(source_type,'')) IN ('job_posting','current_job_posting','current_role','recent_job_posting','recent_role','job_hiring_evidence')");
-
-          if (Number(summary.applications) !== dbApplicationCount) throw new Error(JSON.stringify({summaryApplications:summary.applications,dbApplicationCount}));
-          if (Number(summary.recruiters) !== dbRecruiterCount) throw new Error(JSON.stringify({summaryRecruiters:summary.recruiters,dbRecruiterCount}));
-          if (Number(summary.currentRecruiters) !== dbCurrentRecruiters) throw new Error(JSON.stringify({summaryCurrentRecruiters:summary.currentRecruiters,dbCurrentRecruiters}));
-          if (Number(summary.recentRecruiters) !== dbRecentRecruiters) throw new Error(JSON.stringify({summaryRecentRecruiters:summary.recentRecruiters,dbRecentRecruiters}));
-          if (applications.length !== Math.min(100,dbApplicationCount)) throw new Error(JSON.stringify({apiApplications:applications.length,dbApplicationCount}));
-
-          if (recruiters.length !== Math.min(100,dbCurrentRecruiters+dbRecentRecruiters)) throw new Error(JSON.stringify({apiRecruiters:recruiters.length,dbCurrentRecruiters,dbRecentRecruiters}));
-          if (contacts.length !== Math.min(100,dbContactCount)) throw new Error(JSON.stringify({apiContacts:contacts.length,dbContactCount}));
-          if (content.length !== Math.min(100,dbContentCount)) throw new Error(JSON.stringify({apiContent:content.length,dbContentCount}));
-          if (matches.length > Number(summary.matches) || matches.length > 100) throw new Error(JSON.stringify({apiMatches:matches.length,summaryMatches:summary.matches}));
-
-          for (const match of matches.slice(0, Math.min(25,matches.length))) {
-            if (!/^[0-9a-f-]{36}$/i.test(match.jobId)) throw new Error(JSON.stringify({invalidJobId:match.jobId}));
-            const sql = `SELECT decision FROM match_decisions WHERE job_opportunity_id='${match.jobId}' ORDER BY created_at DESC LIMIT 1`;
-            const latest = cp.execFileSync('docker',['exec','job-agent-local-postgres','psql','-U','job_agent','-d','job_agent','-tAc',sql]).toString().trim();
-            if (latest !== String(match.decision)) throw new Error(JSON.stringify({jobId:match.jobId,apiDecision:match.decision,dbLatestDecision:latest}));
-          }
-
-          if (Number(summary.jobs) < dbJobCount) throw new Error(JSON.stringify({summaryJobs:summary.jobs,dbJobCount}));
-          if (sourceHealth.some((source)=>source.status===undefined || source.id===undefined)) throw new Error('Source health response contains incomplete telemetry.');
-          console.log(JSON.stringify({dbJobCount,summaryJobs:summary.jobs,summaryMatches:summary.matches,apiMatches:matches.length,dbApplicationCount,apiApplications:applications.length,dbRecruiterCount,dbCurrentRecruiters,dbRecentRecruiters,apiRecruiters:recruiters.length,dbContactCount,apiContacts:contacts.length,dbContentCount,apiContent:content.length,sources:sourceHealth.length}));
+          const fs=require('fs'); const cp=require('child_process'); const read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
+          const summary=read('/tmp/coherent-summary.json'); const matches=read('/tmp/coherent-matches.json').matches||[]; const recruiters=read('/tmp/coherent-recruiters.json').recruiters||[]; const contacts=read('/tmp/coherent-contacts.json').contacts||[]; const content=read('/tmp/coherent-content.json').content||[]; const applications=read('/tmp/coherent-applications.json').applications||[]; const sourceHealth=read('/tmp/coherent-source-health.json').sources||[];
+          const scalar=sql=>Number(cp.execFileSync('docker',['exec','job-agent-local-postgres','psql','-U','job_agent','-d','job_agent','-tAc',sql]).toString().trim());
+          for (const key of ['jobs','matches','applications','recruiters','matchApply','matchReview','matchReject','currentRecruiters','recentRecruiters']) if (summary[key]===undefined || !Number.isFinite(Number(summary[key])) || Number(summary[key])<0) throw new Error(`Invalid summary field ${key}: ${JSON.stringify(summary[key])}`);
+          if (Number(summary.matchApply)+Number(summary.matchReview)+Number(summary.matchReject)!==Number(summary.matches)) throw new Error(JSON.stringify({summaryDecisionTotals:[summary.matchApply,summary.matchReview,summary.matchReject],matches:summary.matches}));
+          const dbJobCount=scalar('SELECT COUNT(*) FROM job_opportunities'); const dbApplicationCount=scalar('SELECT COUNT(*) FROM applications'); const dbRecruiterCount=scalar('SELECT COUNT(*) FROM recruiter_contacts'); const dbCurrentRecruiters=scalar("SELECT COUNT(*) FROM recruiter_contacts WHERE relevance_status='CURRENT'"); const dbRecentRecruiters=scalar("SELECT COUNT(*) FROM recruiter_contacts WHERE relevance_status='RECENT'"); const dbContactCount=scalar("SELECT COUNT(*) FROM public_contact_resource_contacts WHERE validation_status <> 'INVALID' AND relevance_score > 0"); const dbContentCount=scalar("SELECT COUNT(*) FROM recruiter_contact_sources WHERE LOWER(COALESCE(source_type,'')) IN ('job_posting','current_job_posting','current_role','recent_job_posting','recent_role','job_hiring_evidence')");
+          if (Number(summary.applications)!==dbApplicationCount) throw new Error(JSON.stringify({summaryApplications:summary.applications,dbApplicationCount})); if (Number(summary.recruiters)!==dbRecruiterCount) throw new Error(JSON.stringify({summaryRecruiters:summary.recruiters,dbRecruiterCount})); if (Number(summary.currentRecruiters)!==dbCurrentRecruiters) throw new Error(JSON.stringify({summaryCurrentRecruiters:summary.currentRecruiters,dbCurrentRecruiters})); if (Number(summary.recentRecruiters)!==dbRecentRecruiters) throw new Error(JSON.stringify({summaryRecentRecruiters:summary.recentRecruiters,dbRecentRecruiters})); if (applications.length!==Math.min(100,dbApplicationCount)) throw new Error(JSON.stringify({apiApplications:applications.length,dbApplicationCount})); if (recruiters.length!==Math.min(100,dbCurrentRecruiters+dbRecentRecruiters)) throw new Error(JSON.stringify({apiRecruiters:recruiters.length,dbCurrentRecruiters,dbRecentRecruiters})); if (contacts.length!==Math.min(100,dbContactCount)) throw new Error(JSON.stringify({apiContacts:contacts.length,dbContactCount})); if (content.length!==Math.min(100,dbContentCount)) throw new Error(JSON.stringify({apiContent:content.length,dbContentCount})); if (matches.length>Number(summary.matches)||matches.length>100) throw new Error(JSON.stringify({apiMatches:matches.length,summaryMatches:summary.matches}));
+          for (const match of matches.slice(0,Math.min(25,matches.length))) { if (!/^[0-9a-f-]{36}$/i.test(match.jobId)) throw new Error(JSON.stringify({invalidJobId:match.jobId})); const sql=`SELECT decision FROM match_decisions WHERE job_opportunity_id='${match.jobId}' ORDER BY created_at DESC LIMIT 1`; const latest=cp.execFileSync('docker',['exec','job-agent-local-postgres','psql','-U','job_agent','-d','job_agent','-tAc',sql]).toString().trim(); if (latest!==String(match.decision)) throw new Error(JSON.stringify({jobId:match.jobId,apiDecision:match.decision,dbLatestDecision:latest})); }
+          if (Number(summary.jobs)<dbJobCount) throw new Error(JSON.stringify({summaryJobs:summary.jobs,dbJobCount})); if (sourceHealth.some(source=>source.status===undefined||source.id===undefined)) throw new Error('Source health response contains incomplete telemetry.'); console.log(JSON.stringify({dbJobCount,summaryJobs:summary.jobs,summaryMatches:summary.matches,apiMatches:matches.length,dbApplicationCount,apiApplications:applications.length,dbRecruiterCount,dbCurrentRecruiters,dbRecentRecruiters,apiRecruiters:recruiters.length,dbContactCount,apiContacts:contacts.length,dbContentCount,apiContent:content.length,sources:sourceHealth.length}));
           NODE
-
       - name: Capture real local runtime result
         run: |
           set +e
@@ -214,7 +163,7 @@ jobs:
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM match_decisions;" | tee /tmp/run1-matches.txt
           docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;" | tee /tmp/run1-applications.txt
           docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' job-agent-local-app job-agent-local-postgres job-agent-local-recruiter job-agent-local-contacts job-agent-local-content
-          node -e "const fs=require('fs'); const s=JSON.parse(fs.readFileSync('/tmp/run1-summary.json')); const n=f=>Number(fs.readFileSync(f,'utf8').trim()); if(Number(s.jobs)<=0 || Number(s.matches)<=0) process.exit(1); if(Number(s.jobs)!==n('/tmp/run1-jobs.txt')) process.exit(1); if(Number(s.applications)!==n('/tmp/run1-applications.txt')) process.exit(1); console.log(JSON.stringify({jobs:Number(s.jobs),matches:Number(s.matches),apply:Number(s.matchApply),review:Number(s.matchReview),reject:Number(s.matchReject),applications:Number(s.applications)}))"
+          node -e "const fs=require('fs'); const s=JSON.parse(fs.readFileSync('/tmp/run1-summary.json')); const n=f=>Number(fs.readFileSync(f,'utf8').trim()); if(Number(s.jobs)<=0||Number(s.matches)<=0) process.exit(1); if(Number(s.jobs)!==n('/tmp/run1-jobs.txt')) process.exit(1); if(Number(s.applications)!==n('/tmp/run1-applications.txt')) process.exit(1); console.log(JSON.stringify({jobs:Number(s.jobs),matches:Number(s.matches),apply:Number(s.matchApply),review:Number(s.matchReview),reject:Number(s.matchReject),applications:Number(s.applications)}))"
       - name: Observe second real discovery cycle
         run: |
           set -euo pipefail
@@ -240,12 +189,22 @@ jobs:
             [job-agent-local-contacts]=/tmp/job-agent-contact-resources.log
             [job-agent-local-content]=/tmp/job-agent-content.log
           )
-          for container in "${!logs[@]}"; do
-            test "$(docker inspect -f '{{.State.Status}}' "$container")" = running
-            path="${logs[$container]}"
-            docker exec "$container" sh -lc "test -f '$path' && grep -Eq 'enrichment cycle (completed|failed)' '$path'"
-            docker exec "$container" sh -lc "grep -Ec 'enrichment cycle (completed|failed)' '$path'" | tee "/tmp/$(echo "$container" | sed 's/job-agent-local-//').txt"
-            test "$(docker exec "$container" sh -lc "grep -Ec 'enrichment cycle (completed|failed)' '$path'")" -ge 2
+          deadline=$((SECONDS+360))
+          while true; do
+            all_ready=true
+            for container in "${!logs[@]}"; do
+              test "$(docker inspect -f '{{.State.Status}}' "$container")" = running
+              path="${logs[$container]}"
+              count="$(docker exec "$container" sh -lc "test -f '$path' && grep -Ec 'enrichment cycle (completed|failed)' '$path' || true")"
+              echo "$container cycles=$count"
+              if [ "${count:-0}" -lt 2 ]; then all_ready=false; fi
+            done
+            if [ "$all_ready" = true ]; then break; fi
+            if (( SECONDS >= deadline )); then
+              echo "Timed out waiting for every enrichment worker to complete two real cycles." >&2
+              exit 1
+            fi
+            sleep 5
           done
       - name: Verify recovery after app restart
         run: |
@@ -253,9 +212,7 @@ jobs:
           docker restart job-agent-local-app >/dev/null
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3100/healthz >/dev/null && break; sleep 1; done
           curl --fail --silent http://127.0.0.1:3100/healthz
-          for container in job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do
-            test "$(docker inspect -f '{{.State.Status}}' "$container")" = running
-          done
+          for container in job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do test "$(docker inspect -f '{{.State.Status}}' "$container")" = running; done
       - name: Verify repeated enrichment and safety
         run: |
           set -euo pipefail
@@ -267,30 +224,20 @@ jobs:
           test "$(docker exec job-agent-local-app printenv GMAIL_ENABLED)" = false
           test "$(docker exec job-agent-local-app printenv OUTBOUND_ENABLED)" = false
           live_submissions="$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM application_attempts WHERE submitted = TRUE;")"
-          if [ "$(echo "$live_submissions" | tr -d '[:space:]')" != "0" ]; then
-            echo "Unsafe live application attempt recorded in PostgreSQL." >&2
-            exit 1
-          fi
-          application_count="$(node -e 'const s=JSON.parse(require("fs").readFileSync("/tmp/run3-summary.json")); process.stdout.write(String(Number(s.applications)||0))' )"
+          if [ "$(echo "$live_submissions" | tr -d '[:space:]')" != "0" ]; then echo "Unsafe live application attempt recorded in PostgreSQL." >&2; exit 1; fi
+          application_count="$(node -e 'const s=JSON.parse(require("fs").readFileSync("/tmp/run3-summary.json")); process.stdout.write(String(Number(s.applications)||0))')"
           if [ "$application_count" -gt 0 ]; then
             dry_run_attempts="$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM application_attempts WHERE submitted = FALSE;")"
-            if [ "$(echo "$dry_run_attempts" | tr -d '[:space:]')" -lt 1 ]; then
-              echo "Application records exist without a persisted dry-run attempt." >&2
-              exit 1
-            fi
+            if [ "$(echo "$dry_run_attempts" | tr -d '[:space:]')" -lt 1 ]; then echo "Application records exist without a persisted dry-run attempt." >&2; exit 1; fi
             grep -Eq '"submitted":false|"submitted": false' /tmp/local-agent.log || true
-          else
-            echo "No application-ready opportunity was present in this runtime; live submission remained disabled."
-          fi
+          else echo "No application-ready opportunity was present in this runtime; live submission remained disabled."; fi
       - name: Prepare deterministic runtime evidence
         if: always()
         run: |
           set -euo pipefail
           rm -rf /tmp/job-agent-local-runtime-evidence
           mkdir -p /tmp/job-agent-local-runtime-evidence
-          for file in /tmp/health.json /tmp/summary.json /tmp/jobs.json /tmp/applications.json /tmp/run1-summary.json /tmp/run1-applications.json /tmp/run1-jobs.txt /tmp/run1-matches.txt /tmp/run1-applications.txt /tmp/run2-summary.json /tmp/run2-jobs.txt /tmp/run2-matches.txt /tmp/run3-summary.json /tmp/run3-jobs.txt /tmp/run3-matches.txt /tmp/local-status.txt /tmp/local-agent.log /tmp/job-agent-local-recruiter.txt /tmp/job-agent-local-contacts.txt /tmp/job-agent-local-content.txt /tmp/api-*.json /tmp/api-*.status; do
-            test ! -e "$file" || cp -f "$file" /tmp/job-agent-local-runtime-evidence/
-          done
+          for file in /tmp/health.json /tmp/summary.json /tmp/jobs.json /tmp/applications.json /tmp/run1-summary.json /tmp/run1-applications.json /tmp/run1-jobs.txt /tmp/run1-matches.txt /tmp/run1-applications.txt /tmp/run2-summary.json /tmp/run2-jobs.txt /tmp/run2-matches.txt /tmp/run3-summary.json /tmp/run3-jobs.txt /tmp/run3-matches.txt /tmp/local-status.txt /tmp/local-agent.log /tmp/job-agent-local-recruiter.txt /tmp/job-agent-local-contacts.txt /tmp/job-agent-local-content.txt /tmp/api-*.json /tmp/api-*.status; do test ! -e "$file" || cp -f "$file" /tmp/job-agent-local-runtime-evidence/; done
           docker logs job-agent-local-recruiter 2>&1 > /tmp/job-agent-local-runtime-evidence/recruiter-container.log || true
           docker logs job-agent-local-contacts 2>&1 > /tmp/job-agent-local-runtime-evidence/contacts-container.log || true
           docker logs job-agent-local-content 2>&1 > /tmp/job-agent-local-runtime-evidence/content-container.log || true
@@ -298,7 +245,6 @@ jobs:
           docker exec job-agent-local-recruiter sh -lc "test -f /tmp/job-agent-proactive-recruiter.log && cat /tmp/job-agent-proactive-recruiter.log || true" > /tmp/job-agent-local-runtime-evidence/recruiter-worker.log || true
           docker exec job-agent-local-contacts sh -lc "test -f /tmp/job-agent-contact-resources.log && cat /tmp/job-agent-contact-resources.log || true" > /tmp/job-agent-local-runtime-evidence/contacts-worker.log || true
           docker exec job-agent-local-content sh -lc "test -f /tmp/job-agent-content.log && cat /tmp/job-agent-content.log || true" > /tmp/job-agent-local-runtime-evidence/content-worker.log || true
-
       - name: Upload local runtime evidence
         if: always()
         uses: actions/upload-artifact@v4
