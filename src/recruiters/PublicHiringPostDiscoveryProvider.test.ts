@@ -262,6 +262,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     });
 
     expect(result.metrics.relevantRolePosts).toBeGreaterThan(0);
+    expect(result.metrics.validatedContacts).toBe(1);
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]?.discoveryUrl).toBe(postUrl);
     expect(result.candidates[0]?.discoveryEvidence.join(" ")).toContain("Acme is hiring a Frontend Engineer");
