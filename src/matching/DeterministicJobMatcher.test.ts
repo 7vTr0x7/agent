@@ -149,7 +149,8 @@ describe("DeterministicJobMatcher", () => {
       title: "Frontend Engineer",
       location: "Worldwide",
       country: null,
-      workplaceType: "remote"
+      workplaceType: "remote",
+      postedAt: new Date("2026-09-24T12:00:00Z")
     };
     const result = matcher.evaluate(worldwide, profile);
     expect(result.geography).toBe("REMOTE_WORLDWIDE");
