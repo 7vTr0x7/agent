@@ -9,7 +9,7 @@ export interface MatchQueueResult {
   queued: number;
 }
 
-const CURRENT_MATCHER_VERSION = "matcher-v3";
+const CURRENT_MATCHER_VERSION = "matcher-v4";
 
 export class MatchQueueService {
   constructor(
