@@ -73,7 +73,7 @@ function extractCutshortHtmlJob(html: string): RawPosting | null {
 
 export function parseCutshortListingPage(html: string, sourceUrl: string, platformName = "Cutshort"): Job[] {
   if (!/cutshort\.io/i.test(html)) return [];
-  const matches = [...html.matchAll(/<a\\b[^>]+href=["'](https?:\\/\\/(?:www\\.)?cutshort\\.io\\/job\\/[^"']+|\\/job\\/[^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)];
+  const matches = [...html.matchAll(/<a\b[^>]+href=["'](https?:\/\/(?:www\.)?cutshort\.io\/job\/[^"']+|\/job\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
   const jobs = new Map<string, Job>();
 
   for (const match of matches) {
@@ -86,27 +86,27 @@ export function parseCutshortListingPage(html: string, sourceUrl: string, platfo
     const cardText = stripHtml(cardHtml).replace(/\s+/g, " ").trim();
 
     const employer = cleanText(
-      cardText.match(/\\bat\\s+(.+?)(?=\\s+(?:\\d+\\s+(?:recruiters?|candid answers?)|Posted by|Apply(?: now)?|Bengaluru|Bangalore|Mumbai|Hyderabad|Gurugram|Pune|Chennai|Remote|\\d+\\s*(?:-|to)\\s*\\d+\\s*(?:yrs?|years?)))/i)?.[1] ?? ""
+      cardText.match(/\bat\s+(.+?)(?=\s+(?:\d+\s+(?:recruiters?|candid answers?)|Posted by|Apply(?: now)?|Bengaluru|Bangalore|Mumbai|Hyderabad|Gurugram|Pune|Chennai|Remote|\d+\s*(?:-|to)\s*\d+\s*(?:yrs?|years?)))/i)?.[1] ?? ""
     );
     if (!employer || /^cutshort(?: lightning)?(?: by)?/i.test(employer)) continue;
 
     const location = cleanText(
-      cardText.match(/\\b(?:Remote(?:,\\s*)?)?(?:Bengaluru|Bangalore|Mumbai|Hyderabad|Gurugram|Gurgaon|Delhi|Pune|Chennai|Kochi|Coimbatore|Indore|Jaipur|Noida|Gurgaon|Gurugram)(?:\\s*\\([^)]*\\))?(?:,\\s*(?:[A-Za-z][A-Za-z -]+(?:\\s*\\([^)]*\\))?)){0,8}/i)?.[0] ??
-      cardText.match(/\\bRemote(?:,\\s*[A-Za-z][A-Za-z -]+){0,4}/i)?.[0] ??
+      cardText.match(/\b(?:Remote(?:,\s*)?)?(?:Bengaluru|Bangalore|Mumbai|Hyderabad|Gurugram|Gurgaon|Delhi|Pune|Chennai|Kochi|Coimbatore|Indore|Jaipur|Noida|Gurgaon|Gurugram)(?:\s*\([^)]*\))?(?:,\s*(?:[A-Za-z][A-Za-z -]+(?:\s*\([^)]*\))?)){0,8}/i)?.[0] ??
+      cardText.match(/\bRemote(?:,\s*[A-Za-z][A-Za-z -]+){0,4}/i)?.[0] ??
       ""
     ) || null;
 
-    const experience = cardText.match(/\\b\\d+(?:\\.\\d+)?\\s*(?:-|to)\\s*\\d+(?:\\.\\d+)?\\s*(?:yrs?|years?)\\b/i)?.[0] ??
-      cardText.match(/\\b\\d+(?:\\.\\d+)?\\+\\s*(?:yrs?|years?)\\b/i)?.[0] ?? "";
+    const experience = cardText.match(/\b\d+(?:\.\d+)?\s*(?:-|to)\s*\d+(?:\.\d+)?\s*(?:yrs?|years?)\b/i)?.[0] ??
+      cardText.match(/\b\d+(?:\.\d+)?\+\s*(?:yrs?|years?)\b/i)?.[0] ?? "";
 
-    const descriptionMatch = cardText.match(/(?:Job\\s+Summary|Role\\s+Summary|Role\\s+Overview|Profile\\s+Overview|Technical\\s+Skills\\s+Required|What You['’]?ll Do|Responsibilities|Requirements)\\s+([\\s\\S]{80,9000}?)(?=\\s+Read more|\\s+Users love Cutshort|$)/i);
+    const descriptionMatch = cardText.match(/(?:Job\s+Summary|Role\s+Summary|Role\s+Overview|Profile\s+Overview|Technical\s+Skills\s+Required|What You['’]?ll Do|Responsibilities|Requirements)\s+([\s\S]{80,9000}?)(?=\s+Read more|\s+Users love Cutshort|$)/i);
     const description = cleanText(
       descriptionMatch?.[1] ??
       [experience, cardText].filter(Boolean).join(" ").slice(0, 7000)
     );
     if (description.length < 40) continue;
 
-    const posted = cardText.match(/\\bPosted\\s+(?:on\\s+)?(\\d{1,2}\\s+[A-Z][a-z]{2}\\s+20\\d{2})\\b/i)?.[1] ?? "";
+    const posted = cardText.match(/\bPosted\s+(?:on\s+)?(\d{1,2}\s+[A-Z][a-z]{2}\s+20\d{2})\b/i)?.[1] ?? "";
     const posting: RawPosting = {
       title,
       description,
@@ -115,7 +115,7 @@ export function parseCutshortListingPage(html: string, sourceUrl: string, platfo
       ...(location ? { jobLocation: location } : {}),
       ...(experience ? { experienceRequirements: experience } : {}),
       ...(posted ? { datePosted: posted } : {}),
-      ...(\\bfull[- ]?time\\b/i.test(cardText) ? { employmentType: "FULL_TIME" } : {})
+      ...(\bfull[- ]?time\b/i.test(cardText) ? { employmentType: "FULL_TIME" } : {})
     };
     const parsed = buildJob(posting, sourceUrl, platformName, "html-labels");
     if (parsed.job) jobs.set(parsed.job.url.toLowerCase(), parsed.job);
@@ -123,7 +123,6 @@ export function parseCutshortListingPage(html: string, sourceUrl: string, platfo
 
   return [...jobs.values()];
 }
-
 
 function buildJob(posting: RawPosting, sourceUrl: string, platformName: string, parser: JobPageDiagnostics["parser"]): ParsedJobPage {
   const title = cleanText(valueAt(posting, "title"));
