@@ -35,6 +35,7 @@ async function main(): Promise<void> {
 
     const startedAt = new Date().toISOString();
     const results = await runtime.runner.runOnce();
+    await runtime.flushPlatformTelemetry();
     const completedAt = new Date().toISOString();
 
     const after = await database.query<{ jobs: string; matches: string }>(
@@ -55,8 +56,6 @@ async function main(): Promise<void> {
        ORDER BY platform_id, completed_at DESC`
     );
 
-    // Telemetry is written from the platform source callback. Drain those writes
-    // briefly before judging coverage so the acceptance check cannot race INSERTs.
     const timeoutMs = Math.max(30_000, Math.min(120_000, Number(process.env.PLATFORM_TELEMETRY_DRAIN_TIMEOUT_MS) || 120_000));
     const deadline = Date.now() + timeoutMs;
     let latest = await readLatest();
