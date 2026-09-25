@@ -8,6 +8,8 @@ import {
   PlatformDiscoveryDiagnostics
 } from "./PlatformSearchJobSource";
 
+const DEFAULT_PLATFORM_ITEM_TIMEOUT_MS = 30_000;
+
 /**
  * Runs every registered platform while keeping catalog-only entries truthful.
  * Catalog-only entries receive an explicit UNSUPPORTED runtime outcome instead
@@ -30,10 +32,11 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
         if (signal?.aborted) return [];
 
         const started = Date.now();
+        const startedAt = new Date(started).toISOString();
         const emit = (diagnostics: PlatformDiscoveryDiagnostics): void => {
           this.onDiagnostic({
             ...diagnostics,
-            startedAt: diagnostics.startedAt ?? new Date(started).toISOString(),
+            startedAt: diagnostics.startedAt ?? startedAt,
             completedAt: diagnostics.completedAt ?? new Date().toISOString(),
             durationMs: diagnostics.durationMs ?? Math.max(0, Date.now() - started)
           });
@@ -59,9 +62,17 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
           return [];
         }
 
+        const timeoutMs = readPlatformItemTimeoutMs();
+        const platformController = new AbortController();
+        const abortFromParent = (): void => platformController.abort(signal?.reason);
+        if (signal?.aborted) return [];
+        signal?.addEventListener("abort", abortFromParent, { once: true });
+        const timer = setTimeout(() => platformController.abort(new Error(`Platform ${platform.name} exceeded ${timeoutMs}ms timeout`)), timeoutMs);
+
         try {
-          return await this.platformDiscovery(platform.name, signal, emit);
+          return await this.platformDiscovery(platform.name, platformController.signal, emit);
         } catch (error: unknown) {
+          const timedOut = platformController.signal.aborted && !signal?.aborted;
           emit({
             platform: platform.name,
             searchPages: 0,
@@ -72,18 +83,30 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
             pageFailures: 0,
             parseSuccesses: 0,
             parseFailures: 0,
-            parseFailureReasons: { exception: 1 },
+            parseFailureReasons: { [timedOut ? "platform_timeout" : "exception"]: 1 },
             jobs: 0,
-            errors: 1,
-            finalOutcome: "UNKNOWN_ERROR"
+            errors: timedOut ? 0 : 1,
+            timeouts: timedOut ? 1 : 0,
+            finalOutcome: timedOut ? "TIMEOUT" : "UNKNOWN_ERROR"
           });
           return [];
+        } finally {
+          clearTimeout(timer);
+          signal?.removeEventListener("abort", abortFromParent);
         }
       }
     );
 
     return results.flat();
   }
+}
+
+function readPlatformItemTimeoutMs(): number {
+  const raw = process.env.PLATFORM_ITEM_TIMEOUT_MS?.trim();
+  if (!raw) return DEFAULT_PLATFORM_ITEM_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1_000) throw new Error("PLATFORM_ITEM_TIMEOUT_MS must be an integer >= 1000");
+  return parsed;
 }
 
 async function mapWithConcurrency<T, R>(
