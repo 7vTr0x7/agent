@@ -36,7 +36,18 @@ async function main(): Promise<void> {
     );
 
     const startedAt = new Date().toISOString();
-    const results = await runtime.runner.runOnce();
+    let results: unknown[] = [];
+    let runnerError: string | null = null;
+    try {
+      results = await runtime.runner.runOnce();
+    } catch (error) {
+      // A platform-level parser/network failure is already represented by its
+      // telemetry outcome. Do not turn an otherwise complete 200-platform
+      // accounting run into a process failure merely because one adapter failed.
+      // Missing telemetry remains a hard failure below.
+      runnerError = error instanceof Error ? error.message : String(error);
+      logger.warn({ error: runnerError }, "Federation runner reported platform-level failures; continuing to reconcile explicit outcomes");
+    }
     await runtime.flushPlatformTelemetry();
     const completedAt = new Date().toISOString();
 
@@ -74,6 +85,7 @@ async function main(): Promise<void> {
       status: notExecuted.length === 0 ? "FULL_PLATFORM_CATALOG_COMPLETED" : "PLATFORM_CATALOG_INCOMPLETE",
       startedAt,
       completedAt,
+      runnerError,
       registry: {
         total: allPlatforms.length,
         activeAdapters: allPlatforms.filter((p) => p.capability === "active-adapter").length,
