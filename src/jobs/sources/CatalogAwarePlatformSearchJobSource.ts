@@ -9,6 +9,7 @@ import {
 } from "./PlatformSearchJobSource";
 
 const DEFAULT_PLATFORM_ITEM_TIMEOUT_MS = 30_000;
+type PlatformDiagnosticWithId = PlatformDiscoveryDiagnostics & { readonly platformId: string };
 
 /**
  * Runs every registered platform while keeping catalog-only entries truthful.
@@ -34,12 +35,14 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
         const started = Date.now();
         const startedAt = new Date(started).toISOString();
         const emit = (diagnostics: PlatformDiscoveryDiagnostics): void => {
-          this.onDiagnostic({
+          const diagnostic: PlatformDiagnosticWithId = {
             ...diagnostics,
+            platformId: platform.id,
             startedAt: diagnostics.startedAt ?? startedAt,
             completedAt: diagnostics.completedAt ?? new Date().toISOString(),
             durationMs: diagnostics.durationMs ?? Math.max(0, Date.now() - started)
-          });
+          };
+          this.onDiagnostic(diagnostic);
         };
 
         if (platform.capability === "catalog-only") {
@@ -71,7 +74,7 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
 
         try {
           return await this.platformDiscovery(platform.name, platformController.signal, emit);
-        } catch (error: unknown) {
+        } catch {
           const timedOut = platformController.signal.aborted && !signal?.aborted;
           emit({
             platform: platform.name,
