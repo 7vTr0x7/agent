@@ -22,6 +22,8 @@ import { SourceRunTracker } from "./health/SourceRunTracker";
 import { parseSourceConfigs } from "./sources/SourceConfig";
 import { createJobSource } from "./sources/createJobSource";
 import { SourceRegistry } from "./sources/SourceRegistry";
+import { PlatformDiscoveryDiagnostics } from "../jobs/sources/PlatformSearchJobSource";
+import { findJobPlatform } from "../jobs/sources/JobPlatformRegistry";
 
 export interface DiscoveryRuntime {
   runner: DiscoveryRunner;
@@ -66,14 +68,48 @@ export function createDiscoveryRuntime(
 
   const registry = new SourceRegistry();
   for (const sourceConfig of parseSourceConfigs(config.jobSources)) {
-    const adapterSource = createJobSource(sourceConfig);
+    const adapterSource = createJobSource(
+      sourceConfig,
+      sourceConfig.name.toLowerCase() === "platform-search"
+        ? (diagnostics: PlatformDiscoveryDiagnostics) => {
+            const platform = findJobPlatform(diagnostics.platform);
+            void database.query(
+              `INSERT INTO platform_discovery_runs (
+                 platform_id, platform_name, capability, outcome, extraction_mode,
+                 started_at, completed_at, search_pages, search_urls_generated,
+                 search_returned_urls, unique_urls, fetched, normalized, inserted,
+                 duplicates, timeouts, errors, duration_ms, error_detail
+               ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+              [
+                platform?.id ?? `unknown-${diagnostics.platform.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+                diagnostics.platform,
+                platform?.capability ?? "unavailable",
+                diagnostics.finalOutcome ?? "UNKNOWN",
+                diagnostics.extractionMode ?? null,
+                diagnostics.startedAt ?? new Date().toISOString(),
+                diagnostics.completedAt ?? new Date().toISOString(),
+                diagnostics.searchPages,
+                diagnostics.searchUrlsGenerated ?? 0,
+                diagnostics.searchReturnedUrls,
+                diagnostics.uniqueUrls,
+                diagnostics.jobs,
+                diagnostics.jobs,
+                0,
+                diagnostics.duplicates ?? 0,
+                diagnostics.timeouts ?? 0,
+                diagnostics.errors ?? 0,
+                diagnostics.durationMs ?? 0,
+                Object.entries(diagnostics.parseFailureReasons).map(([reason, count]) => `${reason}:${count}`).join(", ") || null
+              ]
+            ).catch((error: unknown) => {
+              console.error("platform telemetry persistence failed:", error instanceof Error ? error.message : String(error));
+            });
+          }
+        : undefined
+    );
     const source = {
       name: sourceConfig.id,
       fetchJobs: (signal?: AbortSignal) => adapterSource.fetchJobs(signal)
-        // Preserve adapter-level provenance. The platform federation deliberately
-        // annotates each job with the platform that produced it; replacing that
-        // value with the aggregate source id makes cross-platform coverage and
-        // deduplication evidence impossible to observe downstream.
         .then((jobs) => jobs.map((job) => ({ ...job, source: job.source?.trim() || sourceConfig.id })))
     };
     registry.register({
