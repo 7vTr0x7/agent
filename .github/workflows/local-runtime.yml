@@ -109,7 +109,7 @@ jobs:
         run: |
           set -euo pipefail
           curl --fail --silent http://127.0.0.1:3100/ > /tmp/dashboard.html
-          for text in 'Top opportunities' 'Application Queue' 'Recruiter Leads' 'Public Contact Evidence' 'Hiring Content Evidence' 'Platform Coverage' 'Source Health' 'Safety'; do grep -q "$text" /tmp/dashboard.html; done
+          for text in 'Top opportunities' 'Application queue' 'Recruiters' 'Public contact evidence' 'Hiring content' 'Platform coverage' 'Source health' 'Safety'; do grep -q "$text" /tmp/dashboard.html; done
           for path in '/api/summary' '/api/applications?limit=20' '/api/recruiters?limit=20' '/api/contacts?limit=20' '/api/content?limit=20' '/api/source-health' '/api/platform-coverage'; do grep -q "$path" /tmp/dashboard.html; done
           grep -q 'function renderPlatforms' /tmp/dashboard.html
           grep -q 'platformSearch' /tmp/dashboard.html
