@@ -1,5 +1,6 @@
 import { JobPostingRecruiterDiscoveryProvider } from "./JobPostingRecruiterDiscoveryProvider";
 import { PublicRecruiterSearchProvider } from "./PublicRecruiterSearchProvider";
+import { PublicRecruiterIdentitySearchProvider } from "./PublicRecruiterIdentitySearchProvider";
 import { SnovRecruiterDiscoveryProvider } from "./SnovRecruiterDiscoveryProvider";
 import {
   RecruiterContactCandidate,
@@ -68,15 +69,29 @@ function mergeContacts(contacts: RecruiterDiscoveryContact[]): RecruiterDiscover
   return [...byIdentity.values()];
 }
 
+function identityCandidatesToContacts(candidates: RecruiterIdentityCandidate[]): RecruiterDiscoveryContact[] {
+  return candidates.map((candidate) => ({
+    ...candidate,
+    provider: "public-web-identity",
+    verified: false,
+    verificationStatus: candidate.verificationStatus ?? "identity_public_source",
+    sources: [...(candidate.sources ?? [])]
+  }));
+}
+
 /**
  * Free-first layered recruiter discovery.
  *
  * Public web acquisition is centralized in PublicRecruiterSearchProvider so
  * identity and email discovery share the same bounded search-source pool.
  * First-party job-posting evidence remains an independent acquisition layer.
+ * An independent public identity search is also executed so recruiter
+ * discovery does not depend on a matching job having an employer-specific
+ * recruiter page.
  */
 class LayeredPublicRecruiterDiscoveryProvider implements RecruiterDiscoveryProvider {
   readonly name = "public-web";
+  private readonly identitySearch = new PublicRecruiterIdentitySearchProvider();
 
   constructor(
     private readonly firstParty = new JobPostingRecruiterDiscoveryProvider(),
@@ -84,13 +99,18 @@ class LayeredPublicRecruiterDiscoveryProvider implements RecruiterDiscoveryProvi
   ) {}
 
   async discover(input: RecruiterDiscoveryInput): Promise<RecruiterDiscoveryResult> {
-    const [firstPartyResult, publicSearchResult] = await Promise.all([
+    const [firstPartyResult, publicSearchResult, identityCandidates] = await Promise.all([
       this.firstParty.discover(input),
-      this.publicSearch.discover(input)
+      this.publicSearch.discover(input),
+      this.identitySearch.discover(input)
     ]);
     return {
       provider: this.name,
-      contacts: mergeContacts([...firstPartyResult.contacts, ...publicSearchResult.contacts]),
+      contacts: mergeContacts([
+        ...firstPartyResult.contacts,
+        ...publicSearchResult.contacts,
+        ...identityCandidatesToContacts(identityCandidates)
+      ]),
       discoveredAt: new Date(),
       metrics: publicSearchResult.metrics
     };
