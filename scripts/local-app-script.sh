@@ -26,7 +26,7 @@ run_script() {
       exec node "$script" "$@"
       ;;
     *)
-      echo "Unsupported runtime script '$script'; expected .ts or .js" >&2
+      echo "Unsupported runtime script: $script; expected .ts or .js" >&2
       exit 2
       ;;
   esac
@@ -54,12 +54,14 @@ fi
 
 # Use a non-login /bin/sh with an explicit argv[0]. This avoids shell-specific
 # positional-parameter handling under `sh -lc` and preserves all arguments.
+# Keep the inner program free of single quotes because the program itself is
+# passed as a single-quoted argument to the host shell.
 exec docker exec -i "$APP" /bin/sh -c '
   script="$1"
   shift
   case "$script" in
     *.ts) exec npx --no-install tsx "$script" "$@" ;;
     *.js) exec node "$script" "$@" ;;
-    *) echo "Unsupported runtime script '$script'; expected .ts or .js" >&2; exit 2 ;;
+    *) echo "Unsupported runtime script: $script; expected .ts or .js" >&2; exit 2 ;;
   esac
-' job-agent-local-app "$SCRIPT" "$@"
+' "$APP" "$SCRIPT" "$@"
