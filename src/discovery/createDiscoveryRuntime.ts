@@ -23,7 +23,7 @@ import { parseSourceConfigs } from "./sources/SourceConfig";
 import { createJobSource } from "./sources/createJobSource";
 import { SourceRegistry } from "./sources/SourceRegistry";
 import { PlatformDiscoveryDiagnostics } from "../jobs/sources/PlatformSearchJobSource";
-import { findJobPlatform } from "../jobs/sources/JobPlatformRegistry";
+import { JOB_PLATFORM_REGISTRY, findJobPlatform } from "../jobs/sources/JobPlatformRegistry";
 
 export interface DiscoveryRuntime {
   runner: DiscoveryRunner;
@@ -32,6 +32,8 @@ export interface DiscoveryRuntime {
   sourceCount: number;
   flushPlatformTelemetry: () => Promise<void>;
 }
+
+type PlatformDiagnosticWithId = PlatformDiscoveryDiagnostics & { readonly platformId?: string };
 
 export function createDiscoveryRuntime(
   database: Database,
@@ -74,7 +76,10 @@ export function createDiscoveryRuntime(
       sourceConfig,
       sourceConfig.name.toLowerCase() === "platform-search"
         ? (diagnostics: PlatformDiscoveryDiagnostics) => {
-            const platform = findJobPlatform(diagnostics.platform);
+            const diagnostic = diagnostics as PlatformDiagnosticWithId;
+            const platform = diagnostic.platformId
+              ? JOB_PLATFORM_REGISTRY.find((entry) => entry.id === diagnostic.platformId)
+              : findJobPlatform(diagnostics.platform);
             const write = database.query(
               `INSERT INTO platform_discovery_runs (
                  platform_id, platform_name, capability, outcome, extraction_mode,
@@ -83,7 +88,7 @@ export function createDiscoveryRuntime(
                  duplicates, timeouts, errors, duration_ms, error_detail
                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
               [
-                platform?.id ?? `unknown-${diagnostics.platform.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+                diagnostic.platformId ?? platform?.id ?? `unknown-${diagnostics.platform.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
                 diagnostics.platform,
                 platform?.capability ?? "unavailable",
                 diagnostics.finalOutcome ?? "UNKNOWN",
