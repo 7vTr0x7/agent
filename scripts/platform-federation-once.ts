@@ -55,10 +55,9 @@ async function main(): Promise<void> {
        ORDER BY platform_id, completed_at DESC`
     );
 
-    // The platform source emits telemetry from an isolated callback. Give those
-    // database writes a bounded drain window before judging final coverage so the
-    // acceptance check cannot race the final telemetry INSERTs.
-    const timeoutMs = Math.max(30_000, Math.min(120_000, Number(config.discovery.federationTimeoutMs) || 120_000));
+    // Telemetry is written from the platform source callback. Drain those writes
+    // briefly before judging coverage so the acceptance check cannot race INSERTs.
+    const timeoutMs = Math.max(30_000, Math.min(120_000, Number(process.env.PLATFORM_TELEMETRY_DRAIN_TIMEOUT_MS) || 120_000));
     const deadline = Date.now() + timeoutMs;
     let latest = await readLatest();
     while (new Set(latest.rows.filter((row) => platformIds.has(row.platform_id)).map((row) => row.platform_id)).size < allPlatforms.length && Date.now() < deadline) {
