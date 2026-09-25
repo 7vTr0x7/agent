@@ -30,6 +30,7 @@ export interface DiscoveryRuntime {
   matchTaskHandler: MatchTaskHandler;
   matchQueueService: MatchQueueService;
   sourceCount: number;
+  flushPlatformTelemetry: () => Promise<void>;
 }
 
 export function createDiscoveryRuntime(
@@ -66,6 +67,7 @@ export function createDiscoveryRuntime(
     csvEnvironment("JOB_EXCLUDED_COMPANIES")
   );
 
+  const platformTelemetryWrites: Promise<unknown>[] = [];
   const registry = new SourceRegistry();
   for (const sourceConfig of parseSourceConfigs(config.jobSources)) {
     const adapterSource = createJobSource(
@@ -73,7 +75,7 @@ export function createDiscoveryRuntime(
       sourceConfig.name.toLowerCase() === "platform-search"
         ? (diagnostics: PlatformDiscoveryDiagnostics) => {
             const platform = findJobPlatform(diagnostics.platform);
-            void database.query(
+            const write = database.query(
               `INSERT INTO platform_discovery_runs (
                  platform_id, platform_name, capability, outcome, extraction_mode,
                  started_at, completed_at, search_pages, search_urls_generated,
@@ -101,7 +103,9 @@ export function createDiscoveryRuntime(
                 diagnostics.durationMs ?? 0,
                 Object.entries(diagnostics.parseFailureReasons).map(([reason, count]) => `${reason}:${count}`).join(", ") || null
               ]
-            ).catch((error: unknown) => {
+            );
+            platformTelemetryWrites.push(write);
+            void write.catch((error: unknown) => {
               console.error("platform telemetry persistence failed:", error instanceof Error ? error.message : String(error));
             });
           }
@@ -126,6 +130,17 @@ export function createDiscoveryRuntime(
     });
   }
 
+  const flushPlatformTelemetry = async (): Promise<void> => {
+    const writes = platformTelemetryWrites.splice(0, platformTelemetryWrites.length);
+    if (writes.length === 0) return;
+    const settled = await Promise.allSettled(writes);
+    const rejected = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (rejected.length > 0) {
+      const first = rejected[0]?.reason;
+      throw new Error(`Platform telemetry persistence failed for ${rejected.length} write(s): ${first instanceof Error ? first.message : String(first)}`);
+    }
+  };
+
   const matchDispatcher = new DiscoveryMatchDispatcher(
     opportunityRepository,
     new MatchTaskDispatcher(taskQueue),
@@ -149,7 +164,8 @@ export function createDiscoveryRuntime(
     runner,
     matchTaskHandler,
     matchQueueService,
-    sourceCount: registry.listRunnable().length
+    sourceCount: registry.listRunnable().length,
+    flushPlatformTelemetry
   };
 }
 
