@@ -20,9 +20,6 @@ run_script() {
 
   case "$script" in
     *.ts)
-      # Runtime scripts are TypeScript source files. Execute them with the
-      # project's installed tsx runner rather than node, which cannot parse
-      # TypeScript imports/types directly.
       exec npx --no-install tsx "$script" "$@"
       ;;
     *.js)
@@ -55,7 +52,9 @@ if [[ "$STATUS" != "running" ]]; then
   exit 1
 fi
 
-exec docker exec -i "$APP" /bin/sh -lc '
+# Use a non-login /bin/sh with an explicit argv[0]. This avoids shell-specific
+# positional-parameter handling under `sh -lc` and preserves all arguments.
+exec docker exec -i "$APP" /bin/sh -c '
   script="$1"
   shift
   case "$script" in
@@ -63,4 +62,4 @@ exec docker exec -i "$APP" /bin/sh -lc '
     *.js) exec node "$script" "$@" ;;
     *) echo "Unsupported runtime script '$script'; expected .ts or .js" >&2; exit 2 ;;
   esac
-' -- "$SCRIPT" "$@"
+' job-agent-local-app "$SCRIPT" "$@"
