@@ -1,12 +1,15 @@
 import { createServer, IncomingMessage, ServerResponse, Server } from "node:http";
 import { AddressInfo } from "node:net";
 import { Database } from "../database/Database";
+import { JOB_PLATFORM_REGISTRY } from "../jobs/sources/JobPlatformRegistry";
 
 interface SummaryRow {
   jobs: string;
   matches: string;
   applications: string;
   recruiters: string;
+  contacts: string;
+  content: string;
   outreachSent: string;
   pendingTasks: string;
   matchApply: string;
@@ -84,23 +87,28 @@ export class JobAgentApiServer {
     if (url.pathname === "/api/jobs") {
       const limit = parseLimit(url.searchParams.get("limit"));
       const decision = url.searchParams.get("decision");
-      const params: unknown[] = [limit];
-      const clause = decision && ["APPLY", "REVIEW", "REJECT"].includes(decision) ? "WHERE m.decision = $2" : "";
-      if (clause) params.push(decision);
+      const search = (url.searchParams.get("search") ?? "").trim();
+      const params: unknown[] = [];
+      const where: string[] = [];
+      if (decision && ["APPLY", "REVIEW", "REJECT"].includes(decision)) { params.push(decision); where.push("m.decision = $" + params.length); }
+      if (search) { params.push("%" + search + "%"); where.push("(j.company_name ILIKE $" + params.length + " OR j.title ILIKE $" + params.length + " OR COALESCE(j.location,'') ILIKE $" + params.length + " OR COALESCE(o.platform,'') ILIKE $" + params.length + ")"); }
+      params.push(limit);
       const jobs = await this.database.query(
-        `SELECT j.id,j.company_name AS company,j.title AS role,j.location,j.canonical_url AS url,j.posted_at,
-                m.decision,m.match_score AS score,m.reason
+        `SELECT j.id,j.company_name AS company,j.title AS role,j.location,j.workplace_type AS "workplaceType",
+                j.canonical_url AS url,j.posted_at,m.decision,m.match_score AS score,m.reason,
+                COALESCE(o.platform,j.source) AS platform,o.source_url AS "sourceUrl"
          FROM job_opportunities j
          LEFT JOIN LATERAL (
-           SELECT decision,match_score,reason
-           FROM match_decisions
-           WHERE job_opportunity_id=j.id
-           ORDER BY created_at DESC
-           LIMIT 1
+           SELECT decision,match_score,reason FROM match_decisions
+           WHERE job_opportunity_id=j.id ORDER BY created_at DESC LIMIT 1
          ) m ON true
-         ${clause}
+         LEFT JOIN LATERAL (
+           SELECT platform,source_url FROM job_observations WHERE job_opportunity_id=j.id
+           ORDER BY observed_at DESC LIMIT 1
+         ) o ON true
+         ${where.length ? "WHERE " + where.join(" AND ") : ""}
          ORDER BY j.posted_at DESC NULLS LAST,j.created_at DESC
-         LIMIT $1`,
+         LIMIT $${params.length}`,
         params
       );
       writeJson(response, 200, { jobs: jobs.rows });
@@ -122,10 +130,7 @@ export class JobAgentApiServer {
           (SELECT m.match_score FROM match_decisions m WHERE m.job_opportunity_id=a.job_opportunity_id ORDER BY m.created_at DESC LIMIT 1) AS score,
           (SELECT m.reason FROM match_decisions m WHERE m.job_opportunity_id=a.job_opportunity_id ORDER BY m.created_at DESC LIMIT 1) AS reason,
           a.status,a.created_at
-         FROM applications a
-         ORDER BY a.created_at DESC
-         LIMIT $1`,
-        [limit]
+         FROM applications a ORDER BY a.created_at DESC LIMIT $1`, [limit]
       );
       writeJson(response, 200, { applications: applications.rows });
       return;
@@ -133,42 +138,71 @@ export class JobAgentApiServer {
 
     if (url.pathname === "/api/source-health") {
       const sources = await this.database.query(
-        `SELECT s.id,s.name,s.source_type AS "sourceType",s.status,
-                s.last_run_at AS "lastRunAt",s.last_success_at AS "lastSuccessAt",
+        `SELECT s.id,s.name,s.source_type AS "sourceType",s.status,s.last_run_at AS "lastRunAt",s.last_success_at AS "lastSuccessAt",
                 s.consecutive_failures AS "consecutiveFailures",s.disabled_until AS "disabledUntil",
-                COALESCE(r.fetched_count,0) AS "lastFetched",
-                COALESCE(r.inserted_count,0) AS "lastInserted",
-                COALESCE(r.duplicate_count,0) AS "lastDuplicates",
-                r.status AS "lastRunStatus",r.finished_at AS "lastFinishedAt",r.error_summary AS "lastError"
-         FROM sources s
-         LEFT JOIN LATERAL (
-           SELECT status,fetched_count,inserted_count,duplicate_count,finished_at,error_summary
-           FROM source_runs
-           WHERE source_id=s.id
-           ORDER BY started_at DESC
-           LIMIT 1
-         ) r ON true
-         ORDER BY s.consecutive_failures DESC,s.last_success_at ASC NULLS FIRST,s.name ASC`
+                COALESCE(r.fetched_count,0) AS "lastFetched",COALESCE(r.inserted_count,0) AS "lastInserted",
+                COALESCE(r.duplicate_count,0) AS "lastDuplicates",r.status AS "lastRunStatus",r.finished_at AS "lastFinishedAt",r.error_summary AS "lastError"
+         FROM sources s LEFT JOIN LATERAL (
+           SELECT status,fetched_count,inserted_count,duplicate_count,finished_at,error_summary FROM source_runs
+           WHERE source_id=s.id ORDER BY started_at DESC LIMIT 1
+         ) r ON true ORDER BY s.consecutive_failures DESC,s.last_success_at ASC NULLS FIRST,s.name ASC`
       );
       writeJson(response, 200, { sources: sources.rows });
+      return;
+    }
+
+    if (url.pathname === "/api/platform-coverage") {
+      const latest = await this.database.query<{
+        platform_id: string; platform_name: string; capability: string; outcome: string;
+        extraction_mode: string | null; fetched: string; normalized: string | null; inserted: string; duplicates: string;
+        duration_ms: string; completed_at: string; error_detail: string | null;
+      }>(
+        `SELECT DISTINCT ON (platform_id)
+           platform_id,platform_name,capability,outcome,extraction_mode,fetched,
+           COALESCE(normalized,fetched) AS normalized,inserted,duplicates,duration_ms,completed_at,error_detail
+         FROM platform_discovery_runs ORDER BY platform_id,completed_at DESC`
+      );
+      const counts = new Map<string, number>();
+      for (const platform of JOB_PLATFORM_REGISTRY) counts.set(platform.capability, (counts.get(platform.capability) ?? 0) + 1);
+      const rows = latest.rows;
+      const attempted = new Set(rows.map(row => row.platform_id));
+      const countOutcome = (value: string): number => rows.filter(row => row.outcome === value).length;
+      const executable = JOB_PLATFORM_REGISTRY.filter(platform => platform.capability !== "catalog-only").length;
+      const registryIds = new Set(JOB_PLATFORM_REGISTRY.map(platform => platform.id));
+      const attemptedExecutable = rows.filter(row => registryIds.has(row.platform_id) && row.capability !== "catalog-only").length;
+      const catalogOnly = JOB_PLATFORM_REGISTRY.filter(platform => platform.capability === "catalog-only");
+      const catalogRows = catalogOnly.map(platform => ({
+        platform_id: platform.id, platform_name: platform.name, capability: platform.capability,
+        outcome: "SKIPPED_CATALOG_ONLY", extraction_mode: null, fetched: "0", normalized: "0", inserted: "0", duplicates: "0",
+        duration_ms: "0", completed_at: null, error_detail: "Catalog entry has no executable direct adapter."
+      }));
+      const all = [...rows, ...catalogRows];
+      writeJson(response, 200, {
+        registry: { total: JOB_PLATFORM_REGISTRY.length, activeAdapters: counts.get("active-adapter") ?? 0, configurableAdapters: counts.get("configurable-adapter") ?? 0, catalogOnly: counts.get("catalog-only") ?? 0, executable },
+        latestRuntime: {
+          attempted: attemptedExecutable,
+          succeeded: countOutcome("SUCCESS_WITH_JOBS") + countOutcome("SUCCESS_ZERO_JOBS"),
+          empty: countOutcome("SUCCESS_ZERO_JOBS"),
+          failed: rows.filter(row => !["SUCCESS_WITH_JOBS", "SUCCESS_ZERO_JOBS", "TIMEOUT", "RATE_LIMITED", "BLOCKED_OR_RESTRICTED"].includes(row.outcome)).length,
+          timeout: countOutcome("TIMEOUT"), rateLimited: countOutcome("RATE_LIMITED"), blocked: countOutcome("BLOCKED_OR_RESTRICTED"),
+          parserErrors: countOutcome("PARSER_ERROR"), fetched: rows.reduce((sum,row) => sum + Number(row.fetched),0),
+          normalized: rows.reduce((sum,row) => sum + Number(row.normalized ?? row.fetched),0), inserted: rows.reduce((sum,row) => sum + Number(row.inserted),0),
+          duplicates: rows.reduce((sum,row) => sum + Number(row.duplicates),0)
+        },
+        platforms: all
+      });
       return;
     }
 
     if (url.pathname === "/api/recruiters") {
       const limit = parseLimit(url.searchParams.get("limit"));
       const recruiters = await this.database.query(
-        `SELECT c.id,c.full_name AS name,c.company_name AS company,c.title AS role,c.email,
-                c.email_status AS "emailStatus",c.verified,c.mailbox_evidence AS "mailboxEvidence",
-                c.relevance_status AS relevance,c.relevance_score AS "relevanceScore",c.confidence,
-                (SELECT s.source_url FROM recruiter_contact_sources s
-                   WHERE s.recruiter_contact_id=c.id ORDER BY s.observed_at DESC LIMIT 1) AS "profileUrl",
-                (SELECT s.source_type FROM recruiter_contact_sources s
-                   WHERE s.recruiter_contact_id=c.id ORDER BY s.observed_at DESC LIMIT 1) AS "evidenceType"
-         FROM recruiter_contacts c
-         WHERE c.relevance_status IN ('CURRENT','RECENT')
-         ORDER BY c.relevance_score DESC NULLS LAST,c.confidence DESC NULLS LAST,c.updated_at DESC
-         LIMIT $1`,
-        [limit]
+        `SELECT c.id,c.full_name AS name,c.company_name AS company,c.title AS role,c.email,c.email_status AS "emailStatus",c.verified,
+                c.mailbox_evidence AS "mailboxEvidence",c.relevance_status AS relevance,c.relevance_score AS "relevanceScore",c.confidence,
+                (SELECT s.source_url FROM recruiter_contact_sources s WHERE s.recruiter_contact_id=c.id ORDER BY s.observed_at DESC LIMIT 1) AS "profileUrl",
+                (SELECT s.source_type FROM recruiter_contact_sources s WHERE s.recruiter_contact_id=c.id ORDER BY s.observed_at DESC LIMIT 1) AS "evidenceType"
+         FROM recruiter_contacts c WHERE c.relevance_status IN ('CURRENT','RECENT')
+         ORDER BY c.relevance_score DESC NULLS LAST,c.confidence DESC NULLS LAST,c.updated_at DESC LIMIT $1`, [limit]
       );
       writeJson(response, 200, { recruiters: recruiters.rows });
       return;
@@ -177,16 +211,11 @@ export class JobAgentApiServer {
     if (url.pathname === "/api/contacts") {
       const limit = parseLimit(url.searchParams.get("limit"));
       const contacts = await this.database.query(
-        `SELECT c.id,c.normalized_email AS email,c.domain,c.validation_status AS "validationStatus",
-                c.relevance_score AS "relevanceScore",c.evidence_context AS "evidenceContext",
-                c.observed_at AS "observedAt",r.source_url AS "sourceUrl",r.source_type AS "sourceType",
+        `SELECT c.id,c.normalized_email AS email,c.domain,c.validation_status AS "validationStatus",c.relevance_score AS "relevanceScore",
+                c.evidence_context AS "evidenceContext",c.observed_at AS "observedAt",r.source_url AS "sourceUrl",r.source_type AS "sourceType",
                 r.title AS "resourceTitle",r.status AS "resourceStatus"
-         FROM public_contact_resource_contacts c
-         JOIN public_contact_resources r ON r.id=c.resource_id
-         WHERE c.validation_status <> 'INVALID' AND c.relevance_score > 0
-         ORDER BY c.relevance_score DESC,c.updated_at DESC
-         LIMIT $1`,
-        [limit]
+         FROM public_contact_resource_contacts c JOIN public_contact_resources r ON r.id=c.resource_id
+         WHERE c.validation_status <> 'INVALID' AND c.relevance_score > 0 ORDER BY c.relevance_score DESC,c.updated_at DESC LIMIT $1`, [limit]
       );
       writeJson(response, 200, { contacts: contacts.rows });
       return;
@@ -195,16 +224,11 @@ export class JobAgentApiServer {
     if (url.pathname === "/api/content") {
       const limit = parseLimit(url.searchParams.get("limit"));
       const content = await this.database.query(
-        `SELECT s.id,c.full_name AS recruiter,c.company_name AS company,c.title AS role,
-                s.source_url AS "sourceUrl",s.source_type AS "sourceType",
+        `SELECT s.id,c.full_name AS recruiter,c.company_name AS company,c.title AS role,s.source_url AS "sourceUrl",s.source_type AS "sourceType",
                 s.confidence,s.observed_at AS "observedAt",c.relevance_evidence AS evidence
-         FROM recruiter_contact_sources s
-         JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id
-         WHERE LOWER(COALESCE(s.source_type,'')) IN
-           ('job_posting','current_job_posting','current_role','recent_job_posting','recent_role','job_hiring_evidence')
-         ORDER BY s.observed_at DESC
-         LIMIT $1`,
-        [limit]
+         FROM recruiter_contact_sources s JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id
+         WHERE LOWER(COALESCE(s.source_type,'')) IN ('job_posting','current_job_posting','current_role','recent_job_posting','recent_role','job_hiring_evidence')
+         ORDER BY s.observed_at DESC LIMIT $1`, [limit]
       );
       writeJson(response, 200, { content: content.rows });
       return;
@@ -217,77 +241,36 @@ export class JobAgentApiServer {
       let where = "";
       if (["APPLY","REVIEW","REJECT"].includes(decisionParam)) { params.push(decisionParam); where = "WHERE latest.decision=$1"; }
       params.push(limit);
-      const limitParam = `$${params.length}`;
       const matches = await this.database.query(
-        `WITH latest AS (
-           SELECT DISTINCT ON (job_opportunity_id)
-             job_opportunity_id,decision,match_score,reason,created_at
-           FROM match_decisions
-           ORDER BY job_opportunity_id,created_at DESC
-         )
-         SELECT latest.job_opportunity_id AS "jobId",
-                j.company_name AS company,
-                j.title AS role,
-                j.location,
-                j.canonical_url AS url,
-                latest.decision,
-                latest.match_score AS score,
-                latest.reason,
-                latest.created_at AS "decidedAt"
-           FROM latest
-           JOIN job_opportunities j ON j.id=latest.job_opportunity_id
-          ${where}
-          ORDER BY latest.match_score DESC NULLS LAST,j.posted_at DESC NULLS LAST
-          LIMIT ${limitParam}`,
+        `WITH latest AS (SELECT DISTINCT ON (job_opportunity_id) job_opportunity_id,decision,match_score,reason,created_at FROM match_decisions ORDER BY job_opportunity_id,created_at DESC)
+         SELECT latest.job_opportunity_id AS "jobId",j.company_name AS company,j.title AS role,j.location,j.canonical_url AS url,latest.decision,latest.match_score AS score,latest.reason,
+                latest.created_at AS "decidedAt",COALESCE(obs.platform,j.source) AS platform,obs.source_url AS "sourceUrl"
+         FROM latest JOIN job_opportunities j ON j.id=latest.job_opportunity_id
+         LEFT JOIN LATERAL (SELECT platform,source_url FROM job_observations WHERE job_opportunity_id=j.id ORDER BY observed_at DESC LIMIT 1) obs ON true
+         ${where} ORDER BY latest.match_score DESC NULLS LAST,j.posted_at DESC NULLS LAST LIMIT $${params.length}`,
         params
       );
       writeJson(response, 200, { matches: matches.rows });
       return;
     }
 
-    if (url.pathname === "/api/summary") {      const summary = await this.database.query<SummaryRow>(
-        `WITH latest_matches AS (
-           SELECT DISTINCT ON (job_opportunity_id)
-             job_opportunity_id,decision,match_score,reason,created_at
-           FROM match_decisions
-           ORDER BY job_opportunity_id,created_at DESC
-         )
-         SELECT
-           (SELECT COUNT(*)::text FROM job_opportunities) AS jobs,
-           (SELECT COUNT(*)::text FROM latest_matches) AS matches,
-           (SELECT COUNT(*)::text FROM applications) AS applications,
+    if (url.pathname === "/api/summary") {
+      const summary = await this.database.query<SummaryRow>(
+        `WITH latest_matches AS (SELECT DISTINCT ON (job_opportunity_id) job_opportunity_id,decision,match_score,reason,created_at FROM match_decisions ORDER BY job_opportunity_id,created_at DESC)
+         SELECT (SELECT COUNT(*)::text FROM job_opportunities) AS jobs,(SELECT COUNT(*)::text FROM latest_matches) AS matches,(SELECT COUNT(*)::text FROM applications) AS applications,
            (SELECT COUNT(*)::text FROM recruiter_contacts) AS recruiters,
+           (SELECT COUNT(*)::text FROM public_contact_resource_contacts WHERE validation_status <> 'INVALID' AND relevance_score > 0) AS contacts,
+           (SELECT COUNT(*)::text FROM recruiter_contact_sources WHERE LOWER(COALESCE(source_type,'')) IN ('job_posting','current_job_posting','current_role','recent_job_posting','recent_role','job_hiring_evidence')) AS content,
            (SELECT COUNT(*)::text FROM recruiter_outreach_messages WHERE status='SENT') AS "outreachSent",
            (SELECT COUNT(*)::text FROM tasks WHERE status IN ('PENDING','RUNNING')) AS "pendingTasks",
-           (SELECT COUNT(*)::text FROM latest_matches WHERE decision='APPLY') AS "matchApply",
-           (SELECT COUNT(*)::text FROM latest_matches WHERE decision='REVIEW') AS "matchReview",
-           (SELECT COUNT(*)::text FROM latest_matches WHERE decision='REJECT') AS "matchReject",
+           (SELECT COUNT(*)::text FROM latest_matches WHERE decision='APPLY') AS "matchApply",(SELECT COUNT(*)::text FROM latest_matches WHERE decision='REVIEW') AS "matchReview",(SELECT COUNT(*)::text FROM latest_matches WHERE decision='REJECT') AS "matchReject",
            (SELECT COUNT(*)::text FROM recruiter_contacts WHERE verified=true AND email_status='VERIFIED' AND mailbox_evidence=true) AS "verifiedRecruiterEmails",
-           (SELECT COUNT(*)::text FROM recruiter_contacts WHERE relevance_status='CURRENT') AS "currentRecruiters",
-           (SELECT COUNT(*)::text FROM recruiter_contacts WHERE relevance_status='RECENT') AS "recentRecruiters",
-           (SELECT COALESCE(jsonb_agg(x ORDER BY x.score DESC,x.posted_at DESC NULLS LAST),'[]'::jsonb)
-            FROM (
-              SELECT j.company_name AS company,j.title AS role,j.location,j.canonical_url AS url,
-                     m.decision,m.match_score AS score,m.reason,j.posted_at
-              FROM latest_matches m
-              JOIN job_opportunities j ON j.id=m.job_opportunity_id
-              ORDER BY m.match_score DESC,j.posted_at DESC NULLS LAST
-              LIMIT 10
-            ) x) AS "topMatches",
-           (SELECT COALESCE(jsonb_agg(x ORDER BY x."relevanceScore" DESC NULLS LAST,x.confidence DESC NULLS LAST,x.updated_at DESC),'[]'::jsonb)
-            FROM (
-              SELECT c.full_name AS name,c.company_name AS company,c.title AS role,c.relevance_status AS relevance,
-                     c.relevance_score AS "relevanceScore",c.relevance_evidence AS "hiringEvidence",
-                     (SELECT s.source_url FROM recruiter_contact_sources s WHERE s.recruiter_contact_id=c.id ORDER BY s.observed_at DESC LIMIT 1) AS "profileUrl",
-                     c.email,c.email_status AS "emailStatus",c.verified,c.mailbox_evidence AS "mailboxEvidence",c.confidence,
-                     (c.verified=true AND c.email_status='VERIFIED' AND c.mailbox_evidence=true
-                      AND c.relevance_status IN ('CURRENT','RECENT') AND COALESCE(c.suppressed,false)=false
-                      AND COALESCE(c.confidence,0)>=80) AS "eligibleForOutreach",c.updated_at
-              FROM recruiter_contacts c
-              WHERE c.relevance_status IN ('CURRENT','RECENT')
-              ORDER BY c.relevance_score DESC NULLS LAST,c.confidence DESC NULLS LAST,c.updated_at DESC
-              LIMIT 10
-            ) x) AS "recruiterLeads"`
+           (SELECT COUNT(*)::text FROM recruiter_contacts WHERE relevance_status='CURRENT') AS "currentRecruiters",(SELECT COUNT(*)::text FROM recruiter_contacts WHERE relevance_status='RECENT') AS "recentRecruiters",
+           (SELECT COALESCE(jsonb_agg(x ORDER BY x.score DESC,x.posted_at DESC NULLS LAST),'[]'::jsonb) FROM (SELECT j.company_name AS company,j.title AS role,j.location,j.canonical_url AS url,m.decision,m.match_score AS score,m.reason,j.posted_at FROM latest_matches m JOIN job_opportunities j ON j.id=m.job_opportunity_id ORDER BY m.match_score DESC,j.posted_at DESC NULLS LAST LIMIT 10) x) AS "topMatches",
+           (SELECT COALESCE(jsonb_agg(x ORDER BY x."relevanceScore" DESC NULLS LAST,x.confidence DESC NULLS LAST,x.updated_at DESC),'[]'::jsonb) FROM (SELECT c.full_name AS name,c.company_name AS company,c.title AS role,c.relevance_status AS relevance,c.relevance_score AS "relevanceScore",c.relevance_evidence AS "hiringEvidence",
+             (SELECT s.source_url FROM recruiter_contact_sources s WHERE s.recruiter_contact_id=c.id ORDER BY s.observed_at DESC LIMIT 1) AS "profileUrl",c.email,c.email_status AS "emailStatus",c.verified,c.mailbox_evidence AS "mailboxEvidence",c.confidence,
+             (c.verified=true AND c.email_status='VERIFIED' AND c.mailbox_evidence=true AND c.relevance_status IN ('CURRENT','RECENT') AND COALESCE(c.suppressed,false)=false AND COALESCE(c.confidence,0)>=80) AS "eligibleForOutreach",c.updated_at
+             FROM recruiter_contacts c WHERE c.relevance_status IN ('CURRENT','RECENT') ORDER BY c.relevance_score DESC NULLS LAST,c.confidence DESC NULLS LAST,c.updated_at DESC LIMIT 10) x) AS "recruiterLeads"`
       );
       writeJson(response, 200, summary.rows[0] ?? {});
       return;
@@ -313,4 +296,45 @@ function writeJson(response: ServerResponse, statusCode: number, value: unknown)
   response.end(JSON.stringify(value));
 }
 
-const DASHBOARD_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Job Agent</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:32px;background:#f6f7f9;color:#17202a}main{max-width:1100px;margin:auto}h1{margin-bottom:4px}.muted{color:#667085}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-top:24px}.card,.section{background:white;border:1px solid #e4e7ec;border-radius:12px;padding:16px}.value{font-size:28px;font-weight:700;margin-top:6px}.status{margin-top:24px;padding:12px;border-radius:8px;background:white;border:1px solid #e4e7ec}.section{margin-top:24px}.result{padding:14px 0;border-bottom:1px solid #eaecf0}.result:last-child{border-bottom:0}.result h3{margin:0 0 6px}.meta{margin:3px 0}.reason{margin-top:8px}.pill{display:inline-block;padding:3px 8px;border-radius:999px;background:#eef2f6;margin-right:6px;font-size:12px}a{color:inherit}.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.toolbar button{border:1px solid #d0d5dd;background:white;border-radius:8px;padding:7px 10px;cursor:pointer}.toolbar button.active{font-weight:700}.health-row{display:grid;grid-template-columns:1fr 100px 100px 100px;gap:8px;padding:8px 0;border-bottom:1px solid #eaecf0}.ok{color:#087443}.bad{color:#b42318}</style></head><body><main><h1>Job Agent</h1><div class="muted">Live operational dashboard — persisted public-data results</div><div id="status" class="status">Loading…</div><div id="grid" class="grid"></div><section class="section"><h2>Top Matches</h2><div class="toolbar"><button data-filter="APPLY">Match</button><button data-filter="REVIEW">Review</button><button data-filter="REJECT">Skip</button><button data-filter="ALL" class="active">All</button></div><div id="matches">Loading…</div></section><section class="section"><h2>Application Queue</h2><div id="applications">Loading…</div></section><section class="section"><h2>Recruiter Leads</h2><div id="recruiters">Loading…</div></section><section class="section"><h2>Public Contact Evidence</h2><div id="contacts">Loading…</div></section><section class="section"><h2>Hiring Content Evidence</h2><div id="content">Loading…</div></section><section class="section"><h2>Source Health</h2><div id="sources">Loading…</div></section></main><script>function esc(value){return String(value??'').replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]})}function decisionLabel(value){return value==='APPLY'?'MATCH':value==='REVIEW'?'REVIEW':'SKIP'}function renderMatches(items){if(!items.length)return '<div class="muted">No match records yet.</div>';return items.map(function(x){return '<article class="result"><h3>'+esc(x.role)+' — '+esc(x.company)+'</h3><div class="meta">'+esc(x.location||'Location unknown')+'</div><div class="meta"><span class="pill">'+esc(decisionLabel(x.decision))+'</span><span class="pill">Score '+esc(x.score)+'</span></div><div class="meta"><a href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer">'+esc(x.url)+'</a></div><div class="reason">'+esc(x.reason)+'</div></article>'}).join('')}function renderApplications(items){if(!items.length)return '<div class="muted">No application candidates yet.</div>';return items.map(function(x){return '<article class="result"><h3>'+esc(x.role||'Application candidate')+' — '+esc(x.company||'Company pending linkage')+'</h3><div class="meta">'+esc(x.location||'Location unknown')+' · score '+esc(x.score??'unknown')+' · '+esc(x.status||'READY')+'</div><div class="meta"><a href="'+esc(x.url||'#')+'" target="_blank" rel="noopener noreferrer">Open application/job</a></div><div class="reason">'+esc(x.reason||'No match explanation available.')+'</div></article>'}).join('')}function renderRecruiters(items){if(!items.length)return '<div class="muted">No current/recent recruiter leads yet.</div>';return items.map(function(x){return '<article class="result"><h3>'+esc(x.name||'Recruiter identity unavailable')+' — '+esc(x.company)+'</h3><div class="meta">'+esc(x.role||'Recruiter role unavailable')+' · '+esc(x.relevance)+' relevance</div><div class="meta">Email: '+esc(x.email)+' · '+esc(x.emailStatus||'UNKNOWN')+(x.eligibleForOutreach?' · ELIGIBLE':'')+'</div><div class="meta">Confidence: '+esc(x.confidence??'unknown')+' · Mailbox evidence: '+(x.mailboxEvidence?'yes':'no')+'</div>'+(x.profileUrl?'<div class="meta"><a href="'+esc(x.profileUrl)+'" target="_blank" rel="noopener noreferrer">Source evidence</a></div>':'')+'</article>'}).join('')}function renderContacts(items){if(!items.length)return '<div class="muted">No qualified public contact evidence yet.</div>';return items.map(function(x){return '<article class="result"><h3>'+esc(x.email)+'</h3><div class="meta">'+esc(x.domain)+' · score '+esc(x.relevanceScore)+' · '+esc(x.validationStatus)+'</div><div class="meta"><a href="'+esc(x.sourceUrl)+'" target="_blank" rel="noopener noreferrer">'+esc(x.sourceType)+' source evidence</a></div><div class="reason">'+esc(x.evidenceContext)+'</div></article>'}).join('')}function renderContent(items){if(!items.length)return '<div class="muted">No hiring-content evidence persisted yet.</div>';return items.map(function(x){return '<article class="result"><h3>'+esc(x.role||'Hiring evidence')+' — '+esc(x.company||'Company pending')+'</h3><div class="meta">'+esc(x.sourceType)+' · confidence '+esc(x.confidence??'unknown')+' · '+esc(x.observedAt||'')+'</div><div class="meta"><a href="'+esc(x.sourceUrl)+'" target="_blank" rel="noopener noreferrer">Source evidence</a></div></article>'}).join('')}function renderSources(items){if(!items.length)return '<div class="muted">No source telemetry yet.</div>';return items.map(function(x){var good=x.lastRunStatus==='SUCCEEDED'&&!x.consecutiveFailures;return '<div class="health-row"><div><strong>'+esc(x.name)+'</strong><div class="muted">'+esc(x.sourceType)+' · '+esc(x.lastRunStatus||'NOT RUN')+'</div></div><div>'+esc(x.lastFetched)+'</div><div>'+esc(x.lastInserted)+'</div><div class="'+(good?'ok':'bad')+'">'+esc(x.consecutiveFailures)+'</div></div>'}).join('')}async function refresh(){try{const health=await fetch('/healthz');const response=await fetch('/api/summary');const data=await response.json();document.getElementById('status').textContent=health.ok?'Database connected':'Database unavailable';const cards={'JOBS':data.jobs,'CURRENT MATCH':data.matchApply,'REVIEW':data.matchReview,'REJECT':data.matchReject,'RECRUITER RECORDS':data.recruiters,'VERIFIED EMAILS':data.verifiedRecruiterEmails,'APPLICATIONS':data.applications,'PENDING TASKS':data.pendingTasks};document.getElementById('grid').innerHTML=Object.entries(cards).map(function(pair){return '<div class="card"><div class="muted">'+esc(pair[0])+'</div><div class="value">'+esc(pair[1])+'</div></div>'}).join('');document.getElementById('matches').innerHTML=renderMatches(data.topMatches||[]);document.getElementById('recruiters').innerHTML=renderRecruiters(data.recruiterLeads||[]);const app=await fetch('/api/applications?limit=10');const appData=await app.json();document.getElementById('applications').innerHTML=renderApplications(appData.applications||[]);const source=await fetch('/api/source-health');const sourceData=await source.json();document.getElementById('sources').innerHTML=renderSources(sourceData.sources||[]);const contact=await fetch('/api/contacts?limit=10');const contactData=await contact.json();document.getElementById('contacts').innerHTML=renderContacts(contactData.contacts||[]);const content=await fetch('/api/content?limit=10');const contentData=await content.json();document.getElementById('content').innerHTML=renderContent(contentData.content||[])}catch(e){document.getElementById('status').textContent='API unavailable'}}document.querySelectorAll('[data-filter]').forEach(function(button){button.addEventListener('click',async function(){document.querySelectorAll('[data-filter]').forEach(function(b){b.classList.remove('active')});button.classList.add('active');const filter=button.dataset.filter;const url=filter==='ALL'?'/api/jobs?limit=10':'/api/jobs?limit=10&decision='+encodeURIComponent(filter);try{const response=await fetch(url);const data=await response.json();document.getElementById('matches').innerHTML=renderMatches((data.jobs||[]).map(function(x){return{role:x.role,company:x.company,location:x.location,url:x.url,decision:x.decision||'REJECT',score:x.score??0,reason:x.reason||'No match decision recorded.'}}))}catch(e){document.getElementById('matches').textContent='Unable to load jobs.'}})});refresh();setInterval(refresh,15000);</script></body></html>`;
+const DASHBOARD_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0b1220"><title>Job Agent — Job Intelligence</title><style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f5f7fb;font-synthesis:none}*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#f8fafc 0,#f3f6fb 100%);min-height:100vh}button,input{font:inherit}button{cursor:pointer}.app{max-width:1480px;margin:auto;padding:22px}.topbar{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 20px;background:#0b1220;color:#fff;border-radius:18px;box-shadow:0 14px 40px rgba(15,23,42,.16)}.brand{display:flex;align-items:center;gap:13px}.logo{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,#7c3aed,#2563eb);display:grid;place-items:center;font-weight:800;font-size:19px}.brand h1{font-size:18px;margin:0}.brand p{margin:3px 0 0;color:#aab6ca;font-size:12px}.top-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;justify-content:flex-end}.signal{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border-radius:999px;background:rgba(255,255,255,.08);font-size:12px;color:#d9e1ee}.dot{width:7px;height:7px;border-radius:50%;background:#34d399}.safety{color:#d7e0ee}.tabs{display:flex;gap:6px;margin:18px 0;overflow:auto;padding-bottom:2px}.tab{border:1px solid #d8dee9;background:#fff;color:#536176;border-radius:10px;padding:9px 13px;white-space:nowrap}.tab.active{background:#111a2d;color:#fff;border-color:#111a2d}.hero{display:grid;grid-template-columns:1.4fr .6fr;gap:16px;margin-bottom:16px}.hero-card,.panel{background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 7px 24px rgba(15,23,42,.05)}.hero-card{padding:24px}.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.12em;font-weight:800;color:#6b7280}.hero h2{margin:7px 0 8px;font-size:28px;letter-spacing:-.03em}.hero p{margin:0;color:#667085;line-height:1.55}.hero-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:17px}.badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:5px 9px;background:#f1f5f9;color:#475569;font-size:11px;font-weight:700}.badge.safe{background:#ecfdf3;color:#067647}.badge.warn{background:#fff7ed;color:#c2410c}.badge.danger{background:#fef2f2;color:#b42318}.runtime{padding:20px}.runtime-row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #edf1f5;font-size:13px}.runtime-row:last-child{border-bottom:0}.runtime-row span:first-child{color:#667085}.kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-bottom:16px}.kpi{padding:17px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 5px 18px rgba(15,23,42,.04)}.kpi .label{color:#667085;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.kpi .num{font-size:27px;font-weight:800;margin-top:7px;letter-spacing:-.03em}.kpi .sub{font-size:11px;color:#98a2b3;margin-top:4px}.layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(340px,.7fr);gap:16px}.panel{padding:19px;margin-bottom:16px}.panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:15px}.panel h3{margin:0;font-size:16px}.panel-note{font-size:11px;color:#98a2b3;margin-top:4px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px}.toolbar input{flex:1;min-width:190px;border:1px solid #d6dce6;border-radius:9px;padding:9px 11px;outline:none}.toolbar input:focus{border-color:#7c3aed;box-shadow:0 0 0 3px rgba(124,58,237,.1)}.filter{border:1px solid #d6dce6;background:#fff;color:#536176;border-radius:9px;padding:8px 11px;font-size:12px}.filter.active{background:#111a2d;color:#fff;border-color:#111a2d}.list{display:grid;gap:9px}.job{border:1px solid #e7ebf1;border-radius:12px;padding:14px;transition:transform .12s,border-color .12s,box-shadow .12s}.job:hover{border-color:#c9d2e0;box-shadow:0 7px 18px rgba(15,23,42,.06);transform:translateY(-1px)}.job-title{font-weight:750;font-size:14px}.job-company{color:#475467;font-size:12px;margin-top:3px}.job-meta{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}.job-reason{font-size:12px;color:#667085;line-height:1.45;margin-top:9px}.decision{font-size:10px;font-weight:800;padding:4px 7px;border-radius:999px}.apply{background:#ecfdf3;color:#067647}.review{background:#fff7ed;color:#b54708}.reject{background:#f2f4f7;color:#475467}.platform{background:#eef2ff;color:#4338ca}.score{background:#f0fdf4;color:#15803d}.row-link{display:inline-block;margin-top:9px;color:#4f46e5;font-size:11px;text-decoration:none}.empty{padding:25px 10px;text-align:center;color:#667085;font-size:12px;border:1px dashed #d6dce6;border-radius:11px}.table-wrap{overflow:auto;border:1px solid #e7ebf1;border-radius:11px}.table{width:100%;border-collapse:collapse;min-width:760px;font-size:12px}.table th{text-align:left;background:#f8fafc;color:#667085;font-size:10px;text-transform:uppercase;letter-spacing:.05em;padding:10px;border-bottom:1px solid #e7ebf1;white-space:nowrap}.table td{padding:10px;border-bottom:1px solid #eef1f5;vertical-align:top}.table tr:last-child td{border-bottom:0}.right-stat{font-size:23px;font-weight:800}.mini-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.mini{padding:12px;border:1px solid #e7ebf1;border-radius:11px}.mini span{display:block;color:#667085;font-size:10px;text-transform:uppercase;letter-spacing:.05em}.mini strong{display:block;margin-top:4px;font-size:18px}.progress{height:7px;background:#edf1f5;border-radius:99px;overflow:hidden;margin-top:10px}.progress i{display:block;height:100%;background:linear-gradient(90deg,#7c3aed,#2563eb);border-radius:inherit}.detail{position:fixed;inset:0;background:rgba(15,23,42,.42);display:none;justify-content:flex-end;z-index:10}.detail.open{display:flex}.drawer{height:100%;width:min(560px,100%);background:#fff;padding:22px;overflow:auto;box-shadow:-15px 0 45px rgba(15,23,42,.2)}.drawer-head{display:flex;justify-content:space-between;gap:12px;align-items:center}.close{border:0;background:#eef2f6;border-radius:9px;width:34px;height:34px}.detail-section{padding:15px 0;border-bottom:1px solid #edf1f5}.detail-section h4{margin:0 0 8px;font-size:11px;text-transform:uppercase;color:#667085;letter-spacing:.07em}.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.detail-item{background:#f8fafc;padding:9px;border-radius:9px}.detail-item small{display:block;color:#98a2b3;font-size:10px}.detail-item div{margin-top:3px;font-size:12px;word-break:break-word}.footer-note{font-size:11px;color:#98a2b3;text-align:center;padding:12px}.hidden{display:none}@media(max-width:1100px){.kpis{grid-template-columns:repeat(3,1fr)}.hero{grid-template-columns:1fr}.layout{grid-template-columns:1fr}}@media(max-width:650px){.app{padding:11px}.topbar{border-radius:14px;padding:14px}.top-actions{justify-content:flex-start}.kpis{grid-template-columns:repeat(2,1fr)}.hero-card{padding:18px}.hero h2{font-size:23px}.panel{padding:14px}.detail-grid{grid-template-columns:1fr}.brand p{display:none}}
+</style></head><body><div class="app">
+<header class="topbar"><div class="brand"><div class="logo">JA</div><div><h1>Job Agent</h1><p>Job intelligence, matching and evidence</p></div></div><div class="top-actions"><span class="signal"><i class="dot"></i><span id="online">System online</span></span><span class="signal safety">Automation OFF</span><span class="signal safety">Dry run ON</span><span class="signal safety">Gmail OFF</span><span class="signal safety">Outreach OFF</span></div></header>
+<nav class="tabs" id="tabs"><button class="tab active" data-view="overview">Overview</button><button class="tab" data-view="jobs">Jobs</button><button class="tab" data-view="applications">Applications</button><button class="tab" data-view="recruiters">Recruiters</button><button class="tab" data-view="contacts">Contacts</button><button class="tab" data-view="content">Content</button><button class="tab" data-view="platforms">Platform coverage</button><button class="tab" data-view="sources">Source health</button></nav>
+<section class="hero"><div class="hero-card"><div class="eyebrow">Live local workspace</div><h2>Turn public hiring signals into a focused job queue.</h2><p>Everything below is read from the local API and database. No mock records are used, and safety gates stay visible at all times.</p><div class="hero-meta"><span class="badge safe">Live API data</span><span class="badge safe">Applications dry-run</span><span class="badge">Platform provenance</span><span class="badge">Evidence-first leads</span></div></div><div class="hero-card runtime"><div class="eyebrow">Runtime</div><div class="runtime-row"><span>API</span><strong id="apiStatus">Checking…</strong></div><div class="runtime-row"><span>Database</span><strong id="dbStatus">Checking…</strong></div><div class="runtime-row"><span>Last refresh</span><strong id="lastRefresh">—</strong></div><div class="runtime-row"><span>Pending tasks</span><strong id="pending">—</strong></div></div></section>
+<div class="kpis" id="kpis"></div>
+<div id="view-overview"><div class="layout"><div><section class="panel"><div class="panel-head"><div><h3>Top opportunities</h3><div class="panel-note">Latest high-scoring matches with source provenance</div></div><button class="filter" data-go="jobs">Open explorer</button></div><div id="topMatches" class="list"></div></section><section class="panel"><div class="panel-head"><div><h3>Application queue</h3><div class="panel-note">Prepared records are not submitted</div></div></div><div id="overviewApps" class="list"></div></section></div><div><section class="panel"><div class="panel-head"><div><h3>Platform coverage</h3><div class="panel-note">Registry vs actual runtime execution</div></div><button class="filter" data-go="platforms">Explore</button></div><div class="mini-grid" id="platformMini"></div><div class="progress"><i id="platformProgress" style="width:0%"></i></div></section><section class="panel"><div class="panel-head"><div><h3>Recruiter intelligence</h3><div class="panel-note">Only current/recent evidence-backed records</div></div></div><div id="overviewRecruiters" class="list"></div></section><section class="panel"><div class="panel-head"><div><h3>Safety</h3><div class="panel-note">Outbound actions remain disabled</div></div></div><div class="mini-grid"><div class="mini"><span>Live applications</span><strong>OFF</strong></div><div class="mini"><span>Emails sent</span><strong id="emailsSent">0</strong></div><div class="mini"><span>Recruiter outreach</span><strong>OFF</strong></div><div class="mini"><span>Gmail</span><strong>OFF</strong></div></div></section></div></div></div>
+<div id="view-jobs" class="hidden"><section class="panel"><div class="panel-head"><div><h3>Job explorer</h3><div class="panel-note">Search company, role, technology, location or platform</div></div></div><div class="toolbar"><input id="jobSearch" placeholder="Search jobs…"><button class="filter active" data-decision="ALL">All</button><button class="filter" data-decision="APPLY">Apply</button><button class="filter" data-decision="REVIEW">Review</button><button class="filter" data-decision="REJECT">Reject</button></div><div id="jobsList" class="list"></div></section></div>
+<div id="view-applications" class="hidden"><section class="panel"><div class="panel-head"><div><h3>Application queue</h3><div class="panel-note">Dry-run preparation only — nothing is submitted</div></div></div><div id="applicationsList" class="list"></div></section></div>
+<div id="view-recruiters" class="hidden"><section class="panel"><div class="panel-head"><div><h3>Recruiter intelligence</h3><div class="panel-note">Identity, employer and hiring evidence stay explicit</div></div></div><div id="recruitersList" class="list"></div></section></div>
+<div id="view-contacts" class="hidden"><section class="panel"><div class="panel-head"><div><h3>Public contact evidence</h3><div class="panel-note">An email found is not automatically a qualified hiring contact</div></div></div><div id="contactsList" class="list"></div></section></div>
+<div id="view-content" class="hidden"><section class="panel"><div class="panel-head"><div><h3>Hiring content</h3><div class="panel-note">Public content with role and hiring evidence</div></div></div><div id="contentList" class="list"></div></section></div>
+<div id="view-platforms" class="hidden"><section class="panel"><div class="panel-head"><div><h3>Platform coverage</h3><div class="panel-note">Catalog-only entries are shown but never counted as executed</div></div></div><div class="mini-grid" id="platformStats"></div><div class="toolbar" style="margin-top:14px"><input id="platformSearch" placeholder="Search platforms…"><button class="filter active" data-platform-filter="ALL">All</button><button class="filter" data-platform-filter="SUCCESS">Success</button><button class="filter" data-platform-filter="EMPTY">Empty</button><button class="filter" data-platform-filter="FAILED">Failed</button><button class="filter" data-platform-filter="TIMEOUT">Timeout</button><button class="filter" data-platform-filter="RATE_LIMITED">Rate limited</button><button class="filter" data-platform-filter="BLOCKED">Blocked</button><button class="filter" data-platform-filter="SKIPPED_CATALOG_ONLY">Catalog</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Platform</th><th>Capability</th><th>Status</th><th>Last run</th><th>Fetched</th><th>Normalized</th><th>Inserted</th><th>Duplicates</th><th>Duration</th></tr></thead><tbody id="platformTable"></tbody></table></div></section></div>
+<div id="view-sources" class="hidden"><section class="panel"><div class="panel-head"><div><h3>Source health</h3><div class="panel-note">Provider failures remain visible</div></div></div><div class="table-wrap"><table class="table"><thead><tr><th>Source</th><th>Status</th><th>Fetched</th><th>Inserted</th><th>Duplicates</th><th>Failures</th><th>Last run</th></tr></thead><tbody id="sourceTable"></tbody></table></div></section></div>
+<div class="footer-note">Job Agent · local product workspace · refreshed from live API</div></div><div id="detail" class="detail"><aside class="drawer"><div class="drawer-head"><div><div class="eyebrow">Details</div><h2 id="detailTitle" style="margin:4px 0 0;font-size:20px">—</h2></div><button class="close" id="closeDetail">×</button></div><div id="detailBody"></div></aside></div>
+<script>
+const state={summary:null,jobs:[],applications:[],recruiters:[],contacts:[],content:[],sources:[],platforms:null,decision:'ALL',platformFilter:'ALL'};
+const $=id=>document.getElementById(id); const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+const fmt=n=>Number(n||0).toLocaleString(); const when=v=>v?new Date(v).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
+function badgeDecision(d){const cls=d==='APPLY'?'apply':d==='REVIEW'?'review':'reject';return '<span class="decision '+cls+'">'+esc(d||'NO DECISION')+'</span>'}
+function empty(title,body){return '<div class="empty"><strong>'+esc(title)+'</strong><div style="margin-top:5px">'+esc(body)+'</div></div>'}
+function renderKpis(s){const items=[['Jobs',s.jobs,'Persisted opportunities'],['Matches',s.matches,'Latest decisions'],['APPLY',s.matchApply,'High-confidence queue'],['REVIEW',s.matchReview,'Needs review'],['REJECT',s.matchReject,'Filtered out'],['Ready',s.applications,'Prepared records'],['Recruiters',s.recruiters,'Current / recent'],['Contacts',s.contacts,'Qualified evidence'],['Content',s.content,'Hiring evidence']];$('kpis').innerHTML=items.map(x=>'<div class="kpi"><div class="label">'+esc(x[0])+'</div><div class="num">'+fmt(x[1])+'</div><div class="sub">'+esc(x[2])+'</div></div>').join('')}
+function jobCard(x){return '<article class="job" data-job=''+esc(JSON.stringify(x))+''><div class="job-title">'+esc(x.role||'Untitled role')+'</div><div class="job-company">'+esc(x.company||'Company unknown')+'</div><div class="job-meta">'+badgeDecision(x.decision||'REVIEW')+(x.score!=null?'<span class="badge score">Score '+esc(x.score)+'</span>':'')+(x.platform?'<span class="badge platform">'+esc(x.platform)+'</span>':'')+(x.workplaceType?'<span class="badge">'+esc(x.workplaceType)+'</span>':'')+'</div><div class="job-company" style="margin-top:8px">'+esc(x.location||'Location not specified')+'</div><div class="job-reason">'+esc(x.reason||'No decision explanation recorded.')+'</div>'+(x.url?'<a class="row-link" href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer">Open posting ↗</a>':'')+'</article>'}
+function renderJobs(items,target){$(target).innerHTML=items.length?'<div class="list">'+items.map(jobCard).join('')+'</div>':empty('No jobs match this view','Try another decision filter or search term.')}
+function renderApps(items,target){$(target).innerHTML=items.length?items.map(x=>'<article class="job"><div class="job-title">'+esc(x.role||'Application candidate')+' — '+esc(x.company||'Company pending')+'</div><div class="job-meta"><span class="badge safe">'+esc(x.status||'READY')+'</span><span class="badge">Dry run · not submitted</span>'+(x.score!=null?'<span class="badge score">Score '+esc(x.score)+'</span>':'')+'</div><div class="job-company" style="margin-top:8px">'+esc(x.location||'Location not specified')+'</div><div class="job-reason">'+esc(x.reason||'No match explanation recorded.')+'</div>'+(x.url?'<a class="row-link" href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer">Open job ↗</a>':'')+'</article>').join(''):empty('No application-ready records','Matching can prepare records, but live submission is disabled.')}
+function renderRecruiters(items,target){$(target).innerHTML=items.length?items.map(x=>'<article class="job"><div class="job-title">'+esc(x.name||'Identity unavailable')+' · '+esc(x.company||'Company unknown')+'</div><div class="job-company">'+esc(x.role||'Role unavailable')+' · '+esc(x.relevance||'UNKNOWN')+'</div><div class="job-meta"><span class="badge">Confidence '+esc(x.confidence??'—')+'</span><span class="badge">Email '+esc(x.emailStatus||'UNKNOWN')+'</span><span class="badge">Mailbox evidence '+(x.mailboxEvidence?'yes':'no')+'</span>'+(x.eligibleForOutreach?'<span class="badge safe">OUTREACH ELIGIBLE</span>':'')+'</div>'+(x.profileUrl?'<a class="row-link" href="'+esc(x.profileUrl)+'" target="_blank" rel="noopener noreferrer">Evidence ↗</a>':'')+'</article>').join(''):empty('No qualified recruiter leads yet','Recruiter discovery runs independently. Only validated hiring evidence appears here.')}
+function renderContacts(items,target){$(target).innerHTML=items.length?items.map(x=>'<article class="job"><div class="job-title">'+esc(x.email||'Email unavailable')+'</div><div class="job-company">'+esc(x.domain||'Domain unknown')+' · score '+esc(x.relevanceScore??'—')+' · '+esc(x.validationStatus||'UNKNOWN')+'</div><div class="job-reason">'+esc(x.evidenceContext||'No evidence context recorded.')+'</div>'+(x.sourceUrl?'<a class="row-link" href="'+esc(x.sourceUrl)+'" target="_blank" rel="noopener noreferrer">Source evidence ↗</a>':'')+'</article>').join(''):empty('No qualified public contacts yet','An email found is not promoted without evidence-backed qualification.')}
+function renderContent(items,target){$(target).innerHTML=items.length?items.map(x=>'<article class="job"><div class="job-title">'+esc(x.role||'Hiring evidence')+' — '+esc(x.company||'Company pending')+'</div><div class="job-company">'+esc(x.sourceType||'source')+' · confidence '+esc(x.confidence??'—')+' · '+esc(when(x.observedAt))+'</div><div class="job-reason">'+esc(x.evidence||'Evidence context unavailable.')+'</div>'+(x.sourceUrl?'<a class="row-link" href="'+esc(x.sourceUrl)+'" target="_blank" rel="noopener noreferrer">Source ↗</a>':'')+'</article>').join(''):empty('No validated hiring content yet','Content discovery runs independently and only evidence-backed signals are shown.')}
+function renderSources(items){$('sourceTable').innerHTML=items.length?items.map(x=>'<tr><td><strong>'+esc(x.name)+'</strong><div style="color:#98a2b3;margin-top:3px">'+esc(x.sourceType)+'</div></td><td>'+esc(x.lastRunStatus||'NOT RUN')+'</td><td>'+fmt(x.lastFetched)+'</td><td>'+fmt(x.lastInserted)+'</td><td>'+fmt(x.lastDuplicates)+'</td><td class="'+(Number(x.consecutiveFailures)?'bad':'ok')+'">'+fmt(x.consecutiveFailures)+'</td><td>'+when(x.lastFinishedAt||x.lastRunAt)+'</td></tr>').join(''):''}
+function renderPlatformStats(p){const r=p.registry,l=p.latestRuntime;const vals=[['Registry',r.total],['Executable',r.executable],['Catalog only',r.catalogOnly],['Attempted',l.attempted],['Succeeded',l.succeeded],['Empty',l.empty],['Timeout',l.timeout],['Rate limited',l.rateLimited],['Blocked',l.blocked],['Parser errors',l.parserErrors],['Fetched',l.fetched],['Normalized',l.normalized],['Inserted',l.inserted],['Duplicates',l.duplicates]];return vals.map(x=>'<div class="mini"><span>'+esc(x[0])+'</span><strong>'+fmt(x[1])+'</strong></div>').join('')}
+function renderPlatforms(){const p=state.platforms;if(!p)return;$('platformStats').innerHTML=renderPlatformStats(p);$('platformMini').innerHTML=[['Registry',p.registry.total],['Executable',p.registry.executable],['Attempted',p.latestRuntime.attempted],['Succeeded',p.latestRuntime.succeeded],['Fetched',p.latestRuntime.fetched],['Inserted',p.latestRuntime.inserted]].map(x=>'<div class="mini"><span>'+esc(x[0])+'</span><strong>'+fmt(x[1])+'</strong></div>').join('');$('platformProgress').style.width=(p.registry.executable?Math.min(100,(p.latestRuntime.attempted/p.registry.executable)*100):0)+'%';const q=($('platformSearch').value||'').toLowerCase();const f=state.platformFilter;const rows=p.platforms.filter(x=>(!q||x.platform_name.toLowerCase().includes(q)||x.platform_id.toLowerCase().includes(q))&&(f==='ALL'||x.outcome===f||(f==='FAILED'&&['ERROR','PARSER_ERROR'].includes(x.outcome))));$('platformTable').innerHTML=rows.map(x=>'<tr><td><strong>'+esc(x.platform_name)+'</strong><div style="color:#98a2b3;margin-top:3px">'+esc(x.platform_id)+'</div></td><td>'+esc(x.capability)+'</td><td>'+statusBadge(x.outcome)+'</td><td>'+when(x.completed_at)+'</td><td>'+fmt(x.fetched)+'</td><td>'+fmt(x.normalized)+'</td><td>'+fmt(x.inserted)+'</td><td>'+fmt(x.duplicates)+'</td><td>'+fmt(x.duration_ms)+' ms</td></tr>').join('')||'<tr><td colspan="9">No platform records for this filter.</td></tr>'}
+function statusBadge(s){const cls=s==='SUCCESS_WITH_JOBS'?'safe':s==='SUCCESS_ZERO_JOBS'?'':'warn';return '<span class="badge '+cls+'">'+esc(s)+'</span>'}
+async function getJson(path){const r=await fetch(path,{cache:'no-store'});if(!r.ok)throw new Error(path+' '+r.status);return r.json()}
+async function refresh(){try{const [health,summary,apps,recs,contacts,content,sources,platforms]=await Promise.all([getJson('/healthz'),getJson('/api/summary'),getJson('/api/applications?limit=20'),getJson('/api/recruiters?limit=20'),getJson('/api/contacts?limit=20'),getJson('/api/content?limit=20'),getJson('/api/source-health'),getJson('/api/platform-coverage')]);state.summary=summary;state.applications=apps.applications||[];state.recruiters=recs.recruiters||[];state.contacts=contacts.contacts||[];state.content=content.content||[];state.sources=sources.sources||[];state.platforms=platforms; $('online').textContent='System online';$('apiStatus').textContent='Online';$('dbStatus').textContent=health.database==='ok'?'Healthy':'Degraded';$('lastRefresh').textContent=new Date().toLocaleTimeString();$('pending').textContent=fmt(summary.pendingTasks);$('emailsSent').textContent=fmt(summary.outreachSent);renderKpis(summary);renderJobs(summary.topMatches||[],'topMatches');renderApps(state.applications.slice(0,6),'overviewApps');renderRecruiters(state.recruiters.slice(0,5),'overviewRecruiters');renderApps(state.applications,'applicationsList');renderRecruiters(state.recruiters,'recruitersList');renderContacts(state.contacts,'contactsList');renderContent(state.content,'contentList');renderSources(state.sources);renderPlatforms();}catch(e){$('online').textContent='API unavailable';$('apiStatus').textContent='Unavailable';$('dbStatus').textContent='Check runtime'}}
+async function loadJobs(){const q=encodeURIComponent($('jobSearch').value||'');const d=state.decision;const path='/api/jobs?limit=60&search='+q+(d==='ALL'?'':'&decision='+d);try{const data=await getJson(path);state.jobs=data.jobs||[];renderJobs(state.jobs,'jobsList')}catch(e){$('jobsList').innerHTML=empty('Jobs unavailable','The live API did not return job records.')}}
+function showView(name){document.querySelectorAll('[id^="view-"]').forEach(x=>x.classList.add('hidden'));$('view-'+name).classList.remove('hidden');document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x.dataset.view===name));if(name==='jobs')loadJobs()}
+function showDetail(x){$('detailTitle').textContent=(x.role||x.platform_name||'Details');const pairs=[['Company',x.company],['Location',x.location],['Platform',x.platform],['Capability',x.capability],['Decision',x.decision],['Score',x.score],['Status',x.outcome],['Workplace',x.workplaceType],['Reason',x.reason],['Source URL',x.sourceUrl],['Posting URL',x.url],['Last run',x.completed_at],['Fetched',x.fetched],['Normalized',x.normalized],['Inserted',x.inserted],['Duplicates',x.duplicates],['Duration',x.duration_ms?x.duration_ms+' ms':null],['Error',x.error_detail]];$('detailBody').innerHTML=pairs.filter(p=>p[1]!=null&&p[1]!=='').map(p=>'<div class="detail-section"><h4>'+esc(p[0])+'</h4><div>'+esc(p[1])+'</div></div>').join('');$('detail').classList.add('open')}
+$('closeDetail').onclick=()=>$('detail').classList.remove('open');$('detail').onclick=e=>{if(e.target===$('detail'))$('detail').classList.remove('open')};document.addEventListener('click',e=>{const card=e.target.closest('[data-job]');if(card)try{showDetail(JSON.parse(card.dataset.job))}catch(_){}});
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view)));document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.go)));$('jobSearch').addEventListener('input',()=>loadJobs());document.querySelectorAll('[data-decision]').forEach(b=>b.addEventListener('click',()=>{state.decision=b.dataset.decision;document.querySelectorAll('[data-decision]').forEach(x=>x.classList.toggle('active',x===b));loadJobs()}));$('platformSearch').addEventListener('input',renderPlatforms);document.querySelectorAll('[data-platform-filter]').forEach(b=>b.addEventListener('click',()=>{state.platformFilter=b.dataset.platformFilter;document.querySelectorAll('[data-platform-filter]').forEach(x=>x.classList.toggle('active',x===b));renderPlatforms()}));
+refresh();setInterval(refresh,20000);
+</script></body></html>`;
