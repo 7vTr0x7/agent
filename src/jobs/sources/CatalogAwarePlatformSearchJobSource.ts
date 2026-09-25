@@ -72,9 +72,7 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
             pageFailures: 0,
             parseSuccesses: 0,
             parseFailures: 0,
-            parseFailureReasons: {
-              exception: error instanceof Error ? 1 : 1
-            },
+            parseFailureReasons: { exception: 1 },
             jobs: 0,
             errors: 1,
             finalOutcome: "UNKNOWN_ERROR"
@@ -101,7 +99,9 @@ async function mapWithConcurrency<T, R>(
       while (true) {
         const index = cursor++;
         if (index >= items.length) return;
-        results[index] = await worker(items[index], index);
+        const item = items[index];
+        if (item === undefined) return;
+        results[index] = await worker(item, index);
       }
     }
   );
