@@ -1,18 +1,19 @@
 import { spawnSync } from "node:child_process";
 import { Database } from "../src/database/Database";
 
-function runDiscovery(): void {
-  const result = spawnSync(process.execPath, ["node_modules/tsx/dist/cli.mjs", "scripts/public-contact-resources-once.ts"], {
+function runScript(script: string): void {
+  const result = spawnSync(process.execPath, ["node_modules/tsx/dist/cli.mjs", script], {
     stdio: "inherit",
     env: process.env
   });
   if (result.status !== 0) {
-    throw new Error(`Public contact resource discovery failed with exit code ${result.status ?? "unknown"}.`);
+    throw new Error(`${script} failed with exit code ${result.status ?? "unknown"}.`);
   }
 }
 
 async function main(): Promise<void> {
-  runDiscovery();
+  runScript("scripts/public-contact-resources-once.ts");
+  runScript("scripts/supplement-public-job-contact-resources-once.ts");
 
   const database = new Database(process.env.DATABASE_URL ?? "");
   try {
@@ -65,6 +66,7 @@ async function main(): Promise<void> {
       status: "ok",
       feature: "PUBLIC_CONTACT_RESOURCE",
       independent: true,
+      resourcesBackedByPublicEvidence: result.rows.length,
       contactsPromoted: inserted,
       existingContacts: existing,
       contactsPersisted: Number(contactCount.rows[0]?.count ?? 0),
