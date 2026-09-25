@@ -9,13 +9,34 @@ set -euo pipefail
 
 SCRIPT="${1:-}"
 if [[ -z "$SCRIPT" ]]; then
-  echo "usage: $0 <dist script path> [args...]" >&2
+  echo "usage: $0 <script path> [args...]" >&2
   exit 2
 fi
 shift || true
 
+run_script() {
+  local script="$1"
+  shift || true
+
+  case "$script" in
+    *.ts)
+      # Runtime scripts are TypeScript source files. Execute them with the
+      # project's installed tsx runner rather than node, which cannot parse
+      # TypeScript imports/types directly.
+      exec npx --no-install tsx "$script" "$@"
+      ;;
+    *.js)
+      exec node "$script" "$@"
+      ;;
+    *)
+      echo "Unsupported runtime script '$script'; expected .ts or .js" >&2
+      exit 2
+      ;;
+  esac
+}
+
 if [[ -f /.dockerenv ]]; then
-  exec node "$SCRIPT" "$@"
+  run_script "$SCRIPT" "$@"
 fi
 
 APP="${JOB_AGENT_LOCAL_APP:-job-agent-local-app}"
@@ -30,4 +51,12 @@ if [[ "$STATUS" != "running" ]]; then
   exit 1
 fi
 
-exec docker exec -i "$APP" node "$SCRIPT" "$@"
+exec docker exec -i "$APP" /bin/sh -lc '
+  script="$1"
+  shift
+  case "$script" in
+    *.ts) exec npx --no-install tsx "$script" "$@" ;;
+    *.js) exec node "$script" "$@" ;;
+    *) echo "Unsupported runtime script '$script'; expected .ts or .js" >&2; exit 2 ;;
+  esac
+' -- "$SCRIPT" "$@"
