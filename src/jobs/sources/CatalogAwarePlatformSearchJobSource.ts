@@ -16,6 +16,11 @@ type PlatformDiagnosticWithId = PlatformDiscoveryDiagnostics & { readonly platfo
  * Catalog-only entries receive an explicit UNSUPPORTED runtime outcome instead
  * of pretending that the registry contains a scraper for them. Executable
  * entries use the existing real public-search implementation unchanged.
+ *
+ * The per-platform timeout is a hard execution boundary as well as an abort
+ * signal. Some third-party/browser operations can fail to observe AbortSignal;
+ * without the race below one such platform can hold the whole federation run
+ * open indefinitely and prevent the remaining registry from being accounted.
  */
 export class CatalogAwarePlatformSearchJobSource implements JobSource {
   readonly name = "platform-search-federation";
@@ -70,10 +75,16 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
         const abortFromParent = (): void => platformController.abort(signal?.reason);
         if (signal?.aborted) return [];
         signal?.addEventListener("abort", abortFromParent, { once: true });
-        const timer = setTimeout(() => platformController.abort(new Error(`Platform ${platform.name} exceeded ${timeoutMs}ms timeout`)), timeoutMs);
+        const timer = setTimeout(() => {
+          platformController.abort(new Error(`Platform ${platform.name} exceeded ${timeoutMs}ms timeout`));
+        }, timeoutMs);
 
         try {
-          return await this.platformDiscovery(platform.name, platformController.signal, emit);
+          return await withHardTimeout(
+            this.platformDiscovery(platform.name, platformController.signal, emit),
+            timeoutMs,
+            () => platformController.abort(new Error(`Platform ${platform.name} exceeded ${timeoutMs}ms timeout`))
+          );
         } catch {
           const timedOut = platformController.signal.aborted && !signal?.aborted;
           emit({
@@ -110,6 +121,23 @@ function readPlatformItemTimeoutMs(): number {
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1_000) throw new Error("PLATFORM_ITEM_TIMEOUT_MS must be an integer >= 1000");
   return parsed;
+}
+
+async function withHardTimeout<T>(promise: Promise<T>, timeoutMs: number, onTimeout: () => void): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          onTimeout();
+          reject(new Error(`Platform discovery exceeded ${timeoutMs}ms hard timeout`));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function mapWithConcurrency<T, R>(
