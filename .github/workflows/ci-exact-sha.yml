@@ -43,7 +43,6 @@ jobs:
         run: npm run typecheck
       - name: Typecheck runtime scripts
         run: npm run typecheck:scripts
-
       - name: Build
         run: npm run build
       - name: Full tests
@@ -64,7 +63,7 @@ jobs:
           test "$ready" = true
           docker run --rm --network job-agent-ci-exact -e DATABASE_URL=postgres://job_agent:ci@job-agent-ci-exact-postgres:5432/job_agent job-agent:ci-exact-sha node -e "const {Database}=require('./dist/database/Database'); const {MigrationRunner}=require('./dist/database/MigrationRunner'); const db=new Database(process.env.DATABASE_URL); new MigrationRunner(db).run().then(()=>db.close()).catch(e=>{console.error(e);process.exit(1)})"
           latest="$(docker exec job-agent-ci-exact-postgres psql -U job_agent -d job_agent -tAc 'SELECT name FROM schema_migrations ORDER BY id DESC LIMIT 1' | tr -d '[:space:]')"
-          test "$latest" = '044_proactive_recruiter_low_evidence_guard.sql'
+          test "$latest" = '045_platform_discovery_runs.sql'
           docker exec job-agent-ci-exact-postgres psql -U job_agent -d job_agent -tAc 'SELECT current_database(),current_user,1;'
       - name: Safe defaults and no real external side effects
         shell: bash
