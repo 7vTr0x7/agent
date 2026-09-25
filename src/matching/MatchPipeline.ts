@@ -31,7 +31,8 @@ export class MatchPipeline {
   ) {}
 
   async evaluateAndPersist(job: JobOpportunity, profile: CandidateProfile): Promise<CombinedMatchResult> {
-    const deterministic = this.deterministic.evaluate(job, profile);
+    const rawDeterministic = this.deterministic.evaluate(job, profile);
+    const deterministic = applyTechnologySafetyGate(rawDeterministic, job, profile);
     let semantic: SemanticMatchResult | null = null;
     let semanticFallback = false;
 
@@ -104,6 +105,37 @@ function combine(deterministic: DeterministicMatchResult, semantic: SemanticMatc
     deterministic,
     semantic
   };
+}
+
+/**
+ * The deterministic matcher intentionally scores broad full-stack roles, but
+ * an explicitly named primary language outside the candidate's stack must not
+ * silently become APPLY merely because generic skills such as JavaScript or
+ * HTML also appear in the posting. This gate is conservative: it downgrades
+ * only obvious primary-language mismatches to REVIEW and never creates a new
+ * REJECT path.
+ */
+function applyTechnologySafetyGate(result: DeterministicMatchResult, job: JobOpportunity, profile: CandidateProfile): DeterministicMatchResult {
+  if (result.decision !== "APPLY") return result;
+
+  const title = job.title.toLowerCase();
+  const profileSkills = new Set(profile.skills.map((skill) => skill.toLowerCase()));
+  const primaryLanguages = ["haskell", "ruby", "java", "c#", "c++", "kotlin", "swift", "rust", "golang", "go"];
+  const frontendSignals = ["react", "next.js", "nextjs", "javascript", "typescript", "node.js", "nodejs", "frontend", "front-end", "full stack", "full-stack"];
+  const namedForeignLanguage = primaryLanguages.find((language) => title.includes(language));
+  const hasCandidateLanguage = namedForeignLanguage ? profileSkills.has(namedForeignLanguage) : true;
+  const hasRelevantTitleSignal = frontendSignals.some((signal) => title.includes(signal));
+
+  if (namedForeignLanguage && !hasCandidateLanguage && !hasRelevantTitleSignal) {
+    return {
+      ...result,
+      decision: "REVIEW",
+      reason: `${result.reason} Technology safety gate: the title explicitly names ${namedForeignLanguage}, which is not in the candidate's declared stack; APPLY is blocked pending manual review.`,
+      evidence: [...result.evidence, { type: "TECHNOLOGY_SAFETY_GATE", detail: `Primary title language ${namedForeignLanguage} is outside the candidate stack.` }]
+    };
+  }
+
+  return result;
 }
 
 function unique(values: string[]): string[] {
