@@ -1,4 +1,5 @@
 import { RecruiterDiscoveryInput, RecruiterIdentityCandidate } from "./RecruiterDiscovery";
+import { sourceList } from "./PublicSearchProviderRegistry";
 
 const RECRUITING_CONTEXT = /(recruiter|recruiting|talent acquisition|talent partner|talent acquisition partner|technical recruiter|engineering recruiter|hiring manager|human resources|\bhr\b|careers?|staffing|hiring|campus recruiter|campus hiring|people operations|people ops|recruitment|people partner)/i;
 const NON_RECRUITING_CONTEXT = /(customer support|technical support|sales|billing|privacy|legal|security|press|media|partnerships?|helpdesk|help desk|procurement|accounting|finance|account executive|customer success|marketing|operations)/i;
@@ -18,11 +19,11 @@ function stripHtml(value: string): string {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/\s+/g, " ").trim();
 }
 
-async function fetchText(url: string, timeoutMs = 7000): Promise<string | null> {
+async function fetchText(url: string, timeoutMs = 7000, headers?: Record<string, string>): Promise<string | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,text/plain,*/*;q=0.8", "user-agent": "job-agent-public-recruiter-identity/1.0" } });
+    const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { accept: "text/html,text/plain,application/json,*/*;q=0.8", "user-agent": "job-agent-public-recruiter-identity/1.0", ...(headers ?? {}) } });
     if (!response.ok) return null;
     return await response.text();
   } catch {
@@ -46,13 +47,12 @@ async function mapWithConcurrency<T>(items: T[], concurrency: number, worker: (i
   return results;
 }
 
-function searchUrls(query: string): string[] {
-  const encoded = encodeURIComponent(query);
-  return [
-    `https://r.jina.ai/https://www.google.com/search?q=${encoded}&gbv=1`,
-    `https://r.jina.ai/https://www.bing.com/search?q=${encoded}`,
-    `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${encoded}`
-  ];
+function configuredSearchSources(query: string): Array<{ id: string; url: string; headers?: Record<string, string> }> {
+  const configured = (process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+  const sources = sourceList(query);
+  if (!configured.length) return sources;
+  const allowed = new Set(configured);
+  return sources.filter((source) => allowed.has(source.id));
 }
 
 function queries(input: RecruiterDiscoveryInput): string[] {
@@ -96,19 +96,32 @@ function plausibleFullName(value: string | undefined): boolean {
   return words.every((word) => /^[A-Z][A-Za-z.'-]+$/.test(word));
 }
 
-function parseProfiles(raw: string): RecruiterIdentityCandidate[] {
+function extractNameFromSnippet(snippet: string): string | undefined {
+  const titleMatch = snippet.match(/([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|\||:|•)\s*([^|•\n.]{3,120})/);
+  if (plausibleFullName(titleMatch?.[1]?.trim())) return titleMatch?.[1]?.trim();
+  const roleMatch = snippet.match(/([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:is\s+)?(?:a\s+)?(?:Senior\s+|Lead\s+|Technical\s+|Engineering\s+|Talent\s+)?(?:Recruiter|Recruiting|Talent Acquisition|Talent Partner|Hiring Manager)\b/i);
+  return plausibleFullName(roleMatch?.[1]?.trim()) ? roleMatch?.[1]?.trim() : undefined;
+}
+
+function extractCompanyDomain(snippet: string, fallback: string): string | undefined {
+  const domains = [...snippet.matchAll(/https?:\/\/([^\s/<>"']+)/gi)]
+    .map((match) => normalizeDomain(match[1] ?? ""))
+    .filter((domain) => domain && !domain.endsWith("linkedin.com") && !/google|bing|duckduckgo|qwant|yahoo|brave|mojeek|startpage|ecosia/.test(domain));
+  return domains[0] ?? normalizeDomain(fallback) || undefined;
+}
+
+function parseProfiles(raw: string, input: RecruiterDiscoveryInput): RecruiterIdentityCandidate[] {
   const text = stripHtml(raw);
   const profiles = new Map<string, RecruiterIdentityCandidate>();
   for (const match of text.matchAll(LINKEDIN_PROFILE_PATTERN)) {
     const url = match[0];
     const index = match.index ?? 0;
-    const snippet = text.slice(Math.max(0, index - 260), Math.min(text.length, index + 420));
+    const snippet = text.slice(Math.max(0, index - 420), Math.min(text.length, index + 700));
     if (NON_RECRUITING_CONTEXT.test(snippet) || !RECRUITING_CONTEXT.test(snippet)) continue;
-    const titleMatch = snippet.match(/([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|\||:|•)\s*([^|•\n.]{3,120})/);
-    const fallbackName = snippet.match(/(?:linkedin\.com\/in\/|linkedin\.com\/in\/)([A-Za-z][A-Za-z0-9-]{2,80})/i)?.[1]?.replace(/[-_]+/g, " ");
-    const fullName = titleMatch?.[1]?.trim();
+    const fullName = extractNameFromSnippet(snippet);
     if (!plausibleFullName(fullName)) continue;
-    const title = titleMatch?.[2]?.trim();
+    const titleMatch = snippet.match(/(?:-|\||:|•)\s*([^|•\n.]{3,120})/);
+    const title = titleMatch?.[1]?.trim();
     const evidence = [snippet].filter(Boolean);
     const existing = profiles.get(url);
     profiles.set(url, {
@@ -121,7 +134,8 @@ function parseProfiles(raw: string): RecruiterIdentityCandidate[] {
       verified: false,
       verificationStatus: "identity_public_source",
       provider: "public-web",
-      companyDomain: existing?.companyDomain,
+      companyDomain: existing?.companyDomain ?? extractCompanyDomain(snippet, input.companyDomain),
+      location: existing?.location ?? input.location,
       recruitingContext: title || "recruiting context found in public search evidence",
       discoveryEvidence: [...new Set([...(existing?.discoveryEvidence ?? []), ...evidence])].slice(0, 5),
       discoveredAt: existing?.discoveredAt ?? new Date(),
@@ -137,19 +151,20 @@ export class PublicRecruiterIdentitySearchProvider {
 
   async discover(input: RecruiterDiscoveryInput): Promise<RecruiterIdentityCandidate[]> {
     const pages = await mapWithConcurrency(queries(input), CONCURRENCY, async (query) => {
-      const responses = await Promise.all(searchUrls(query).map((url) => fetchText(url)));
+      const responses = await Promise.all(configuredSearchSources(query).map((source) => fetchText(source.url, 7000, source.headers)));
       return responses.filter((value): value is string => Boolean(value)).join("\n");
     });
     const byUrl = new Map<string, RecruiterIdentityCandidate>();
     for (const page of pages) {
       if (!page) continue;
-      for (const profile of parseProfiles(page)) {
-        profile.companyDomain = normalizeDomain(input.companyDomain);
-        const existing = byUrl.get(profile.linkedinProfileUrl ?? "");
-        if (!existing) byUrl.set(profile.linkedinProfileUrl ?? `${profile.fullName ?? "unknown"}`, profile);
-        else byUrl.set(profile.linkedinProfileUrl ?? `${profile.fullName ?? "unknown"}`, {
+      for (const profile of parseProfiles(page, input)) {
+        const key = profile.linkedinProfileUrl?.toLowerCase() ?? `${profile.fullName ?? "unknown"}:${profile.title ?? "recruiting"}`;
+        const existing = byUrl.get(key);
+        if (!existing) byUrl.set(key, profile);
+        else byUrl.set(key, {
           ...existing,
           confidence: Math.max(existing.confidence ?? 0, profile.confidence ?? 0),
+          companyDomain: existing.companyDomain ?? profile.companyDomain,
           sources: [...existing.sources, ...profile.sources],
           discoveryEvidence: [...new Set([...(existing.discoveryEvidence ?? []), ...(profile.discoveryEvidence ?? [])])].slice(0, 5)
         });
