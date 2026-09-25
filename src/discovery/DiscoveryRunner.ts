@@ -13,7 +13,11 @@ export interface DiscoveryRunResult {
 
 export const SOURCE_CONCURRENCY = 4;
 const DEFAULT_SOURCE_TIMEOUT_MS = 3 * 60 * 1000;
-const DEFAULT_PLATFORM_FEDERATION_TIMEOUT_MS = 2 * 60 * 1000;
+// Federation contains every executable platform and already isolates failures
+// per platform. Give the bounded federation enough wall-clock time to drain the
+// complete executable set instead of cancelling the first batch and leaving the
+// remaining platforms unstarted. This is a time safety bound, not a coverage cap.
+const DEFAULT_PLATFORM_FEDERATION_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_SOURCE_RETRIES = 2;
 
 function envPositiveInteger(name: string, fallback: number): number {
@@ -60,7 +64,7 @@ export class DiscoveryRunner {
       ? envPositiveInteger("DISCOVERY_FEDERATION_TIMEOUT_MS", DEFAULT_PLATFORM_FEDERATION_TIMEOUT_MS)
       : envPositiveInteger("DISCOVERY_SOURCE_TIMEOUT_MS", DEFAULT_SOURCE_TIMEOUT_MS);
     // Platform federation already isolates failures per platform. Retrying the
-    // entire 200+ platform cycle would multiply runtime and duplicate traffic.
+    // entire executable set would multiply runtime and duplicate traffic.
     const maxRetries = isPlatformFederation
       ? 0
       : envNonNegativeInteger("DISCOVERY_SOURCE_RETRIES", DEFAULT_SOURCE_RETRIES);
