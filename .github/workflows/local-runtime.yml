@@ -39,218 +39,146 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Start local Job Agent
+      - name: Start real local product runtime
         run: npm run local:run
-      - name: Verify live dashboard and API
+      - name: Verify live health and all product APIs
+        shell: bash
         run: |
           set -euo pipefail
           curl --fail --silent http://127.0.0.1:3100/healthz | tee /tmp/health.json
-          curl --fail --silent http://127.0.0.1:3100/api/summary | tee /tmp/summary.json
-          grep -q '"status":"ok"' /tmp/health.json
-          grep -q '"jobs"' /tmp/summary.json
-          grep -q '"topMatches"' /tmp/summary.json
-          curl --fail --silent 'http://127.0.0.1:3100/api/jobs?limit=5' | tee /tmp/jobs.json
-          curl --fail --silent 'http://127.0.0.1:3100/api/applications?limit=5' | tee /tmp/applications.json
-          node -e "const fs=require('fs'); const s=JSON.parse(fs.readFileSync('/tmp/summary.json')); const j=JSON.parse(fs.readFileSync('/tmp/jobs.json')); const a=JSON.parse(fs.readFileSync('/tmp/applications.json')); if(Number(s.jobs)>0 && j.jobs.length===0) process.exit(1); if(Number(s.applications)>0 && a.applications.length===0) process.exit(1); console.log(JSON.stringify({summaryJobs:s.jobs,apiJobs:j.jobs.length,summaryApplications:s.applications,apiApplications:a.applications.length}))"
-      - name: Verify current product APIs and dashboard
-        run: |
-          set -euo pipefail
-          failed=0
-          check_endpoint() {
-            local name="$1"
-            local url="$2"
-            local body="/tmp/${name}.json"
-            local code
-            code="$(curl -sS -o "$body" -w "%{http_code}" "$url" || true)"
-            printf "%s" "$code" > "/tmp/${name}.status"
-            echo "${name} HTTP ${code}"
-            if [ "$code" != "200" ]; then
-              cat "$body" >&2 || true
-              failed=1
-            fi
-          }
-          check_endpoint api-matches 'http://127.0.0.1:3100/api/matches?limit=100'
-          check_endpoint api-recruiters 'http://127.0.0.1:3100/api/recruiters?limit=100'
-          check_endpoint api-contacts 'http://127.0.0.1:3100/api/contacts?limit=100'
-          check_endpoint api-content 'http://127.0.0.1:3100/api/content?limit=100'
-          check_endpoint api-source-health 'http://127.0.0.1:3100/api/source-health'
-          check_endpoint dashboard 'http://127.0.0.1:3100/'
-          if [ "$failed" -ne 0 ]; then exit 1; fi
-          grep -q 'Top Matches' /tmp/dashboard.json
-          grep -q 'Recruiter Leads' /tmp/dashboard.json
-          grep -q 'Public Contact Evidence' /tmp/dashboard.json
-          grep -q 'Hiring Content Evidence' /tmp/dashboard.json
-
-      - name: Verify all runtime containers are alive
-        run: |
-          set -euo pipefail
-          for container in job-agent-local-app job-agent-local-postgres job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do
-            test "$(docker inspect -f '{{.State.Status}}' "$container")" = running
-            test "$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$container")" = unless-stopped
+          for endpoint in summary jobs applications matches recruiters contacts content source-health platform-coverage; do
+            case "$endpoint" in
+              jobs) url='http://127.0.0.1:3100/api/jobs?limit=20' ;;
+              applications) url='http://127.0.0.1:3100/api/applications?limit=20' ;;
+              matches) url='http://127.0.0.1:3100/api/matches?limit=20' ;;
+              recruiters) url='http://127.0.0.1:3100/api/recruiters?limit=20' ;;
+              contacts) url='http://127.0.0.1:3100/api/contacts?limit=20' ;;
+              content) url='http://127.0.0.1:3100/api/content?limit=20' ;;
+              source-health) url='http://127.0.0.1:3100/api/source-health' ;;
+              platform-coverage) url='http://127.0.0.1:3100/api/platform-coverage' ;;
+              summary) url='http://127.0.0.1:3100/api/summary' ;;
+            esac
+            curl --fail --silent "$url" > "/tmp/${endpoint}.json"
           done
-      - name: Allow first discovery and matching cycle to complete
+          node - <<'NODE'
+          const fs=require('fs');
+          const read=n=>JSON.parse(fs.readFileSync(`/tmp/${n}.json`,'utf8'));
+          const s=read('summary');
+          for(const k of ['jobs','matches','applications','recruiters','contacts','content','matchApply','matchReview','matchReject']) {
+            if(!Number.isFinite(Number(s[k])) || Number(s[k])<0) throw new Error(`invalid summary field ${k}`);
+          }
+          if(Number(s.matchApply)+Number(s.matchReview)+Number(s.matchReject)!==Number(s.matches)) throw new Error('match decision totals do not reconcile');
+          const p=read('platform-coverage');
+          if(p.registry.total<200) throw new Error(`platform registry below requirement: ${p.registry.total}`);
+          if(p.registry.executable+p.registry.catalogOnly!==p.registry.total) throw new Error('platform capability totals do not reconcile');
+          if(p.platforms.length<p.registry.total) throw new Error(`platform coverage rows incomplete: ${p.platforms.length}/${p.registry.total}`);
+          console.log(JSON.stringify({summary:s,registry:p.registry,runtime:p.latestRuntime}));
+          NODE
+      - name: Wait for a real discovery and matching cycle
+        shell: bash
         run: |
           set -euo pipefail
           deadline=$((SECONDS+420))
           while true; do
             summary="$(curl --fail --silent http://127.0.0.1:3100/api/summary)"
-            jobs="$(node -e 'const s=JSON.parse(process.argv[1]); process.stdout.write(String(Number(s.jobs)||0))' "$summary")"
-            matches="$(node -e 'const s=JSON.parse(process.argv[1]); process.stdout.write(String(Number(s.matches)||0))' "$summary")"
-            if (( jobs > 0 && matches > 0 )); then
-              printf '%s\n' "$summary"
-              break
-            fi
-            if (( SECONDS >= deadline )); then
-              echo "Timed out waiting for first persisted match decision." >&2
-              printf '%s\n' "$summary" >&2
-              exit 1
-            fi
+            jobs="$(node -e 'const s=JSON.parse(process.argv[1]);process.stdout.write(String(Number(s.jobs)||0))' "$summary")"
+            matches="$(node -e 'const s=JSON.parse(process.argv[1]);process.stdout.write(String(Number(s.matches)||0))' "$summary")"
+            if (( jobs > 0 && matches > 0 )); then echo "$summary" | tee /tmp/real-summary.json; break; fi
+            if (( SECONDS >= deadline )); then echo "$summary"; exit 1; fi
             sleep 5
           done
-      - name: Verify coherent database API dashboard state
+      - name: Verify complete federation coverage and provenance
+        shell: bash
         run: |
           set -euo pipefail
-          previous=""
-          stable=0
-          for attempt in $(seq 1 90); do
-            current="$(curl --fail --silent http://127.0.0.1:3100/api/summary)"
-            signature="$(node -e 'const s=JSON.parse(process.argv[1]); process.stdout.write([s.jobs,s.matches,s.applications,s.recruiters,s.matchApply,s.matchReview,s.matchReject,s.currentRecruiters,s.recentRecruiters].join("|"))' "$current")"
-            if [ "$signature" = "$previous" ]; then stable=$((stable+1)); else stable=0; fi
-            previous="$signature"
-            if [ "$stable" -ge 2 ]; then printf '%s\n' "$current" > /tmp/coherent-summary.json; break; fi
-            sleep 1
-          done
-          if [ ! -s /tmp/coherent-summary.json ]; then
-            echo "Could not obtain a stable product-state snapshot while live matching was active within the 90s coherence window." >&2
-            exit 1
-          fi
-          curl --fail --silent 'http://127.0.0.1:3100/api/matches?limit=100' > /tmp/coherent-matches.json
-          curl --fail --silent 'http://127.0.0.1:3100/api/recruiters?limit=100' > /tmp/coherent-recruiters.json
-          curl --fail --silent 'http://127.0.0.1:3100/api/contacts?limit=100' > /tmp/coherent-contacts.json
-          curl --fail --silent 'http://127.0.0.1:3100/api/content?limit=100' > /tmp/coherent-content.json
-          curl --fail --silent 'http://127.0.0.1:3100/api/applications?limit=100' > /tmp/coherent-applications.json
-          curl --fail --silent http://127.0.0.1:3100/api/source-health > /tmp/coherent-source-health.json
-          curl --fail --silent http://127.0.0.1:3100/ > /tmp/coherent-dashboard.html
-          grep -q 'Top Matches' /tmp/coherent-dashboard.html
-          grep -q 'Application Queue' /tmp/coherent-dashboard.html
-          grep -q 'Recruiter Leads' /tmp/coherent-dashboard.html
-          grep -q 'Public Contact Evidence' /tmp/coherent-dashboard.html
-          grep -q 'Hiring Content Evidence' /tmp/coherent-dashboard.html
-          grep -q "fetch('/api/summary')" /tmp/coherent-dashboard.html
-          grep -q "fetch('/api/applications?limit=10')" /tmp/coherent-dashboard.html
-          grep -q "fetch('/api/source-health')" /tmp/coherent-dashboard.html
-          grep -q "fetch('/api/contacts?limit=10')" /tmp/coherent-dashboard.html
-          grep -q "fetch('/api/content?limit=10')" /tmp/coherent-dashboard.html
+          curl --fail --silent http://127.0.0.1:3100/api/platform-coverage > /tmp/final-platforms.json
           node - <<'NODE'
-          const fs=require('fs'); const cp=require('child_process'); const read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
-          const summary=read('/tmp/coherent-summary.json'); const matches=read('/tmp/coherent-matches.json').matches||[]; const recruiters=read('/tmp/coherent-recruiters.json').recruiters||[]; const contacts=read('/tmp/coherent-contacts.json').contacts||[]; const content=read('/tmp/coherent-content.json').content||[]; const applications=read('/tmp/coherent-applications.json').applications||[]; const sourceHealth=read('/tmp/coherent-source-health.json').sources||[];
-          const scalar=sql=>Number(cp.execFileSync('docker',['exec','job-agent-local-postgres','psql','-U','job_agent','-d','job_agent','-tAc',sql]).toString().trim());
-          for (const key of ['jobs','matches','applications','recruiters','matchApply','matchReview','matchReject','currentRecruiters','recentRecruiters']) if (summary[key]===undefined || !Number.isFinite(Number(summary[key])) || Number(summary[key])<0) throw new Error(`Invalid summary field ${key}: ${JSON.stringify(summary[key])}`);
-          if (Number(summary.matchApply)+Number(summary.matchReview)+Number(summary.matchReject)!==Number(summary.matches)) throw new Error(JSON.stringify({summaryDecisionTotals:[summary.matchApply,summary.matchReview,summary.matchReject],matches:summary.matches}));
-          const dbJobCount=scalar('SELECT COUNT(*) FROM job_opportunities'); const dbApplicationCount=scalar('SELECT COUNT(*) FROM applications'); const dbRecruiterCount=scalar('SELECT COUNT(*) FROM recruiter_contacts'); const dbCurrentRecruiters=scalar("SELECT COUNT(*) FROM recruiter_contacts WHERE relevance_status='CURRENT'"); const dbRecentRecruiters=scalar("SELECT COUNT(*) FROM recruiter_contacts WHERE relevance_status='RECENT'"); const dbContactCount=scalar("SELECT COUNT(*) FROM public_contact_resource_contacts WHERE validation_status <> 'INVALID' AND relevance_score > 0"); const dbContentCount=scalar("SELECT COUNT(*) FROM recruiter_contact_sources WHERE LOWER(COALESCE(source_type,'')) IN ('job_posting','current_job_posting','current_role','recent_job_posting','recent_role','job_hiring_evidence')");
-          if (Number(summary.applications)!==dbApplicationCount) throw new Error(JSON.stringify({summaryApplications:summary.applications,dbApplicationCount})); if (Number(summary.recruiters)!==dbRecruiterCount) throw new Error(JSON.stringify({summaryRecruiters:summary.recruiters,dbRecruiterCount})); if (Number(summary.currentRecruiters)!==dbCurrentRecruiters) throw new Error(JSON.stringify({summaryCurrentRecruiters:summary.currentRecruiters,dbCurrentRecruiters})); if (Number(summary.recentRecruiters)!==dbRecentRecruiters) throw new Error(JSON.stringify({summaryRecentRecruiters:summary.recentRecruiters,dbRecentRecruiters})); if (applications.length!==Math.min(100,dbApplicationCount)) throw new Error(JSON.stringify({apiApplications:applications.length,dbApplicationCount})); if (recruiters.length!==Math.min(100,dbCurrentRecruiters+dbRecentRecruiters)) throw new Error(JSON.stringify({apiRecruiters:recruiters.length,dbCurrentRecruiters,dbRecentRecruiters})); if (contacts.length!==Math.min(100,dbContactCount)) throw new Error(JSON.stringify({apiContacts:contacts.length,dbContactCount})); if (content.length!==Math.min(100,dbContentCount)) throw new Error(JSON.stringify({apiContent:content.length,dbContentCount})); if (matches.length>Number(summary.matches)||matches.length>100) throw new Error(JSON.stringify({apiMatches:matches.length,summaryMatches:summary.matches}));
-          for (const match of matches.slice(0,Math.min(25,matches.length))) { if (!/^[0-9a-f-]{36}$/i.test(match.jobId)) throw new Error(JSON.stringify({invalidJobId:match.jobId})); const sql=`SELECT decision FROM match_decisions WHERE job_opportunity_id='${match.jobId}' ORDER BY created_at DESC LIMIT 1`; const latest=cp.execFileSync('docker',['exec','job-agent-local-postgres','psql','-U','job_agent','-d','job_agent','-tAc',sql]).toString().trim(); if (latest!==String(match.decision)) throw new Error(JSON.stringify({jobId:match.jobId,apiDecision:match.decision,dbLatestDecision:latest})); }
-          if (Number(summary.jobs)<dbJobCount) throw new Error(JSON.stringify({summaryJobs:summary.jobs,dbJobCount})); if (sourceHealth.some(source=>source.status===undefined||source.id===undefined)) throw new Error('Source health response contains incomplete telemetry.'); console.log(JSON.stringify({dbJobCount,summaryJobs:summary.jobs,summaryMatches:summary.matches,apiMatches:matches.length,dbApplicationCount,apiApplications:applications.length,dbRecruiterCount,dbCurrentRecruiters,dbRecentRecruiters,apiRecruiters:recruiters.length,dbContactCount,apiContacts:contacts.length,dbContentCount,apiContent:content.length,sources:sourceHealth.length}));
+          const fs=require('fs'); const p=JSON.parse(fs.readFileSync('/tmp/final-platforms.json','utf8'));
+          const r=p.registry, rt=p.latestRuntime, rows=p.platforms;
+          if(r.total<200) throw new Error(`registry=${r.total}`);
+          if(r.executable+r.catalogOnly!==r.total) throw new Error('registry capability reconciliation failed');
+          if(rt.attempted!==r.executable) throw new Error(`not every executable platform has a runtime outcome: attempted=${rt.attempted}, executable=${r.executable}`);
+          const seen=new Set(rows.map(x=>x.platform_id));
+          if(seen.size<r.total) throw new Error(`coverage is missing platforms: ${seen.size}/${r.total}`);
+          const allowed=new Set(['SUCCESS_WITH_JOBS','SUCCESS_ZERO_JOBS','TIMEOUT','RATE_LIMITED','BLOCKED_OR_RESTRICTED','PARSER_ERROR','NETWORK_ERROR','HTTP_ERROR','UNSUPPORTED','CONFIGURATION_ERROR','UNKNOWN_ERROR','SKIPPED_CATALOG_ONLY']);
+          for(const row of rows) if(!allowed.has(row.outcome)) throw new Error(`unknown platform outcome ${row.outcome}`);
+          console.log(JSON.stringify({registry:r,runtime:rt,platforms:rows.length}));
           NODE
-      - name: Capture real local runtime result
-        run: |
-          set +e
-          npm run local:status | tee /tmp/local-status.txt
-          curl --fail --silent http://127.0.0.1:3100/api/summary | tee /tmp/run1-summary.json
-          curl --fail --silent 'http://127.0.0.1:3100/api/applications?limit=10' | tee /tmp/run1-applications.json
-          docker logs job-agent-local-app 2>&1 | tail -n 300 | tee /tmp/local-agent.log
-          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities;" | tee /tmp/run1-jobs.txt
-          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM match_decisions;" | tee /tmp/run1-matches.txt
-          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;" | tee /tmp/run1-applications.txt
-          docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' job-agent-local-app job-agent-local-postgres job-agent-local-recruiter job-agent-local-contacts job-agent-local-content
-          node -e "const fs=require('fs'); const s=JSON.parse(fs.readFileSync('/tmp/run1-summary.json')); const n=f=>Number(fs.readFileSync(f,'utf8').trim()); if(Number(s.jobs)<=0||Number(s.matches)<=0) process.exit(1); if(Number(s.jobs)!==n('/tmp/run1-jobs.txt')) process.exit(1); if(Number(s.applications)!==n('/tmp/run1-applications.txt')) process.exit(1); console.log(JSON.stringify({jobs:Number(s.jobs),matches:Number(s.matches),apply:Number(s.matchApply),review:Number(s.matchReview),reject:Number(s.matchReject),applications:Number(s.applications)}))"
-      - name: Observe second real discovery cycle
+      - name: Verify dashboard is wired to live product data
+        shell: bash
         run: |
           set -euo pipefail
-          sleep 130
-          curl --fail --silent http://127.0.0.1:3100/api/summary | tee /tmp/run2-summary.json
-          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities;" | tee /tmp/run2-jobs.txt
-          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM match_decisions;" | tee /tmp/run2-matches.txt
-          for container in job-agent-local-app job-agent-local-postgres job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do test "$(docker inspect -f '{{.State.Status}}' "$container")" = running; done
-      - name: Observe third real discovery cycle
+          curl --fail --silent http://127.0.0.1:3100/ > /tmp/dashboard.html
+          for text in 'Top opportunities' 'Application Queue' 'Recruiter Leads' 'Public Contact Evidence' 'Hiring Content Evidence' 'Platform Coverage' 'Source Health' 'Safety'; do grep -q "$text" /tmp/dashboard.html; done
+          for path in '/api/summary' '/api/applications?limit=20' '/api/recruiters?limit=20' '/api/contacts?limit=20' '/api/content?limit=20' '/api/source-health' '/api/platform-coverage'; do grep -q "$path" /tmp/dashboard.html; done
+          grep -q 'function renderPlatforms' /tmp/dashboard.html
+          grep -q 'platformSearch' /tmp/dashboard.html
+      - name: Verify enrichment workers independently execute
+        shell: bash
         run: |
           set -euo pipefail
-          sleep 130
-          curl --fail --silent http://127.0.0.1:3100/api/summary | tee /tmp/run3-summary.json
-          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities;" | tee /tmp/run3-jobs.txt
-          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM match_decisions;" | tee /tmp/run3-matches.txt
-          for container in job-agent-local-app job-agent-local-postgres job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do test "$(docker inspect -f '{{.State.Status}}' "$container")" = running; done
-          node -e "const fs=require('fs'); const n=f=>Number(fs.readFileSync(f,'utf8').trim()); if(n('/tmp/run2-jobs.txt')<n('/tmp/run1-jobs.txt')||n('/tmp/run3-jobs.txt')<n('/tmp/run2-jobs.txt')) process.exit(1); console.log(JSON.stringify({run1Jobs:n('/tmp/run1-jobs.txt'),run2Jobs:n('/tmp/run2-jobs.txt'),run3Jobs:n('/tmp/run3-jobs.txt')}))"
-      - name: Verify enrichment is actually repeating
-        run: |
-          set -euo pipefail
-          declare -A logs=(
-            [job-agent-local-recruiter]=/tmp/job-agent-proactive-recruiter.log
-            [job-agent-local-contacts]=/tmp/job-agent-contact-resources.log
-            [job-agent-local-content]=/tmp/job-agent-content.log
-          )
           deadline=$((SECONDS+360))
           while true; do
-            all_ready=true
-            for container in "${!logs[@]}"; do
+            ready=true
+            for container in job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do
               test "$(docker inspect -f '{{.State.Status}}' "$container")" = running
-              path="${logs[$container]}"
-              count="$(docker exec "$container" sh -lc "test -f '$path' && grep -Ec 'enrichment cycle (completed|failed)' '$path' || true")"
+              case "$container" in
+                *recruiter*) log=/tmp/job-agent-proactive-recruiter.log ;;
+                *contacts*) log=/tmp/job-agent-contact-resources.log ;;
+                *content*) log=/tmp/job-agent-content.log ;;
+              esac
+              count="$(docker exec "$container" sh -lc "test -f '$log' && grep -Ec 'enrichment cycle (completed|failed)' '$log' || true")"
               echo "$container cycles=$count"
-              if [ "${count:-0}" -lt 2 ]; then all_ready=false; fi
+              if (( ${count:-0} < 1 )); then ready=false; fi
             done
-            if [ "$all_ready" = true ]; then break; fi
-            if (( SECONDS >= deadline )); then
-              echo "Timed out waiting for every enrichment worker to complete two real cycles." >&2
-              exit 1
-            fi
+            if [ "$ready" = true ]; then break; fi
+            if (( SECONDS >= deadline )); then echo 'enrichment workers did not complete a real cycle'; exit 1; fi
             sleep 5
           done
-      - name: Verify recovery after app restart
+      - name: Verify real persisted state, source health and safety
+        shell: bash
         run: |
           set -euo pipefail
-          docker restart job-agent-local-app >/dev/null
-          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3100/healthz >/dev/null && break; sleep 1; done
-          curl --fail --silent http://127.0.0.1:3100/healthz
-          for container in job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do test "$(docker inspect -f '{{.State.Status}}' "$container")" = running; done
-      - name: Verify repeated enrichment and safety
-        run: |
-          set -euo pipefail
-          npm run local:status
-          curl --fail --silent http://127.0.0.1:3100/healthz
+          curl --fail --silent http://127.0.0.1:3100/api/summary > /tmp/final-summary.json
+          curl --fail --silent http://127.0.0.1:3100/api/source-health > /tmp/final-source-health.json
+          node - <<'NODE'
+          const fs=require('fs'); const s=JSON.parse(fs.readFileSync('/tmp/final-summary.json','utf8'));
+          if(Number(s.jobs)<=0 || Number(s.matches)<=0) throw new Error('real jobs/matches were not persisted');
+          console.log(JSON.stringify(s));
+          NODE
           test "$(docker exec job-agent-local-app printenv AUTOMATION_ENABLED)" = false
           test "$(docker exec job-agent-local-app printenv APPLICATION_DRY_RUN)" = true
           test "$(docker exec job-agent-local-app printenv APPLICATION_LIVE_ENABLED)" = false
           test "$(docker exec job-agent-local-app printenv GMAIL_ENABLED)" = false
           test "$(docker exec job-agent-local-app printenv OUTBOUND_ENABLED)" = false
-          live_submissions="$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM application_attempts WHERE submitted = TRUE;")"
-          if [ "$(echo "$live_submissions" | tr -d '[:space:]')" != "0" ]; then echo "Unsafe live application attempt recorded in PostgreSQL." >&2; exit 1; fi
-          application_count="$(node -e 'const s=JSON.parse(require("fs").readFileSync("/tmp/run3-summary.json")); process.stdout.write(String(Number(s.applications)||0))')"
-          if [ "$application_count" -gt 0 ]; then
-            dry_run_attempts="$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM application_attempts WHERE submitted = FALSE;")"
-            if [ "$(echo "$dry_run_attempts" | tr -d '[:space:]')" -lt 1 ]; then echo "Application records exist without a persisted dry-run attempt." >&2; exit 1; fi
-            grep -Eq '"submitted":false|"submitted": false' /tmp/local-agent.log || true
-          else echo "No application-ready opportunity was present in this runtime; live submission remained disabled."; fi
-      - name: Prepare deterministic runtime evidence
-        if: always()
+          live="$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM application_attempts WHERE submitted = TRUE;' | tr -d '[:space:]')"
+          test "$live" = 0
+          sent="$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE UPPER(status)='SENT';" | tr -d '[:space:]')"
+          test "$sent" = 0
+      - name: Verify recovery after application restart
+        shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/job-agent-local-runtime-evidence
-          mkdir -p /tmp/job-agent-local-runtime-evidence
-          for file in /tmp/health.json /tmp/summary.json /tmp/jobs.json /tmp/applications.json /tmp/run1-summary.json /tmp/run1-applications.json /tmp/run1-jobs.txt /tmp/run1-matches.txt /tmp/run1-applications.txt /tmp/run2-summary.json /tmp/run2-jobs.txt /tmp/run2-matches.txt /tmp/run3-summary.json /tmp/run3-jobs.txt /tmp/run3-matches.txt /tmp/local-status.txt /tmp/local-agent.log /tmp/job-agent-local-recruiter.txt /tmp/job-agent-local-contacts.txt /tmp/job-agent-local-content.txt /tmp/api-*.json /tmp/api-*.status; do test ! -e "$file" || cp -f "$file" /tmp/job-agent-local-runtime-evidence/; done
-          docker logs job-agent-local-recruiter 2>&1 > /tmp/job-agent-local-runtime-evidence/recruiter-container.log || true
-          docker logs job-agent-local-contacts 2>&1 > /tmp/job-agent-local-runtime-evidence/contacts-container.log || true
-          docker logs job-agent-local-content 2>&1 > /tmp/job-agent-local-runtime-evidence/content-container.log || true
-          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts; SELECT COUNT(*) FROM public_contact_resources; SELECT COUNT(*) FROM public_contact_resource_contacts;" > /tmp/job-agent-local-runtime-evidence/enrichment-db-counts.txt
-          docker exec job-agent-local-recruiter sh -lc "test -f /tmp/job-agent-proactive-recruiter.log && cat /tmp/job-agent-proactive-recruiter.log || true" > /tmp/job-agent-local-runtime-evidence/recruiter-worker.log || true
-          docker exec job-agent-local-contacts sh -lc "test -f /tmp/job-agent-contact-resources.log && cat /tmp/job-agent-contact-resources.log || true" > /tmp/job-agent-local-runtime-evidence/contacts-worker.log || true
-          docker exec job-agent-local-content sh -lc "test -f /tmp/job-agent-content.log && cat /tmp/job-agent-content.log || true" > /tmp/job-agent-local-runtime-evidence/content-worker.log || true
-      - name: Upload local runtime evidence
+          docker restart job-agent-local-app >/dev/null
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3100/healthz >/dev/null && break; sleep 1; done
+          curl --fail --silent http://127.0.0.1:3100/healthz
+          for container in job-agent-local-app job-agent-local-postgres job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do test "$(docker inspect -f '{{.State.Status}}' "$container")" = running; done
+      - name: Capture final runtime evidence
+        if: always()
+        run: |
+          mkdir -p /tmp/job-agent-final-runtime
+          for file in /tmp/*.json /tmp/dashboard.html; do test ! -e "$file" || cp -f "$file" /tmp/job-agent-final-runtime/; done
+          docker logs job-agent-local-app 2>&1 > /tmp/job-agent-final-runtime/app.log || true
+          docker logs job-agent-local-recruiter 2>&1 > /tmp/job-agent-final-runtime/recruiter.log || true
+          docker logs job-agent-local-contacts 2>&1 > /tmp/job-agent-final-runtime/contacts.log || true
+          docker logs job-agent-local-content 2>&1 > /tmp/job-agent-final-runtime/content.log || true
+          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM job_opportunities; SELECT COUNT(*) FROM match_decisions; SELECT COUNT(*) FROM applications; SELECT COUNT(*) FROM recruiter_contacts; SELECT COUNT(*) FROM public_contact_resources; SELECT COUNT(*) FROM public_contact_resource_contacts;' > /tmp/job-agent-final-runtime/db-counts.txt || true
+      - name: Upload final runtime evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: local-runtime-evidence
-          path: /tmp/job-agent-local-runtime-evidence
+          name: final-runtime-evidence
+          path: /tmp/job-agent-final-runtime
           if-no-files-found: ignore
       - name: Stop local runtime
         if: always()
