@@ -9,6 +9,11 @@ import { createDiscoveryRuntime } from "../src/discovery/createDiscoveryRuntime"
 import { JOB_PLATFORM_REGISTRY } from "../src/jobs/sources/JobPlatformRegistry";
 
 async function main(): Promise<void> {
+  // The normal local worker timeout is intentionally short, but the full
+  // federation must allow a real public-search platform enough time to finish
+  // its bounded search/render pipeline. This affects only this one-shot
+  // federation process, not the continuous discovery worker.
+  process.env.DISCOVERY_SOURCE_TIMEOUT_MS = process.env.PLATFORM_FEDERATION_SOURCE_TIMEOUT_MS ?? "180000";
   const config = loadConfig();
   const sources = JSON.parse(process.env.JOB_SOURCES ?? "[]") as Array<{ name?: string; id?: string; status?: string }>;
   const platformSource = sources.find((source) => source.name?.trim().toLowerCase() === "platform-search");
