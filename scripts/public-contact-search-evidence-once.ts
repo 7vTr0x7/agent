@@ -26,7 +26,7 @@ const QUERIES = [
 
 const GENERIC = /^(noreply|no-reply|postmaster|webmaster|admin|support|privacy|legal|press|media|marketing|sales|security|billing|helpdesk)$/i;
 
-function searchSources(query: string) {
+export function searchSources(query: string) {
   return sourceList(query).filter((source) => SEARCH_PROVIDER_IDS.has(source.id));
 }
 
