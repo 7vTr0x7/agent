@@ -12,10 +12,10 @@ const DEFAULT_PLATFORM_ITEM_TIMEOUT_MS = 30_000;
 type PlatformDiagnosticWithId = PlatformDiscoveryDiagnostics & { readonly platformId: string };
 
 /**
- * Runs every registered platform while keeping catalog-only entries truthful.
- * Catalog-only entries receive an explicit UNSUPPORTED runtime outcome instead
- * of pretending that the registry contains a scraper for them. Executable
- * entries use the existing real public-search implementation unchanged.
+ * Runs every registered platform while keeping catalog/configuration state truthful.
+ * Catalog-only entries receive UNSUPPORTED and configurable adapters without a
+ * configured adapter receive CONFIGURATION_ERROR. Only executable adapters use
+ * the existing real public-search implementation.
  */
 export class CatalogAwarePlatformSearchJobSource implements JobSource {
   readonly name = "platform-search-federation";
@@ -60,6 +60,26 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
             jobs: 0,
             errors: 0,
             finalOutcome: "UNSUPPORTED",
+            extractionMode: "STATIC_ZERO_RENDER_ZERO"
+          });
+          return [];
+        }
+
+        if (platform.capability === "configurable-adapter") {
+          emit({
+            platform: platform.name,
+            searchPages: 0,
+            searchUrlsGenerated: 0,
+            searchReturnedUrls: 0,
+            uniqueUrls: 0,
+            pageSuccesses: 0,
+            pageFailures: 0,
+            parseSuccesses: 0,
+            parseFailures: 0,
+            parseFailureReasons: { configuration_required: 1 },
+            jobs: 0,
+            errors: 0,
+            finalOutcome: "CONFIGURATION_ERROR",
             extractionMode: "STATIC_ZERO_RENDER_ZERO"
           });
           return [];
