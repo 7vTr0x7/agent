@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   const db = new Database(DB!);
   try {
     const migration = await db.query<{ name: string }>("SELECT name FROM schema_migrations ORDER BY id DESC LIMIT 1");
-    if (migration.rows[0]?.name !== "044_proactive_recruiter_low_evidence_guard.sql") throw new Error(`Phase 10 migration is not latest: ${migration.rows[0]?.name ?? "none"}`);
+    if (migration.rows[0]?.name !== "045_platform_discovery_runs.sql") throw new Error(`Phase 10 migration is not latest: ${migration.rows[0]?.name ?? "none"}`);
     const jobs = await db.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM job_opportunities WHERE company_domain=$1", [domain]);
     if (jobs.rows[0]?.count !== "0") throw new Error("No-job fixture isolation failed: a job exists for the proactive company.");
 

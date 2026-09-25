@@ -70,7 +70,7 @@ jobs:
           set -euo pipefail
           docker run --rm --network job-agent-phase10 -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase10-postgres:5432/job_agent job-agent:phase10-ci node -e "const {Database}=require('./dist/database/Database'); const {MigrationRunner}=require('./dist/database/MigrationRunner'); const db=new Database(process.env.DATABASE_URL); new MigrationRunner(db).run().then(()=>db.close()).catch(e=>{console.error(e);process.exit(1)})"
           latest="$(docker exec job-agent-phase10-postgres psql -U job_agent -d job_agent -tAc 'SELECT name FROM schema_migrations ORDER BY id DESC LIMIT 1' | tr -d '[:space:]')"
-          test "$latest" = '044_proactive_recruiter_low_evidence_guard.sql'
+          test "$latest" = '045_platform_discovery_runs.sql'
       - name: Phase 10 recruiter-first no-job runtime
         run: |
           set -euo pipefail
