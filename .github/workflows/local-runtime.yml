@@ -191,12 +191,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          federation_status=0
-          matching_status=0
-          test -f /tmp/federation-status.txt && federation_status="$(cut -d= -f2 /tmp/federation-status.txt)"
-          test -f /tmp/matching-status.txt && matching_status="$(cut -d= -f2 /tmp/matching-status.txt)"
+          test -f /tmp/federation-status.txt || { echo 'Federation status artifact missing; federation step did not complete.'; exit 1; }
+          test -f /tmp/matching-status.txt || { echo 'Matching status artifact missing; matching step did not complete.'; exit 1; }
+          federation_status="$(cut -d= -f2 /tmp/federation-status.txt)"
+          matching_status="$(cut -d= -f2 /tmp/matching-status.txt)"
           if (( federation_status != 0 )); then echo "Federation failed: $federation_status"; exit "$federation_status"; fi
           if (( matching_status != 0 )); then echo "Matching failed: $matching_status"; exit "$matching_status"; fi
+          test -f /tmp/final-summary.json || { echo 'Final summary missing.'; exit 1; }
+          node - <<'NODE'
+          const fs=require('fs');
+          const s=JSON.parse(fs.readFileSync('/tmp/final-summary.json','utf8'));
+          for (const key of ['jobs','matches','recruiters','contacts','content']) {
+            if (Number(s[key]) <= 0) throw new Error(`${key} must be > 0 in final persisted runtime: ${s[key]}`);
+          }
+          if (Number(s.matchApply)+Number(s.matchReview)+Number(s.matchReject)!==Number(s.matches)) throw new Error('final match decisions do not reconcile');
+          const p=JSON.parse(fs.readFileSync('/tmp/final-platforms.json','utf8'));
+          const actual=p.platforms.filter(x=>x.completed_at!==null && x.completed_at!==undefined);
+          if (new Set(actual.map(x=>x.platform_id)).size !== Number(p.registry.total)) throw new Error('final platform coverage is incomplete');
+          console.log(JSON.stringify({summary:s,platformRegistry:p.registry,platformOutcomes:actual.length}));
+          NODE
       - name: Capture final runtime evidence
         if: always()
         run: |
