@@ -52,10 +52,9 @@ if [[ "$STATUS" != "running" ]]; then
   exit 1
 fi
 
-# Use a non-login /bin/sh with an explicit argv[0]. This avoids shell-specific
-# positional-parameter handling under `sh -lc` and preserves all arguments.
-# Keep the inner program free of single quotes because the program itself is
-# passed as a single-quoted argument to the host shell.
+# Pass the script as a positional argument to a non-login /bin/sh. Avoid
+# embedding shell single quotes inside the single-quoted program: with
+# `set -u`, that previously caused the host shell to expand $script and abort.
 exec docker exec -i "$APP" /bin/sh -c '
   script="$1"
   shift
