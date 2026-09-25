@@ -7,6 +7,7 @@ import { TaskQueue } from "../src/queue/TaskQueue";
 import { TaskWorker, TaskWorkerLogger } from "../src/queue/TaskWorker";
 import { createDiscoveryRuntime } from "../src/discovery/createDiscoveryRuntime";
 
+const DEFAULT_MATCHING_SMOKE_LIMIT = 25;
 const logger: TaskWorkerLogger = {
   info: (bindingsOrMessage: Record<string, unknown> | string, message?: string) => {
     console.log(JSON.stringify({ level: "info", ...(typeof bindingsOrMessage === "string" ? { msg: bindingsOrMessage } : { ...bindingsOrMessage, msg: message }) }));
@@ -29,9 +30,7 @@ async function main(): Promise<void> {
 
     const candidateProfiles = ConfiguredCandidateProfileResolver.fromEnvironment();
     const candidateProfile = await candidateProfiles.getById(process.env.CANDIDATE_PROFILE_ID ?? "");
-    if (!candidateProfile) {
-      throw new Error("Configured candidate profile could not be resolved.");
-    }
+    if (!candidateProfile) throw new Error("Configured candidate profile could not be resolved.");
 
     const queue = new TaskQueue(database);
     const runtime = createDiscoveryRuntime(database, queue, config, candidateProfile);
@@ -47,8 +46,8 @@ async function main(): Promise<void> {
       }
     );
 
-    const requestedLimit = Number.parseInt(process.env.MATCHING_SMOKE_LIMIT ?? "100", 10);
-    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : 100;
+    const requestedLimit = Number.parseInt(process.env.MATCHING_SMOKE_LIMIT ?? String(DEFAULT_MATCHING_SMOKE_LIMIT), 10);
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : DEFAULT_MATCHING_SMOKE_LIMIT;
     let processed = 0;
 
     console.log(JSON.stringify({ phase: "matching", limit, msg: "Processing MATCH_JOB tasks" }));
