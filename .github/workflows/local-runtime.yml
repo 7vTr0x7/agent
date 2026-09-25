@@ -77,6 +77,12 @@ jobs:
           if(p.platforms.length<p.registry.catalogOnly) throw new Error(`catalog coverage rows incomplete: ${p.platforms.length}/${p.registry.catalogOnly}`);
           console.log(JSON.stringify({summary:s,registry:p.registry,runtime:p.latestRuntime}));
           NODE
+      - name: Execute deterministic real federation and matching cycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec job-agent-local-app node dist/scripts/platform-federation-once.js | tee /tmp/federation-cycle.json
+          docker exec job-agent-local-app node dist/scripts/process-matching-once.js | tee /tmp/matching-cycle.json
       - name: Wait for a real discovery and matching cycle
         shell: bash
         run: |
