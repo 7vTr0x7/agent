@@ -36,8 +36,10 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
         const started = Date.now();
         const startedAt = new Date(started).toISOString();
         let suppressLateDiagnostics = false;
+        let providerEmittedDiagnostic = false;
         const emit = (diagnostics: PlatformDiscoveryDiagnostics): void => {
           if (suppressLateDiagnostics) return;
+          providerEmittedDiagnostic = true;
           const diagnostic: PlatformDiagnosticWithId = {
             ...diagnostics,
             platformId: platform.id,
@@ -125,6 +127,25 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
             suppressLateDiagnostics = true;
             void discoveryPromise.catch(() => undefined);
             return [];
+          }
+
+          if (!providerEmittedDiagnostic) {
+            emit({
+              platform: platform.name,
+              searchPages: 0,
+              searchUrlsGenerated: 0,
+              searchReturnedUrls: 0,
+              uniqueUrls: 0,
+              pageSuccesses: 0,
+              pageFailures: 0,
+              parseSuccesses: 0,
+              parseFailures: 0,
+              parseFailureReasons: {},
+              jobs: result.jobs.length,
+              errors: 0,
+              finalOutcome: result.jobs.length > 0 ? "SUCCESS_WITH_JOBS" : "SUCCESS_ZERO_JOBS",
+              extractionMode: "STATIC_ZERO_RENDER_ZERO"
+            });
           }
 
           return result.jobs;
