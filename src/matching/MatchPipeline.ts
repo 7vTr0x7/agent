@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { JobOpportunity } from "../jobs/domain/JobOpportunity";
-import { DeterministicJobMatcher, DeterministicMatchResult } from "./DeterministicJobMatcher";
+import { DeterministicJobMatcher, DeterministicMatchResult, MatchEvidence } from "./DeterministicJobMatcher";
 import { SemanticJobMatcher, SemanticMatchResult } from "./SemanticJobMatcher";
 import { MatchDecisionRepository } from "./MatchDecisionRepository";
 
@@ -11,7 +11,7 @@ export interface CombinedMatchResult {
   reason: string;
   matchedSkills: string[];
   missingSkills: string[];
-  evidence: Array<{ type: string; detail: string }>;
+  evidence: MatchEvidence[];
   confidence: number;
   model: string | null;
   inputHash: string;
