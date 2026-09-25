@@ -14,6 +14,7 @@ function runScript(script: string): void {
 async function main(): Promise<void> {
   runScript("scripts/public-contact-resources-once.ts");
   runScript("scripts/supplement-public-job-contact-resources-once.ts");
+  runScript("scripts/public-contact-search-evidence-once.ts");
 
   const database = new Database(process.env.DATABASE_URL ?? "");
   try {
