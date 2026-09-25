@@ -26,8 +26,9 @@ async function main(): Promise<void> {
     const candidateProfile = await candidateProfiles.getById(process.env.CANDIDATE_PROFILE_ID ?? "");
     if (!candidateProfile) throw new Error("Configured candidate profile could not be resolved.");
 
-    const runtime = createDiscoveryRuntime(database, new TaskQueue(database), config, candidateProfile);
-    if (runtime.sourceCount < 1) throw new Error("No runnable discovery sources are registered.");
+    const federationConfig = { ...config, jobSources: JSON.stringify([platformSource]) };
+    const runtime = createDiscoveryRuntime(database, new TaskQueue(database), federationConfig, candidateProfile);
+    if (runtime.sourceCount !== 1) throw new Error(`Federation runtime must contain exactly one platform source; got ${runtime.sourceCount}.`);
 
     const before = await database.query<{ jobs: string; matches: string }>(
       `SELECT (SELECT COUNT(*)::text FROM job_opportunities) AS jobs,
