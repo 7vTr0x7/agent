@@ -80,7 +80,7 @@ describe("createJobSource", () => {
       { id: "hireweb3:rss", type: "rss" as const, name: "hireweb3", feedUrl: "https://hireweb3.io/job/rss" }
     ];
 
-    const created = sources.map(createJobSource);
+    const created = sources.map((source) => createJobSource(source));
 
     expect(created).toHaveLength(sources.length);
     expect(created.filter((source) => source instanceof RssJobSource)).toHaveLength(7);
