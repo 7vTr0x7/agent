@@ -79,7 +79,6 @@ jobs:
           NODE
       - name: Execute complete platform catalog and matching cycle
         id: federation
-        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
