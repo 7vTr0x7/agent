@@ -26,9 +26,11 @@ jobs:
       CANDIDATE_LOCATION: India
       CANDIDATE_PREFERRED_LOCATIONS: Bengaluru,Bangalore,India,Remote
       CANDIDATE_REMOTE_ELIGIBLE: true
-      PROACTIVE_RECRUITER_MAX_QUERIES: 8
+      PROACTIVE_RECRUITER_MAX_QUERIES: 18
+      PROACTIVE_RECRUITER_TARGET_CANDIDATES: 8
       PROACTIVE_RECRUITER_SEARCH_PROVIDERS: bing-direct,google-direct,bing-jina,qwant-direct
-      PUBLIC_HIRING_POST_MAX_QUERIES: 8
+      PROACTIVE_RECRUITER_JOB_LINKED_LIMIT: 5
+      PUBLIC_HIRING_POST_MAX_QUERIES: 12
     steps:
       - name: Checkout
         uses: actions/checkout@v4
