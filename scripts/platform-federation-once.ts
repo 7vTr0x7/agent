@@ -9,7 +9,7 @@ import { createDiscoveryRuntime } from "../src/discovery/createDiscoveryRuntime"
 import { JOB_PLATFORM_REGISTRY } from "../src/jobs/sources/JobPlatformRegistry";
 
 async function main(): Promise<void> {
-  process.env.DISCOVERY_SOURCE_TIMEOUT_MS = process.env.PLATFORM_FEDERATION_SOURCE_TIMEOUT_MS ?? "600000";
+  process.env.DISCOVERY_SOURCE_TIMEOUT_MS = process.env.PLATFORM_FEDERATION_SOURCE_TIMEOUT_MS ?? process.env.DISCOVERY_SOURCE_TIMEOUT_MS ?? "30000";
   const config = loadConfig();
   const sources = JSON.parse(config.jobSources) as Array<{ name?: string; id?: string; status?: string }>;
   const platformSource = sources.find((source) => source.name?.trim().toLowerCase() === "platform-search");
