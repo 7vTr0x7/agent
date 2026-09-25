@@ -15,7 +15,8 @@ type PlatformDiagnosticWithId = PlatformDiscoveryDiagnostics & { readonly platfo
  * Runs every registered platform while keeping catalog/configuration state truthful.
  * Catalog-only entries receive UNSUPPORTED and configurable adapters without a
  * configured adapter receive CONFIGURATION_ERROR. Only executable adapters use
- * the existing real public-search implementation.
+ * the existing real public-search implementation. A hard per-platform timeout
+ * prevents a renderer/provider from keeping the whole federation worker alive.
  */
 export class CatalogAwarePlatformSearchJobSource implements JobSource {
   readonly name = "platform-search-federation";
@@ -34,7 +35,9 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
 
         const started = Date.now();
         const startedAt = new Date(started).toISOString();
+        let suppressLateDiagnostics = false;
         const emit = (diagnostics: PlatformDiscoveryDiagnostics): void => {
+          if (suppressLateDiagnostics) return;
           const diagnostic: PlatformDiagnosticWithId = {
             ...diagnostics,
             platformId: platform.id,
@@ -94,9 +97,39 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
           platformController.abort(new Error(`Platform ${platform.name} exceeded ${timeoutMs}ms timeout`));
         }, timeoutMs);
 
+        const discoveryPromise = this.platformDiscovery(platform.name, platformController.signal, emit);
         try {
-          return await this.platformDiscovery(platform.name, platformController.signal, emit);
+          const result = await Promise.race([
+            discoveryPromise.then((jobs) => ({ kind: "complete" as const, jobs })),
+            new Promise<{ kind: "timeout" }>((resolve) => setTimeout(() => resolve({ kind: "timeout" }), timeoutMs))
+          ]);
+
+          if (result.kind === "timeout") {
+            suppressLateDiagnostics = true;
+            platformController.abort(new Error(`Platform ${platform.name} exceeded ${timeoutMs}ms timeout`));
+            emit({
+              platform: platform.name,
+              searchPages: 0,
+              searchUrlsGenerated: 0,
+              searchReturnedUrls: 0,
+              uniqueUrls: 0,
+              pageSuccesses: 0,
+              pageFailures: 0,
+              parseSuccesses: 0,
+              parseFailures: 0,
+              parseFailureReasons: { platform_timeout: 1 },
+              jobs: 0,
+              errors: 0,
+              timeouts: 1,
+              finalOutcome: "TIMEOUT"
+            });
+            void discoveryPromise.catch(() => undefined);
+            return [];
+          }
+
+          return result.jobs;
         } catch {
+          suppressLateDiagnostics = true;
           const timedOut = platformController.signal.aborted && !signal?.aborted;
           emit({
             platform: platform.name,
