@@ -1,6 +1,4 @@
 import "dotenv/config";
-import { existsSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import pino from "pino";
 import { loadConfig } from "../src/config/env";
 import { Database } from "../src/database/Database";
@@ -10,24 +8,7 @@ import { TaskQueue } from "../src/queue/TaskQueue";
 import { createDiscoveryRuntime } from "../src/discovery/createDiscoveryRuntime";
 import { JOB_PLATFORM_REGISTRY } from "../src/jobs/sources/JobPlatformRegistry";
 
-function isRunningInsideDocker(): boolean {
-  return existsSync("/.dockerenv");
-}
-
-function runInsideComposeApp(): never {
-  const result = spawnSync(
-    "docker",
-    ["compose", "exec", "-T", "app", "node", "dist/scripts/platform-federation-once.js"],
-    { stdio: "inherit" }
-  );
-  if (result.error) throw new Error(`Unable to execute federation inside the Docker app container: ${result.error.message}`);
-  process.exitCode = result.status ?? 1;
-  process.exit();
-}
-
 async function main(): Promise<void> {
-  if (!isRunningInsideDocker() && process.env.PLATFORM_FEDERATION_IN_CONTAINER !== "1") runInsideComposeApp();
-
   const config = loadConfig();
   const sources = JSON.parse(process.env.JOB_SOURCES ?? "[]") as Array<{ name?: string; id?: string; status?: string }>;
   const platformSource = sources.find((source) => source.name?.trim().toLowerCase() === "platform-search");
@@ -38,7 +19,7 @@ async function main(): Promise<void> {
     throw new Error("The platform-search source is DISABLED; refusing to claim federation coverage.");
   }
 
-  const executable = JOB_PLATFORM_REGISTRY.filter((platform) => platform.capability !== "catalog-only");
+  const allPlatforms = JOB_PLATFORM_REGISTRY;
   const logger = pino({ level: config.logLevel });
   const database = new Database(config.databaseUrl);
 
@@ -77,21 +58,21 @@ async function main(): Promise<void> {
        ORDER BY platform_id, completed_at DESC`
     );
 
-    const executableIds = new Set(executable.map((platform) => platform.id));
-    const executed = latest.rows.filter((row) => executableIds.has(row.platform_id));
+    const platformIds = new Set(allPlatforms.map((platform) => platform.id));
+    const executed = latest.rows.filter((row) => platformIds.has(row.platform_id));
     const executedIds = new Set(executed.map((row) => row.platform_id));
-    const notExecuted = executable.filter((platform) => !executedIds.has(platform.id)).map((platform) => platform.name);
+    const notExecuted = allPlatforms.filter((platform) => !executedIds.has(platform.id)).map((platform) => platform.name);
 
     const payload = {
-      status: notExecuted.length === 0 ? "FULL_EXECUTABLE_FEDERATION_COMPLETED" : "FEDERATION_INCOMPLETE",
+      status: notExecuted.length === 0 ? "FULL_PLATFORM_CATALOG_COMPLETED" : "PLATFORM_CATALOG_INCOMPLETE",
       startedAt,
       completedAt,
       registry: {
-        total: JOB_PLATFORM_REGISTRY.length,
-        activeAdapters: JOB_PLATFORM_REGISTRY.filter((p) => p.capability === "active-adapter").length,
-        configurableAdapters: JOB_PLATFORM_REGISTRY.filter((p) => p.capability === "configurable-adapter").length,
-        catalogOnly: JOB_PLATFORM_REGISTRY.filter((p) => p.capability === "catalog-only").length,
-        executable: executable.length
+        total: allPlatforms.length,
+        activeAdapters: allPlatforms.filter((p) => p.capability === "active-adapter").length,
+        configurableAdapters: allPlatforms.filter((p) => p.capability === "configurable-adapter").length,
+        catalogOnly: allPlatforms.filter((p) => p.capability === "catalog-only").length,
+        executable: allPlatforms.filter((p) => p.capability !== "catalog-only").length
       },
       runtime: {
         sourceCount: runtime.sourceCount,
@@ -100,14 +81,14 @@ async function main(): Promise<void> {
         after: after.rows[0] ?? null
       },
       coverage: {
-        executed: executed.length,
-        notExecuted: notExecuted.length,
-        notExecutedPlatforms: notExecuted,
-        results: executed
+        attempted: executed.length,
+        missing: notExecuted.length,
+        missingPlatforms: notExecuted,
+        outcomes: executed
       }
     };
 
-    logger.info(payload, "Full executable platform federation run completed");
+    logger.info(payload, "Full registered platform catalog run completed");
     console.log(JSON.stringify(payload, null, 2));
     if (notExecuted.length > 0) process.exitCode = 2;
   } finally {
