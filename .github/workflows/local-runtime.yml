@@ -19,6 +19,7 @@ jobs:
       DISCOVERY_SOURCE_TIMEOUT_MS: 20000
       DISCOVERY_FEDERATION_TIMEOUT_MS: 1800000
       DISCOVERY_SOURCE_RETRIES: 0
+      PLATFORM_SEARCH_CONCURRENCY: 8
       FAST_MATCHING_LIMIT: 150
       CANDIDATE_PROFILE_ID: local-ci-candidate
       CANDIDATE_YEARS_EXPERIENCE: 3
@@ -74,16 +75,24 @@ jobs:
           const p=read('platform-coverage');
           if(p.registry.total<200) throw new Error(`platform registry below requirement: ${p.registry.total}`);
           if(p.registry.executable+p.registry.catalogOnly!==p.registry.total) throw new Error('platform capability totals do not reconcile');
-          if(p.platforms.length<p.registry.catalogOnly) throw new Error(`catalog coverage rows incomplete: ${p.platforms.length}/${p.registry.catalogOnly}`);
           console.log(JSON.stringify({summary:s,registry:p.registry,runtime:p.latestRuntime}));
           NODE
-      - name: Execute deterministic real federation and matching cycle
+      - name: Execute complete platform catalog and matching cycle
+        id: federation
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          docker exec job-agent-local-app node dist/scripts/platform-federation-once.js | tee /tmp/federation-cycle.json
-          docker exec job-agent-local-app node dist/scripts/process-matching-once.js | tee /tmp/matching-cycle.json
+          set -o pipefail
+          npm run platform-federation:once | tee /tmp/federation-cycle.json
+          federation_status=${PIPESTATUS[0]}
+          echo "federation_status=$federation_status" | tee /tmp/federation-status.txt
+          npm run matching:once | tee /tmp/matching-cycle.json
+          matching_status=${PIPESTATUS[0]}
+          echo "matching_status=$matching_status" | tee /tmp/matching-status.txt
+          if (( matching_status != 0 )); then exit "$matching_status"; fi
+          exit "$federation_status"
       - name: Wait for a real discovery and matching cycle
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -96,24 +105,26 @@ jobs:
             if (( SECONDS >= deadline )); then echo "$summary"; exit 1; fi
             sleep 5
           done
-      - name: Verify complete federation coverage and provenance
+      - name: Verify complete 200-platform coverage and provenance
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
           curl --fail --silent http://127.0.0.1:3100/api/platform-coverage > /tmp/final-platforms.json
           node - <<'NODE'
           const fs=require('fs'); const p=JSON.parse(fs.readFileSync('/tmp/final-platforms.json','utf8'));
-          const r=p.registry, rt=p.latestRuntime, rows=p.platforms;
+          const r=p.registry, rows=p.platforms;
           if(r.total<200) throw new Error(`registry=${r.total}`);
           if(r.executable+r.catalogOnly!==r.total) throw new Error('registry capability reconciliation failed');
-          if(rt.attempted!==r.executable) throw new Error(`not every executable platform has a runtime outcome: attempted=${rt.attempted}, executable=${r.executable}`);
-          const seen=new Set(rows.map(x=>x.platform_id));
-          if(seen.size<r.total) throw new Error(`coverage is missing platforms: ${seen.size}/${r.total}`);
-          const allowed=new Set(['SUCCESS_WITH_JOBS','SUCCESS_ZERO_JOBS','TIMEOUT','RATE_LIMITED','BLOCKED_OR_RESTRICTED','PARSER_ERROR','NETWORK_ERROR','HTTP_ERROR','UNSUPPORTED','CONFIGURATION_ERROR','UNKNOWN_ERROR','SKIPPED_CATALOG_ONLY']);
-          for(const row of rows) if(!allowed.has(row.outcome)) throw new Error(`unknown platform outcome ${row.outcome}`);
-          console.log(JSON.stringify({registry:r,runtime:rt,platforms:rows.length}));
+          const actual=rows.filter(x=>x.completed_at!==null && x.completed_at!==undefined);
+          const seen=new Set(actual.map(x=>x.platform_id));
+          if(seen.size!==r.total) throw new Error(`actual runtime coverage is incomplete: ${seen.size}/${r.total}`);
+          const allowed=new Set(['SUCCESS_WITH_JOBS','SUCCESS_ZERO_JOBS','TIMEOUT','RATE_LIMITED','BLOCKED_OR_RESTRICTED','PARSER_ERROR','NETWORK_ERROR','HTTP_ERROR','UNSUPPORTED','CONFIGURATION_ERROR','UNKNOWN_ERROR']);
+          for(const row of actual) if(!allowed.has(row.outcome)) throw new Error(`unknown platform outcome ${row.outcome}`);
+          console.log(JSON.stringify({registry:r,actualOutcomes:actual.length,latestRuntime:p.latestRuntime,platformRows:rows.length}));
           NODE
       - name: Verify dashboard is wired to live product data
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -123,6 +134,7 @@ jobs:
           grep -q 'function renderPlatforms' /tmp/dashboard.html
           grep -q 'platformSearch' /tmp/dashboard.html
       - name: Verify enrichment workers independently execute
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -145,6 +157,7 @@ jobs:
             sleep 5
           done
       - name: Verify real persisted state, source health and safety
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -165,6 +178,7 @@ jobs:
           sent="$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE UPPER(status)='SENT';" | tr -d '[:space:]')"
           test "$sent" = 0
       - name: Verify recovery after application restart
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -172,11 +186,22 @@ jobs:
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3100/healthz >/dev/null && break; sleep 1; done
           curl --fail --silent http://127.0.0.1:3100/healthz
           for container in job-agent-local-app job-agent-local-postgres job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do test "$(docker inspect -f '{{.State.Status}}' "$container")" = running; done
+      - name: Final acceptance aggregate
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          federation_status=0
+          matching_status=0
+          test -f /tmp/federation-status.txt && federation_status="$(cut -d= -f2 /tmp/federation-status.txt)"
+          test -f /tmp/matching-status.txt && matching_status="$(cut -d= -f2 /tmp/matching-status.txt)"
+          if (( federation_status != 0 )); then echo "Federation failed: $federation_status"; exit "$federation_status"; fi
+          if (( matching_status != 0 )); then echo "Matching failed: $matching_status"; exit "$matching_status"; fi
       - name: Capture final runtime evidence
         if: always()
         run: |
           mkdir -p /tmp/job-agent-final-runtime
-          for file in /tmp/*.json /tmp/dashboard.html; do test ! -e "$file" || cp -f "$file" /tmp/job-agent-final-runtime/; done
+          for file in /tmp/*.json /tmp/dashboard.html /tmp/*status.txt; do test ! -e "$file" || cp -f "$file" /tmp/job-agent-final-runtime/; done
           docker logs job-agent-local-app 2>&1 > /tmp/job-agent-final-runtime/app.log || true
           docker logs job-agent-local-recruiter 2>&1 > /tmp/job-agent-final-runtime/recruiter.log || true
           docker logs job-agent-local-contacts 2>&1 > /tmp/job-agent-final-runtime/contacts.log || true
