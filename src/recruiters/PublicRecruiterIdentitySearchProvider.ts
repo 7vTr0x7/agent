@@ -107,7 +107,7 @@ function extractCompanyDomain(snippet: string, fallback: string): string | undef
   const domains = [...snippet.matchAll(/https?:\/\/([^\s/<>"']+)/gi)]
     .map((match) => normalizeDomain(match[1] ?? ""))
     .filter((domain) => domain && !domain.endsWith("linkedin.com") && !/google|bing|duckduckgo|qwant|yahoo|brave|mojeek|startpage|ecosia/.test(domain));
-  return domains[0] ?? normalizeDomain(fallback) || undefined;
+  return domains[0] ?? (normalizeDomain(fallback) || undefined);
 }
 
 function parseProfiles(raw: string, input: RecruiterDiscoveryInput): RecruiterIdentityCandidate[] {
