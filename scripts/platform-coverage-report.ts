@@ -24,6 +24,7 @@ const SUCCESS_OUTCOMES = new Set(["SUCCESS_WITH_JOBS", "SUCCESS_ZERO_JOBS"]);
 const KNOWN_OUTCOMES = new Set([
   "SUCCESS_WITH_JOBS",
   "SUCCESS_ZERO_JOBS",
+  "CATALOG_ONLY",
   "PARSER_ERROR",
   "NETWORK_ERROR",
   "HTTP_ERROR",
@@ -31,7 +32,8 @@ const KNOWN_OUTCOMES = new Set([
   "RATE_LIMITED",
   "BLOCKED_OR_RESTRICTED",
   "CONFIGURATION_ERROR",
-  "UNSUPPORTED"
+  "UNSUPPORTED",
+  "UNKNOWN_ERROR"
 ]);
 
 async function main(): Promise<void> {
@@ -58,7 +60,7 @@ async function main(): Promise<void> {
          platform_id,platform_name,capability,outcome,extraction_mode,
          fetched,normalized,inserted,duplicates,duration_ms,completed_at,error_detail
        FROM platform_discovery_runs
-       ORDER BY platform_id,completed_at DESC`
+       ORDER BY platform_id,completed_at DESC,id DESC`
     );
 
     const counts = new Map<string, number>();
@@ -66,11 +68,10 @@ async function main(): Promise<void> {
       counts.set(platform.capability, (counts.get(platform.capability) ?? 0) + 1);
     }
 
-    const executable = JOB_PLATFORM_REGISTRY.filter((platform) => platform.capability !== "catalog-only");
-    const executableIds = new Set(executable.map((platform) => platform.id));
-    const rows = latest.rows.filter((row) => executableIds.has(row.platform_id));
+    const registryIds = new Set(JOB_PLATFORM_REGISTRY.map((platform) => platform.id));
+    const rows = latest.rows.filter((row) => registryIds.has(row.platform_id));
     const executedIds = new Set(rows.map((row) => row.platform_id));
-    const notExecuted = executable.filter((platform) => !executedIds.has(platform.id));
+    const notExecuted = JOB_PLATFORM_REGISTRY.filter((platform) => !executedIds.has(platform.id));
     const outcomeCount = (outcome: string): number => rows.filter((row) => row.outcome === outcome).length;
     const unknownOutcomes = rows.filter((row) => !KNOWN_OUTCOMES.has(row.outcome));
 
@@ -85,17 +86,18 @@ async function main(): Promise<void> {
         activeAdapters: counts.get("active-adapter") ?? 0,
         configurableAdapters: counts.get("configurable-adapter") ?? 0,
         catalogOnly: counts.get("catalog-only") ?? 0,
-        executable: executable.length
+        executable: JOB_PLATFORM_REGISTRY.filter((platform) => platform.capability !== "catalog-only").length
       },
       latestRuntime: {
-        executableExpected: executable.length,
-        executableAttempted: rows.length,
+        expected: JOB_PLATFORM_REGISTRY.length,
+        attempted: rows.length,
         executed: rows.length,
         notExecuted: notExecuted.length,
         notExecutedPlatforms: notExecuted.map((platform) => ({ id: platform.id, name: platform.name, capability: platform.capability })),
         successful: rows.filter((row) => SUCCESS_OUTCOMES.has(row.outcome)).length,
         successWithJobs: outcomeCount("SUCCESS_WITH_JOBS"),
         successZeroJobs: outcomeCount("SUCCESS_ZERO_JOBS"),
+        catalogOnly: outcomeCount("CATALOG_ONLY"),
         parserFailures: outcomeCount("PARSER_ERROR"),
         networkFailures: outcomeCount("NETWORK_ERROR"),
         httpFailures: outcomeCount("HTTP_ERROR"),
@@ -105,20 +107,14 @@ async function main(): Promise<void> {
         configurationErrors: outcomeCount("CONFIGURATION_ERROR"),
         unsupported: outcomeCount("UNSUPPORTED"),
         unknownFailures: unknownOutcomes.length,
-        failed: rows.filter((row) => !SUCCESS_OUTCOMES.has(row.outcome)).length,
+        failed: rows.filter((row) => !SUCCESS_OUTCOMES.has(row.outcome) && row.outcome !== "CATALOG_ONLY").length,
         fetched,
         normalized,
         inserted,
         duplicates,
         jobsProduced: rows.filter((row) => Number(row.fetched) > 0).length
       },
-      platforms: rows,
-      catalogOnly: JOB_PLATFORM_REGISTRY.filter((platform) => platform.capability === "catalog-only").map((platform) => ({
-        id: platform.id,
-        name: platform.name,
-        capability: platform.capability,
-        outcome: "SKIPPED_CATALOG_ONLY"
-      }))
+      platforms: rows
     }, null, 2));
 
     if (notExecuted.length > 0) process.exitCode = 2;

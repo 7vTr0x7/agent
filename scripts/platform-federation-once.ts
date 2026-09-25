@@ -8,12 +8,23 @@ import { TaskQueue } from "../src/queue/TaskQueue";
 import { createDiscoveryRuntime } from "../src/discovery/createDiscoveryRuntime";
 import { JOB_PLATFORM_REGISTRY } from "../src/jobs/sources/JobPlatformRegistry";
 
+async function persistCatalogOnlyOutcomes(database: Database): Promise<void> {
+  const catalogOnly = JOB_PLATFORM_REGISTRY.filter((platform) => platform.capability === "catalog-only");
+  for (const platform of catalogOnly) {
+    await database.query(
+      `INSERT INTO platform_discovery_runs (
+         platform_id, platform_name, capability, outcome, extraction_mode,
+         started_at, completed_at, search_pages, search_urls_generated,
+         search_returned_urls, unique_urls, fetched, normalized, inserted,
+         duplicates, timeouts, errors, duration_ms, error_detail
+       ) VALUES ($1,$2,$3,'UNSUPPORTED',NULL,NOW(),NOW(),0,0,0,0,0,0,0,0,0,0,0,'Catalog-only registry entry; no executable direct adapter is registered.')`,
+      [platform.id, platform.name, platform.capability]
+    );
+  }
+}
+
 async function main(): Promise<void> {
-  // The normal local worker timeout is intentionally short, but the full
-  // federation must allow a real public-search platform enough time to finish
-  // its bounded search/render pipeline. This affects only this one-shot
-  // federation process, not the continuous discovery worker.
-  process.env.DISCOVERY_SOURCE_TIMEOUT_MS = process.env.PLATFORM_FEDERATION_SOURCE_TIMEOUT_MS ?? "300000";
+  process.env.DISCOVERY_SOURCE_TIMEOUT_MS = process.env.PLATFORM_FEDERATION_SOURCE_TIMEOUT_MS ?? "600000";
   const config = loadConfig();
   const sources = JSON.parse(process.env.JOB_SOURCES ?? "[]") as Array<{ name?: string; id?: string; status?: string }>;
   const platformSource = sources.find((source) => source.name?.trim().toLowerCase() === "platform-search");
@@ -41,6 +52,7 @@ async function main(): Promise<void> {
     const startedAt = new Date().toISOString();
     const results = await runtime.runner.runOnce();
     await runtime.flushPlatformTelemetry();
+    await persistCatalogOnlyOutcomes(database);
     const completedAt = new Date().toISOString();
 
     const after = await database.query<{ jobs: string; matches: string }>(
@@ -58,10 +70,10 @@ async function main(): Promise<void> {
          platform_id, platform_name, capability, outcome, fetched, normalized,
          inserted, duplicates, duration_ms, completed_at, error_detail
        FROM platform_discovery_runs
-       ORDER BY platform_id, completed_at DESC`
+       ORDER BY platform_id, completed_at DESC, id DESC`
     );
 
-    const timeoutMs = Math.max(30_000, Math.min(120_000, Number(process.env.PLATFORM_TELEMETRY_DRAIN_TIMEOUT_MS) || 120_000));
+    const timeoutMs = Math.max(30_000, Math.min(300_000, Number(process.env.PLATFORM_TELEMETRY_DRAIN_TIMEOUT_MS) || 300_000));
     const deadline = Date.now() + timeoutMs;
     let latest = await readLatest();
     while (new Set(latest.rows.filter((row) => platformIds.has(row.platform_id)).map((row) => row.platform_id)).size < allPlatforms.length && Date.now() < deadline) {
