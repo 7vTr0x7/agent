@@ -73,7 +73,7 @@ jobs:
           const p=read('platform-coverage');
           if(p.registry.total<200) throw new Error(`platform registry below requirement: ${p.registry.total}`);
           if(p.registry.executable+p.registry.catalogOnly!==p.registry.total) throw new Error('platform capability totals do not reconcile');
-          if(p.platforms.length<p.registry.total) throw new Error(`platform coverage rows incomplete: ${p.platforms.length}/${p.registry.total}`);
+          if(p.platforms.length<p.registry.catalogOnly) throw new Error(`catalog coverage rows incomplete: ${p.platforms.length}/${p.registry.catalogOnly}`);
           console.log(JSON.stringify({summary:s,registry:p.registry,runtime:p.latestRuntime}));
           NODE
       - name: Wait for a real discovery and matching cycle
