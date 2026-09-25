@@ -58,8 +58,10 @@ function searchUrls(query: string): string[] {
 function queries(input: RecruiterDiscoveryInput): string[] {
   const company = input.companyName.trim();
   const domain = normalizeDomain(input.companyDomain);
-  const title = input.jobTitle.trim();
-  return [
+  const title = input.jobTitle.trim() || "Frontend Developer";
+  const location = input.location?.trim() || "India";
+  const technology = /react|next\.js|nextjs/i.test(`${input.jobTitle} ${input.jobDescription}`) ? "React" : /typescript/i.test(input.jobDescription) ? "TypeScript" : "Frontend";
+  const companyQueries = company ? [
     `site:linkedin.com/in "${company}" recruiter "${title}"`,
     `site:linkedin.com/in "${company}" recruiter`,
     `site:linkedin.com/in "${company}" "technical recruiter"`,
@@ -68,9 +70,22 @@ function queries(input: RecruiterDiscoveryInput): string[] {
     `site:linkedin.com/in "${company}" "talent partner"`,
     `site:linkedin.com/in "${company}" "hiring manager"`,
     `site:linkedin.com/in "${company}" "people partner"`,
-    `site:${domain} (recruiter OR recruiting OR "talent acquisition" OR hiring)`,
-    `"${company}" recruiter "${title}" India`
+    ...(domain ? [`site:${domain} (recruiter OR recruiting OR "talent acquisition" OR hiring)`] : []),
+    `"${company}" recruiter "${title}" ${location}`
+  ] : [];
+  const globalQueries = [
+    `site:linkedin.com/in recruiter "${title}" "${location}"`,
+    `site:linkedin.com/in "technical recruiter" "${technology}" "${location}"`,
+    `site:linkedin.com/in "talent acquisition" "${technology}" "${location}"`,
+    `site:linkedin.com/in "talent partner" "${technology}" "${location}"`,
+    `site:linkedin.com/in recruiter "React Developer" India`,
+    `site:linkedin.com/in recruiter "Frontend Developer" India`,
+    `site:linkedin.com/in "Senior Talent Acquisition" "${technology}" India`,
+    `site:linkedin.com/in "Talent Acquisition Specialist" "${technology}" India`,
+    `site:linkedin.com/in "Technical Recruiter" "${technology}" India`,
+    `site:linkedin.com/in recruiter hiring "${technology}" India`
   ];
+  return [...new Set([...companyQueries, ...globalQueries])];
 }
 
 function plausibleFullName(value: string | undefined): boolean {
@@ -87,9 +102,10 @@ function parseProfiles(raw: string): RecruiterIdentityCandidate[] {
   for (const match of text.matchAll(LINKEDIN_PROFILE_PATTERN)) {
     const url = match[0];
     const index = match.index ?? 0;
-    const snippet = text.slice(Math.max(0, index - 220), Math.min(text.length, index + 360));
+    const snippet = text.slice(Math.max(0, index - 260), Math.min(text.length, index + 420));
     if (NON_RECRUITING_CONTEXT.test(snippet) || !RECRUITING_CONTEXT.test(snippet)) continue;
-    const titleMatch = snippet.match(/([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|\||:)\s*([^|.]{3,100})/);
+    const titleMatch = snippet.match(/([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*(?:-|\||:|•)\s*([^|•\n.]{3,120})/);
+    const fallbackName = snippet.match(/(?:linkedin\.com\/in\/|linkedin\.com\/in\/)([A-Za-z][A-Za-z0-9-]{2,80})/i)?.[1]?.replace(/[-_]+/g, " ");
     const fullName = titleMatch?.[1]?.trim();
     if (!plausibleFullName(fullName)) continue;
     const title = titleMatch?.[2]?.trim();
