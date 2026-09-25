@@ -26,7 +26,7 @@ async function persistCatalogOnlyOutcomes(database: Database): Promise<void> {
 async function main(): Promise<void> {
   process.env.DISCOVERY_SOURCE_TIMEOUT_MS = process.env.PLATFORM_FEDERATION_SOURCE_TIMEOUT_MS ?? "600000";
   const config = loadConfig();
-  const sources = JSON.parse(process.env.JOB_SOURCES ?? "[]") as Array<{ name?: string; id?: string; status?: string }>;
+  const sources = JSON.parse(config.jobSources) as Array<{ name?: string; id?: string; status?: string }>;
   const platformSource = sources.find((source) => source.name?.trim().toLowerCase() === "platform-search");
   if (!platformSource) throw new Error("JOB_SOURCES must contain the platform-search source before a full federation run.");
   if (platformSource.status === "DISABLED") throw new Error("The platform-search source is DISABLED; refusing to claim federation coverage.");
