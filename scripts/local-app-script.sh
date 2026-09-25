@@ -12,11 +12,11 @@ if [[ -z "$SCRIPT" ]]; then
   echo "usage: $0 <script path> [args...]" >&2
   exit 2
 fi
-shift || true
+shift
 
 run_script() {
   local script="$1"
-  shift || true
+  shift
 
   case "$script" in
     *.ts)
@@ -45,7 +45,11 @@ if ! docker inspect "$APP" >/dev/null 2>&1; then
   exit 1
 fi
 
-STATUS="$(docker inspect -f '{{.State.Status}}' "$APP" 2>/dev/null || true)"
+STATUS=""
+if ! STATUS="$(docker inspect -f '{{.State.Status}}' "$APP" 2>/dev/null)"; then
+  echo "Unable to determine the state of app container '$APP'." >&2
+  exit 1
+fi
 if [[ "$STATUS" != "running" ]]; then
   echo "App container '$APP' is not running (status: ${STATUS:-unknown}). Start the local runtime first with: npm run local:restart" >&2
   exit 1
