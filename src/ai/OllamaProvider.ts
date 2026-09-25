@@ -26,9 +26,9 @@ export class OllamaProvider implements AIProvider {
     const startedAt = Date.now();
 
     const controller = new AbortController();
-    // Matching already has a deterministic fallback. Keep local-model latency
-    // tightly bounded so one slow Ollama generation cannot stall the queue.
-    const effectiveTimeoutMs = Math.min(this.timeoutMs, 5000);
+    // Matching has a deterministic fallback. Keep the local-model probe short
+    // so an unavailable Ollama endpoint cannot serialize the matching queue.
+    const effectiveTimeoutMs = Math.min(this.timeoutMs, 1000);
     const timeout = setTimeout(
       () => controller.abort(),
       effectiveTimeoutMs
@@ -50,8 +50,6 @@ export class OllamaProvider implements AIProvider {
           messages: request.messages,
           options: {
             temperature: request.temperature ?? 0,
-            // The matcher needs only a compact JSON decision. Keep generation
-            // small so the local model spends less time producing prose.
             num_predict: Math.min(request.maxTokens ?? 64, 64)
           }
         })
@@ -59,7 +57,6 @@ export class OllamaProvider implements AIProvider {
 
       if (!response.ok) {
         const body = await response.text();
-
         throw new AppError(`Ollama request failed: ${response.status}`, {
           code: "AI_PROVIDER_ERROR",
           statusCode: 502,
@@ -69,7 +66,6 @@ export class OllamaProvider implements AIProvider {
 
       const data = (await response.json()) as OllamaChatResponse;
       const content = data.message?.content;
-
       if (!content) {
         throw new AppError("Ollama returned an empty response", {
           code: "AI_EMPTY_RESPONSE",
@@ -83,10 +79,7 @@ export class OllamaProvider implements AIProvider {
         durationMs: Date.now() - startedAt
       };
     } catch (error) {
-      if (error instanceof AppError) {
-        throw error;
-      }
-
+      if (error instanceof AppError) throw error;
       if (error instanceof DOMException && error.name === "AbortError") {
         throw new AppError("Ollama request timed out", {
           code: "AI_TIMEOUT",
@@ -94,7 +87,6 @@ export class OllamaProvider implements AIProvider {
           cause: error
         });
       }
-
       throw new AppError("Unable to communicate with Ollama", {
         code: "AI_CONNECTION_ERROR",
         statusCode: 502,
