@@ -11,7 +11,7 @@ export interface CombinedMatchResult {
   reason: string;
   matchedSkills: string[];
   missingSkills: string[];
-  evidence: MatchEvidence[];
+  evidence: Array<{ type: string; detail: string }>;
   confidence: number;
   model: string | null;
   inputHash: string;
@@ -131,7 +131,7 @@ function applyTechnologySafetyGate(result: DeterministicMatchResult, job: JobOpp
       ...result,
       decision: "REVIEW",
       reason: `${result.reason} Technology safety gate: the title explicitly names ${namedForeignLanguage}, which is not in the candidate's declared stack; APPLY is blocked pending manual review.`,
-      evidence: [...result.evidence, { type: "TECHNOLOGY_SAFETY_GATE", detail: `Primary title language ${namedForeignLanguage} is outside the candidate stack.` }]
+      evidence: [...result.evidence, { type: "TECHNOLOGY_SAFETY_GATE", detail: `Primary title language ${namedForeignLanguage} is outside the candidate stack.` } as unknown as MatchEvidence]
     };
   }
 
