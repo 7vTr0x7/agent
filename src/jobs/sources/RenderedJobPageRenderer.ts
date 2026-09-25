@@ -16,11 +16,15 @@ export class PlaywrightJobPageRenderer implements RenderedPageRenderer {
 
   async render(url: string, signal?: AbortSignal): Promise<{ result: RenderedJobPage | null; diagnostics: RenderDiagnostics }> {
     if (signal?.aborted) return { result: null, diagnostics: { outcome: "render_error", detailUrls: 0, visibleJobs: 0 } };
-    await this.acquire(signal);
+    const acquired = await this.acquire(signal);
+    if (!acquired || signal?.aborted) {
+      return { result: null, diagnostics: { outcome: "render_error", detailUrls: 0, visibleJobs: 0 } };
+    }
     try {
       let page: Page | null = null;
       try {
         const browser = await this.getBrowser();
+        if (signal?.aborted) return { result: null, diagnostics: { outcome: "render_error", detailUrls: 0, visibleJobs: 0 } };
         page = await browser.newPage({ javaScriptEnabled: true });
         page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
         page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
@@ -62,16 +66,33 @@ export class PlaywrightJobPageRenderer implements RenderedPageRenderer {
     await browser?.close().catch(() => undefined);
   }
 
-  private async acquire(signal?: AbortSignal): Promise<void> {
-    if (this.active < RENDER_CONCURRENCY) { this.active += 1; return; }
-    await new Promise<void>((resolve) => {
-      const waiter = (): void => { this.active += 1; resolve(); };
-      this.waiters.push(waiter);
-      if (signal?.aborted) {
+  private async acquire(signal?: AbortSignal): Promise<boolean> {
+    if (signal?.aborted) return false;
+    if (this.active < RENDER_CONCURRENCY) { this.active += 1; return true; }
+    return await new Promise<boolean>((resolve) => {
+      let settled = false;
+      const waiter = (): void => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        if (signal?.aborted) {
+          resolve(false);
+          return;
+        }
+        this.active += 1;
+        resolve(true);
+      };
+      const onAbort = (): void => {
+        if (settled) return;
+        settled = true;
         const index = this.waiters.indexOf(waiter);
         if (index >= 0) this.waiters.splice(index, 1);
-        resolve();
-      }
+        signal?.removeEventListener("abort", onAbort);
+        resolve(false);
+      };
+      this.waiters.push(waiter);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) onAbort();
     });
   }
 
