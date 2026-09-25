@@ -12,12 +12,8 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const sources = JSON.parse(process.env.JOB_SOURCES ?? "[]") as Array<{ name?: string; id?: string; status?: string }>;
   const platformSource = sources.find((source) => source.name?.trim().toLowerCase() === "platform-search");
-  if (!platformSource) {
-    throw new Error("JOB_SOURCES must contain the platform-search source before a full federation run.");
-  }
-  if (platformSource.status === "DISABLED") {
-    throw new Error("The platform-search source is DISABLED; refusing to claim federation coverage.");
-  }
+  if (!platformSource) throw new Error("JOB_SOURCES must contain the platform-search source before a full federation run.");
+  if (platformSource.status === "DISABLED") throw new Error("The platform-search source is DISABLED; refusing to claim federation coverage.");
 
   const allPlatforms = JOB_PLATFORM_REGISTRY;
   const logger = pino({ level: config.logLevel });
@@ -46,7 +42,8 @@ async function main(): Promise<void> {
               (SELECT COUNT(DISTINCT job_opportunity_id)::text FROM match_decisions) AS matches`
     );
 
-    const latest = await database.query<{
+    const platformIds = new Set(allPlatforms.map((platform) => platform.id));
+    const readLatest = async () => database.query<{
       platform_id: string; platform_name: string; capability: string; outcome: string;
       fetched: string; normalized: string | null; inserted: string; duplicates: string;
       duration_ms: string; completed_at: string; error_detail: string | null;
@@ -58,7 +55,17 @@ async function main(): Promise<void> {
        ORDER BY platform_id, completed_at DESC`
     );
 
-    const platformIds = new Set(allPlatforms.map((platform) => platform.id));
+    // The platform source emits telemetry from an isolated callback. Give those
+    // database writes a bounded drain window before judging final coverage so the
+    // acceptance check cannot race the final telemetry INSERTs.
+    const timeoutMs = Math.max(30_000, Math.min(120_000, Number(config.discovery.federationTimeoutMs) || 120_000));
+    const deadline = Date.now() + timeoutMs;
+    let latest = await readLatest();
+    while (new Set(latest.rows.filter((row) => platformIds.has(row.platform_id)).map((row) => row.platform_id)).size < allPlatforms.length && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      latest = await readLatest();
+    }
+
     const executed = latest.rows.filter((row) => platformIds.has(row.platform_id));
     const executedIds = new Set(executed.map((row) => row.platform_id));
     const notExecuted = allPlatforms.filter((platform) => !executedIds.has(platform.id)).map((platform) => platform.name);
