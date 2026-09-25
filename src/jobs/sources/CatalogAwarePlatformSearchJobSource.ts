@@ -105,7 +105,6 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
           ]);
 
           if (result.kind === "timeout") {
-            suppressLateDiagnostics = true;
             platformController.abort(new Error(`Platform ${platform.name} exceeded ${timeoutMs}ms timeout`));
             emit({
               platform: platform.name,
@@ -123,13 +122,13 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
               timeouts: 1,
               finalOutcome: "TIMEOUT"
             });
+            suppressLateDiagnostics = true;
             void discoveryPromise.catch(() => undefined);
             return [];
           }
 
           return result.jobs;
         } catch {
-          suppressLateDiagnostics = true;
           const timedOut = platformController.signal.aborted && !signal?.aborted;
           emit({
             platform: platform.name,
@@ -147,6 +146,7 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
             timeouts: timedOut ? 1 : 0,
             finalOutcome: timedOut ? "TIMEOUT" : "UNKNOWN_ERROR"
           });
+          suppressLateDiagnostics = true;
           return [];
         } finally {
           clearTimeout(timer);
