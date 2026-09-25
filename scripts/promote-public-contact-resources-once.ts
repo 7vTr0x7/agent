@@ -40,10 +40,10 @@ async function main(): Promise<void> {
     );
 
     let inserted = 0;
-    let duplicates = 0;
+    let existing = 0;
     for (const row of result.rows) {
       const companyName = row.title.trim() || new URL(row.source_url).hostname;
-      const upsert = await database.query(
+      const upsert = await database.query<{ inserted: boolean }>(
         `INSERT INTO contacts (company_name, email, source, created_at, updated_at)
          VALUES ($1, $2, $3, NOW(), NOW())
          ON CONFLICT (email) DO UPDATE SET
@@ -53,11 +53,11 @@ async function main(): Promise<void> {
            END,
            source = EXCLUDED.source,
            updated_at = NOW()
-         RETURNING id`,
+         RETURNING (xmax = 0) AS inserted`,
         [companyName.slice(0, 500), row.email.toLowerCase(), row.source_url]
       );
-      if (upsert.rowCount === 1) inserted += 1;
-      else duplicates += 1;
+      if (upsert.rows[0]?.inserted) inserted += 1;
+      else existing += 1;
     }
 
     const contactCount = await database.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM contacts");
@@ -66,7 +66,7 @@ async function main(): Promise<void> {
       feature: "PUBLIC_CONTACT_RESOURCE",
       independent: true,
       contactsPromoted: inserted,
-      duplicates,
+      existingContacts: existing,
       contactsPersisted: Number(contactCount.rows[0]?.count ?? 0),
       applicationsSent: 0,
       outreachSent: 0,
