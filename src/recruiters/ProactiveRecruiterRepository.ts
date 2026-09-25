@@ -10,12 +10,18 @@ export class ProactiveRecruiterRepository {
 
   async persistCandidate(candidateProfileId: string, candidate: ProactiveRecruiterDiscoveryCandidate): Promise<string | null> {
     if (candidate.contactType !== "EMPLOYER" && !hasRequiredRecruiterEvidence(candidate)) return null;
-    const recoveredEmployer = candidate.employer === "Unknown employer" ? recoverExplicitEmployerFromEvidence(candidate.discoveryEvidence) : candidate.employer;
-    if (!recoveredEmployer) return null;
-    const employerName = recoveredEmployer.trim();
+
     const email = candidate.email?.trim().toLowerCase() || null;
     const emailDomain = email?.split("@")[1]?.toLowerCase() ?? "";
+    const observedEmailDomain = emailDomain && !isGenericEmailDomain(emailDomain) ? normalizeDomain(emailDomain) : "";
+    const recoveredEmployer = candidate.employer === "Unknown employer"
+      ? recoverExplicitEmployerFromEvidence(candidate.discoveryEvidence) ?? (observedEmailDomain || null)
+      : candidate.employer;
+    if (!recoveredEmployer) return null;
+
+    const employerName = recoveredEmployer.trim();
     const domain = normalizeDomain(candidate.employerDomain ?? "") ||
+      (candidate.employer === "Unknown employer" && observedEmailDomain ? observedEmailDomain : "") ||
       (emailDomain && isCompanyMatchingDomain(emailDomain, employerName) ? normalizeDomain(emailDomain) : "") ||
       (employerName ? await resolveEmployerDomainFromPersistedJobs(this.database, employerName) : "") ||
       (employerName ? await resolveEmployerDomainFromPublicSearch(employerName) : "");
@@ -84,6 +90,21 @@ function buildIdentityKey(candidate: ProactiveRecruiterDiscoveryCandidate, domai
 function isLinkedInProfile(value: string): boolean { try { const url = new URL(value); return url.hostname.toLowerCase().endsWith("linkedin.com") && /^\/in\/[^/]+/i.test(url.pathname); } catch { return false; } }
 function canonicalLinkedIn(value: string): string { try { const url = new URL(value); const profile = url.pathname.match(/^\/in\/([^/?#]+)/i)?.[1]; return profile ? `https://www.linkedin.com/in/${profile.toLowerCase()}` : value.toLowerCase().replace(/\/+$/, ""); } catch { return value.toLowerCase().replace(/\/+$/, ""); } }
 function canonicalUrl(value: string): string { try { const url = new URL(value); url.hash = ""; ["utm_source","utm_medium","utm_campaign","utm_term","utm_content","trk","trackingId","refId","lipi"].forEach((key) => url.searchParams.delete(key)); return url.toString().replace(/\/$/, ""); } catch { return value.toLowerCase().replace(/\/+$/, ""); } }
-async function resolveEmployerDomainFromPersistedJobs(database: Database, employerName: string): Promise<string> { const result = await database.query<{ company_domain: string | null }>(`SELECT company_domain FROM job_opportunities WHERE company_domain IS NOT NULL AND LOWER(TRIM(company_name)) = LOWER(TRIM($1)) ORDER BY posted_at DESC NULLS LAST LIMIT 5`, [employerName]); const domains = result.rows.map((row) => normalizeDomain(row.company_domain ?? "")).filter(Boolean); return domains.find((domain) => isCompanyMatchingDomain(domain, employerName)) ?? ""; }
+async function resolveEmployerDomainFromPersistedJobs(database: Database, employerName: string): Promise<string> {
+  const result = await database.query<{ company_domain: string | null }>(
+    `SELECT company_domain
+       FROM job_opportunities
+      WHERE company_domain IS NOT NULL
+        AND (LOWER(TRIM(company_name)) = LOWER(TRIM($1))
+             OR LOWER(TRIM(company_name)) LIKE LOWER(TRIM($1)) || '%'
+             OR LOWER(TRIM($1)) LIKE LOWER(TRIM(company_name)) || '%')
+      ORDER BY posted_at DESC NULLS LAST
+      LIMIT 10`,
+    [employerName]
+  );
+  const domains = result.rows.map((row) => normalizeDomain(row.company_domain ?? "")).filter(Boolean);
+  return domains.find((domain) => isCompanyMatchingDomain(domain, employerName)) ?? "";
+}
 function isCompanyMatchingDomain(domain: string, companyName: string): boolean { const host = normalizeDomain(domain).split(".")[0] ?? ""; const tokens = companyName.toLowerCase().replace(/&/g, " and ").split(/[^a-z0-9]+/).filter((token) => token.length >= 3 && !["the","and","inc","ltd","llc","corp","company","limited","private","pvt"].includes(token)); return tokens.some((token) => host.includes(token)); }
+function isGenericEmailDomain(domain: string): boolean { return new Set(["gmail.com","googlemail.com","outlook.com","hotmail.com","live.com","yahoo.com","yahoo.co.in","icloud.com","proton.me","protonmail.com"]).has(domain.toLowerCase()); }
 function normalizeDomain(value: string): string { return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? ""; }
