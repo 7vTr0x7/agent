@@ -4,7 +4,7 @@ import type { Job } from "../domain/Job";
 
 describe("PlatformSearchJobSource", () => {
   const job = (id: string): Job => ({ source: "test", sourceJobId: id, url: `https://jobs.example/${id}`, title: "React Developer", companyName: "Example Corp", companyDomain: "example.com", location: "Bengaluru, India", country: "India", workplaceType: "onsite", employmentType: "Full-time", description: "Build React applications.", postedAt: null, updatedAt: null, contentHash: id });
-  const registeredPlatforms = (): typeof JOB_PLATFORM_REGISTRY[number][] => JOB_PLATFORM_REGISTRY;
+  const registeredPlatforms = (): ReadonlyArray<(typeof JOB_PLATFORM_REGISTRY)[number]> => JOB_PLATFORM_REGISTRY;
 
   afterEach(() => { delete process.env.PLATFORM_SEARCH_CONCURRENCY; });
 
