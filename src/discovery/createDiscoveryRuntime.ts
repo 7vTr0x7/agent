@@ -70,7 +70,11 @@ export function createDiscoveryRuntime(
     const source = {
       name: sourceConfig.id,
       fetchJobs: (signal?: AbortSignal) => adapterSource.fetchJobs(signal)
-        .then((jobs) => jobs.map((job) => ({ ...job, source: sourceConfig.id })))
+        // Preserve adapter-level provenance. The platform federation deliberately
+        // annotates each job with the platform that produced it; replacing that
+        // value with the aggregate source id makes cross-platform coverage and
+        // deduplication evidence impossible to observe downstream.
+        .then((jobs) => jobs.map((job) => ({ ...job, source: job.source?.trim() || sourceConfig.id })))
     };
     registry.register({
       source,
