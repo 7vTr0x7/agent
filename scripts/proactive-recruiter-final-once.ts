@@ -11,14 +11,12 @@ function run(script: string): void {
     stdio: "inherit",
     env: {
       ...process.env,
-      // Keep recruiter discovery bounded, but do not pin it to the four search
-      // providers that were observed returning only search chrome/rate-limit
-      // pages in the latest real runtime. The public search registry already
-      // validates and filters the provider URLs; this widens only the bounded
-      // source set used for recruiter enrichment.
-      PROACTIVE_RECRUITER_MAX_QUERIES: boundedEnv("PROACTIVE_RECRUITER_MAX_QUERIES", 6, 8),
+      // Keep recruiter discovery bounded while adding public search sources
+      // that are materially different from the rate-limited Jina readers.
+      // Five providers x four queries remains a small, deterministic fan-out.
+      PROACTIVE_RECRUITER_MAX_QUERIES: boundedEnv("PROACTIVE_RECRUITER_MAX_QUERIES", 4, 4),
       PROACTIVE_RECRUITER_TARGET_CANDIDATES: boundedEnv("PROACTIVE_RECRUITER_TARGET_CANDIDATES", 8, 8),
-      PROACTIVE_RECRUITER_SEARCH_PROVIDERS: process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS?.trim() || "google-direct,bing-direct,yahoo-direct,brave-direct,mojeek-direct,qwant-direct,startpage-jina,ecosia-jina",
+      PROACTIVE_RECRUITER_SEARCH_PROVIDERS: process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS?.trim() || "qwant-direct,yahoo-direct,brave-direct,mojeek-direct,bing-direct",
       PROACTIVE_RECRUITER_JOB_LINKED_LIMIT: boundedEnv("PROACTIVE_RECRUITER_JOB_LINKED_LIMIT", 1, 2),
       PUBLIC_HIRING_POST_MAX_QUERIES: boundedEnv("PUBLIC_HIRING_POST_MAX_QUERIES", 4, 6)
     }
