@@ -26,6 +26,7 @@ describe("ProactiveRecruiterRepository hiring-post persistence", () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: "contact-post-1" }] })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] }) };
     const repository = new ProactiveRecruiterRepository(database as never);
 
@@ -33,7 +34,8 @@ describe("ProactiveRecruiterRepository hiring-post persistence", () => {
 
     expect(result).toBe("contact-post-1");
     const insertParams = database.query.mock.calls[1]?.[1] as unknown[];
-    expect(insertParams?.[16]).toBeNull();
+    expect(insertParams?.[15]).toBeNull();
+    expect(String(insertParams?.[16])).toContain("profile:");
     const sourceParams = database.query.mock.calls[2]?.[1] as unknown[];
     expect(sourceParams?.[2]).toBe("job_hiring_evidence");
   });
