@@ -46,5 +46,5 @@ export function sourceList(query: string): Source[] {
 }
 
 export function isJinaReader(id: SourceId): boolean {
-  return ["google-jina", "google-direct", "bing-jina", "duckduckgo-jina", "startpage-jina", "ecosia-jina"].includes(id);
+  return ["google-jina", "bing-jina", "duckduckgo-jina", "startpage-jina", "ecosia-jina"].includes(id);
 }
