@@ -20,6 +20,8 @@ async function main(): Promise<void> {
       email: string;
       company_name: string;
       source_url: string;
+      source_type: string;
+      observed_at: string;
       relevance_score: number | null;
       confidence: number | null;
       email_status: string;
@@ -30,6 +32,8 @@ async function main(): Promise<void> {
           c.email,
           c.company_name,
           s.source_url,
+          COALESCE(s.source_type, 'public-web') AS source_type,
+          s.observed_at,
           c.relevance_score,
           c.confidence,
           c.email_status,
@@ -56,21 +60,57 @@ async function main(): Promise<void> {
         rejected += 1;
         continue;
       }
+      const provenance = {
+        pipeline: "public_recruiter_contact_promotion",
+        sourceUrl: row.source_url,
+        sourceType: row.source_type,
+        observedAt: row.observed_at,
+        publicEvidence: true,
+        mailboxVerification: row.email_status === "VERIFIED" ? "CLAIMED_BY_SOURCE_POLICY" : "NOT_CLAIMED",
+        recruiterConfidence: row.confidence,
+        relevanceStatus: row.relevance_status
+      };
       const result = await database.query<{ inserted: boolean }>(
-        `INSERT INTO contacts (company_name, email, source, created_at, updated_at)
-         VALUES ($1,$2,$3,NOW(),NOW())
+        `INSERT INTO contacts (
+           company_name, email, source, source_url, source_type,
+           provenance, validation_status, relevance_score, suppressed,
+           created_at, updated_at
+         )
+         VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,FALSE,NOW(),NOW())
          ON CONFLICT (email) DO UPDATE SET
            company_name = CASE WHEN NULLIF(TRIM(contacts.company_name),'') IS NULL THEN EXCLUDED.company_name ELSE contacts.company_name END,
            source = EXCLUDED.source,
+           source_url = EXCLUDED.source_url,
+           source_type = EXCLUDED.source_type,
+           provenance = EXCLUDED.provenance,
+           validation_status = EXCLUDED.validation_status,
+           relevance_score = GREATEST(COALESCE(contacts.relevance_score,0), COALESCE(EXCLUDED.relevance_score,0)),
+           suppressed = FALSE,
            updated_at = NOW()
          RETURNING (xmax = 0) AS inserted`,
-        [row.company_name.slice(0,500), row.email.trim().toLowerCase(), row.source_url]
+        [
+          row.company_name.slice(0, 500),
+          row.email.trim().toLowerCase(),
+          "public_recruiter_contact",
+          row.source_url,
+          row.source_type,
+          JSON.stringify(provenance),
+          row.email_status,
+          row.relevance_score ?? 0
+        ]
       );
       if (result.rows[0]?.inserted) promoted += 1;
       else existing += 1;
     }
 
-    const count = await database.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM contacts");
+    const count = await database.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+         FROM contacts
+        WHERE COALESCE(suppressed,FALSE)=FALSE
+          AND validation_status IN ('LIKELY','VERIFIED')
+          AND source_url IS NOT NULL
+          AND provenance->>'publicEvidence' = 'true'`
+    );
     console.log(JSON.stringify({
       status: "ok",
       feature: "PUBLIC_RECRUITER_CONTACT_PROMOTION",
@@ -80,7 +120,8 @@ async function main(): Promise<void> {
       rejectedUnsafeSources: rejected,
       contactsPersisted: Number(count.rows[0]?.count ?? 0),
       applicationsSent: 0,
-      outreachSent: 0
+      outreachSent: 0,
+      mailboxVerificationClaimed: candidates.rows.some((row) => row.email_status === "VERIFIED")
     }, null, 2));
   } finally {
     await database.close();
