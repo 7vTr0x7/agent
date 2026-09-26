@@ -31,7 +31,7 @@ export function buildRuntimeEnv(): NodeJS.ProcessEnv {
 }
 
 function run(script: string): void {
-  const result = spawnSync(process.execPath, ["./node_modules/tsx/dist/cli.mjs", script], {
+  const result = spawnSync("./node_modules/.bin/tsx", [script], {
     stdio: "inherit",
     env: buildRuntimeEnv()
   });
