@@ -18,9 +18,11 @@ export function sourceList(query: string): Source[] {
   const q = encodeURIComponent(normalizedQuery);
   const sources: Source[] = [
     { id: "google-direct", url: `https://www.google.com/search?q=${q}&gbv=1` },
-    { id: "bing-direct", url: `https://www.bing.com/search?q=${q}` },
+    // Bing's RSS endpoint exposes the actual result URLs as <link> elements,
+    // avoiding the JavaScript/search-navigation URLs returned by its HTML page.
+    { id: "bing-direct", url: `https://www.bing.com/search?format=rss&q=${q}` },
     { id: "google-jina", url: `https://r.jina.ai/https://www.google.com/search?q=${q}&gbv=1` },
-    { id: "bing-jina", url: `https://r.jina.ai/https://www.bing.com/search?q=${q}` },
+    { id: "bing-jina", url: `https://r.jina.ai/https://www.bing.com/search?format=rss&q=${q}` },
     { id: "duckduckgo-jina", url: `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${q}` },
     { id: "startpage-jina", url: `https://r.jina.ai/https://www.startpage.com/sp/search?query=${q}` },
     { id: "ecosia-jina", url: `https://r.jina.ai/https://www.ecosia.org/search?q=${q}` },
@@ -44,5 +46,5 @@ export function sourceList(query: string): Source[] {
 }
 
 export function isJinaReader(id: SourceId): boolean {
-  return ["google-jina", "bing-jina", "duckduckgo-jina", "startpage-jina", "ecosia-jina"].includes(id);
+  return ["google-jina", "google-direct", "bing-jina", "duckduckgo-jina", "startpage-jina", "ecosia-jina"].includes(id);
 }
