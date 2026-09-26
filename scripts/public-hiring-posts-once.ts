@@ -1,5 +1,7 @@
 import { ConfiguredCandidateProfileResolver } from "../src/candidates/ConfiguredCandidateProfileResolver";
+import { Database } from "../src/database/Database";
 import { PublicHiringPostDiscoveryProvider } from "../src/recruiters/PublicHiringPostDiscoveryProvider";
+import { ProactiveRecruiterRepository } from "../src/recruiters/ProactiveRecruiterRepository";
 
 async function main(): Promise<void> {
   const profile = await ConfiguredCandidateProfileResolver.fromEnvironment().getById(process.env.CANDIDATE_PROFILE_ID ?? "");
@@ -20,6 +22,20 @@ async function main(): Promise<void> {
     maxQueries
   });
 
+  const database = new Database(process.env.DATABASE_URL ?? "");
+  const repository = new ProactiveRecruiterRepository(database);
+  let persisted = 0;
+  let rejectedAtPersistence = 0;
+  try {
+    for (const candidate of result.candidates) {
+      const id = await repository.persistCandidate(profile.id, candidate);
+      if (id) persisted += 1;
+      else rejectedAtPersistence += 1;
+    }
+  } finally {
+    await database.close();
+  }
+
   const realResults = result.candidates.map((candidate) => ({
     source: candidate.discoverySource,
     title: candidate.targetRoles[0] ?? candidate.recruiterRole,
@@ -39,6 +55,8 @@ async function main(): Promise<void> {
     independent: true,
     sendEnabled: false,
     realResultCount: realResults.length,
+    persisted,
+    rejectedAtPersistence,
     results: realResults,
     metrics: result.metrics
   }, null, 2));
