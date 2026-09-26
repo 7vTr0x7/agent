@@ -28,18 +28,7 @@ function run(script: string): void {
 
 function main(): void {
   run("scripts/proactive-recruiter-once.ts");
-  try {
-    run("scripts/supplement-proactive-recruiters-once.ts");
-  } catch (error) {
-    // Supplement discovery is additive. Keep the primary recruiter cycle
-    // successful and expose the secondary failure instead of preventing the
-    // contact/content engines from running.
-    console.error(JSON.stringify({
-      status: "DEGRADED",
-      feature: "PROACTIVE_RECRUITER_SUPPLEMENT",
-      error: error instanceof Error ? error.message : String(error)
-    }, null, 2));
-  }
+  run("scripts/supplement-proactive-recruiters-once.ts");
 }
 
 if (require.main === module) {
