@@ -31,7 +31,7 @@ async function main(): Promise<void> {
        WHERE NULLIF(TRIM(j.company_domain), '') IS NOT NULL
          AND LOWER(j.title) ~ '(react|frontend|front-end|next[.]?js|typescript|javascript|full.?stack|software engineer|web developer)'
        ORDER BY j.company_domain, j.posted_at DESC NULLS LAST, j.created_at DESC
-       LIMIT 1`
+       LIMIT 5`
     );
 
     const discovery = new PersistentRecruiterDiscoveryService({
@@ -44,6 +44,7 @@ async function main(): Promise<void> {
     });
 
     const results: Array<Record<string, unknown>> = [];
+    let recruitersPersistedThisRun = 0;
     for (const job of jobs.rows) {
       try {
         const result = await discovery.discoverAndPersist({
@@ -55,6 +56,7 @@ async function main(): Promise<void> {
           candidateProfileId,
           jobOpportunityId: job.job_id
         }, 5);
+        recruitersPersistedThisRun += result.contacts.length;
         results.push({
           company: job.company_name,
           domain: job.company_domain,
@@ -76,14 +78,15 @@ async function main(): Promise<void> {
     }
 
     const persisted = await database.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM recruiter_contacts WHERE relevance_status IN ('CURRENT','RECENT')`
+      `SELECT COUNT(*)::text AS count FROM recruiter_contacts WHERE provider='proactive-public-web' AND relevance_status IN ('CURRENT','RECENT')`
     );
     console.log(JSON.stringify({
       status: "ok",
       feature: "PROACTIVE_RECRUITER_EMPLOYER_SUPPLEMENT",
       independentOfMatchDecisions: true,
       employersExamined: jobs.rows.length,
-      recruitersPersisted: Number(persisted.rows[0]?.count ?? 0),
+      recruitersPersisted: recruitersPersistedThisRun,
+      recruitersPersistedInDatabase: Number(persisted.rows[0]?.count ?? 0),
       results,
       outreachSent: 0,
       applicationsSent: 0
