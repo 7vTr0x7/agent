@@ -1,10 +1,13 @@
-import { boundedEnv } from "./proactive-recruiter-final-once";
+import { boundedEnv, buildRuntimeEnv } from "./proactive-recruiter-final-once";
 
 describe("final proactive recruiter runtime bounds", () => {
   afterEach(() => {
     delete process.env.PROACTIVE_RECRUITER_MAX_QUERIES;
     delete process.env.PROACTIVE_RECRUITER_JOB_LINKED_LIMIT;
     delete process.env.PUBLIC_HIRING_POST_MAX_QUERIES;
+    delete process.env.PROACTIVE_RECRUITER_SEND_ENABLED;
+    delete process.env.OUTBOUND_ENABLED;
+    delete process.env.GMAIL_ENABLED;
   });
 
   it("clamps recruiter fan-out to the final runtime bounds", () => {
@@ -20,5 +23,24 @@ describe("final proactive recruiter runtime bounds", () => {
   it("falls back safely for invalid values", () => {
     process.env.PROACTIVE_RECRUITER_MAX_QUERIES = "not-a-number";
     expect(boundedEnv("PROACTIVE_RECRUITER_MAX_QUERIES", 4, 4)).toBe("4");
+  });
+
+  it("enables discovery for the explicit once command while hard-disabling outbound side effects", () => {
+    process.env.PROACTIVE_RECRUITER_SEND_ENABLED = "true";
+    process.env.OUTBOUND_ENABLED = "true";
+    process.env.GMAIL_ENABLED = "true";
+
+    const env = buildRuntimeEnv();
+
+    expect(env.PROACTIVE_RECRUITER_ENABLED).toBe("true");
+    expect(env.PROACTIVE_RECRUITER_SEND_ENABLED).toBe("false");
+    expect(env.RECRUITER_OUTREACH_DRY_RUN).toBe("true");
+    expect(env.RECRUITER_OUTREACH_ACTIVATION).toBe("disabled");
+    expect(env.RECRUITER_LIVE_ACTIVATION_CONFIRMED).toBe("false");
+    expect(env.AUTOMATION_ENABLED).toBe("false");
+    expect(env.GMAIL_ENABLED).toBe("false");
+    expect(env.OUTBOUND_ENABLED).toBe("false");
+    expect(env.APPLICATION_DRY_RUN).toBe("true");
+    expect(env.APPLICATION_LIVE_ENABLED).toBe("false");
   });
 });
