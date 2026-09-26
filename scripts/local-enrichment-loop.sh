@@ -3,7 +3,7 @@ set -euo pipefail
 
 MODE="${1:?usage: local-enrichment-loop.sh <recruiter|contacts|content>}"
 INTERVAL_MS="${ENRICHMENT_INTERVAL_MS:-900000}"
-COMMAND_TIMEOUT_SECONDS="${ENRICHMENT_COMMAND_TIMEOUT_SECONDS:-120}"
+COMMAND_TIMEOUT_SECONDS="${ENRICHMENT_COMMAND_TIMEOUT_SECONDS:-180}"
 
 if ! [[ "$INTERVAL_MS" =~ ^[0-9]+$ ]] || (( INTERVAL_MS < 1000 )); then
   echo "ENRICHMENT_INTERVAL_MS must be an integer >= 1000 milliseconds." >&2
