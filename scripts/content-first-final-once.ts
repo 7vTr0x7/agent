@@ -6,7 +6,7 @@ function boundedEnv(name: string, fallback: number, maximum: number): string {
   return String(Math.min(Math.floor(parsed), maximum));
 }
 
-const result = spawnSync(process.execPath, ["./node_modules/tsx/dist/cli.mjs", "scripts/public-hiring-posts-once.ts"], {
+const result = spawnSync("./node_modules/.bin/tsx", ["scripts/public-hiring-posts-once.ts"], {
   stdio: "inherit",
   env: {
     ...process.env,
