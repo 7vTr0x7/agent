@@ -11,22 +11,25 @@ function run(script: string): void {
     stdio: "inherit",
     env: {
       ...process.env,
-      // Keep recruiter discovery bounded while adding public search sources
-      // that are materially different from the rate-limited Jina readers.
-      // Five providers x four queries remains a small, deterministic fan-out.
-      PROACTIVE_RECRUITER_MAX_QUERIES: boundedEnv("PROACTIVE_RECRUITER_MAX_QUERIES", 4, 4),
-      PROACTIVE_RECRUITER_TARGET_CANDIDATES: boundedEnv("PROACTIVE_RECRUITER_TARGET_CANDIDATES", 8, 8),
-      PROACTIVE_RECRUITER_SEARCH_PROVIDERS: process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS?.trim() || "qwant-direct,yahoo-direct,brave-direct,mojeek-direct,bing-direct",
-      PROACTIVE_RECRUITER_JOB_LINKED_LIMIT: boundedEnv("PROACTIVE_RECRUITER_JOB_LINKED_LIMIT", 1, 2),
-      PUBLIC_HIRING_POST_MAX_QUERIES: boundedEnv("PUBLIC_HIRING_POST_MAX_QUERIES", 4, 6)
+      // Keep the final real-data recruiter slice deterministic and short enough
+      // to finish before the local worker command timeout. The hiring-post path
+      // already proved it can return identity/evidence-backed recruiter rows.
+      PROACTIVE_RECRUITER_MAX_QUERIES: boundedEnv("PROACTIVE_RECRUITER_MAX_QUERIES", 2, 2),
+      PROACTIVE_RECRUITER_TARGET_CANDIDATES: boundedEnv("PROACTIVE_RECRUITER_TARGET_CANDIDATES", 4, 4),
+      PROACTIVE_RECRUITER_SEARCH_PROVIDERS: process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS?.trim() || "qwant-direct,bing-direct",
+      PROACTIVE_RECRUITER_JOB_LINKED_LIMIT: boundedEnv("PROACTIVE_RECRUITER_JOB_LINKED_LIMIT", 1, 1),
+      PUBLIC_HIRING_POST_MAX_QUERIES: boundedEnv("PUBLIC_HIRING_POST_MAX_QUERIES", 4, 4)
     }
   });
   if (result.status !== 0) throw new Error(`${script} failed with exit code ${result.status ?? "unknown"}.`);
 }
 
 function main(): void {
+  // The primary path includes bounded hiring-post and job-linked enrichment.
+  // The older five-employer supplement duplicated the same public fetch fanout
+  // and was the remaining source of the 180s worker timeout, so it is no longer
+  // part of the final product once-path.
   run("scripts/proactive-recruiter-once.ts");
-  run("scripts/supplement-proactive-recruiters-once.ts");
 }
 
 if (require.main === module) {
