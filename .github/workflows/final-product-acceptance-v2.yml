@@ -1,0 +1,157 @@
+name: Final Product Acceptance v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  final-product-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      JOB_AGENT_LOCAL_API_PORT: 3100
+      JOB_AGENT_LOCAL_RESET: true
+      DISCOVERY_SOURCE_TIMEOUT_MS: 20000
+      DISCOVERY_FEDERATION_TIMEOUT_MS: 3600000
+      DISCOVERY_SOURCE_RETRIES: 0
+      PLATFORM_SEARCH_CONCURRENCY: 16
+      PLATFORM_ITEM_TIMEOUT_MS: 20000
+      CANDIDATE_PROFILE_ID: local-ci-candidate
+      CANDIDATE_YEARS_EXPERIENCE: 3
+      CANDIDATE_SKILLS: React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS
+      CANDIDATE_TARGET_TITLES: Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer
+      CANDIDATE_LOCATION: India
+      CANDIDATE_PREFERRED_LOCATIONS: Bengaluru,Bangalore,India,Remote
+      CANDIDATE_REMOTE_ELIGIBLE: true
+      PROACTIVE_RECRUITER_MAX_QUERIES: 18
+      PROACTIVE_RECRUITER_TARGET_CANDIDATES: 8
+      PROACTIVE_RECRUITER_SEARCH_PROVIDERS: bing-direct,google-direct,bing-jina,qwant-direct
+      PROACTIVE_RECRUITER_JOB_LINKED_LIMIT: 5
+      PUBLIC_HIRING_POST_MAX_QUERIES: 12
+      AUTOMATION_ENABLED: false
+      APPLICATION_DRY_RUN: true
+      APPLICATION_LIVE_ENABLED: false
+      GMAIL_ENABLED: false
+      OUTBOUND_ENABLED: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Verify build before product runtime
+        run: npm run typecheck && npm run build
+      - name: Start clean real product runtime
+        run: npm run local:run
+      - name: Verify startup and APIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent http://127.0.0.1:3100/healthz
+          for endpoint in summary jobs matches recruiters contacts content source-health platform-coverage; do
+            case "$endpoint" in
+              summary) url='http://127.0.0.1:3100/api/summary' ;;
+              jobs) url='http://127.0.0.1:3100/api/jobs?limit=20' ;;
+              matches) url='http://127.0.0.1:3100/api/matches?limit=20' ;;
+              recruiters) url='http://127.0.0.1:3100/api/recruiters?limit=20' ;;
+              contacts) url='http://127.0.0.1:3100/api/contacts?limit=20' ;;
+              content) url='http://127.0.0.1:3100/api/content?limit=20' ;;
+              source-health) url='http://127.0.0.1:3100/api/source-health' ;;
+              platform-coverage) url='http://127.0.0.1:3100/api/platform-coverage' ;;
+            esac
+            curl --fail --silent "$url" > "/tmp/${endpoint}.json"
+          done
+      - name: Run frozen federation and matching
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run platform-federation:once | tee /tmp/federation-cycle.json
+          npm run matching:once | tee /tmp/matching-cycle.json
+          curl --fail --silent http://127.0.0.1:3100/api/platform-coverage > /tmp/final-platforms.json
+          node - <<'NODE'
+          const fs=require('fs'); const p=JSON.parse(fs.readFileSync('/tmp/final-platforms.json','utf8'));
+          const actual=p.platforms.filter(x=>x.completed_at!=null);
+          if(Number(p.registry.total)!==200) throw new Error(`registry=${p.registry.total}`);
+          if(new Set(actual.map(x=>x.platform_id)).size!==200) throw new Error(`outcomes=${actual.length}/200`);
+          NODE
+      - name: Run recruiter contact and content engines independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run proactive-recruiter:once | tee /tmp/proactive-recruiter-final.json
+          npm run public-contact-resources:once | tee /tmp/public-contact-final.json
+          npm run content-first:once | tee /tmp/content-final.json
+      - name: Verify database and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec job-agent-local-postgres psql -v ON_ERROR_STOP=1 -U job_agent -d job_agent -c "SELECT 'jobs',COUNT(*) FROM job_opportunities; SELECT 'matches',COUNT(*) FROM match_decisions; SELECT 'recruiters',COUNT(*) FROM recruiter_contacts; SELECT 'contacts',COUNT(*) FROM contacts; SELECT 'content',COUNT(*) FROM hiring_posts; SELECT 'public_resources',COUNT(*) FROM public_contact_resources; SELECT 'public_resource_contacts',COUNT(*) FROM public_contact_resource_contacts;"
+          jobs=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM job_opportunities;'|tr -d '[:space:]')
+          matches=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM match_decisions;'|tr -d '[:space:]')
+          recruiters=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM recruiter_contacts;'|tr -d '[:space:]')
+          contacts=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM contacts;'|tr -d '[:space:]')
+          content=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM hiring_posts;'|tr -d '[:space:]')
+          test "$jobs" -gt 0; test "$matches" -gt 0; test "$recruiters" -gt 0; test "$contacts" -gt 0; test "$content" -gt 0
+          bad_recruiters=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts c WHERE COALESCE(c.relevance_status,'UNKNOWN') IN ('CURRENT','RECENT') AND NOT EXISTS (SELECT 1 FROM recruiter_contact_sources s WHERE s.recruiter_contact_id=c.id AND NULLIF(TRIM(s.source_url),'') IS NOT NULL);"|tr -d '[:space:]')
+          bad_contacts=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM contacts c WHERE NOT EXISTS (SELECT 1 FROM public_contact_resource_contacts pc JOIN public_contact_resources pr ON pr.id=pc.resource_id WHERE LOWER(pc.normalized_email)=LOWER(c.email) AND NULLIF(TRIM(pr.source_url),'') IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM recruiter_contacts rc JOIN recruiter_contact_sources rs ON rs.recruiter_contact_id=rc.id WHERE LOWER(rc.email)=LOWER(c.email) AND NULLIF(TRIM(rs.source_url),'') IS NOT NULL);"|tr -d '[:space:]')
+          test "$bad_recruiters" = 0; test "$bad_contacts" = 0
+      - name: Verify matcher APIs dashboard and safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent http://127.0.0.1:3100/api/summary > /tmp/final-summary.json
+          curl --fail --silent http://127.0.0.1:3100/api/jobs?limit=20 > /tmp/jobs-final.json
+          curl --fail --silent http://127.0.0.1:3100/api/matches?limit=20 > /tmp/matches-final.json
+          curl --fail --silent http://127.0.0.1:3100/api/recruiters?limit=20 > /tmp/recruiters-final.json
+          curl --fail --silent http://127.0.0.1:3100/api/contacts?limit=20 > /tmp/contacts-final.json
+          curl --fail --silent http://127.0.0.1:3100/api/content?limit=20 > /tmp/content-final.json
+          curl --fail --silent http://127.0.0.1:3100/ > /tmp/dashboard.html
+          for text in 'Top opportunities' 'Application queue' 'Recruiters' 'Public contact evidence' 'Hiring content' 'Platform coverage' 'Source health' 'Safety'; do grep -q "$text" /tmp/dashboard.html; done
+          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -c "SELECT decision,COUNT(*) FROM match_decisions GROUP BY decision ORDER BY decision;"
+          test "$(docker exec job-agent-local-app printenv AUTOMATION_ENABLED)" = false
+          test "$(docker exec job-agent-local-app printenv APPLICATION_DRY_RUN)" = true
+          test "$(docker exec job-agent-local-app printenv APPLICATION_LIVE_ENABLED)" = false
+          test "$(docker exec job-agent-local-app printenv GMAIL_ENABLED)" = false
+          test "$(docker exec job-agent-local-app printenv OUTBOUND_ENABLED)" = false
+          test "$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM application_attempts WHERE submitted=TRUE;'|tr -d '[:space:]')" = 0
+          test "$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc \"SELECT COUNT(*) FROM recruiter_outreach_messages WHERE UPPER(status)='SENT';\"|tr -d '[:space:]')" = 0
+      - name: Verify recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker restart job-agent-local-app >/dev/null
+          for i in $(seq 1 45); do curl -fsS http://127.0.0.1:3100/healthz >/dev/null && break; sleep 1; done
+          curl --fail --silent http://127.0.0.1:3100/healthz
+          for container in job-agent-local-app job-agent-local-postgres job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do test "$(docker inspect -f '{{.State.Status}}' "$container")" = running; done
+      - name: Final acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('fs'); const s=JSON.parse(fs.readFileSync('/tmp/final-summary.json','utf8')); const p=JSON.parse(fs.readFileSync('/tmp/final-platforms.json','utf8'));
+          const actual=p.platforms.filter(x=>x.completed_at!=null);
+          if(Number(p.registry.total)!==200 || new Set(actual.map(x=>x.platform_id)).size!==200) throw new Error('federation not 200/200');
+          for(const k of ['jobs','matches','recruiters','contacts','content']) if(Number(s[k])<=0) throw new Error(`final ${k}=${s[k]}`);
+          if(Number(s.matchApply)+Number(s.matchReview)+Number(s.matchReject)!==Number(s.matches)) throw new Error('match totals do not reconcile');
+          console.log(JSON.stringify({status:'COMPLETE',summary:s,platforms:200}));
+          NODE
+      - name: Capture final evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p /tmp/job-agent-final-runtime
+          for file in /tmp/*.json /tmp/*.txt /tmp/dashboard.html; do test ! -e "$file" || cp -f "$file" /tmp/job-agent-final-runtime/; done
+          for c in app recruiter contacts content; do docker logs job-agent-local-$c 2>&1 > /tmp/job-agent-final-runtime/$c.log || true; done
+          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM job_opportunities; SELECT COUNT(*) FROM match_decisions; SELECT COUNT(*) FROM applications; SELECT COUNT(*) FROM recruiter_contacts; SELECT COUNT(*) FROM contacts; SELECT COUNT(*) FROM hiring_posts; SELECT COUNT(*) FROM public_contact_resources; SELECT COUNT(*) FROM public_contact_resource_contacts;' > /tmp/job-agent-final-runtime/db-counts.txt || true
+      - name: Upload final evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-product-acceptance-evidence-v2
+          path: /tmp/job-agent-final-runtime
+          if-no-files-found: error
+      - name: Stop runtime
+        if: always()
+        run: JOB_AGENT_LOCAL_CLEANUP=true npm run local:stop
