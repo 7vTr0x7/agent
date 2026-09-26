@@ -20,7 +20,7 @@ run_script() {
 
   case "$script" in
     *.ts)
-      exec npx --no-install tsx "$script" "$@"
+      exec ./node_modules/.bin/tsx "$script" "$@"
       ;;
     *.js)
       exec node "$script" "$@"
@@ -59,7 +59,7 @@ exec docker exec -i "$APP" /bin/sh -c '
   script="$1"
   shift
   case "$script" in
-    *.ts) exec npx --no-install tsx "$script" "$@" ;;
+    *.ts) exec ./node_modules/.bin/tsx "$script" "$@" ;;
     *.js) exec node "$script" "$@" ;;
     *) echo "Unsupported runtime script: $script; expected .ts or .js" >&2; exit 2 ;;
   esac
