@@ -134,6 +134,33 @@ describe("ProactiveRecruiterRepository", () => {
     expect(JSON.stringify(relevanceEvidenceSql)).toContain("EMPLOYER");
   });
 
+  it("persists an identity-consistent named recruiter from a public hiring post without inventing a profile URL", async () => {
+    const database = { query: jest.fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: "contact-post-1" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] }) };
+    const repository = new ProactiveRecruiterRepository(database as never);
+    const hiringPost = candidate({
+      discoveryUrl: "https://www.linkedin.com/posts/jane-doe_hiring-frontend-react-activity-1234567890123456789",
+      discoveryEvidence: ["Jane Doe - Technical Recruiter at Acme. We are hiring frontend engineers in Bengaluru."],
+      evidenceType: "job_hiring_evidence",
+      evidenceFreshness: "unknown",
+      email: undefined,
+      emailStatus: "UNVERIFIED"
+    });
+
+    const result = await repository.persistCandidate("candidate-1", hiringPost);
+
+    expect(result).toBe("contact-post-1");
+    const sourceParams = database.query.mock.calls[2]?.[1] as unknown[];
+    expect(sourceParams?.[2]).toBe("job_hiring_evidence");
+    const insertSql = database.query.mock.calls[1]?.[0] as string;
+    expect(insertSql).toContain("linkedin_profile_url");
+    const insertParams = database.query.mock.calls[1]?.[1] as unknown[];
+    expect(insertParams?.[15]).toBe("UNKNOWN");
+    expect(insertParams?.[16]).toBeNull();
+  });
 
   it("does not persist a recruiter without a genuine public profile and hiring evidence", async () => {
     const database = { query: jest.fn() };
