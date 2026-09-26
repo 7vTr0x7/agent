@@ -6,20 +6,34 @@ export function boundedEnv(name: string, fallback: number, maximum: number): str
   return String(Math.min(Math.floor(parsed), maximum));
 }
 
+export function buildRuntimeEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    // A one-shot discovery command explicitly enables discovery even when the
+    // daemon's default PROACTIVE_RECRUITER_ENABLED=false is left untouched.
+    // Sending remains independently and unconditionally disabled here.
+    PROACTIVE_RECRUITER_ENABLED: "true",
+    PROACTIVE_RECRUITER_SEND_ENABLED: "false",
+    RECRUITER_OUTREACH_DRY_RUN: "true",
+    RECRUITER_OUTREACH_ACTIVATION: "disabled",
+    RECRUITER_LIVE_ACTIVATION_CONFIRMED: "false",
+    AUTOMATION_ENABLED: "false",
+    GMAIL_ENABLED: "false",
+    OUTBOUND_ENABLED: "false",
+    APPLICATION_DRY_RUN: "true",
+    APPLICATION_LIVE_ENABLED: "false",
+    PROACTIVE_RECRUITER_MAX_QUERIES: boundedEnv("PROACTIVE_RECRUITER_MAX_QUERIES", 2, 2),
+    PROACTIVE_RECRUITER_TARGET_CANDIDATES: boundedEnv("PROACTIVE_RECRUITER_TARGET_CANDIDATES", 4, 4),
+    PROACTIVE_RECRUITER_SEARCH_PROVIDERS: process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS?.trim() || "qwant-direct,bing-direct",
+    PROACTIVE_RECRUITER_JOB_LINKED_LIMIT: boundedEnv("PROACTIVE_RECRUITER_JOB_LINKED_LIMIT", 1, 1),
+    PUBLIC_HIRING_POST_MAX_QUERIES: boundedEnv("PUBLIC_HIRING_POST_MAX_QUERIES", 4, 4)
+  };
+}
+
 function run(script: string): void {
   const result = spawnSync(process.execPath, ["./node_modules/tsx/dist/cli.mjs", script], {
     stdio: "inherit",
-    env: {
-      ...process.env,
-      // Keep the final real-data recruiter slice deterministic and short enough
-      // to finish before the local worker command timeout. The hiring-post path
-      // already proved it can return identity/evidence-backed recruiter rows.
-      PROACTIVE_RECRUITER_MAX_QUERIES: boundedEnv("PROACTIVE_RECRUITER_MAX_QUERIES", 2, 2),
-      PROACTIVE_RECRUITER_TARGET_CANDIDATES: boundedEnv("PROACTIVE_RECRUITER_TARGET_CANDIDATES", 4, 4),
-      PROACTIVE_RECRUITER_SEARCH_PROVIDERS: process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS?.trim() || "qwant-direct,bing-direct",
-      PROACTIVE_RECRUITER_JOB_LINKED_LIMIT: boundedEnv("PROACTIVE_RECRUITER_JOB_LINKED_LIMIT", 1, 1),
-      PUBLIC_HIRING_POST_MAX_QUERIES: boundedEnv("PUBLIC_HIRING_POST_MAX_QUERIES", 4, 4)
-    }
+    env: buildRuntimeEnv()
   });
   if (result.status !== 0) throw new Error(`${script} failed with exit code ${result.status ?? "unknown"}.`);
 }
