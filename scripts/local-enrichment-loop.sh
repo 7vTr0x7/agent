@@ -39,18 +39,20 @@ mkdir -p "$(dirname "$LOG")"
 
 echo "local enrichment worker started mode=$MODE intervalMs=$INTERVAL_MS sleepSeconds=$SLEEP_SECONDS commandTimeoutSeconds=$COMMAND_TIMEOUT_SECONDS"
 
+echo "enrichment command log=$LOG"
+
 while true; do
   started_at="$(date +%s)"
-  if timeout --kill-after=10s "${COMMAND_TIMEOUT_SECONDS}s" bash -lc "$COMMAND" >>"$LOG" 2>&1; then
+  if timeout --kill-after=10s "${COMMAND_TIMEOUT_SECONDS}s" bash -lc "$COMMAND" 2>&1 | tee -a "$LOG"; then
     finished_at="$(date +%s)"
-    echo "$(date -u +%FT%TZ) enrichment cycle completed mode=$MODE durationSeconds=$((finished_at-started_at))" >>"$LOG"
+    echo "$(date -u +%FT%TZ) enrichment cycle completed mode=$MODE durationSeconds=$((finished_at-started_at))" | tee -a "$LOG"
   else
-    exit_code=$?
+    exit_code=${PIPESTATUS[0]}
     finished_at="$(date +%s)"
     if (( exit_code == 124 )); then
-      echo "$(date -u +%FT%TZ) enrichment cycle timeout mode=$MODE durationSeconds=$((finished_at-started_at)) timeoutSeconds=$COMMAND_TIMEOUT_SECONDS" >>"$LOG"
+      echo "$(date -u +%FT%TZ) enrichment cycle timeout mode=$MODE durationSeconds=$((finished_at-started_at)) timeoutSeconds=$COMMAND_TIMEOUT_SECONDS" | tee -a "$LOG"
     else
-      echo "$(date -u +%FT%TZ) enrichment cycle failed mode=$MODE exitCode=$exit_code durationSeconds=$((finished_at-started_at))" >>"$LOG"
+      echo "$(date -u +%FT%TZ) enrichment cycle failed mode=$MODE exitCode=$exit_code durationSeconds=$((finished_at-started_at))" | tee -a "$LOG"
     fi
   fi
   sleep "$SLEEP_SECONDS"
