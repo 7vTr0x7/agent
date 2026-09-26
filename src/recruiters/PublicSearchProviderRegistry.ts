@@ -29,7 +29,9 @@ export function sourceList(query: string): Source[] {
     { id: "brave-direct", url: `https://search.brave.com/search?q=${q}&source=web` },
     { id: "mojeek-direct", url: `https://www.mojeek.com/search?q=${q}` },
     { id: "qwant-direct", url: `https://www.qwant.com/?q=${q}&t=web` },
-    { id: "yahoo-direct", url: `https://search.yahoo.com/search?p=${q}` }
+    // Yahoo's RSS feed exposes canonical result URLs and snippets without the
+    // client-side navigation/consent markup returned by its HTML search page.
+    { id: "yahoo-direct", url: `https://search.yahoo.com/rss?p=${q}` }
   ];
   if (process.env.JINA_API_KEY?.trim()) {
     sources.push({ id: "jina-search", url: `https://s.jina.ai/${q}`, headers: { authorization: `Bearer ${process.env.JINA_API_KEY.trim()}` } });
