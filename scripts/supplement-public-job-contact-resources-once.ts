@@ -46,7 +46,7 @@ async function main(): Promise<void> {
             LOWER(title) ~ '(react|frontend|front-end|next[.]?js|typescript|javascript|full.?stack|software engineer)'
             OR LOWER(description) ~ '(react|frontend|front-end|next[.]?js|typescript|javascript|full.?stack)'
           )
-        ORDER BY discovered_at DESC NULLS LAST
+        ORDER BY created_at DESC NULLS LAST
         LIMIT 80`
     );
 
