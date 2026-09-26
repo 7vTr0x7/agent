@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 
-function boundedEnv(name: string, fallback: number, maximum: number): string {
+export function boundedEnv(name: string, fallback: number, maximum: number): string {
   const parsed = Number(process.env[name] ?? fallback);
   if (!Number.isFinite(parsed) || parsed < 1) return String(fallback);
   return String(Math.min(Math.floor(parsed), maximum));
