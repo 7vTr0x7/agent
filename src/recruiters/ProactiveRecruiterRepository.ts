@@ -9,7 +9,7 @@ export class ProactiveRecruiterRepository {
   constructor(private readonly database: Database) {}
 
   async persistCandidate(candidateProfileId: string, candidate: ProactiveRecruiterDiscoveryCandidate): Promise<string | null> {
-    if (candidate.contactType !== "EMPLOYER" && !hasRequiredRecruiterEvidence(candidate)) return null;
+    if (candidate.contactType !== "EMPLOYER" && !hasRequiredRecruiterEvidence(candidate) && !hasPublicHiringPostIdentityEvidence(candidate)) return null;
 
     const email = candidate.email?.trim().toLowerCase() || null;
     const emailDomain = email?.split("@")[1]?.toLowerCase() ?? "";
@@ -49,10 +49,12 @@ export class ProactiveRecruiterRepository {
       id = result.rows[0]?.id;
     }
     if (!id) return null;
-    const sourceType = candidate.evidenceType !== "job_hiring_evidence" ? "public_profile" : candidate.evidenceFreshness === "current" ? "current_job_posting" : candidate.evidenceFreshness === "recent" ? "recent_job_posting" : candidate.evidenceFreshness === "historical" ? "historical_job_posting" : "public_profile";
+    const sourceType = candidate.evidenceType === "job_hiring_evidence"
+      ? candidate.evidenceFreshness === "current" ? "current_job_posting" : candidate.evidenceFreshness === "recent" ? "recent_job_posting" : candidate.evidenceFreshness === "historical" ? "historical_job_posting" : "job_hiring_evidence"
+      : "public_profile";
     await this.database.query(`INSERT INTO recruiter_contact_sources (recruiter_contact_id,provider,source_url,source_type,confidence,observed_at) VALUES ($1,'proactive-public-web',$2,$3,$4,NOW()) ON CONFLICT (recruiter_contact_id,provider,source_url) DO UPDATE SET confidence=GREATEST(COALESCE(recruiter_contact_sources.confidence,0),EXCLUDED.confidence),observed_at=NOW()`, [id, candidate.discoveryUrl, sourceType, Math.round(candidate.overallConfidence)]);
     await this.database.query(`UPDATE recruiter_contacts SET relevance_score=GREATEST(COALESCE(relevance_score,0),$2), relevance_evidence=$3::jsonb, updated_at=NOW() WHERE id=$1`, [id, Math.round(Math.min(100, candidate.roleMatchScore * 0.6 + candidate.hiringEvidenceScore * 0.4)), JSON.stringify({ type: candidate.evidenceType, source: candidate.discoverySource, postUrl: candidate.discoveryUrl, contactType: candidate.contactType ?? "PERSON", author: candidate.recruiterName ?? null, authorRole: candidate.recruiterRole ?? null, employer: employerName, employerDomain: domain, targetRoles: candidate.targetRoles, hiringEvidenceScore: candidate.hiringEvidenceScore, evidenceFreshness: candidate.evidenceFreshness, evidence: candidate.discoveryEvidence })]);
-    await this.database.query(`INSERT INTO recruiter_proactive_evidence (recruiter_contact_id,candidate_profile_id,target_roles,role_match_score,hiring_evidence_score,overall_confidence,evidence_type,evidence_freshness,evidence_date,discovery_source,discovery_url,discovery_evidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (recruiter_contact_id,candidate_profile_id,discovery_url) DO UPDATE SET target_roles=EXCLUDED.target_roles, role_match_score=GREATEST(recruiter_proactive_evidence.role_match_score,EXCLUDED.role_match_score), hiring_evidence_score=GREATEST(recruiter_proactive_evidence.hiring_evidence_score,EXCLUDED.hiring_evidence_score), overall_confidence=GREATEST(recruiter_proactive_evidence.overall_confidence,EXCLUDED.overall_confidence), evidence_freshness=EXCLUDED.evidence_freshness,evidence_date=EXCLUDED.evidence_date, discovery_evidence=EXCLUDED.discovery_evidence,updated_at=NOW()`, [id, candidateProfileId, JSON.stringify(candidate.targetRoles), Math.round(candidate.roleMatchScore), Math.round(candidate.hiringEvidenceScore), Math.round(candidate.overallConfidence), candidate.evidenceType, candidate.evidenceFreshness, new Date(candidate.evidenceDate), candidate.discoverySource, candidate.discoveryUrl, JSON.stringify(candidate.discoveryEvidence)]);
+    await this.database.query(`INSERT INTO recruiter_proactive_evidence (recruiter_contact_id,candidate_profile_id,target_roles,role_match_score,hiring_evidence_score,overall_confidence,evidence_type,evidence_freshness,evidence_date,discovery_source,discovery_url,discovery_evidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (recruiter_contact_id,candidate_profile_id,discovery_url) DO UPDATE SET target_roles=EXCLUDED.target_roles, role_match_score=GREATEST(recruiter_proactive_evidence.role_match_score,EXCLUDED.role_match_score), hiring_evidence_score=GREATEST(recruiter_proactive_evidence.hiring_evidence_score,EXCLUDED.hiring_evidence_score), overall_confidence=GREATEST(recruiter_proactive_evidence.overall_confidence,EXCLUDED.overall_confidence), evidence_freshness=EXCLUDED.evidence_freshness,evidence_date=EXCLUDED.evidence_date,discovery_evidence=EXCLUDED.discovery_evidence,updated_at=NOW()`, [id, candidateProfileId, JSON.stringify(candidate.targetRoles), Math.round(candidate.roleMatchScore), Math.round(candidate.hiringEvidenceScore), Math.round(candidate.overallConfidence), candidate.evidenceType, candidate.evidenceFreshness, new Date(candidate.evidenceDate), candidate.discoverySource, candidate.discoveryUrl, JSON.stringify(candidate.discoveryEvidence)]);
     return id;
   }
 
@@ -72,6 +74,25 @@ export class ProactiveRecruiterRepository {
     if (!messageId) return null;
     return { sequenceId, messageId };
   }
+}
+
+function hasPublicHiringPostIdentityEvidence(candidate: ProactiveRecruiterDiscoveryCandidate): boolean {
+  if (candidate.evidenceType !== "job_hiring_evidence") return false;
+  if (!candidate.recruiterName?.trim() || !candidate.recruiterRole?.trim() || !candidate.employer?.trim() || candidate.employer === "Unknown employer") return false;
+  if (candidate.hiringEvidenceScore <= 0 || !candidate.discoveryUrl) return false;
+  let parsed: URL;
+  try { parsed = new URL(candidate.discoveryUrl); } catch { return false; }
+  if (!/^https?:$/.test(parsed.protocol)) return false;
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  if (!host || host === "localhost" || host.endsWith(".local") || ["google.com","bing.com","duckduckgo.com","qwant.com","search.yahoo.com","search.brave.com"].some((value) => host === value || host.endsWith(`.${value}`))) return false;
+  const evidence = candidate.discoveryEvidence.join(" ").toLowerCase();
+  const identityTokens = candidate.recruiterName.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 3);
+  const employerTokens = candidate.employer.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 3 && !["the","and","inc","ltd","llc","corp","company","limited","private","pvt"].includes(token));
+  const identityPresent = identityTokens.length >= 2 && identityTokens.every((token) => evidence.includes(token));
+  const employerPresent = employerTokens.length === 0 || employerTokens.some((token) => evidence.includes(token)) || (candidate.employerDomain ? evidence.includes(candidate.employerDomain.toLowerCase()) : false);
+  const recruitingEvidence = /(recruiter|recruiting|talent acquisition|talent partner|talent sourcer|technical sourcer|hiring manager|human resources|\bhr\b|staffing|hiring|recruitment)/i.test(evidence);
+  const hiringEvidence = /(currently hiring|actively hiring|hiring now|we(?:'re| are) hiring|open roles|open positions|hiring for|looking for .*?(?:engineers?|developers?|talent)|join (?:our|my) team|apply (?:here|now)|referrals? welcome)/i.test(evidence);
+  return identityPresent && employerPresent && recruitingEvidence && hiringEvidence;
 }
 
 function recoverExplicitEmployerFromEvidence(evidence: string[]): string | null {
