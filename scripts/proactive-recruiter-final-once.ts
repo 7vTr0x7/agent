@@ -28,9 +28,11 @@ function main(): void {
   run("scripts/supplement-proactive-recruiters-once.ts");
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(JSON.stringify({ status: "FAILED", feature: "PROACTIVE_RECRUITER_FINAL", error: error instanceof Error ? error.message : String(error) }, null, 2));
-  process.exitCode = 1;
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(JSON.stringify({ status: "FAILED", feature: "PROACTIVE_RECRUITER_FINAL", error: error instanceof Error ? error.message : String(error) }, null, 2));
+    process.exitCode = 1;
+  }
 }
