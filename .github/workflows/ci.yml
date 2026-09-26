@@ -9,135 +9,80 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-
       - name: Install dependencies
-        run: npm ci
-
+        run: npm ci --include=dev
       - name: Install Playwright Chromium
         run: npx playwright install chromium
-
       - name: Typecheck
         run: npm run typecheck
-
       - name: Typecheck runtime scripts
         run: npm run typecheck:scripts
-
       - name: Build
         run: npm run build
-
       - name: Test
         run: npm test -- --runInBand
-
       - name: Build Docker image
         run: docker build --tag job-agent:ci .
-
       - name: Start isolated PostgreSQL for safe runtime
         run: |
           docker network create job-agent-runtime
-          docker run -d --name job-agent-runtime-postgres --network job-agent-runtime \
-            -e POSTGRES_DB=job_agent \
-            -e POSTGRES_USER=job_agent \
-            -e POSTGRES_PASSWORD=ci \
-            postgres:17-alpine
+          docker run -d --name job-agent-runtime-postgres --network job-agent-runtime -e POSTGRES_DB=job_agent -e POSTGRES_USER=job_agent -e POSTGRES_PASSWORD=ci postgres:17-alpine
           for i in $(seq 1 30); do
             if docker exec job-agent-runtime-postgres pg_isready -U job_agent -d job_agent >/dev/null 2>&1; then exit 0; fi
             sleep 1
           done
           docker logs job-agent-runtime-postgres
           exit 1
-
       - name: Start Job Agent in SAFE_RUNTIME
         run: |
-          docker run -d --name job-agent-runtime-app --network job-agent-runtime \
-            -p 127.0.0.1:3000:3000 \
-            -e NODE_ENV=test \
-            -e LOG_LEVEL=info \
-            -e API_HOST=0.0.0.0 \
-            -e API_PORT=3000 \
+          docker run -d --name job-agent-runtime-app --network job-agent-runtime -p 127.0.0.1:3000:3000 \
+            -e NODE_ENV=test -e LOG_LEVEL=info -e API_HOST=0.0.0.0 -e API_PORT=3000 \
             -e DATABASE_URL=postgres://job_agent:ci@job-agent-runtime-postgres:5432/job_agent \
-            -e AUTOMATION_ENABLED=false \
-            -e APPLICATION_DRY_RUN=true \
-            -e OUTBOUND_ENABLED=false \
-            -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false \
-            -e JOB_DISCOVERY_ENABLED=false \
-            -e RECRUITER_OUTREACH_ENABLED=false \
-            -e RECRUITER_OUTREACH_DRY_RUN=true \
-            -e RECRUITER_OUTREACH_ACTIVATION=disabled \
-            -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false \
-            -e GMAIL_ENABLED=false \
-            -e EMAIL_ENABLED=false \
-            -e RESUME_TAILORING_ENABLED=false \
-            -e CANDIDATE_PROFILE_ID=runtime-test-candidate \
-            -e CANDIDATE_YEARS_EXPERIENCE=3 \
+            -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e OUTBOUND_ENABLED=false \
+            -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false -e JOB_DISCOVERY_ENABLED=false \
+            -e RECRUITER_OUTREACH_ENABLED=false -e RECRUITER_OUTREACH_DRY_RUN=true \
+            -e RECRUITER_OUTREACH_ACTIVATION=disabled -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false \
+            -e GMAIL_ENABLED=false -e EMAIL_ENABLED=false -e RESUME_TAILORING_ENABLED=false \
+            -e CANDIDATE_PROFILE_ID=runtime-test-candidate -e CANDIDATE_YEARS_EXPERIENCE=3 \
             -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux,Node,Express,MongoDB' \
             -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Full Stack Developer,React Developer' \
-            -e CANDIDATE_FIRST_NAME=Runtime \
-            -e CANDIDATE_LAST_NAME=Test \
-            -e CANDIDATE_FULL_NAME='Runtime Test' \
-            -e CANDIDATE_LOCATION=India \
-            -e CANDIDATE_SPONSORSHIP_REQUIRED=false \
-            -e CANDIDATE_NOTICE_PERIOD_DAYS=0 \
-            -e GENERIC_APPLICATION_ADAPTER_ENABLED=true \
-            -e JOB_DISCOVERY_INTERVAL_MS=60000 \
-            -e APPLICATION_QUEUE_INTERVAL_MS=1000 \
-            -e STALE_SUBMISSION_CHECK_INTERVAL_MS=1000 \
-            -e FOLLOW_UP_INTERVAL_MS=1000 \
-            -e INTERVIEW_REMINDER_INTERVAL_MS=1000 \
-            -e RECRUITER_FOLLOWUP_ENABLED=true \
-            -e RECRUITER_FOLLOWUP_DAY_OFFSETS=4,10,18 \
-            job-agent:ci
-
+            -e CANDIDATE_FIRST_NAME=Runtime -e CANDIDATE_LAST_NAME=Test -e CANDIDATE_FULL_NAME='Runtime Test' \
+            -e CANDIDATE_LOCATION=India -e CANDIDATE_SPONSORSHIP_REQUIRED=false -e CANDIDATE_NOTICE_PERIOD_DAYS=0 \
+            -e GENERIC_APPLICATION_ADAPTER_ENABLED=true -e JOB_DISCOVERY_INTERVAL_MS=60000 \
+            -e APPLICATION_QUEUE_INTERVAL_MS=1000 -e STALE_SUBMISSION_CHECK_INTERVAL_MS=1000 \
+            -e FOLLOW_UP_INTERVAL_MS=1000 -e INTERVIEW_REMINDER_INTERVAL_MS=1000 \
+            -e RECRUITER_FOLLOWUP_ENABLED=true -e RECRUITER_FOLLOWUP_DAY_OFFSETS=4,10,18 job-agent:ci
       - name: Verify safe runtime health and database schema
         shell: bash
         run: |
-          for i in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:3000/healthz | tee /tmp/job-agent-health.json; then break; fi
-            sleep 1
-          done
+          for i in $(seq 1 60); do if curl --fail --silent http://127.0.0.1:3000/healthz | tee /tmp/job-agent-health.json; then break; fi; sleep 1; done
           test -s /tmp/job-agent-health.json
           grep -q '\"status\":\"ok\"' /tmp/job-agent-health.json
           docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM schema_migrations;"
           docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM tasks;"
           docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM applications;"
-
       - name: Verify active Phase 6 database invariants
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== schema_migrations table definition ==='
-          docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -c "SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='schema_migrations' ORDER BY ordinal_position;"
           migration_columns="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT string_agg(column_name, ',' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_schema='public' AND table_name='schema_migrations';" | tr -d '[:space:]')"
           test "$migration_columns" = 'id,name,applied_at'
           migration_primary_key="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT string_agg(a.attname, ',' ORDER BY k.ordinality) FROM pg_constraint c JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS k(attnum, ordinality) ON TRUE JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum WHERE c.conrelid='public.schema_migrations'::regclass AND c.contype='p';" | tr -d '[:space:]')"
           test "$migration_primary_key" = 'id'
-          echo '=== applied Phase 6 migrations ==='
-          docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -c "SELECT id,name,applied_at FROM schema_migrations WHERE name IN ('030_recruiter_mailbox_verification_invariant.sql','031_recruiter_mailbox_verification_evidence_invariant.sql','032_recruiter_mailbox_evidence_quality_invariant.sql','033_recruiter_mailbox_domain_and_evidence_quality.sql') ORDER BY name;"
           migration_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM schema_migrations WHERE name IN ('030_recruiter_mailbox_verification_invariant.sql','031_recruiter_mailbox_verification_evidence_invariant.sql','032_recruiter_mailbox_evidence_quality_invariant.sql','033_recruiter_mailbox_domain_and_evidence_quality.sql');" | tr -d '[:space:]')"
           test "$migration_count" = '4'
-          missing_migration_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM (VALUES ('030_recruiter_mailbox_verification_invariant.sql'),('031_recruiter_mailbox_verification_evidence_invariant.sql'),('032_recruiter_mailbox_evidence_quality_invariant.sql'),('033_recruiter_mailbox_domain_and_evidence_quality.sql')) AS expected(name) LEFT JOIN schema_migrations m ON m.name=expected.name WHERE m.name IS NULL;" | tr -d '[:space:]')"
-          test "$missing_migration_count" = '0'
-          echo '=== active Phase 6 recruiter_contacts constraints ==='
-          docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -c "SELECT conname, convalidated, pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='public.recruiter_contacts'::regclass AND conname IN ('recruiter_contacts_mailbox_verification_check','recruiter_contacts_verified_mailbox_evidence_check','recruiter_contacts_verified_email_status_check','recruiter_contacts_mailbox_verification_evidence_check','recruiter_contacts_mailbox_verification_evidence_quality_check','recruiter_contacts_verified_mailbox_domain_check','recruiter_contacts_verified_mailbox_evidence_strict_check') ORDER BY conname;"
           constraint_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_constraint WHERE conrelid='public.recruiter_contacts'::regclass AND conname IN ('recruiter_contacts_mailbox_verification_check','recruiter_contacts_verified_mailbox_evidence_check','recruiter_contacts_verified_email_status_check','recruiter_contacts_mailbox_verification_evidence_check','recruiter_contacts_mailbox_verification_evidence_quality_check','recruiter_contacts_verified_mailbox_domain_check','recruiter_contacts_verified_mailbox_evidence_strict_check') AND convalidated=true;" | tr -d '[:space:]')"
           test "$constraint_count" = '7'
-          missing_constraint_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM (VALUES ('recruiter_contacts_mailbox_verification_check'),('recruiter_contacts_verified_mailbox_evidence_check'),('recruiter_contacts_verified_email_status_check'),('recruiter_contacts_mailbox_verification_evidence_check'),('recruiter_contacts_mailbox_verification_evidence_quality_check'),('recruiter_contacts_verified_mailbox_domain_check'),('recruiter_contacts_verified_mailbox_evidence_strict_check')) AS expected(conname) LEFT JOIN pg_constraint c ON c.conrelid='public.recruiter_contacts'::regclass AND c.conname=expected.conname AND c.convalidated=true WHERE c.oid IS NULL;" | tr -d '[:space:]')"
-          test "$missing_constraint_count" = '0'
-          function_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_proc WHERE proname='job_agent_has_quality_mailbox_evidence';" | tr -d '[:space:]')"
-          test "$function_count" = '1'
-          proactive_index_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' AND indexname='uq_proactive_recruiter_sequence';" | tr -d '[:space:]')"
-          test "$proactive_index_count" = '1'
-          echo "Phase 6 schema verification passed: migrations=$migration_count constraints=$constraint_count proactive_dedup_index=$proactive_index_count"
-
+          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_proc WHERE proname='job_agent_has_quality_mailbox_evidence';" | tr -d '[:space:]')" = '1'
+          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' AND indexname='uq_proactive_recruiter_sequence';" | tr -d '[:space:]')" = '1'
       - name: Verify read-only Phase 6 eligibility listing
         shell: bash
         run: |
@@ -145,99 +90,37 @@ jobs:
           docker exec job-agent-runtime-app npx tsx scripts/list-phase6-eligible-outreach.ts | tee /tmp/phase6-eligible.json
           test -s /tmp/phase6-eligible.json
           grep -q '^\[\|^{' /tmp/phase6-eligible.json
-
       - name: Verify isolated proactive recruiter runtime without a job
         shell: bash
         run: |
           set -euo pipefail
           fixture_name=job-agent-proactive-fixture
           trap 'docker rm -f "$fixture_name" >/dev/null 2>&1 || true' EXIT
-          docker run -d --name "$fixture_name" --network job-agent-runtime \
-            -e NODE_ENV=test \
-            -e LOG_LEVEL=info \
-            -e DATABASE_URL=postgres://job_agent:ci@job-agent-runtime-postgres:5432/job_agent \
-            -e AUTOMATION_ENABLED=true \
-            -e APPLICATION_DRY_RUN=true \
-            -e OUTBOUND_ENABLED=false \
-            -e GMAIL_ENABLED=false \
-            -e EMAIL_ENABLED=false \
-            -e PROACTIVE_RECRUITER_ENABLED=true \
-            -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
-            -e PROACTIVE_RECRUITER_FIXTURE=true \
-            -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
-            -e CANDIDATE_PROFILE_ID=runtime-test-candidate \
-            -e CANDIDATE_YEARS_EXPERIENCE=3 \
-            -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux,Node,Express,MongoDB' \
-            -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Full Stack Developer,React Developer' \
-            -e CANDIDATE_FIRST_NAME=Runtime \
-            -e CANDIDATE_LAST_NAME=Test \
-            -e CANDIDATE_FULL_NAME='Runtime Test' \
-            -e CANDIDATE_LOCATION=India \
-            -e CANDIDATE_SPONSORSHIP_REQUIRED=false \
-            -e CANDIDATE_NOTICE_PERIOD_DAYS=0 \
-            job-agent:ci node scripts/proactive-recruiter-once.cjs
-          for i in $(seq 1 30); do
-            fixture_running="$(docker inspect -f '{{.State.Running}}' "$fixture_name")"
-            if [ "$fixture_running" = 'false' ]; then break; fi
-            sleep 1
-          done
-          fixture_running="$(docker inspect -f '{{.State.Running}}' "$fixture_name")"
-          echo "Proactive fixture running state: $fixture_running"
-          if [ "$fixture_running" != 'false' ]; then
-            echo 'FAIL: proactive fixture did not exit within 30 seconds'
-            docker logs "$fixture_name" || true
-            exit 1
-          fi
+          docker run -d --name "$fixture_name" --network job-agent-runtime -e NODE_ENV=test -e LOG_LEVEL=info \
+            -e DATABASE_URL=postgres://job_agent:ci@job-agent-runtime-postgres:5432/job_agent -e AUTOMATION_ENABLED=true \
+            -e APPLICATION_DRY_RUN=true -e OUTBOUND_ENABLED=false -e GMAIL_ENABLED=false -e EMAIL_ENABLED=false \
+            -e PROACTIVE_RECRUITER_ENABLED=true -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e PROACTIVE_RECRUITER_FIXTURE=true \
+            -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e CANDIDATE_PROFILE_ID=runtime-test-candidate \
+            -e CANDIDATE_YEARS_EXPERIENCE=3 -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux,Node,Express,MongoDB' \
+            -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Full Stack Developer,React Developer' -e CANDIDATE_FIRST_NAME=Runtime \
+            -e CANDIDATE_LAST_NAME=Test -e CANDIDATE_FULL_NAME='Runtime Test' -e CANDIDATE_LOCATION=India \
+            -e CANDIDATE_SPONSORSHIP_REQUIRED=false -e CANDIDATE_NOTICE_PERIOD_DAYS=0 job-agent:ci node scripts/proactive-recruiter-once.cjs
+          for i in $(seq 1 30); do [ "$(docker inspect -f '{{.State.Running}}' "$fixture_name")" = 'false' ] && break; sleep 1; done
+          test "$(docker inspect -f '{{.State.Running}}' "$fixture_name")" = 'false'
           fixture_exit="$(docker inspect -f '{{.State.ExitCode}}' "$fixture_name")"
-          echo "Proactive fixture container exit code: $fixture_exit"
           docker logs "$fixture_name" > /tmp/proactive-recruiter-fixture.log 2>&1
-          docker_logs_rc=$?
           cat /tmp/proactive-recruiter-fixture.log
-          echo "Proactive fixture docker logs exit code: $docker_logs_rc"
-          if [ "$docker_logs_rc" != '0' ]; then
-            echo "FAIL: docker logs returned $docker_logs_rc"
-            exit 1
-          fi
-          if [ "$fixture_exit" != '0' ]; then
-            echo "FAIL: proactive fixture process returned $fixture_exit"
-            exit 1
-          fi
-          for expected in '"status":"ok"' '"discovered":1' '"persisted":1' '"prepared":0' '"sendEnabled":false'; do
-            if ! grep -q "$expected" /tmp/proactive-recruiter-fixture.log; then
-              echo "FAIL: missing proactive runtime assertion: $expected"
-              exit 1
-            fi
-            echo "PASS: proactive runtime assertion: $expected"
-          done
+          test "$fixture_exit" = '0'
+          for expected in '"status":"ok"' '"discovered":1' '"persisted":1' '"prepared":0' '"sendEnabled":false'; do grep -q "$expected" /tmp/proactive-recruiter-fixture.log; done
           recruiter_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
-          echo "recruiter_count=$recruiter_count"
           test "$recruiter_count" = '1'
-          recruiter_verified="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT verified::int FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
-          echo "recruiter_verified=$recruiter_verified"
-          test "$recruiter_verified" = '0'
-          recruiter_mailbox_evidence="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT mailbox_evidence::int FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
-          echo "recruiter_mailbox_evidence=$recruiter_mailbox_evidence"
-          test "$recruiter_mailbox_evidence" = '0'
-          recruiter_email_status="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT UPPER(COALESCE(email_status,'')) FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
-          echo "recruiter_email_status=$recruiter_email_status"
-          test "$recruiter_email_status" != 'VERIFIED'
-          recruiter_verification_status="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT LOWER(COALESCE(verification_status,'')) FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')"
-          echo "recruiter_verification_status=$recruiter_verification_status"
-          test "$recruiter_verification_status" = 'public-web-unverified'
-          proactive_evidence_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_proactive_evidence e JOIN recruiter_contacts c ON c.id=e.recruiter_contact_id WHERE LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com';" | tr -d '[:space:]')"
-          echo "proactive_evidence_count=$proactive_evidence_count"
-          test "$proactive_evidence_count" -ge 1
-          proactive_sequence_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_sequences s JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE s.campaign_type='PROACTIVE_RECRUITER' AND s.job_opportunity_id IS NULL AND LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com';" | tr -d '[:space:]')"
-          echo "proactive_sequence_count=$proactive_sequence_count"
-          test "$proactive_sequence_count" -eq 0
-          outbound_message_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com';" | tr -d '[:space:]')"
-          echo "outbound_message_count=$outbound_message_count"
-          test "$outbound_message_count" -eq 0
-          sent_message_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com' AND UPPER(m.status)='SENT';" | tr -d '[:space:]')"
-          echo "sent_message_count=$sent_message_count"
-          test "$sent_message_count" -eq 0
-          echo "Proactive no-job safety verification passed: recruiter=$recruiter_count evidence=$proactive_evidence_count sequences=$proactive_sequence_count outbound_messages=$outbound_message_count sent_messages=$sent_message_count verified=$recruiter_verified mailbox_evidence=$recruiter_mailbox_evidence email_status=$recruiter_email_status verification_status=$recruiter_verification_status"
-
+          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT verified::int FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')" = '0'
+          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT mailbox_evidence::int FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')" = '0'
+          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT UPPER(COALESCE(email_status,'')) FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')" != 'VERIFIED'
+          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT LOWER(COALESCE(verification_status,'')) FROM recruiter_contacts WHERE LOWER(email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')" = 'public-web-unverified'
+          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_proactive_evidence e JOIN recruiter_contacts c ON c.id=e.recruiter_contact_id WHERE LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com';" | tr -d '[:space:]')" -ge 1
+          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_sequences s JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE s.campaign_type='PROACTIVE_RECRUITER' AND s.job_opportunity_id IS NULL AND LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com';" | tr -d '[:space:]')" -eq 0
+          test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id WHERE LOWER(c.email)='jane@acme.com' AND LOWER(c.company_domain)='acme.com';" | tr -d '[:space:]')" -eq 0
       - name: Verify safe runtime logs and kill switches
         shell: bash
         run: |
@@ -246,11 +129,8 @@ jobs:
           ! grep -Eiq 'ERROR|FATAL|UnhandledPromiseRejection|ECONNREFUSED|migration error|authentication error' /tmp/job-agent-runtime.log
           grep -q 'job-agent started' /tmp/job-agent-runtime.log
           ! grep -Eiq 'gmailMessageId|refreshToken|access_token|client_secret|api[_-]?key|password=' /tmp/job-agent-runtime.log
-
       - name: Verify runtime container stays healthy
-        run: |
-          test "$(docker inspect -f '{{.State.Running}}' job-agent-runtime-app)" = "true"
-
+        run: test "$(docker inspect -f '{{.State.Running}}' job-agent-runtime-app)" = "true"
       - name: Cleanup safe runtime
         if: always()
         run: |
