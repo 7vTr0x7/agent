@@ -61,7 +61,7 @@ async function main(): Promise<void> {
   const database = new Database(process.env.DATABASE_URL ?? "");
   try {
     const result = await database.query<{
-      id: string;
+      resource_id: string;
       email: string;
       title: string;
       source_url: string;
@@ -72,7 +72,7 @@ async function main(): Promise<void> {
       observed_at: string;
     }>(
       `SELECT DISTINCT ON (c.normalized_email)
-          c.id,
+          c.resource_id,
           c.normalized_email AS email,
           r.title,
           r.source_url,
@@ -94,7 +94,7 @@ async function main(): Promise<void> {
     for (const row of result.rows) {
       const companyName = row.title.trim() || new URL(row.source_url).hostname;
       const promotion = buildContactPromotion({
-        resourceId: row.id,
+        resourceId: row.resource_id,
         email: row.email,
         companyName,
         sourceUrl: row.source_url,
@@ -129,7 +129,7 @@ async function main(): Promise<void> {
         [
           promotion.companyName,
           promotion.email,
-          promotion.sourceUrl,
+          "public_contact_resource",
           promotion.sourceUrl,
           promotion.sourceType,
           JSON.stringify(promotion.provenance),
