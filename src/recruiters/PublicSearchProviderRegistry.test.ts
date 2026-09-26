@@ -19,23 +19,22 @@ describe("PublicSearchProviderRegistry", () => {
     }
   });
 
-  it("removes the brittle LinkedIn site operator and broadens the role token", () => {
-    const sources = sourceList('site:linkedin.com/in "technical recruiter" "Frontend Engineer" "Bengaluru"');
+  it("preserves the explicit LinkedIn profile site operator", () => {
+    const query = 'site:linkedin.com/in "technical recruiter" "Frontend Engineer" "Bengaluru"';
+    const sources = sourceList(query);
     const google = sources.find(source => source.id === "google-direct");
-    expect(google?.url).toContain(encodeURIComponent('"technical recruiter" React "Bengaluru" LinkedIn'));
-    expect(google?.url).not.toContain(encodeURIComponent("site:linkedin.com/in"));
-    expect(google?.url).not.toContain(encodeURIComponent('"Frontend Engineer"'));
+    expect(google?.url).toContain(encodeURIComponent(query));
+    expect(decodeURIComponent(google?.url ?? "")).toContain(query);
   });
 
-  it("applies the same resilient query treatment to hiring-post searches", () => {
-    const sources = sourceList('site:linkedin.com/posts "we are hiring" "Frontend Engineer" "Bengaluru"');
-    const google = sources.find(source => source.id === "google-direct");
-    expect(google?.url).toContain(encodeURIComponent('"we are hiring" React "Bengaluru" LinkedIn'));
-    expect(google?.url).not.toContain(encodeURIComponent("site:linkedin.com/posts"));
+  it("preserves LinkedIn hiring-post constraints", () => {
+    const query = 'site:linkedin.com/posts "we are hiring" "Frontend Engineer" "Bengaluru"';
+    const google = sourceList(query).find(source => source.id === "google-direct");
+    expect(decodeURIComponent(google?.url ?? "")).toContain(query);
   });
 
   it("does not rewrite unrelated public-search queries", () => {
-    const sources = sourceList('site:example.com "Frontend Engineer" Bengaluru');
-    expect(sources.find(source => source.id === "google-direct")?.url).toContain(encodeURIComponent('site:example.com "Frontend Engineer" Bengaluru'));
+    const query = 'site:example.com "Frontend Engineer" Bengaluru';
+    expect(sourceList(query).find(source => source.id === "google-direct")?.url).toContain(encodeURIComponent(query));
   });
 });
