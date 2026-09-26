@@ -11,13 +11,12 @@ function run(script: string): void {
     stdio: "inherit",
     env: {
       ...process.env,
-      // Keep the real discovery path, but cap both the public recruiter search
-      // and the hiring-post branch tightly enough to finish inside the local
-      // enrichment acceptance window. The discovery service also performs its
-      // own hiring-post pass, so a 4-query recruiter cap was still too large.
-      PROACTIVE_RECRUITER_MAX_QUERIES: boundedEnv("PROACTIVE_RECRUITER_MAX_QUERIES", 2, 2),
+      // Four recruiter queries are the existing bounded product contract. The
+      // previous two-query cap was too aggressive: a live Bing response can
+      // spend a query on search chrome and return no LinkedIn profile URLs.
+      PROACTIVE_RECRUITER_MAX_QUERIES: boundedEnv("PROACTIVE_RECRUITER_MAX_QUERIES", 4, 4),
       PROACTIVE_RECRUITER_JOB_LINKED_LIMIT: boundedEnv("PROACTIVE_RECRUITER_JOB_LINKED_LIMIT", 1, 1),
-      PUBLIC_HIRING_POST_MAX_QUERIES: boundedEnv("PUBLIC_HIRING_POST_MAX_QUERIES", 1, 1)
+      PUBLIC_HIRING_POST_MAX_QUERIES: boundedEnv("PUBLIC_HIRING_POST_MAX_QUERIES", 2, 2)
     }
   });
   if (result.status !== 0) throw new Error(`${script} failed with exit code ${result.status ?? "unknown"}.`);
@@ -25,7 +24,18 @@ function run(script: string): void {
 
 function main(): void {
   run("scripts/proactive-recruiter-once.ts");
-  run("scripts/supplement-proactive-recruiters-once.ts");
+  try {
+    run("scripts/supplement-proactive-recruiters-once.ts");
+  } catch (error) {
+    // Supplement discovery is additive. Keep the primary recruiter cycle
+    // successful and expose the secondary failure instead of preventing the
+    // contact/content engines from running.
+    console.error(JSON.stringify({
+      status: "DEGRADED",
+      feature: "PROACTIVE_RECRUITER_SUPPLEMENT",
+      error: error instanceof Error ? error.message : String(error)
+    }, null, 2));
+  }
 }
 
 if (require.main === module) {
