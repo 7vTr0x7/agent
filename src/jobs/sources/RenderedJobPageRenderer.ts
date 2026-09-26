@@ -107,8 +107,11 @@ export class PlaywrightJobPageRenderer implements RenderedPageRenderer {
     if (next) next();
   }
 
-  private getBrowser(): Promise<Browser> {
+  private async getBrowser(): Promise<Browser> {
     if (!this.browserPromise) this.browserPromise = chromium.launch({ headless: true });
+    const browser = await this.browserPromise;
+    if (browser.isConnected()) return browser;
+    this.browserPromise = chromium.launch({ headless: true });
     return this.browserPromise;
   }
 }
