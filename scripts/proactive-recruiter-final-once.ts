@@ -7,16 +7,20 @@ export function boundedEnv(name: string, fallback: number, maximum: number): str
 }
 
 function run(script: string): void {
-  const result = spawnSync(process.execPath, ["node_modules/tsx/dist/cli.mjs", script], {
+  const result = spawnSync(process.execPath, ["./node_modules/tsx/dist/cli.mjs", script], {
     stdio: "inherit",
     env: {
       ...process.env,
-      // Four recruiter queries are the existing bounded product contract. The
-      // previous two-query cap was too aggressive: a live Bing response can
-      // spend a query on search chrome and return no LinkedIn profile URLs.
-      PROACTIVE_RECRUITER_MAX_QUERIES: boundedEnv("PROACTIVE_RECRUITER_MAX_QUERIES", 4, 4),
-      PROACTIVE_RECRUITER_JOB_LINKED_LIMIT: boundedEnv("PROACTIVE_RECRUITER_JOB_LINKED_LIMIT", 1, 1),
-      PUBLIC_HIRING_POST_MAX_QUERIES: boundedEnv("PUBLIC_HIRING_POST_MAX_QUERIES", 2, 2)
+      // Keep recruiter discovery bounded, but do not pin it to the four search
+      // providers that were observed returning only search chrome/rate-limit
+      // pages in the latest real runtime. The public search registry already
+      // validates and filters the provider URLs; this widens only the bounded
+      // source set used for recruiter enrichment.
+      PROACTIVE_RECRUITER_MAX_QUERIES: boundedEnv("PROACTIVE_RECRUITER_MAX_QUERIES", 6, 8),
+      PROACTIVE_RECRUITER_TARGET_CANDIDATES: boundedEnv("PROACTIVE_RECRUITER_TARGET_CANDIDATES", 8, 8),
+      PROACTIVE_RECRUITER_SEARCH_PROVIDERS: process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS?.trim() || "google-direct,bing-direct,yahoo-direct,brave-direct,mojeek-direct,qwant-direct,startpage-jina,ecosia-jina",
+      PROACTIVE_RECRUITER_JOB_LINKED_LIMIT: boundedEnv("PROACTIVE_RECRUITER_JOB_LINKED_LIMIT", 1, 2),
+      PUBLIC_HIRING_POST_MAX_QUERIES: boundedEnv("PUBLIC_HIRING_POST_MAX_QUERIES", 4, 6)
     }
   });
   if (result.status !== 0) throw new Error(`${script} failed with exit code ${result.status ?? "unknown"}.`);
