@@ -10,14 +10,19 @@ export interface Source {
 }
 
 export function sourceList(query: string): Source[] {
-  // Search-engine site queries for LinkedIn profile/post pages are frequently
-  // rewritten into dictionary/help/navigation results when an exact job title
-  // is quoted. Keep the recruiter/hiring intent and geography, but broaden only
-  // the known job-title token to React. Downstream identity, role, relevance and
-  // hiring-evidence validation remains unchanged, so broader discovery cannot
-  // promote an unrelated person or post.
-  const effectiveQuery = query.includes("site:linkedin.com/in") || query.includes("site:linkedin.com/posts")
-    ? query.replace(/"(?:Frontend Engineer|Frontend Developer|React Developer|React Engineer|Next\.js Developer|JavaScript Developer|TypeScript Developer|Software Engineer — Frontend|Full Stack Developer — React|Full Stack Engineer — React|Web Developer)"/gi, "React")
+  // Search engines frequently ignore/garble LinkedIn site operators and return
+  // navigation/dictionary pages instead of the public profile/post results that
+  // the query is asking for. Remove only the brittle site operator and retain a
+  // LinkedIn keyword; downstream URL classification and evidence validation still
+  // require a genuine public LinkedIn profile/post before anything is promoted.
+  const isLinkedInRecruiterQuery = /site:linkedin\.com\/in/i.test(query);
+  const isLinkedInHiringPostQuery = /site:linkedin\.com\/posts/i.test(query);
+  const effectiveQuery = isLinkedInRecruiterQuery || isLinkedInHiringPostQuery
+    ? query
+      .replace(/site:linkedin\.com\/(?:in|posts)\s*/i, "")
+      .replace(/"(?:Frontend Engineer|Frontend Developer|React Developer|React Engineer|Next\.js Developer|JavaScript Developer|TypeScript Developer|Software Engineer — Frontend|Full Stack Developer — React|Full Stack Engineer — React|Web Developer)"/gi, "React")
+      .replace(/\s+/g, " ")
+      .trim() + " LinkedIn"
     : query;
   const q = encodeURIComponent(effectiveQuery);
   const sources: Source[] = [
