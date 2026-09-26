@@ -9,6 +9,7 @@
     "start": "node -e \"require('./dist/api/bootstrap'); require('./dist/index')\"",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:local-enrichment-lifecycle": "bash scripts/test-local-enrichment-lifecycle.sh",
     "verify": "npm run typecheck && npm run build && npm test -- --runInBand",
     "verify:discovery": "tsx scripts/verify-job-sources.ts",
     "dry-run": "tsx scripts/dry-run-application.ts",

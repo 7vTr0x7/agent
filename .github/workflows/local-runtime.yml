@@ -136,26 +136,7 @@ jobs:
       - name: Verify enrichment workers independently execute
         if: always()
         shell: bash
-        run: |
-          set -euo pipefail
-          deadline=$((SECONDS+360))
-          while true; do
-            ready=true
-            for container in job-agent-local-recruiter job-agent-local-contacts job-agent-local-content; do
-              test "$(docker inspect -f '{{.State.Status}}' "$container")" = running
-              case "$container" in
-                *recruiter*) log=/tmp/job-agent-proactive-recruiter.log ;;
-                *contacts*) log=/tmp/job-agent-contact-resources.log ;;
-                *content*) log=/tmp/job-agent-content.log ;;
-              esac
-              count="$(docker exec "$container" sh -lc "test -f '$log' && grep -Ec 'enrichment cycle (completed|failed)' '$log' || true")"
-              echo "$container cycles=$count"
-              if (( ${count:-0} < 1 )); then ready=false; fi
-            done
-            if [ "$ready" = true ]; then break; fi
-            if (( SECONDS >= deadline )); then echo 'enrichment workers did not complete a real cycle'; exit 1; fi
-            sleep 5
-          done
+        run: bash scripts/verify-enrichment-workers.sh
       - name: Verify real persisted state, source health and safety
         if: always()
         shell: bash
