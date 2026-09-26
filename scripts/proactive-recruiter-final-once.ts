@@ -15,7 +15,8 @@ function run(script: string): void {
       // runtime acceptance window. Keep the existing discovery implementation,
       // but bound the expensive public-search fan-out and job-linked fallback.
       PROACTIVE_RECRUITER_MAX_QUERIES: boundedEnv("PROACTIVE_RECRUITER_MAX_QUERIES", 4, 4),
-      PROACTIVE_RECRUITER_JOB_LINKED_LIMIT: boundedEnv("PROACTIVE_RECRUITER_JOB_LINKED_LIMIT", 1, 1)
+      PROACTIVE_RECRUITER_JOB_LINKED_LIMIT: boundedEnv("PROACTIVE_RECRUITER_JOB_LINKED_LIMIT", 1, 1),
+      PUBLIC_HIRING_POST_MAX_QUERIES: boundedEnv("PUBLIC_HIRING_POST_MAX_QUERIES", 2, 2)
     }
   });
   if (result.status !== 0) throw new Error(`${script} failed with exit code ${result.status ?? "unknown"}.`);
