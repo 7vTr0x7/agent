@@ -79,10 +79,46 @@ FAKE
   echo "PASS acceptance $name -> $final_status rc=$rc"
 }
 
+run_verifier_running_case() {
+  local state_dir="$(mktemp -d)"
+  local fake_bin="$state_dir/fake-docker"
+  for mode in recruiter contacts content; do
+    printf '{"mode":"%s","status":"RUNNING","cycleId":"test-%s","startedEpoch":%s,"startedAt":"2026-09-27T00:00:00Z","finishedAt":"","durationSeconds":0,"exitCode":0,"timeoutSeconds":10,"workerPid":1}\n' "$mode" "$mode" "$(date +%s)" > "$state_dir/$mode.json"
+  done
+  cat > "$fake_bin" <<'FAKE'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+  inspect) echo running ;;
+  exec) container="$2"; mode="${container#job-agent-local-}"; cat "$ENRICHMENT_STATE_DIR/$mode.json" ;;
+  *) exit 2 ;;
+esac
+FAKE
+  chmod +x "$fake_bin"
+  (
+    sleep 7
+    for mode in recruiter contacts content; do
+      sed -i 's/"status":"RUNNING"/"status":"COMPLETED"/' "$state_dir/$mode.json"
+    done
+  ) &
+  local updater=$!
+  set +e
+  DOCKER_BIN="$fake_bin" ENRICHMENT_STATE_DIR="$state_dir" ENRICHMENT_STARTUP_WAIT_SECONDS=1 "$ROOT/verify-enrichment-workers.sh" >/tmp/verifier-running.out 2>&1
+  local rc=$?
+  set -e
+  wait "$updater"
+  [[ "$rc" -eq 0 ]] || { cat /tmp/verifier-running.out; echo "expected delayed acceptance rc=0, got $rc" >&2; exit 1; }
+  grep -q 'lifecycle=RUNNING' /tmp/verifier-running.out || { cat /tmp/verifier-running.out; exit 1; }
+  grep -q 'lifecycle=COMPLETED' /tmp/verifier-running.out || { cat /tmp/verifier-running.out; exit 1; }
+  rm -rf "$state_dir"
+  echo 'PASS acceptance RUNNING->COMPLETED after verification interval'
+}
+
 run_case command-success 'true' 5 COMPLETED
 run_running_case
 run_case command-failure 'exit 7' 5 FAILED
 run_case configured-timeout 'sleep 3' 1 TIMED_OUT
+run_verifier_running_case
 run_verifier_case acceptance-pass COMPLETED 0
 run_verifier_case acceptance-failure FAILED 1
 run_verifier_case acceptance-timeout TIMED_OUT 1
