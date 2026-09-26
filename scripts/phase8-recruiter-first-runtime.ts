@@ -31,7 +31,15 @@ async function main(): Promise<void> {
     const discovery = new ProactiveRecruiterDiscoveryService({ fetchText: async () => `<html><body>${evidence} <https://linkedin.com/in/jane-recruiter> ${email}</body></html>`, now: () => new Date("2026-09-12T00:00:00Z") });
     const discovered = await discovery.discover(candidateProfile);
     if (discovered.length < 1) throw new Error("Proactive recruiter discovery found no candidates.");
-    const candidate = { ...discovered[0], recruiterName, recruiterRole: "Technical Recruiter", employer: "Phase Eight Corp", employerDomain: companyDomain, email, emailStatus: "VERIFIED" as const, verificationEvidence: [{ provider: "phase8-fixture-mailbox-verifier", status: "mailbox_verified", confidence: 99, mailboxLevel: true, source: "isolated-test-provider" }] };
+    const identityConsistentCandidate = discovered.find((item) =>
+      item.recruiterName.trim().toLowerCase() === recruiterName.toLowerCase() &&
+      /\/in\/jane-recruiter(?:[/?#]|$)/i.test(item.discoveryUrl) &&
+      item.discoveryEvidence.some((itemEvidence) => /Jane Recruiter/i.test(itemEvidence) && /Phase Eight Corp/i.test(itemEvidence))
+    );
+    if (!identityConsistentCandidate) {
+      throw new Error(`Phase 8 identity-consistent recruiter candidate not found. Candidates: ${JSON.stringify(discovered.map((item) => ({ recruiterName: item.recruiterName, employer: item.employer, discoveryUrl: item.discoveryUrl, evidence: item.discoveryEvidence.slice(0, 2) })))}`);
+    }
+    const candidate = { ...identityConsistentCandidate, recruiterName, recruiterRole: "Technical Recruiter", employer: "Phase Eight Corp", employerDomain: companyDomain, email, emailStatus: "VERIFIED" as const, verificationEvidence: [{ provider: "phase8-fixture-mailbox-verifier", status: "mailbox_verified", confidence: 99, mailboxLevel: true, source: "isolated-test-provider" }] };
     candidate.evidenceFreshness = "current"; candidate.evidenceType = "job_hiring_evidence"; candidate.roleMatchScore = 100; candidate.hiringEvidenceScore = 100; candidate.overallConfidence = 99;
     const repository = new ProactiveRecruiterRepository(db);
     const contactId = await repository.persistCandidate(candidateProfile.id, candidate);
