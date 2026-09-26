@@ -7,12 +7,14 @@ export interface RenderedPageRenderer { render(url: string, signal?: AbortSignal
 const NAVIGATION_TIMEOUT_MS = 15000;
 const DOM_SETTLE_MS = 1200;
 const RENDER_CONCURRENCY = 4;
+const IDLE_BROWSER_CLOSE_MS = 250;
 
 /** Shared Playwright renderer for public pages. It never attempts login/CAPTCHA bypasses. */
 export class PlaywrightJobPageRenderer implements RenderedPageRenderer {
   private browserPromise: Promise<Browser> | null = null;
   private active = 0;
   private waiters: Array<() => void> = [];
+  private idleCloseTimer: ReturnType<typeof setTimeout> | null = null;
 
   async render(url: string, signal?: AbortSignal): Promise<{ result: RenderedJobPage | null; diagnostics: RenderDiagnostics }> {
     if (signal?.aborted) return { result: null, diagnostics: { outcome: "render_error", detailUrls: 0, visibleJobs: 0 } };
@@ -66,6 +68,10 @@ export class PlaywrightJobPageRenderer implements RenderedPageRenderer {
   }
 
   async close(): Promise<void> {
+    if (this.idleCloseTimer) {
+      clearTimeout(this.idleCloseTimer);
+      this.idleCloseTimer = null;
+    }
     const browser = this.browserPromise ? await this.browserPromise.catch(() => null) : null;
     this.browserPromise = null;
     await browser?.close().catch(() => undefined);
@@ -73,6 +79,10 @@ export class PlaywrightJobPageRenderer implements RenderedPageRenderer {
 
   private async acquire(signal?: AbortSignal): Promise<boolean> {
     if (signal?.aborted) return false;
+    if (this.idleCloseTimer) {
+      clearTimeout(this.idleCloseTimer);
+      this.idleCloseTimer = null;
+    }
     if (this.active < RENDER_CONCURRENCY) { this.active += 1; return true; }
     return await new Promise<boolean>((resolve) => {
       let settled = false;
@@ -104,7 +114,16 @@ export class PlaywrightJobPageRenderer implements RenderedPageRenderer {
   private release(): void {
     this.active = Math.max(0, this.active - 1);
     const next = this.waiters.shift();
-    if (next) next();
+    if (next) {
+      next();
+      return;
+    }
+    if (this.active === 0 && this.browserPromise && !this.idleCloseTimer) {
+      this.idleCloseTimer = setTimeout(() => {
+        this.idleCloseTimer = null;
+        if (this.active === 0 && this.waiters.length === 0) void this.close();
+      }, IDLE_BROWSER_CLOSE_MS);
+    }
   }
 
   private async getBrowser(): Promise<Browser> {
