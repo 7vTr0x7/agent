@@ -8,6 +8,13 @@ describe("PublicSearchProviderRegistry", () => {
     expect(ids).toContain("bing-jina");
   });
 
+  it("uses Bing RSS so result links are directly parseable", () => {
+    const bing = sourceList('site:linkedin.com/in "technical recruiter" React Bengaluru')
+      .find(source => source.id === "bing-direct");
+    expect(bing?.url).toContain("format=rss");
+    expect(decodeURIComponent(bing?.url ?? "")).toContain('site:linkedin.com/in "technical recruiter" React Bengaluru');
+  });
+
   it("includes public Jina search when no API key is configured", () => {
     const previous = process.env.JINA_API_KEY;
     delete process.env.JINA_API_KEY;
