@@ -15,6 +15,13 @@ describe("PublicSearchProviderRegistry", () => {
     expect(decodeURIComponent(bing?.url ?? "")).toContain('site:linkedin.com/in "technical recruiter" React Bengaluru');
   });
 
+  it("uses Yahoo RSS so result links and snippets are directly parseable", () => {
+    const yahoo = sourceList('site:linkedin.com/in "technical recruiter" React Bengaluru')
+      .find(source => source.id === "yahoo-direct");
+    expect(yahoo?.url).toContain("https://search.yahoo.com/rss?p=");
+    expect(decodeURIComponent(yahoo?.url ?? "")).toContain('site:linkedin.com/in "technical recruiter" React Bengaluru');
+  });
+
   it("includes public Jina search when no API key is configured", () => {
     const previous = process.env.JINA_API_KEY;
     delete process.env.JINA_API_KEY;
