@@ -31,7 +31,7 @@ async function main(): Promise<void> {
        WHERE NULLIF(TRIM(j.company_domain), '') IS NOT NULL
          AND LOWER(j.title) ~ '(react|frontend|front-end|next[.]?js|typescript|javascript|full.?stack|software engineer|web developer)'
        ORDER BY j.company_domain, j.posted_at DESC NULLS LAST, j.created_at DESC
-       LIMIT 6`
+       LIMIT 1`
     );
 
     const discovery = new PersistentRecruiterDiscoveryService({
