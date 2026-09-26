@@ -10,14 +10,14 @@ export interface Source {
 }
 
 export function sourceList(query: string): Source[] {
-  // Search-engine site queries for LinkedIn profiles are frequently rewritten by
-  // Bing/Google into dictionary/help results when an exact job title is quoted.
-  // Keep the recruiter intent + geography, but broaden only the title term to a
-  // core skill. Downstream recruiter-role, identity, company and hiring-evidence
-  // validation remains unchanged, so broader discovery cannot promote unrelated
-  // profiles.
-  const effectiveQuery = /^site:linkedin\.com\/in\s+"[^"]+"\s+"[^"]+"\s+"[^"]+"$/i.test(query)
-    ? query.replace(/^(site:linkedin\.com\/in\s+"[^"]+")\s+"[^"]+"(\s+"[^"]+")$/i, "$1 React$2")
+  // Search-engine site queries for LinkedIn profile/post pages are frequently
+  // rewritten into dictionary/help/navigation results when an exact job title
+  // is quoted. Keep the recruiter/hiring intent and geography, but broaden only
+  // the known job-title token to React. Downstream identity, role, relevance and
+  // hiring-evidence validation remains unchanged, so broader discovery cannot
+  // promote an unrelated person or post.
+  const effectiveQuery = query.includes("site:linkedin.com/in") || query.includes("site:linkedin.com/posts")
+    ? query.replace(/"(?:Frontend Engineer|Frontend Developer|React Developer|React Engineer|Next\.js Developer|JavaScript Developer|TypeScript Developer|Software Engineer — Frontend|Full Stack Developer — React|Full Stack Engineer — React|Web Developer)"/gi, "React")
     : query;
   const q = encodeURIComponent(effectiveQuery);
   const sources: Source[] = [
