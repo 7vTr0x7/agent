@@ -40,7 +40,7 @@ async function main(): Promise<void> {
       identityRepository: new RecruiterIdentityRepository(database),
       cooldownHours: 12,
       minConfidence: 80,
-      requireVerifiedEmail: false
+      requireVerifiedEmail: process.env.RECRUITER_REQUIRE_VERIFIED_EMAIL !== "false"
     });
 
     const results: Array<Record<string, unknown>> = [];
