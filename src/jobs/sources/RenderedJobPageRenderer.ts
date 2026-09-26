@@ -29,7 +29,12 @@ export class PlaywrightJobPageRenderer implements RenderedPageRenderer {
         page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
         page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
         let aborted = false;
-        const onAbort = (): void => { aborted = true; void page?.close().catch(() => undefined); };
+        const onAbort = (): void => {
+          aborted = true;
+          void page?.close().catch(() => undefined);
+          const activeBrowser = page?.context().browser();
+          if (activeBrowser) void activeBrowser.close().catch(() => undefined);
+        };
         signal?.addEventListener("abort", onAbort, { once: true });
         try {
           const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
