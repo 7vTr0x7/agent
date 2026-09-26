@@ -35,11 +35,26 @@ case "$MODE" in
     ;;
 esac
 
+# The local runtime historically restricted recruiter search to direct search-engine
+# pages. Those pages are commonly rate-limited or anti-bot protected even when the
+# same public query is available through the bounded Jina reader/search paths.
+# Keep the existing direct providers, but add the resilient public representations.
+if [[ "$MODE" == "recruiter" ]]; then
+  PROACTIVE_RECRUITER_SEARCH_PROVIDERS="${PROACTIVE_RECRUITER_SEARCH_PROVIDERS:-}"
+  for provider in bing-jina google-jina jina-search duckduckgo-jina; do
+    case ",$PROACTIVE_RECRUITER_SEARCH_PROVIDERS," in
+      *",$provider,"*) ;;
+      *) PROACTIVE_RECRUITER_SEARCH_PROVIDERS="${PROACTIVE_RECRUITER_SEARCH_PROVIDERS:+$PROACTIVE_RECRUITER_SEARCH_PROVIDERS,}$provider" ;;
+    esac
+  done
+  export PROACTIVE_RECRUITER_SEARCH_PROVIDERS
+fi
+
 mkdir -p "$(dirname "$LOG")"
 
 echo "local enrichment worker started mode=$MODE intervalMs=$INTERVAL_MS sleepSeconds=$SLEEP_SECONDS commandTimeoutSeconds=$COMMAND_TIMEOUT_SECONDS"
-
 echo "enrichment command log=$LOG"
+echo "recruiter search providers=${PROACTIVE_RECRUITER_SEARCH_PROVIDERS:-default}"
 
 while true; do
   started_at="$(date +%s)"
