@@ -21,7 +21,7 @@ export interface CombinedMatchResult {
 
 const APPLY_THRESHOLD = 30;
 const REVIEW_THRESHOLD = 20;
-const MATCHER_VERSION = "matcher-v4";
+const MATCHER_VERSION = "matcher-v5";
 
 export class MatchPipeline {
   constructor(
@@ -32,7 +32,11 @@ export class MatchPipeline {
 
   async evaluateAndPersist(job: JobOpportunity, profile: CandidateProfile): Promise<CombinedMatchResult> {
     const rawDeterministic = this.deterministic.evaluate(job, profile);
-    const deterministic = applyTechnologySafetyGate(rawDeterministic, job, profile);
+    const deterministic = applyRoleRelevanceGate(
+      applyTechnologySafetyGate(rawDeterministic, job, profile),
+      job,
+      profile
+    );
     let semantic: SemanticMatchResult | null = null;
     let semanticFallback = false;
 
@@ -107,14 +111,6 @@ function combine(deterministic: DeterministicMatchResult, semantic: SemanticMatc
   };
 }
 
-/**
- * The deterministic matcher intentionally scores broad full-stack roles, but
- * an explicitly named primary language outside the candidate's stack must not
- * silently become APPLY merely because generic skills such as JavaScript or
- * HTML also appear in the posting. This gate is conservative: it downgrades
- * only obvious primary-language mismatches to REVIEW and never creates a new
- * REJECT path.
- */
 function applyTechnologySafetyGate(result: DeterministicMatchResult, job: JobOpportunity, profile: CandidateProfile): DeterministicMatchResult {
   if (result.decision !== "APPLY") return result;
 
@@ -135,6 +131,53 @@ function applyTechnologySafetyGate(result: DeterministicMatchResult, job: JobOpp
     };
   }
 
+  return result;
+}
+
+function applyRoleRelevanceGate(result: DeterministicMatchResult, job: JobOpportunity, profile: CandidateProfile): DeterministicMatchResult {
+  if (result.decision === "REJECT") return result;
+
+  const title = job.title.toLowerCase();
+  const text = `${job.title}\n${job.description}`.toLowerCase();
+  const frontendTitle = /\b(frontend|front-end|front end|react(?:\.js|js)?|next(?:\.js|js)?|web developer|ui developer|ui engineer|javascript developer|typescript developer)\b/i.test(title);
+  const fullStackTitle = /\b(full[- ]stack|fullstack)\b/i.test(title);
+  const backendPrimary = /\b(?:java|python|\.net|dotnet|c#|php|ruby|rails|django|spring boot|golang|go)\b/i.test(title);
+  const backendRole = /\b(?:backend|back-end|back end|java developer|python developer|\.net developer|dotnet developer|spring boot developer|django developer|php developer|ruby developer|golang developer)\b/i.test(title);
+  const reactOrNextInTitle = /\b(?:react(?:\.js|js)?|next(?:\.js|js)?)\b/i.test(title);
+  const reactOrNextInBody = /\b(?:react(?:\.js|js)?|next(?:\.js|js)?)\b/i.test(text);
+  const frontendResponsibility = /\b(?:frontend|front-end|front end)\b.{0,120}\b(?:develop|build|own|maintain|implement|deliver|responsib|experience)\b|\b(?:develop|build|own|maintain|implement|deliver|responsib|experience)\b.{0,120}\b(?:frontend|front-end|front end)\b/i.test(text);
+
+  if ((backendRole || (backendPrimary && fullStackTitle)) && !frontendTitle && !reactOrNextInTitle) {
+    return {
+      ...result,
+      matchScore: 0,
+      decision: "REJECT",
+      reason: "Role relevance gate: the posting is explicitly backend-first in its title and does not identify React, Next.js, or frontend work as the target role.",
+      evidence: [...result.evidence, { type: "HARD_BLOCKER", detail: "Backend-first title without a React/Next.js/frontend title signal is not a frontend/full-stack React match." }]
+    };
+  }
+
+  if (fullStackTitle && !reactOrNextInTitle && !(reactOrNextInBody && frontendResponsibility)) {
+    return {
+      ...result,
+      matchScore: Math.min(result.matchScore, 39),
+      decision: "REVIEW",
+      reason: `${result.reason} Role relevance gate: generic full-stack title lacks explicit React/Next.js frontend responsibility; manual review required.`,
+      evidence: [...result.evidence, { type: "ROLE_FIT", detail: "Generic full-stack role requires explicit React/Next.js frontend responsibility before APPLY." }]
+    };
+  }
+
+  if (backendPrimary && !frontendTitle && !fullStackTitle && !reactOrNextInTitle) {
+    return {
+      ...result,
+      matchScore: 0,
+      decision: "REJECT",
+      reason: "Role relevance gate: competing backend technology is primary and React/Next.js is not the named role focus.",
+      evidence: [...result.evidence, { type: "HARD_BLOCKER", detail: "Incidental frontend technology does not override a competing backend-first role." }]
+    };
+  }
+
+  void profile;
   return result;
 }
 
