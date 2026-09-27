@@ -133,6 +133,16 @@ export function legitimate(url: string): boolean {
   }
 }
 
+function typeFor(url: string, contentType: string): Resource["sourceType"] {
+  const pathname = (() => {
+    try { return new URL(url).pathname.toLowerCase(); } catch { return ""; }
+  })();
+  if (/\.csv(?:$|\?)/.test(pathname) || contentType.includes("csv")) return "CSV";
+  if (/\.json(?:$|\?)/.test(pathname) || contentType.includes("json")) return "JSON";
+  if (/\.txt(?:$|\?)/.test(pathname) || contentType.startsWith("text/plain")) return "TEXT";
+  return "HTML";
+}
+
 export function isPrivateAddress(address: string): boolean {
   const version = isIP(address);
   if (version === 4) {
