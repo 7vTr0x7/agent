@@ -44,7 +44,7 @@ async function main(): Promise<void> {
     const repository = new ProactiveRecruiterRepository(db);
     const contactId = await repository.persistCandidate(candidateProfile.id, candidate);
     if (!contactId) {
-      const guard = await db.query(`SELECT recruiter_linkedin_identity_consistent($1,$2) AS linkedin_consistent, recruiter_identity_quality_consistent($3,$4,$5,$6,$7) AS quality_consistent`, [candidate.discoveryUrl, candidate.recruiterName, "proactive-public-web", candidate.recruiterName, candidate.discoveryUrl, candidate.employer, candidate.employerDomain, candidate.email]);
+      const guard = await db.query(`SELECT recruiter_linkedin_identity_consistent($1,$2) AS linkedin_consistent, recruiter_identity_quality_consistent($3,$4,$5,$6,$7,$8) AS quality_consistent`, [candidate.discoveryUrl, candidate.recruiterName, "proactive-public-web", candidate.recruiterName, candidate.discoveryUrl, candidate.employer, candidate.employerDomain, candidate.email]);
       throw new Error(`Proactive recruiter was not persisted. Persistence guard diagnostics: ${JSON.stringify({ candidate: { recruiterName: candidate.recruiterName, employer: candidate.employer, employerDomain: candidate.employerDomain, email: candidate.email, discoveryUrl: candidate.discoveryUrl, title: candidate.recruiterRole, provider: "proactive-public-web", evidenceType: candidate.evidenceType, evidenceFreshness: candidate.evidenceFreshness, targetRoles: candidate.targetRoles }, guard: guard.rows[0] })}`);
     }
     const contact = await db.query<any>(`SELECT id,company_domain,email,verified,email_status,verification_status,mailbox_evidence,verification_evidence,relevance_status,suppressed FROM recruiter_contacts WHERE id=$1`, [contactId]);
