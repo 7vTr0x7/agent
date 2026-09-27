@@ -55,7 +55,7 @@ fi
 # Pass the script as a positional argument to a non-login /bin/sh. Avoid
 # embedding shell single quotes inside the single-quoted program: with
 # `set -u`, that previously caused the host shell to expand $script and abort.
-exec docker exec -i "$APP" /bin/sh -c '
+exec docker exec -i -e "PUBLIC_HIRING_POST_DIAGNOSTICS=${PUBLIC_HIRING_POST_DIAGNOSTICS:-}" "$APP" /bin/sh -c '
   script="$1"
   shift
   case "$script" in
