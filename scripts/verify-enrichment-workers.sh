@@ -8,7 +8,12 @@ CONTAINERS=(job-agent-local-recruiter job-agent-local-contacts job-agent-local-c
 
 read_state() {
   local container="$1"
-  "$DOCKER_BIN" exec "$container" sh -lc "cat '$STATE_DIR/${container#job-agent-local-}.json'" 2>/dev/null || true
+  local output
+  if output="$("$DOCKER_BIN" exec "$container" sh -lc "cat '$STATE_DIR/${container#job-agent-local-}.json'" 2>/dev/null)"; then
+    printf '%s\n' "$output"
+  else
+    printf '\n'
+  fi
 }
 
 for container in "${CONTAINERS[@]}"; do
