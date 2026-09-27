@@ -15,10 +15,50 @@ const SEARCH_HOSTS = new Set([
   "www.yahoo.com", "search.brave.com", "www.mojeek.com", "qwant.com", "www.qwant.com",
   "r.jina.ai"
 ]);
+const CONTACT_RESOURCE_BLOCKED_PATHS = [
+  /^\/apply(?:\/|$)/i,
+  /^\/login(?:\/|$)/i,
+  /^\/logout(?:\/|$)/i,
+  /^\/my-profile(?:\/|$)/i,
+  /^\/account(?:\/|$)/i,
+  /^\/alerts(?:\/|$)/i,
+  /^\/pricing(?:\/|$)/i,
+  /^\/tools(?:\/|$)/i,
+  /^\/business(?:\/|$)/i,
+  /^\/affiliates(?:\/|$)/i,
+  /^\/image\.php(?:$|\?)/i
+];
+const CONTACT_RESOURCE_FAILURE_THRESHOLD = 2;
 const GENERIC = /^(noreply|no-reply|postmaster|webmaster|admin|support|privacy|legal|press|media|marketing|sales|security|billing|accommodations?|accessibility|helpdesk)$/i;
 const HIRING_INTENT = /we['’]?re\s+hiring|we\s+are\s+hiring|hiring\s+(?:for|a|an)|looking\s+for\s+(?:a|an)?\s*(?:frontend|front-end|react|next\.js|javascript|typescript|software|full[ -]?stack)|send\s+(?:your|me\s+your)\s+(?:resume|cv)|share\s+your\s+(?:resume|cv)|apply\s+(?:here|now)|referrals?\s+welcome|talent\s+acquisition|recruit(?:er|ing)|join\s+(?:our|my)\s+team/i;
 const ROLE_OR_SKILL = /frontend|front-end|react(?:\.js|js)?|next(?:\.js|js)?|typescript|javascript|software\s+engineer|developer|engineering/i;
 const RESOURCE_SIGNAL = /career|careers|job|jobs|hiring|hire|recruit|recruiting|talent|contact|about|people|team|resume|apply/i;
+
+type FetchRunState = {
+  hostFailures: Map<string, number>;
+  suspendedHosts: Set<string>;
+};
+
+let fetchRunState: FetchRunState = {
+  hostFailures: new Map(),
+  suspendedHosts: new Set()
+};
+
+function resetFetchRunState(): void {
+  fetchRunState = { hostFailures: new Map(), suspendedHosts: new Set() };
+}
+
+function noteHostFailure(hostname: string, status: number): void {
+  if (!hostname || (status !== 403 && status !== 429)) return;
+  const failures = (fetchRunState.hostFailures.get(hostname) ?? 0) + 1;
+  fetchRunState.hostFailures.set(hostname, failures);
+  if (failures >= CONTACT_RESOURCE_FAILURE_THRESHOLD) fetchRunState.suspendedHosts.add(hostname);
+}
+
+function isHostSuspended(value: string): boolean {
+  const hostname = host(value);
+  return Boolean(hostname && fetchRunState.suspendedHosts.has(hostname));
+}
 
 function decodeHtmlEntities(value: string): string {
   return value
@@ -56,18 +96,23 @@ function host(value: string): string {
   }
 }
 
-function typeFor(url: string, contentType: string): Resource["sourceType"] {
-  const pathname = (() => {
-    try { return new URL(url).pathname.toLowerCase(); } catch { return ""; }
-  })();
-  if (/\.csv(?:$|\?)/.test(pathname) || contentType.includes("csv")) return "CSV";
-  if (/\.json(?:$|\?)/.test(pathname) || contentType.includes("json")) return "JSON";
-  if (/\.txt(?:$|\?)/.test(pathname) || contentType.startsWith("text/plain")) return "TEXT";
-  return "HTML";
+function hasMalformedUrlFragment(value: string): boolean {
+  let decoded = value;
+  for (let i = 0; i < 2; i += 1) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    } catch {
+      break;
+    }
+  }
+  return /(?:javascript\s*:|(?:^|[\s"'])on(?:click|error|load|mouseover)\s*=|["']\s*,?\s*(?:icon|iconalt|src|href|class|style)\s*:|\biconAlt\s*:)/i.test(decoded);
 }
 
-function legitimate(url: string): boolean {
+export function legitimate(url: string): boolean {
   try {
+    if (hasMalformedUrlFragment(url)) return false;
     const parsed = new URL(url);
     const hostname = host(url);
     const pathname = parsed.pathname.toLowerCase();
@@ -79,12 +124,23 @@ function legitimate(url: string): boolean {
     if (!/^https?:$/.test(parsed.protocol) || !hostname || isSearchHost || isBlockedResourceHost || hostname === "localhost" || hostname.endsWith(".local")) {
       return false;
     }
+    if (CONTACT_RESOURCE_BLOCKED_PATHS.some((pattern) => pattern.test(pathname))) return false;
     if (/^\/(?:api|search|query|suggest|autocomplete|static|assets?|scripts?|css|js)(?:\/|$)/.test(pathname)) return false;
     if (/\.(?:js|css|map|svg|png|jpe?g|gif|webp|ico|woff2?|ttf|eot)(?:$|[?#])/i.test(pathname)) return false;
     return true;
   } catch {
     return false;
   }
+}
+
+function typeFor(url: string, contentType: string): Resource["sourceType"] {
+  const pathname = (() => {
+    try { return new URL(url).pathname.toLowerCase(); } catch { return ""; }
+  })();
+  if (/\.csv(?:$|\?)/.test(pathname) || contentType.includes("csv")) return "CSV";
+  if (/\.json(?:$|\?)/.test(pathname) || contentType.includes("json")) return "JSON";
+  if (/\.txt(?:$|\?)/.test(pathname) || contentType.startsWith("text/plain")) return "TEXT";
+  return "HTML";
 }
 
 export function isPrivateAddress(address: string): boolean {
@@ -118,7 +174,7 @@ async function assertPublicFetchUrl(url: string): Promise<void> {
 
 type FetchResult =
   | { ok: true; text: string; contentType: string; finalUrl: string; httpStatus: number; bytesRead: number; elapsedMs: number }
-  | { ok: false; failureReason: "HTTP_NON_2XX" | "TIMEOUT" | "NETWORK_ERROR" | "REDIRECT_ERROR" | "CONTENT_TOO_LARGE" | "EMPTY_BODY" | "UNSUPPORTED_CONTENT_TYPE" | "PARSER_ERROR" | "EMAIL_EXTRACTION_ERROR"; httpStatus?: number; contentType?: string; finalUrl?: string; bytesRead?: number; elapsedMs: number; errorCode?: string };
+  | { ok: false; failureReason: "HTTP_NON_2XX" | "TIMEOUT" | "NETWORK_ERROR" | "REDIRECT_ERROR" | "CONTENT_TOO_LARGE" | "EMPTY_BODY" | "UNSUPPORTED_CONTENT_TYPE" | "PARSER_ERROR" | "EMAIL_EXTRACTION_ERROR" | "HOST_SUSPENDED"; httpStatus?: number; contentType?: string; finalUrl?: string; bytesRead?: number; elapsedMs: number; errorCode?: string };
 
 async function fetchText(url: string): Promise<FetchResult> {
   const started = Date.now();
@@ -128,6 +184,9 @@ async function fetchText(url: string): Promise<FetchResult> {
   try {
     let currentUrl = url;
     for (let hop = 0; hop <= 3; hop += 1) {
+      if (isHostSuspended(currentUrl)) {
+        return { ok: false, failureReason: "HOST_SUSPENDED", finalUrl: currentUrl, elapsedMs: Date.now() - started, errorCode: "HOST_FAILURE_THRESHOLD_REACHED" };
+      }
       try {
         await assertPublicFetchUrl(currentUrl);
       } catch (error) {
@@ -168,7 +227,10 @@ async function fetchText(url: string): Promise<FetchResult> {
 
       const finalUrl = response.url || currentUrl;
       const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-      if (!response.ok) return { ok: false, failureReason: "HTTP_NON_2XX", httpStatus: response.status, contentType, finalUrl, elapsedMs: Date.now() - started };
+      if (!response.ok) {
+        noteHostFailure(host(currentUrl), response.status);
+        return { ok: false, failureReason: "HTTP_NON_2XX", httpStatus: response.status, contentType, finalUrl, elapsedMs: Date.now() - started };
+      }
 
       const maxBytes = Number(process.env.PUBLIC_CONTACT_RESOURCE_MAX_BYTES ?? 8 * 1024 * 1024);
       if (response.body) {
@@ -290,7 +352,8 @@ export function urlsFromSearch(text: string): string[] {
     ...[...text.matchAll(/\[[^\]]+\]\((https?:[^)]+)\)/gi)].map((m) => String(m[1] ?? ""))
   ];
   return [...new Set(candidates
-    .map((value) => value.replace(/[>"'.,;:!?]+$/g, ""))
+    .map((value) => hasMalformedUrlFragment(value) ? "" : value.replace(/[>"'.,;:!?]+$/g, ""))
+    .filter(Boolean)
     .map(decodeSearchResultUrl)
     .map(sanitizeEmbeddedJsonUrl)
     .map(canonical))]
@@ -352,12 +415,12 @@ function extractHtmlEmailContexts(html: string): Array<{ email: string; context:
 
   addMatches(decoded, decoded);
 
-  for (const match of decoded.matchAll(/(?:href|data-email|content|value)\\s*=\\s*["']([^"']*mailto:[^"']+)["']/gi)) {
+  for (const match of decoded.matchAll(/(?:href|data-email|content|value)\s*=\s*["']([^"']*mailto:[^"']+)["']/gi)) {
     const target = match[1] ?? "";
     addMatches(target.replace(/^mailto:/i, ""), match[0]);
   }
 
-  for (const match of decoded.matchAll(/(?:email|contactEmail|recruiterEmail|applicationEmail)\\s*["']?\\s*[:=]\\s*["']([^"']+)["']/gi)) {
+  for (const match of decoded.matchAll(/(?:email|contactEmail|recruiterEmail|applicationEmail)\s*["']?\s*[:=]\s*["']([^"']+)["']/gi)) {
     addMatches(match[1] ?? "", match[0]);
   }
 
@@ -398,6 +461,7 @@ async function validation(email: string): Promise<ValidationStatus> {
 }
 
 async function main(): Promise<void> {
+  resetFetchRunState();
   const profile = await ConfiguredCandidateProfileResolver.fromEnvironment().getById(process.env.CANDIDATE_PROFILE_ID ?? "");
   if (!profile) throw new Error("Configured candidate profile could not be resolved.");
 
@@ -426,10 +490,6 @@ async function main(): Promise<void> {
     return response.ok ? [{ source: source.url, text: response.text }] : [];
   })).flat();
 
-  // Search providers can expose only search infrastructure/anti-bot pages. The
-  // core runtime already has real public job URLs, so use those first-party job
-  // pages as an additional evidence source and extract only links actually
-  // present on the fetched page. This does not invent /careers or /contact URLs.
   const matchedJobUrls = (await db.query<{ canonical_url: string }>(
     `SELECT j.canonical_url
        FROM job_opportunities j
@@ -588,6 +648,7 @@ async function main(): Promise<void> {
     duplicateEmails: totals.duplicates,
     qualifiedContacts: totals.qualified,
     resourceContactsPersisted: totals.persisted,
+    suspendedHosts: [...fetchRunState.suspendedHosts],
     locationPriority: ["Bengaluru", "Bangalore", "India", "Remote"],
     formatsProcessed: [...new Set(ok.map((item) => item.type))],
     failedResources: failed.map((item) => ({
