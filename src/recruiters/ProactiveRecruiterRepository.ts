@@ -2,46 +2,24 @@ import { Database } from "../database/Database";
 import { ProactiveRecruiterDiscoveryCandidate, hasRequiredRecruiterEvidence } from "./ProactiveRecruiterDiscoveryService";
 import { hasExplicitMailboxEvidence, isMailboxVerifiedForRealSend, recruiterRealSendEligibilitySql } from "./RecruiterMailboxVerification";
 import { resolveEmployerDomainFromPublicSearch } from "./RecruiterCompanyDomainResolver";
-
 export interface ProactiveCampaignRecord { sequenceId: string; messageId: string; }
-
 export class ProactiveRecruiterRepository {
   constructor(private readonly database: Database) {}
-
   async persistCandidate(candidateProfileId: string, candidate: ProactiveRecruiterDiscoveryCandidate): Promise<string | null> {
     if (candidate.contactType !== "EMPLOYER" && !hasRequiredRecruiterEvidence(candidate) && !hasPublicHiringPostIdentityEvidence(candidate)) return null;
-
     const email = candidate.email?.trim().toLowerCase() || null;
     const emailDomain = email?.split("@")[1]?.toLowerCase() ?? "";
     const observedEmailDomain = emailDomain && !isGenericEmailDomain(emailDomain) ? normalizeDomain(emailDomain) : "";
-    const recoveredEmployer = candidate.employer === "Unknown employer"
-      ? recoverExplicitEmployerFromEvidence(candidate.discoveryEvidence) ?? (observedEmailDomain || null)
-      : candidate.employer;
+    const recoveredEmployer = candidate.employer === "Unknown employer" ? recoverExplicitEmployerFromEvidence(candidate.discoveryEvidence) ?? (observedEmailDomain || null) : candidate.employer;
     if (!recoveredEmployer) return null;
-
     const employerName = recoveredEmployer.trim();
-    const domain = normalizeDomain(candidate.employerDomain ?? "") ||
-      (candidate.employer === "Unknown employer" && observedEmailDomain ? observedEmailDomain : "") ||
-      (emailDomain && isCompanyMatchingDomain(emailDomain, employerName) ? normalizeDomain(emailDomain) : "") ||
-      (employerName ? await resolveEmployerDomainFromPersistedJobs(this.database, employerName) : "") ||
-      (employerName ? await resolveEmployerDomainFromPublicSearch(employerName) : "");
+    const domain = normalizeDomain(candidate.employerDomain ?? "") || (candidate.employer === "Unknown employer" && observedEmailDomain ? observedEmailDomain : "") || (emailDomain && isCompanyMatchingDomain(emailDomain, employerName) ? normalizeDomain(emailDomain) : "") || (employerName ? await resolveEmployerDomainFromPersistedJobs(this.database, employerName) : "") || (employerName ? await resolveEmployerDomainFromPublicSearch(employerName) : "");
     if (!domain) return null;
-
-    // A public hiring post can expose a recruiter whose email belongs to a
-    // third-party staffing/agency domain. That email must not be attributed to
-    // the employer identity unless its domain is consistent. The recruiter is
-    // still persistable from the independent hiring/identity evidence, but the
-    // conflicting email is discarded and therefore cannot become verified or
-    // send-eligible. This preserves the database identity guard rather than
-    // weakening it.
     const emailConsistent = !email || isEmployerEmailDomainConsistent(emailDomain, domain);
     const persistedEmail = emailConsistent ? email : null;
     const persistedEmailDomain = persistedEmail?.split("@")[1]?.toLowerCase() ?? "";
-    const persistedEmailStatus = persistedEmail
-      ? candidate.emailStatus === "LIKELY" ? "LIKELY" : candidate.emailStatus === "INVALID" ? "INVALID" : "UNVERIFIED"
-      : "UNVERIFIED";
+    const persistedEmailStatus = persistedEmail ? candidate.emailStatus === "VERIFIED" ? "VERIFIED" : candidate.emailStatus === "LIKELY" ? "LIKELY" : candidate.emailStatus === "INVALID" ? "INVALID" : "UNVERIFIED" : "UNVERIFIED";
     const persistedVerificationEvidence = persistedEmail ? (candidate.verificationEvidence ?? []) : [];
-
     const relevanceStatus = candidate.hiringEvidenceScore > 0 ? (candidate.evidenceFreshness === "current" ? "CURRENT" : candidate.evidenceFreshness === "recent" ? "RECENT" : candidate.evidenceFreshness === "historical" ? "HISTORICAL" : "UNKNOWN") : "UNKNOWN";
     const explicitMailboxEvidence = hasExplicitMailboxEvidence(persistedVerificationEvidence);
     const mailboxEvidence = Boolean(persistedEmail) && explicitMailboxEvidence && isMailboxVerifiedForRealSend({ verified: candidate.emailStatus === "VERIFIED", mailboxEvidence: true, verificationEvidence: persistedVerificationEvidence, emailStatus: persistedEmailStatus, verificationStatus: "mailbox_verified", relevanceStatus, suppressed: false }) && persistedEmailDomain === domain;
@@ -62,15 +40,12 @@ export class ProactiveRecruiterRepository {
       id = result.rows[0]?.id;
     }
     if (!id) return null;
-    const sourceType = candidate.evidenceType === "job_hiring_evidence"
-      ? candidate.evidenceFreshness === "current" ? "current_job_posting" : candidate.evidenceFreshness === "recent" ? "recent_job_posting" : candidate.evidenceFreshness === "historical" ? "historical_job_posting" : "job_hiring_evidence"
-      : "public_profile";
+    const sourceType = candidate.evidenceType === "job_hiring_evidence" ? candidate.evidenceFreshness === "current" ? "current_job_posting" : candidate.evidenceFreshness === "recent" ? "recent_job_posting" : candidate.evidenceFreshness === "historical" ? "historical_job_posting" : "job_hiring_evidence" : "public_profile";
     await this.database.query(`INSERT INTO recruiter_contact_sources (recruiter_contact_id,provider,source_url,source_type,confidence,observed_at) VALUES ($1,'proactive-public-web',$2,$3,$4,NOW()) ON CONFLICT (recruiter_contact_id,provider,source_url) DO UPDATE SET confidence=GREATEST(COALESCE(recruiter_contact_sources.confidence,0),EXCLUDED.confidence),observed_at=NOW()`, [id, candidate.discoveryUrl, sourceType, Math.round(candidate.overallConfidence)]);
     await this.database.query(`UPDATE recruiter_contacts SET relevance_score=GREATEST(COALESCE(relevance_score,0),$2), relevance_evidence=$3::jsonb, updated_at=NOW() WHERE id=$1`, [id, Math.round(Math.min(100, candidate.roleMatchScore * 0.6 + candidate.hiringEvidenceScore * 0.4)), JSON.stringify({ type: candidate.evidenceType, source: candidate.discoverySource, postUrl: candidate.discoveryUrl, contactType: candidate.contactType ?? "PERSON", author: candidate.recruiterName ?? null, authorRole: candidate.recruiterRole ?? null, employer: employerName, employerDomain: domain, targetRoles: candidate.targetRoles, hiringEvidenceScore: candidate.hiringEvidenceScore, evidenceFreshness: candidate.evidenceFreshness, evidence: candidate.discoveryEvidence })]);
     await this.database.query(`INSERT INTO recruiter_proactive_evidence (recruiter_contact_id,candidate_profile_id,target_roles,role_match_score,hiring_evidence_score,overall_confidence,evidence_type,evidence_freshness,evidence_date,discovery_source,discovery_url,discovery_evidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (recruiter_contact_id,candidate_profile_id,discovery_url) DO UPDATE SET target_roles=EXCLUDED.target_roles, role_match_score=GREATEST(recruiter_proactive_evidence.role_match_score,EXCLUDED.role_match_score), hiring_evidence_score=GREATEST(recruiter_proactive_evidence.hiring_evidence_score,EXCLUDED.hiring_evidence_score), overall_confidence=GREATEST(recruiter_proactive_evidence.overall_confidence,EXCLUDED.overall_confidence), evidence_freshness=EXCLUDED.evidence_freshness,evidence_date=EXCLUDED.evidence_date,discovery_evidence=EXCLUDED.discovery_evidence,updated_at=NOW()`, [id, candidateProfileId, JSON.stringify(candidate.targetRoles), Math.round(candidate.roleMatchScore), Math.round(candidate.hiringEvidenceScore), Math.round(candidate.overallConfidence), candidate.evidenceType, candidate.evidenceFreshness, new Date(candidate.evidenceDate), candidate.discoverySource, candidate.discoveryUrl, JSON.stringify(candidate.discoveryEvidence)]);
     return id;
   }
-
   async createProactiveCampaign(input: { recruiterContactId: string; candidateProfileId: string; targetRoles: string[]; subject: string; body: string; }): Promise<ProactiveCampaignRecord | null> {
     const eligible = await this.database.query<{ id: string }>(`SELECT c.id FROM recruiter_contacts c WHERE c.id=$1 AND ${recruiterRealSendEligibilitySql("c")}`, [input.recruiterContactId]);
     if (!eligible.rows[0]) return null;
@@ -88,13 +63,11 @@ export class ProactiveRecruiterRepository {
     return { sequenceId, messageId };
   }
 }
-
 function hasPublicHiringPostIdentityEvidence(candidate: ProactiveRecruiterDiscoveryCandidate): boolean {
   if (candidate.evidenceType !== "job_hiring_evidence") return false;
   if (!candidate.recruiterName?.trim() || !candidate.recruiterRole?.trim() || !candidate.employer?.trim() || candidate.employer === "Unknown employer") return false;
   if (candidate.hiringEvidenceScore <= 0 || !candidate.discoveryUrl) return false;
-  let parsed: URL;
-  try { parsed = new URL(candidate.discoveryUrl); } catch { return false; }
+  let parsed: URL; try { parsed = new URL(candidate.discoveryUrl); } catch { return false; }
   if (!/^https?:$/.test(parsed.protocol)) return false;
   const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
   if (!host || host === "localhost" || host.endsWith(".local") || ["google.com","bing.com","duckduckgo.com","qwant.com","search.yahoo.com","search.brave.com"].some((value) => host === value || host.endsWith(`.${value}`))) return false;
@@ -107,43 +80,13 @@ function hasPublicHiringPostIdentityEvidence(candidate: ProactiveRecruiterDiscov
   const hiringEvidence = /(currently hiring|actively hiring|hiring now|we(?:'re| are) hiring|open roles|open positions|hiring for|looking for .*?(?:engineers?|developers?|talent)|join (?:our|my) team|apply (?:here|now)|referrals? welcome)/i.test(evidence);
   return identityPresent && employerPresent && recruitingEvidence && hiringEvidence;
 }
-
-function recoverExplicitEmployerFromEvidence(evidence: string[]): string | null {
-  const text = evidence.join(" ").replace(/\s+/g, " ").trim();
-  const patterns = [
-    /\b[A-Z][A-Za-z.'-]*(?:\s+[A-Z][A-Za-z.'-]*){1,4}\s*[-—|•:]\s*([A-Z][A-Za-z0-9.&' -]{1,100}?)\s*\|\s*LinkedIn\b/i,
-    /\b(?:at|@)\s+([A-Z][A-Za-z0-9.&' -]{1,100}?)(?=\s+(?:currently|actively|hiring|recruiting|for|on|the|in|\||-|•|,|\.|$))/i
-  ];
-  for (const pattern of patterns) {
-    const value = text.match(pattern)?.[1]?.trim().replace(/[|•,.-]+$/, "").trim();
-    if (value && !/^linkedin$/i.test(value) && !/^unknown employer$/i.test(value)) return value;
-  }
-  return null;
-}
+function recoverExplicitEmployerFromEvidence(evidence: string[]): string | null { const text = evidence.join(" ").replace(/\s+/g, " ").trim(); const patterns = [/\b[A-Z][A-Za-z.'-]*(?:\s+[A-Z][A-Za-z.'-]*){1,4}\s*[-—|•:]\s*([A-Z][A-Za-z0-9.&' -]{1,100}?)\s*\|\s*LinkedIn\b/i,/\b(?:at|@)\s+([A-Z][A-Za-z0-9.&' -]{1,100}?)(?=\s+(?:currently|actively|hiring|recruiting|for|on|the|in|\||-|•|,|\.|$))/i]; for (const pattern of patterns) { const value = text.match(pattern)?.[1]?.trim().replace(/[|•,.-]+$/, "").trim(); if (value && !/^linkedin$/i.test(value) && !/^unknown employer$/i.test(value)) return value; } return null; }
 function buildIdentityKey(candidate: ProactiveRecruiterDiscoveryCandidate, domain: string): string { if (candidate.email) return `email:${candidate.email.toLowerCase()}`; if (candidate.contactType === "EMPLOYER") return `employer:${domain}`; if (isLinkedInProfile(candidate.discoveryUrl)) return `linkedin:${canonicalLinkedIn(candidate.discoveryUrl)}`; if (/^https?:\/\//i.test(candidate.discoveryUrl) && candidate.discoveryUrl.startsWith("public-search:") === false) return `profile:${canonicalUrl(candidate.discoveryUrl)}`; return `person:${(candidate.recruiterName ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}|${domain}`; }
 function isLinkedInProfile(value: string): boolean { try { const url = new URL(value); return url.hostname.toLowerCase().endsWith("linkedin.com") && /^\/in\/[^/]+/i.test(url.pathname); } catch { return false; } }
 function canonicalLinkedIn(value: string): string { try { const url = new URL(value); const profile = url.pathname.match(/^\/in\/([^/?#]+)/i)?.[1]; return profile ? `https://www.linkedin.com/in/${profile.toLowerCase()}` : value.toLowerCase().replace(/\/+$/, ""); } catch { return value.toLowerCase().replace(/\/+$/, ""); } }
 function canonicalUrl(value: string): string { try { const url = new URL(value); url.hash = ""; ["utm_source","utm_medium","utm_campaign","utm_term","utm_content","trk","trackingId","refId","lipi"].forEach((key) => url.searchParams.delete(key)); return url.toString().replace(/\/$/, ""); } catch { return value.toLowerCase().replace(/\/+$/, ""); } }
-async function resolveEmployerDomainFromPersistedJobs(database: Database, employerName: string): Promise<string> {
-  const result = await database.query<{ company_domain: string | null }>(
-    `SELECT company_domain
-       FROM job_opportunities
-      WHERE company_domain IS NOT NULL
-        AND (LOWER(TRIM(company_name)) = LOWER(TRIM($1))
-             OR LOWER(TRIM(company_name)) LIKE LOWER(TRIM($1)) || '%'
-             OR LOWER(TRIM($1)) LIKE LOWER(TRIM(company_name)) || '%')
-      ORDER BY posted_at DESC NULLS LAST
-      LIMIT 10`,
-    [employerName]
-  );
-  const domains = result.rows.map((row) => normalizeDomain(row.company_domain ?? "")).filter(Boolean);
-  return domains.find((domain) => isCompanyMatchingDomain(domain, employerName)) ?? "";
-}
+async function resolveEmployerDomainFromPersistedJobs(database: Database, employerName: string): Promise<string> { const result = await database.query<{ company_domain: string | null }>(`SELECT company_domain FROM job_opportunities WHERE company_domain IS NOT NULL AND (LOWER(TRIM(company_name)) = LOWER(TRIM($1)) OR LOWER(TRIM(company_name)) LIKE LOWER(TRIM($1)) || '%' OR LOWER(TRIM($1)) LIKE LOWER(TRIM(company_name)) || '%') ORDER BY posted_at DESC NULLS LAST LIMIT 10`, [employerName]); const domains = result.rows.map((row) => normalizeDomain(row.company_domain ?? "")).filter(Boolean); return domains.find((domain) => isCompanyMatchingDomain(domain, employerName)) ?? ""; }
 function isCompanyMatchingDomain(domain: string, companyName: string): boolean { const host = normalizeDomain(domain).split(".")[0] ?? ""; const tokens = companyName.toLowerCase().replace(/&/g, " and ").split(/[^a-z0-9]+/).filter((token) => token.length >= 3 && !["the","and","inc","ltd","llc","corp","company","limited","private","pvt"].includes(token)); return tokens.some((token) => host.includes(token)); }
 function isGenericEmailDomain(domain: string): boolean { return new Set(["gmail.com","googlemail.com","outlook.com","hotmail.com","live.com","yahoo.com","yahoo.co.in","icloud.com","proton.me","protonmail.com"]).has(domain.toLowerCase()); }
-export function isEmployerEmailDomainConsistent(emailDomain: string, companyDomain: string): boolean {
-  const email = normalizeDomain(emailDomain);
-  const company = normalizeDomain(companyDomain);
-  return !email || !company || isGenericEmailDomain(email) || email === company;
-}
+export function isEmployerEmailDomainConsistent(emailDomain: string, companyDomain: string): boolean { const email = normalizeDomain(emailDomain); const company = normalizeDomain(companyDomain); return !email || !company || isGenericEmailDomain(email) || email === company; }
 function normalizeDomain(value: string): string { return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? ""; }
