@@ -26,20 +26,33 @@ export class ProactiveRecruiterRepository {
       (employerName ? await resolveEmployerDomainFromPersistedJobs(this.database, employerName) : "") ||
       (employerName ? await resolveEmployerDomainFromPublicSearch(employerName) : "");
     if (!domain) return null;
-    if (email && !isEmployerEmailDomainConsistent(emailDomain, domain)) return null;
+
+    // A public hiring post can expose a recruiter whose email belongs to a
+    // third-party staffing/agency domain. That email must not be attributed to
+    // the employer identity unless its domain is consistent. The recruiter is
+    // still persistable from the independent hiring/identity evidence, but the
+    // conflicting email is discarded and therefore cannot become verified or
+    // send-eligible. This preserves the database identity guard rather than
+    // weakening it.
+    const emailConsistent = !email || isEmployerEmailDomainConsistent(emailDomain, domain);
+    const persistedEmail = emailConsistent ? email : null;
+    const persistedEmailDomain = persistedEmail?.split("@")[1]?.toLowerCase() ?? "";
+    const persistedEmailStatus = persistedEmail
+      ? candidate.emailStatus === "LIKELY" ? "LIKELY" : candidate.emailStatus === "INVALID" ? "INVALID" : "UNVERIFIED"
+      : "UNVERIFIED";
+    const persistedVerificationEvidence = persistedEmail ? (candidate.verificationEvidence ?? []) : [];
 
     const relevanceStatus = candidate.hiringEvidenceScore > 0 ? (candidate.evidenceFreshness === "current" ? "CURRENT" : candidate.evidenceFreshness === "recent" ? "RECENT" : candidate.evidenceFreshness === "historical" ? "HISTORICAL" : "UNKNOWN") : "UNKNOWN";
-    const verificationEvidence = candidate.verificationEvidence ?? [];
-    const explicitMailboxEvidence = hasExplicitMailboxEvidence(verificationEvidence);
-    const mailboxEvidence = Boolean(email) && explicitMailboxEvidence && isMailboxVerifiedForRealSend({ verified: candidate.emailStatus === "VERIFIED", mailboxEvidence: true, verificationEvidence, emailStatus: candidate.emailStatus, verificationStatus: "mailbox_verified", relevanceStatus, suppressed: false }) && email?.split("@")[1]?.toLowerCase() === domain;
-    const persistedEmailStatus = mailboxEvidence ? "VERIFIED" : candidate.emailStatus === "LIKELY" ? "LIKELY" : candidate.emailStatus === "INVALID" ? "INVALID" : "UNVERIFIED";
-    const mxStatus = persistedEmailStatus === "LIKELY" || persistedEmailStatus === "VERIFIED" ? "EXISTS" : persistedEmailStatus === "INVALID" ? "MISSING" : "UNKNOWN";
+    const explicitMailboxEvidence = hasExplicitMailboxEvidence(persistedVerificationEvidence);
+    const mailboxEvidence = Boolean(persistedEmail) && explicitMailboxEvidence && isMailboxVerifiedForRealSend({ verified: candidate.emailStatus === "VERIFIED", mailboxEvidence: true, verificationEvidence: persistedVerificationEvidence, emailStatus: persistedEmailStatus, verificationStatus: "mailbox_verified", relevanceStatus, suppressed: false }) && persistedEmailDomain === domain;
+    const persistedMxStatus = persistedEmailStatus === "LIKELY" || persistedEmailStatus === "VERIFIED" ? "EXISTS" : persistedEmailStatus === "INVALID" ? "MISSING" : "UNKNOWN";
     const verificationStatus = mailboxEvidence ? "mailbox_verified" : persistedEmailStatus === "LIKELY" ? "domain_mx_verified" : persistedEmailStatus === "INVALID" ? "INVALID" : "public-web-unverified";
     const verified = mailboxEvidence;
-    const identityKey = buildIdentityKey(candidate, domain);
+    const identityKeyCandidate = persistedEmail ? { ...candidate, email: persistedEmail } : { ...candidate, email: undefined };
+    const identityKey = buildIdentityKey(identityKeyCandidate, domain);
     const linkedinProfileUrl = isLinkedInProfile(candidate.discoveryUrl) ? canonicalLinkedIn(candidate.discoveryUrl) : null;
-    const existing = await this.database.query<{ id: string }>(`SELECT id FROM recruiter_contacts WHERE company_domain=$1 AND (identity_key=$2 OR ($3::text IS NOT NULL AND LOWER(linkedin_profile_url)=LOWER($3)) OR ($4::text IS NOT NULL AND LOWER(email)=LOWER($4))) ORDER BY CASE WHEN $4::text IS NOT NULL AND LOWER(email)=LOWER($4) THEN 0 WHEN $3::text IS NOT NULL AND LOWER(linkedin_profile_url)=LOWER($3) THEN 1 ELSE 2 END LIMIT 1`, [domain, identityKey, linkedinProfileUrl, email]);
-    const params = [employerName, domain, email, candidate.contactType === "EMPLOYER" ? null : candidate.recruiterName, candidate.contactType === "EMPLOYER" ? null : candidate.recruiterRole, Math.round(candidate.overallConfidence), verified, verificationStatus, candidate.discoverySource, persistedEmailStatus, "VALID", mxStatus, mailboxEvidence, JSON.stringify(verificationEvidence), relevanceStatus, linkedinProfileUrl, identityKey, email ? "FOUND" : "PENDING"];
+    const existing = await this.database.query<{ id: string }>(`SELECT id FROM recruiter_contacts WHERE company_domain=$1 AND (identity_key=$2 OR ($3::text IS NOT NULL AND LOWER(linkedin_profile_url)=LOWER($3)) OR ($4::text IS NOT NULL AND LOWER(email)=LOWER($4))) ORDER BY CASE WHEN $4::text IS NOT NULL AND LOWER(email)=LOWER($4) THEN 0 WHEN $3::text IS NOT NULL AND LOWER(linkedin_profile_url)=LOWER($3) THEN 1 ELSE 2 END LIMIT 1`, [domain, identityKey, linkedinProfileUrl, persistedEmail]);
+    const params = [employerName, domain, persistedEmail, candidate.contactType === "EMPLOYER" ? null : candidate.recruiterName, candidate.contactType === "EMPLOYER" ? null : candidate.recruiterRole, Math.round(candidate.overallConfidence), verified, verificationStatus, candidate.discoverySource, persistedEmailStatus, "VALID", persistedMxStatus, mailboxEvidence, JSON.stringify(persistedVerificationEvidence), relevanceStatus, linkedinProfileUrl, identityKey, persistedEmail ? "FOUND" : "PENDING"];
     let id = existing.rows[0]?.id;
     if (id) {
       const result = await this.database.query<{ id: string }>(`UPDATE recruiter_contacts SET company_name=$1, company_domain=$2, email=COALESCE(recruiter_contacts.email,$3), full_name=COALESCE($4,recruiter_contacts.full_name), title=COALESCE($5,recruiter_contacts.title), confidence=GREATEST(COALESCE(recruiter_contacts.confidence,0),COALESCE($6,0)), verified=CASE WHEN recruiter_contacts.verified=TRUE AND recruiter_contacts.mailbox_evidence=TRUE AND UPPER(COALESCE(recruiter_contacts.email_status,''))='VERIFIED' AND LOWER(COALESCE(recruiter_contacts.verification_status,''))='mailbox_verified' THEN TRUE ELSE $7 END, verification_status=CASE WHEN recruiter_contacts.verified=TRUE AND recruiter_contacts.mailbox_evidence=TRUE AND UPPER(COALESCE(recruiter_contacts.email_status,''))='VERIFIED' AND LOWER(COALESCE(recruiter_contacts.verification_status,''))='mailbox_verified' THEN 'mailbox_verified' ELSE $8 END, discovery_source=$9, email_status=CASE WHEN recruiter_contacts.verified=TRUE AND recruiter_contacts.mailbox_evidence=TRUE AND UPPER(COALESCE(recruiter_contacts.email_status,''))='VERIFIED' AND LOWER(COALESCE(recruiter_contacts.verification_status,''))='mailbox_verified' THEN 'VERIFIED' ELSE $10 END, domain_status=$11, mx_status=$12, mailbox_evidence=CASE WHEN recruiter_contacts.verified=TRUE AND recruiter_contacts.mailbox_evidence=TRUE AND UPPER(COALESCE(recruiter_contacts.email_status,''))='VERIFIED' AND LOWER(COALESCE(recruiter_contacts.verification_status,''))='mailbox_verified' THEN TRUE ELSE $13 END, verification_evidence=CASE WHEN recruiter_contacts.verified=TRUE AND recruiter_contacts.mailbox_evidence=TRUE AND UPPER(COALESCE(recruiter_contacts.email_status,''))='VERIFIED' AND LOWER(COALESCE(recruiter_contacts.verification_status,''))='mailbox_verified' THEN recruiter_contacts.verification_evidence WHEN $14='[]'::jsonb THEN recruiter_contacts.verification_evidence ELSE $14 END, relevance_status=$15, linkedin_profile_url=COALESCE(recruiter_contacts.linkedin_profile_url,$16), identity_key=COALESCE(recruiter_contacts.identity_key,$17), email_discovery_status=CASE WHEN recruiter_contacts.email IS NOT NULL THEN 'FOUND' ELSE $18 END, last_seen_at=NOW(), updated_at=NOW() WHERE id=$19 RETURNING id`, [...params, id]);
