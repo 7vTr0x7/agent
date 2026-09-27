@@ -79,7 +79,7 @@ const GENERIC_EMPLOYER_DOMAINS = new Set(["example.com","example.org","example.n
 // Bound destination fan-out so one query cannot turn into an effectively unbounded
 // sequence of 6.5s page fetches. The goal is a reliable vertical slice, not exhaustive
 // crawling of a search-engine result page.
-const MAX_DESTINATION_URLS_PER_SEARCH = 4;
+const MAX_DESTINATION_URLS_PER_SEARCH = 8;
 const MAX_POST_EVIDENCE = 16;
 const MAX_PROFILE_URLS_PER_SEARCH = 4;
 const PUBLIC_HIRING_RUNTIME_TIMEOUT_MS = 45_000;
@@ -386,15 +386,16 @@ export class PublicHiringPostDiscoveryProvider {
           if (!isSafePublicDestinationUrl(url)) continue;
           const discoveryEvidence = buildEvidence(result.text, url);
           const indexedPost = LINKEDIN_POST_URL.test(url) && hasHiringIntent(discoveryEvidence);
-          // Prefer the authoritative public post page whenever it is reachable. Indexed
-          // search-shell evidence is a bounded fallback for LinkedIn pages that cannot
-          // be fetched, so author/employer context is not lost merely because the shell
-          // contains hiring keywords.
+          // Prefer authoritative destination evidence whenever it contains either direct
+          // hiring prose or the stricter job-posting combination (role + application/job
+          // language). The old path only accepted HIRING_INTENT here, which silently
+          // discarded legitimate job pages whose wording was "Job Description / Apply Now".
           const fetchedPostPage = await (input.fetchText ? input.fetchText(url, runtimeSignal) : fetchText(url, runtimeSignal, 6500));
           const fetchedEvidence = fetchedPostPage ? clean(fetchedPostPage).slice(0, 12000) : "";
           const jobLikeDestination = /(?:\/(?:jobs?|careers?|vacanc(?:y|ies)|positions?|openings?|roles?|hiring)(?:\/|$))/i.test(new URL(url).pathname);
-          const searchEvidenceIsUsable = HIRING_INTENT.test(discoveryEvidence) && (indexedPost || jobLikeDestination);
-          const evidence = HIRING_INTENT.test(fetchedEvidence)
+          const fetchedEvidenceUsable = hasHiringIntent(fetchedEvidence);
+          const searchEvidenceIsUsable = hasHiringIntent(discoveryEvidence) && (indexedPost || jobLikeDestination);
+          const evidence = fetchedEvidenceUsable
             ? fetchedEvidence
             : (searchEvidenceIsUsable ? clean(discoveryEvidence).slice(0, 7000) : "");
           if (!evidence || !hasHiringIntent(evidence)) continue;
