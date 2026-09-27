@@ -40,7 +40,11 @@ run_running_case() {
   local state status
   state="$(cat "$state_dir/delayed-success.json")"
   status="$(node -e 'const s=JSON.parse(process.argv[1]); process.stdout.write(s.status)' "$state")"
-  [[ "$status" == "RUNNING" ]] || { echo "expected RUNNING during delayed cycle, got $status: $state" >&2; kill "$pid" 2>/dev/null || true; exit 1; }
+  if [[ "$status" != "RUNNING" ]]; then
+    echo "expected RUNNING during delayed cycle, got $status: $state" >&2
+    if kill "$pid" 2>/dev/null; then :; fi
+    exit 1
+  fi
   wait "$pid"; local rc=$?
   [[ "$rc" -eq 0 ]] || { echo "delayed cycle returned $rc" >&2; exit 1; }
   state="$(cat "$state_dir/delayed-success.json")"
