@@ -6,6 +6,7 @@ import { RecruiterOutreachSendTaskDispatcher } from "../src/recruiters/Recruiter
 import { ProactiveRecruiterDiscoveryService } from "../src/recruiters/ProactiveRecruiterDiscoveryService";
 import { ProactiveRecruiterRepository } from "../src/recruiters/ProactiveRecruiterRepository";
 import { ProactiveRecruiterTaskHandler } from "../src/recruiters/ProactiveRecruiterTaskHandler";
+import { isCompatibleRecruiterEnrichmentEmail } from "../src/recruiters/ProactiveRecruiterTaskHandler";
 import { PublicHiringPostDiscoveryProvider } from "../src/recruiters/PublicHiringPostDiscoveryProvider";
 import { PublicRecruiterSearchProvider } from "../src/recruiters/PublicRecruiterSearchProvider";
 import { JobPostingRecruiterDiscoveryProvider } from "../src/recruiters/JobPostingRecruiterDiscoveryProvider";
@@ -154,11 +155,10 @@ async function main(): Promise<void> {
             ((candidate.recruiterName && contact.fullName && contact.fullName.toLowerCase() === candidate.recruiterName.toLowerCase()) ||
              (candidate.recruiterRole && contact.title && contact.title.toLowerCase().includes(candidate.recruiterRole.toLowerCase().split(" ")[0] ?? "")))
           );
-          if (sameIdentity?.email) {
+          if (sameIdentity?.email && isCompatibleRecruiterEnrichmentEmail(sameIdentity.email, candidate.employerDomain)) {
             candidate.email = sameIdentity.email;
             candidate.emailStatus = "UNVERIFIED";
             candidate.verificationEvidence = [];
-
           }
         } catch (error) {
           logger.error({ error: error instanceof Error ? error.message : String(error), employer: candidate.employer }, "Public email enrichment for hiring-post author failed");
