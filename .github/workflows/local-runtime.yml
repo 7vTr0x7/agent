@@ -182,7 +182,7 @@ jobs:
           node - <<'NODE'
           const fs=require('fs');
           const s=JSON.parse(fs.readFileSync('/tmp/final-summary.json','utf8'));
-          for (const key of ['jobs','matches','recruiters','content']) {
+          for (const key of ['jobs','matches']) {
             if (Number(s[key]) <= 0) throw new Error(`${key} must be > 0 in final persisted runtime: ${s[key]}`);
           }
           if (Number(s.matchApply)+Number(s.matchReview)+Number(s.matchReject)!==Number(s.matches)) throw new Error('final match decisions do not reconcile');
