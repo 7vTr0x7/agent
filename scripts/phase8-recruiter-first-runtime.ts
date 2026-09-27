@@ -18,8 +18,8 @@ const candidateProfile = {
   preferredLocations: ["Bengaluru", "Bangalore", "India", "Remote"],
   remoteEligible: true
 };
-const companyDomain = "phase8.test";
-const email = "jane.recruiter@phase8.test";
+const companyDomain = "phase8corp.com";
+const email = "jane.recruiter@phase8corp.com";
 const recruiterName = "Jane Recruiter";
 const evidence = "Jane Recruiter - Technical Recruiter at Phase Eight Corp actively hiring React frontend engineers in Bengaluru and India. Recruiting for React, Next.js and TypeScript roles. 2026.";
 
@@ -79,8 +79,8 @@ async function main(): Promise<void> {
 
     let verifiedWithoutEvidenceBlocked = false;
     try {
-      await db.query(`INSERT INTO recruiter_contacts (company_name,company_domain,email,full_name,title,confidence,verified,verification_status,provider,email_status,domain_status,mx_status,mailbox_evidence,verification_evidence,relevance_status,last_seen_at,updated_at) VALUES ('Phase Eight Corp',$1,'verifiedflag@phase8.test','Verified Flag','Technical Recruiter',99,true,'mailbox_verified','phase8-negative','VERIFIED','VALID','EXISTS',false,'[]','CURRENT',NOW(),NOW())`, [companyDomain]);
-      const prepared = await repository.createProactiveCampaign({ recruiterContactId: (await db.query<{ id: string }>(`SELECT id FROM recruiter_contacts WHERE email='verifiedflag@phase8.test'`)).rows[0]?.id ?? "", candidateProfileId: `${candidateProfile.id}-verifiedflag`, targetRoles: candidateProfile.targetRoles, subject, body });
+      await db.query(`INSERT INTO recruiter_contacts (company_name,company_domain,email,full_name,title,confidence,verified,verification_status,provider,email_status,domain_status,mx_status,mailbox_evidence,verification_evidence,relevance_status,last_seen_at,updated_at) VALUES ('Phase Eight Corp',$1,'verifiedflag@phase8corp.com','Verified Flag','Technical Recruiter',99,true,'mailbox_verified','phase8-negative','VERIFIED','VALID','EXISTS',false,'[]','CURRENT',NOW(),NOW())`, [companyDomain]);
+      const prepared = await repository.createProactiveCampaign({ recruiterContactId: (await db.query<{ id: string }>(`SELECT id FROM recruiter_contacts WHERE email='verifiedflag@phase8corp.com'`)).rows[0]?.id ?? "", candidateProfileId: `${candidateProfile.id}-verifiedflag`, targetRoles: candidateProfile.targetRoles, subject, body });
       if (prepared) throw new Error("verified=true without mailbox evidence became send-eligible");
     } catch (error) {
       if (error instanceof Error && /verified|mailbox|constraint|check/i.test(error.message)) verifiedWithoutEvidenceBlocked = true;
