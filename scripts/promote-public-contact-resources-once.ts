@@ -20,7 +20,7 @@ const GENERIC_LOCAL_PART = /^(?:noreply|no-reply|postmaster|webmaster|admin|supp
 export function isSafePublicEmail(value: string): boolean {
   const email = value.trim().toLowerCase();
   if (!STRICT_EMAIL.test(email)) return false;
-  if (MALFORMED_EMAIL_SUFFIX.test(email.split("@")[1] ?? "")) return false;
+  if (MALFORMED_EMAIL_SUFFIX.test(email)) return false;
   if (GENERIC_LOCAL_PART.test(email.split("@")[0] ?? "")) return false;
   return true;
 }
