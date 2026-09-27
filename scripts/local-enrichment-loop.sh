@@ -61,6 +61,8 @@ echo "enrichment lifecycle state=$STATE_DIR/$MODE.json"
 echo "recruiter search providers=${PROACTIVE_RECRUITER_SEARCH_PROVIDERS:-default}"
 
 while true; do
-  run_enrichment_cycle "$MODE" "$COMMAND" "$LOG" "$COMMAND_TIMEOUT_SECONDS" || true
+  if ! run_enrichment_cycle "$MODE" "$COMMAND" "$LOG" "$COMMAND_TIMEOUT_SECONDS"; then
+    echo "enrichment cycle failed mode=$MODE; continuing scheduled worker loop" >&2
+  fi
   sleep "$SLEEP_SECONDS"
 done
