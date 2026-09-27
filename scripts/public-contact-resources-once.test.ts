@@ -1,4 +1,4 @@
-import { extractEmails, isPrivateAddress, relevance, urlsFromSearch, qualifiesJobPageAsContactResource } from "./public-contact-resources-once";
+import { extractEmails, isPrivateAddress, legitimate, relevance, urlsFromSearch, qualifiesJobPageAsContactResource } from "./public-contact-resources-once";
 
 describe("public contact resource extraction", () => {
   it("normalizes discovered emails and excludes generic machine mailboxes", () => {
@@ -27,6 +27,28 @@ describe("public contact resource extraction", () => {
     const noisySuffix = 'https://remotefirstjobs.com/companies/example/jobs/frontend%22%7D';
     expect(urlsFromSearch(noisy)).toEqual(["https://remotefirstjobs.com/companies/example/jobs/frontend"]);
     expect(urlsFromSearch(noisySuffix)).toEqual(["https://remotefirstjobs.com/companies/example/jobs/frontend"]);
+  });
+
+  it("rejects blocked navigation and application endpoints before fetch", () => {
+    for (const url of [
+      "https://jobicy.com/pricing",
+      "https://jobicy.com/categories",
+      "https://jobicy.com/tools/resume-score",
+      "https://jobicy.com/my-profile",
+      "https://jobicy.com/business",
+      "https://jobicy.com/image.php?x=1",
+      "https://remoteyeah.com/jobs/frontend/apply"
+    ]) {
+      expect(legitimate(url)).toBe(false);
+    }
+    expect(legitimate("https://example.com/contact")).toBe(true);
+    expect(legitimate("https://example.com/careers/frontend?ref=public")).toBe(true);
+  });
+
+  it("rejects malformed HTML/JS attribute fragments before fetch", () => {
+    const malformed = "https://addons.mozilla.org/en-US/firefox/addon/remote-jobs/',icon:'/data/face/i/Firefox_Add-ons_icon.svg',iconAlt:'Firefox";
+    expect(legitimate(malformed)).toBe(false);
+    expect(urlsFromSearch(malformed)).toEqual([]);
   });
 
   it("rejects known blocked job-board hosts while preserving unrelated domains", () => {
