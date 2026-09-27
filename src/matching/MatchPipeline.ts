@@ -21,7 +21,7 @@ export interface CombinedMatchResult {
 
 const APPLY_THRESHOLD = 30;
 const REVIEW_THRESHOLD = 20;
-const MATCHER_VERSION = "matcher-v4";
+const MATCHER_VERSION = "matcher-v5";
 
 export class MatchPipeline {
   constructor(
@@ -32,7 +32,11 @@ export class MatchPipeline {
 
   async evaluateAndPersist(job: JobOpportunity, profile: CandidateProfile): Promise<CombinedMatchResult> {
     const rawDeterministic = this.deterministic.evaluate(job, profile);
-    const deterministic = applyTechnologySafetyGate(rawDeterministic, job, profile);
+    const deterministic = applyRoleRelevanceGate(
+      applyTechnologySafetyGate(rawDeterministic, job, profile),
+      job,
+      profile
+    );
     let semantic: SemanticMatchResult | null = null;
     let semanticFallback = false;
 
@@ -135,6 +139,69 @@ function applyTechnologySafetyGate(result: DeterministicMatchResult, job: JobOpp
     };
   }
 
+  return result;
+}
+
+/**
+ * Prevent generic keyword overlap from turning a backend-first title into a
+ * frontend match. A role whose title explicitly leads with Java/.NET/Python/
+ * PHP/Spring/Django/etc. is rejected unless the title itself identifies the
+ * candidate's React/Next/frontend target. Full-stack titles remain eligible
+ * when they do not declare a competing backend stack as the primary role.
+ */
+function applyRoleRelevanceGate(result: DeterministicMatchResult, job: JobOpportunity, profile: CandidateProfile): DeterministicMatchResult {
+  if (result.decision === "REJECT") return result;
+
+  const title = job.title.toLowerCase();
+  const text = `${job.title}\n${job.description}`.toLowerCase();
+  const frontendTitle = /\b(frontend|front-end|front end|react(?:\.js|js)?|next(?:\.js|js)?|web developer|ui developer|ui engineer|javascript developer|typescript developer)\b/i.test(title);
+  const fullStackTitle = /\b(full[- ]stack|fullstack)\b/i.test(title);
+  const backendPrimary = /\b(?:java|python|\.net|dotnet|c#|php|ruby|rails|django|spring boot|golang|go)\b/i.test(title);
+  const backendRole = /\b(?:backend|back-end|back end|java developer|python developer|\.net developer|dotnet developer|spring boot developer|django developer|php developer|ruby developer|golang developer)\b/i.test(title);
+  const reactOrNextInTitle = /\b(?:react(?:\.js|js)?|next(?:\.js|js)?)\b/i.test(title);
+  const reactOrNextInBody = /\b(?:react(?:\.js|js)?|next(?:\.js|js)?)\b/i.test(text);
+  const frontendResponsibility = /\b(?:frontend|front-end|front end)\b.{0,120}\b(?:develop|build|own|maintain|implement|deliver|responsib|experience)\b|\b(?:develop|build|own|maintain|implement|deliver|responsib|experience)\b.{0,120}\b(?:frontend|front-end|front end)\b/i.test(text);
+
+  // A title such as "Senior Java Full Stack Developer" is not a React match
+  // just because React appears somewhere in a long description. It must name
+  // React/Next/frontend in the title to enter this user's primary queue.
+  if ((backendRole || (backendPrimary && fullStackTitle)) && !frontendTitle && !reactOrNextInTitle) {
+    return {
+      ...result,
+      matchScore: 0,
+      decision: "REJECT",
+      reason: "Role relevance gate: the posting is explicitly backend-first in its title and does not identify React, Next.js, or frontend work as the target role.",
+      evidence: [...result.evidence, { type: "HARD_BLOCKER", detail: "Backend-first title without a React/Next.js/frontend title signal is not a frontend/full-stack React match." }]
+    };
+  }
+
+  // For a generic full-stack title, require actual React/Next evidence rather
+  // than accepting generic JavaScript/HTML/API overlap alone.
+  if (fullStackTitle && !reactOrNextInTitle && !(reactOrNextInBody && frontendResponsibility)) {
+    return {
+      ...result,
+      matchScore: Math.min(result.matchScore, 39),
+      decision: "REVIEW",
+      reason: `${result.reason} Role relevance gate: generic full-stack title lacks explicit React/Next.js frontend responsibility; manual review required.`,
+      evidence: [...result.evidence, { type: "ROLE_FIT", detail: "Generic full-stack role requires explicit React/Next.js frontend responsibility before APPLY." }]
+    };
+  }
+
+  // Do not allow a role with only incidental React mentions to pass when the
+  // title is clearly another engineering discipline.
+  if (backendPrimary && !frontendTitle && !fullStackTitle && !reactOrNextInTitle) {
+    return {
+      ...result,
+      matchScore: 0,
+      decision: "REJECT",
+      reason: "Role relevance gate: competing backend technology is primary and React/Next.js is not the named role focus.",
+      evidence: [...result.evidence, { type: "HARD_BLOCKER", detail: "Incidental frontend technology does not override a competing backend-first role." }]
+    };
+  }
+
+  // Keep the helper parameter meaningful and make the candidate stack explicit
+  // in the evidence path without inventing skills.
+  void profile;
   return result;
 }
 
