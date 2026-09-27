@@ -13,6 +13,18 @@ export interface ContactPromotionInput {
   observedAt: string;
 }
 
+const STRICT_EMAIL = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+const MALFORMED_EMAIL_SUFFIX = /(?:%[0-9a-f]{2}|\\|\.\.\.|[\"'()<>\[\],;:])/i;
+const GENERIC_LOCAL_PART = /^(?:noreply|no-reply|postmaster|webmaster|admin|support|privacy|legal|press|media|marketing|sales|security|billing|helpdesk)$/i;
+
+export function isSafePublicEmail(value: string): boolean {
+  const email = value.trim().toLowerCase();
+  if (!STRICT_EMAIL.test(email)) return false;
+  if (MALFORMED_EMAIL_SUFFIX.test(email.split("@")[1] ?? "")) return false;
+  if (GENERIC_LOCAL_PART.test(email.split("@")[0] ?? "")) return false;
+  return true;
+}
+
 export function buildContactPromotion(input: ContactPromotionInput): {
   companyName: string;
   email: string;
@@ -23,9 +35,11 @@ export function buildContactPromotion(input: ContactPromotionInput): {
   suppressed: boolean;
   provenance: Record<string, unknown>;
 } {
+  const email = input.email.trim().toLowerCase();
+  if (!isSafePublicEmail(email)) throw new Error("INVALID_PUBLIC_EMAIL");
   return {
     companyName: input.companyName.trim().slice(0, 500),
-    email: input.email.trim().toLowerCase(),
+    email,
     sourceUrl: input.sourceUrl,
     sourceType: input.sourceType,
     validationStatus: input.validationStatus,
@@ -60,6 +74,22 @@ async function main(): Promise<void> {
 
   const database = new Database(process.env.DATABASE_URL ?? "");
   try {
+    // Reconcile malformed public-resource emails before they can be promoted or
+    // displayed as active contacts. This is intentionally runtime-safe and does
+    // not require a schema migration.
+    await database.query(
+      `UPDATE public_contact_resource_contacts
+          SET validation_status='INVALID', relevance_score=0, updated_at=NOW()
+        WHERE normalized_email IS NULL
+           OR normalized_email !~ '^[A-Za-z0-9.!#$%&''*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$'`
+    );
+    await database.query(
+      `UPDATE contacts
+          SET suppressed=TRUE, validation_status='INVALID', updated_at=NOW()
+        WHERE COALESCE(suppressed,FALSE)=FALSE
+          AND (email IS NULL OR email !~ '^[A-Za-z0-9.!#$%&''*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$')`
+    );
+
     const result = await database.query<{
       resource_id: string;
       email: string;
@@ -86,13 +116,24 @@ async function main(): Promise<void> {
        WHERE c.relevance_score >= 60
          AND c.validation_status IN ('LIKELY', 'VERIFIED')
          AND NULLIF(TRIM(c.normalized_email), '') IS NOT NULL
+         AND c.normalized_email ~ '^[A-Za-z0-9.!#$%&''*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$'
        ORDER BY c.normalized_email, c.relevance_score DESC, c.observed_at DESC`
     );
 
     let inserted = 0;
     let existing = 0;
+    let suppressed = 0;
     for (const row of result.rows) {
-      const companyName = row.title.trim() || new URL(row.source_url).hostname;
+      if (!isSafePublicEmail(row.email)) {
+        suppressed += 1;
+        continue;
+      }
+      let companyName: string;
+      try {
+        companyName = row.title.trim() || new URL(row.source_url).hostname;
+      } catch {
+        companyName = row.title.trim();
+      }
       const promotion = buildContactPromotion({
         resourceId: row.resource_id,
         email: row.email,
@@ -158,6 +199,7 @@ async function main(): Promise<void> {
       resourcesBackedByPublicEvidence: result.rows.length,
       contactsPromoted: inserted,
       existingContacts: existing,
+      malformedSuppressed: suppressed,
       contactsPersisted: Number(contactCount.rows[0]?.count ?? 0),
       applicationsSent: 0,
       outreachSent: 0,
