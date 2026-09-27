@@ -10,7 +10,12 @@ export class ProactiveRecruiterRepository {
     const email = candidate.email?.trim().toLowerCase() || null;
     const emailDomain = email?.split("@")[1]?.toLowerCase() ?? "";
     const observedEmailDomain = emailDomain && !isGenericEmailDomain(emailDomain) ? normalizeDomain(emailDomain) : "";
-    const recoveredEmployer = candidate.employer === "Unknown employer" ? recoverExplicitEmployerFromEvidence(candidate.discoveryEvidence) ?? (observedEmailDomain || null) : candidate.employer;
+    const rawEmployer = candidate.employer?.trim() ?? "";
+    const recoveredEmployer = rawEmployer === "Unknown employer"
+      ? recoverExplicitEmployerFromEvidence(candidate.discoveryEvidence) ?? (observedEmailDomain || null)
+      : isEmployerIdentityChrome(rawEmployer)
+        ? employerNameFromDomain(candidate.employerDomain ?? observedEmailDomain)
+        : rawEmployer;
     if (!recoveredEmployer) return null;
     const employerName = recoveredEmployer.trim();
     const domain = normalizeDomain(candidate.employerDomain ?? "") || (candidate.employer === "Unknown employer" && observedEmailDomain ? observedEmailDomain : "") || (emailDomain && isCompanyMatchingDomain(emailDomain, employerName) ? normalizeDomain(emailDomain) : "") || (employerName ? await resolveEmployerDomainFromPersistedJobs(this.database, employerName) : "") || (employerName ? await resolveEmployerDomainFromPublicSearch(employerName) : "");
@@ -89,4 +94,6 @@ async function resolveEmployerDomainFromPersistedJobs(database: Database, employ
 function isCompanyMatchingDomain(domain: string, companyName: string): boolean { const host = normalizeDomain(domain).split(".")[0] ?? ""; const tokens = companyName.toLowerCase().replace(/&/g, " and ").split(/[^a-z0-9]+/).filter((token) => token.length >= 3 && !["the","and","inc","ltd","llc","corp","company","limited","private","pvt"].includes(token)); return tokens.some((token) => host.includes(token)); }
 function isGenericEmailDomain(domain: string): boolean { return new Set(["gmail.com","googlemail.com","outlook.com","hotmail.com","live.com","yahoo.com","yahoo.co.in","icloud.com","proton.me","protonmail.com"]).has(domain.toLowerCase()); }
 export function isEmployerEmailDomainConsistent(emailDomain: string, companyDomain: string): boolean { const email = normalizeDomain(emailDomain); const company = normalizeDomain(companyDomain); return !email || !company || isGenericEmailDomain(email) || email === company; }
+function isEmployerIdentityChrome(value: string): boolean { return /(email\s+or\s+phone|password|forgot\s+password|show\s+password|linkedin\s+facebook\s+x|copy\s+linkedin|skip\s+to|navigation)/i.test(value); }
+function employerNameFromDomain(value: string): string | null { const domain = normalizeDomain(value); if (!domain) return null; const label = domain.split(".")[0]?.replace(/[-_]+/g, " ").trim(); return label ? label.replace(/\b\w/g, (char) => char.toUpperCase()) : null; }
 function normalizeDomain(value: string): string { return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? ""; }
