@@ -1,0 +1,60 @@
+name: repair-content-first
+
+on:
+  push:
+    branches:
+      - repair/content-first-runtime
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply runtime fixes and validate
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          provider = Path('src/recruiters/PublicHiringPostDiscoveryProvider.ts')
+          s = provider.read_text()
+
+          old = 'const MAX_DESTINATION_URLS_PER_SEARCH = 4;'
+          new = 'const MAX_DESTINATION_URLS_PER_SEARCH = 8;'
+          if old not in s:
+              raise SystemExit('MAX_DESTINATION_URLS_PER_SEARCH target not found')
+          s = s.replace(old, new, 1)
+
+          old = '''          const indexedPost = LINKEDIN_POST_URL.test(url) && hasHiringIntent(discoveryEvidence);\n          // Prefer the authoritative public post page whenever it is reachable. Indexed\n          // search-shell evidence is a bounded fallback for LinkedIn pages that cannot\n          // be fetched, so author/employer context is not lost merely because the shell\n          // contains hiring keywords.\n          const fetchedPostPage = await (input.fetchText ? input.fetchText(url, runtimeSignal) : fetchText(url, runtimeSignal, 6500));\n          const fetchedEvidence = fetchedPostPage ? clean(fetchedPostPage).slice(0, 12000) : \"\";\n          const jobLikeDestination = /(?:\\/(?:jobs?|careers?|vacanc(?:y|ies)|positions?|openings?|roles?|hiring)(?:\\/|$))/i.test(new URL(url).pathname);\n          const searchEvidenceIsUsable = HIRING_INTENT.test(discoveryEvidence) && (indexedPost || jobLikeDestination);\n          const evidence = HIRING_INTENT.test(fetchedEvidence)\n            ? fetchedEvidence\n            : (searchEvidenceIsUsable ? clean(discoveryEvidence).slice(0, 7000) : \"\");\n          if (!evidence || !hasHiringIntent(evidence)) continue;'''
+          new = '''          const indexedPost = LINKEDIN_POST_URL.test(url) && hasHiringIntent(discoveryEvidence);\n          // Prefer authoritative destination evidence whenever it contains either direct\n          // hiring prose or the stricter job-posting combination (role + application/job\n          // language). The old path only accepted HIRING_INTENT here, which silently\n          // discarded legitimate job pages whose wording was \"Job Description / Apply Now\".\n          const fetchedPostPage = await (input.fetchText ? input.fetchText(url, runtimeSignal) : fetchText(url, runtimeSignal, 6500));\n          const fetchedEvidence = fetchedPostPage ? clean(fetchedPostPage).slice(0, 12000) : \"\";\n          const jobLikeDestination = /(?:\\/(?:jobs?|careers?|vacanc(?:y|ies)|positions?|openings?|roles?|hiring)(?:\\/|$))/i.test(new URL(url).pathname);\n          const fetchedEvidenceUsable = hasHiringIntent(fetchedEvidence);\n          const searchEvidenceIsUsable = hasHiringIntent(discoveryEvidence) && (indexedPost || jobLikeDestination);\n          const evidence = fetchedEvidenceUsable\n            ? fetchedEvidence\n            : (searchEvidenceIsUsable ? clean(discoveryEvidence).slice(0, 7000) : \"\");\n          if (!evidence || !hasHiringIntent(evidence)) continue;'''
+          if old not in s:
+              raise SystemExit('evidence gate target not found')
+          s = s.replace(old, new, 1)
+          provider.write_text(s)
+
+          wrapper = Path('scripts/local-app-script.sh')
+          s = wrapper.read_text()
+          old = 'exec docker exec -i "$APP" /bin/sh -c \'\n'
+          new = 'exec docker exec -i -e "PUBLIC_HIRING_POST_DIAGNOSTICS=${PUBLIC_HIRING_POST_DIAGNOSTICS:-}" "$APP" /bin/sh -c \'\n'
+          if old not in s:
+              raise SystemExit('local-app-script target not found')
+          wrapper.write_text(s.replace(old, new, 1))
+          PY
+
+          npm ci --ignore-scripts
+          npm run typecheck
+          npm test -- --runInBand src/recruiters/PublicHiringPostDiscoveryProvider.test.ts
+          npm run typecheck:scripts
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/repair-content-first.yml
+          git add src/recruiters/PublicHiringPostDiscoveryProvider.ts scripts/local-app-script.sh
+          git commit -m 'fix recruiter hiring-post evidence gate'
+          git push origin HEAD:repair/content-first-runtime
