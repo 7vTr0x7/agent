@@ -74,7 +74,7 @@ async function main(): Promise<void> {
 
   const database = new Database(process.env.DATABASE_URL ?? "");
   try {
-    const emailSql = "^[A-Za-z0-9.!#$%&'*+/=?^_{}|~-]+@[A-Za-z0-9-]+(\\\\.[A-Za-z0-9-]+)+$";
+    const emailSql = "^[A-Za-z0-9.!#$%&'*+/=?^_{}|~-]+@[A-Za-z0-9-]+([.][A-Za-z0-9-]+)+$";
     await database.query(
       `UPDATE public_contact_resource_contacts
           SET validation_status='INVALID', relevance_score=0, updated_at=NOW()
