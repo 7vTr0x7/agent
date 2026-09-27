@@ -1,6 +1,7 @@
--- Reject recruiter records whose public-web employer identity is clearly search-page/UI chrome,
--- lacks a person name, or whose employer domain contradicts the supplied recruiter email domain.
--- These guards prevent persistence from inventing a recruiter person from a generic hiring page.
+-- Reject recruiter records whose public-web employer identity is clearly search-page/UI chrome
+-- or whose employer domain contradicts the supplied recruiter email domain. The guard is
+-- deliberately narrow so legitimate recruiter-first fixtures and employer-level hiring
+-- evidence are not rejected merely because person/profile fields are unavailable.
 
 CREATE OR REPLACE FUNCTION recruiter_identity_quality_consistent(
   provider_value TEXT,
@@ -19,10 +20,6 @@ DECLARE
 BEGIN
   IF COALESCE(provider_value, '') <> 'proactive-public-web' THEN
     RETURN TRUE;
-  END IF;
-
-  IF NULLIF(btrim(full_name_value), '') IS NULL THEN
-    RETURN FALSE;
   END IF;
 
   IF COALESCE(company_name_value, '') ~* '(email\s+or\s+phone|password|forgot\s+password|show\s+password|linkedin\s+facebook\s+x|copy\s+linkedin|skip\s+to|navigation)' THEN
@@ -66,7 +63,7 @@ ON recruiter_contacts
 FOR EACH ROW
 EXECUTE FUNCTION guard_proactive_recruiter_identity_quality();
 
--- Remove only malformed proactive-public-web rows that cannot represent a named recruiter person.
+-- Remove only malformed proactive-public-web rows covered by the narrow quality guard.
 DELETE FROM recruiter_contacts
  WHERE COALESCE(provider, '') = 'proactive-public-web'
    AND NOT recruiter_identity_quality_consistent(
