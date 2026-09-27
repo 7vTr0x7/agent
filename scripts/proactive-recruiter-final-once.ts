@@ -9,9 +9,6 @@ export function boundedEnv(name: string, fallback: number, maximum: number): str
 export function buildRuntimeEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
-    // A one-shot discovery command explicitly enables discovery even when the
-    // daemon's default PROACTIVE_RECRUITER_ENABLED=false is left untouched.
-    // Sending remains independently and unconditionally disabled here.
     PROACTIVE_RECRUITER_ENABLED: "true",
     PROACTIVE_RECRUITER_SEND_ENABLED: "false",
     RECRUITER_OUTREACH_DRY_RUN: "true",
@@ -39,11 +36,12 @@ function run(script: string): void {
 }
 
 function main(): void {
-  // The primary path includes bounded hiring-post and job-linked enrichment.
-  // The older five-employer supplement duplicated the same public fetch fanout
-  // and was the remaining source of the 180s worker timeout, so it is no longer
-  // part of the final product once-path.
+  // Run the existing bounded public-hiring path first, then a separate bounded
+  // pass over recent real jobs. The fallback is not synthetic: it uses persisted
+  // job opportunities as hiring evidence and the existing public-web identity
+  // and database evidence gates.
   run("scripts/proactive-recruiter-once.ts");
+  run("scripts/job-linked-recruiter-fallback-once.ts");
 }
 
 if (require.main === module) {
