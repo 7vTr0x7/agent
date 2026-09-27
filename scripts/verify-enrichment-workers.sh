@@ -4,6 +4,8 @@ set -euo pipefail
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 STATE_DIR="${ENRICHMENT_STATE_DIR:-/tmp/job-agent-enrichment}"
 STARTUP_WAIT_SECONDS="${ENRICHMENT_STARTUP_WAIT_SECONDS:-60}"
+PERSISTENCE_WAIT_SECONDS="${ENRICHMENT_PERSISTENCE_WAIT_SECONDS:-120}"
+API_BASE="${JOB_AGENT_LOCAL_API_BASE:-http://127.0.0.1:${JOB_AGENT_LOCAL_API_PORT:-3100}}"
 CONTAINERS=(job-agent-local-recruiter job-agent-local-contacts job-agent-local-content)
 
 read_state() {
@@ -64,4 +66,26 @@ for container in "${CONTAINERS[@]}"; do
     esac
     sleep 5
   done
+done
+
+# Worker lifecycle completion is not sufficient evidence that the three
+# independently scheduled workers have converged into persisted API state.
+# The contacts worker can complete its first cycle before the recruiter worker
+# has produced a candidate. Wait for persisted records before the final
+# runtime aggregate snapshots the database. This only observes live state.
+persistence_deadline=$((SECONDS+PERSISTENCE_WAIT_SECONDS))
+while true; do
+  summary="$(curl --fail --silent "$API_BASE/api/summary")"
+  recruiters="$(node -e 'const s=JSON.parse(process.argv[1]); process.stdout.write(String(Number(s.recruiters)||0))' "$summary")"
+  contacts="$(node -e 'const s=JSON.parse(process.argv[1]); process.stdout.write(String(Number(s.contacts)||0))' "$summary")"
+  content="$(node -e 'const s=JSON.parse(process.argv[1]); process.stdout.write(String(Number(s.content)||0))' "$summary")"
+  echo "enrichment persisted recruiters=$recruiters contacts=$contacts content=$content"
+  if (( recruiters > 0 && contacts > 0 && content > 0 )); then
+    break
+  fi
+  if (( SECONDS >= persistence_deadline )); then
+    echo "enrichment workers completed but persisted state did not converge: $summary" >&2
+    exit 1
+  fi
+  sleep 5
 done
