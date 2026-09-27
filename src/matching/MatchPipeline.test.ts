@@ -47,4 +47,36 @@ describe("MatchPipeline", () => {
     expect(result.decision).toBe("REVIEW");
     expect(result.score).toBeGreaterThan(30);
   });
+
+  it("rejects a Java full-stack title when React is only incidental in the description", async () => {
+    const backendFirst = {
+      ...job,
+      title: "Senior Java Full Stack Developer",
+      description: "Build Spring Boot services and enterprise APIs. React is mentioned for occasional frontend integration."
+    };
+    const repository: MatchDecisionRepository = { save: jest.fn().mockResolvedValue(undefined) };
+    const result = await new MatchPipeline(new DeterministicJobMatcher(), null, repository)
+      .evaluateAndPersist(backendFirst, profile);
+
+    expect(result.decision).toBe("REJECT");
+    expect(result.score).toBe(0);
+    expect(result.reason).toContain("backend-first");
+    expect(result.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "HARD_BLOCKER" })
+    ]));
+  });
+
+  it("keeps a genuine React full-stack title eligible", async () => {
+    const reactFullStack = {
+      ...job,
+      title: "Full Stack Developer - React",
+      description: "Build React and Next.js customer-facing UI with Node.js APIs."
+    };
+    const repository: MatchDecisionRepository = { save: jest.fn().mockResolvedValue(undefined) };
+    const result = await new MatchPipeline(new DeterministicJobMatcher(), null, repository)
+      .evaluateAndPersist(reactFullStack, profile);
+
+    expect(result.decision).toBe("APPLY");
+    expect(result.score).toBeGreaterThanOrEqual(30);
+  });
 });
