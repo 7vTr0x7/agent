@@ -1,4 +1,4 @@
-import { ProactiveRecruiterRepository } from "./ProactiveRecruiterRepository";
+import { ProactiveRecruiterRepository, isEmployerEmailDomainConsistent } from "./ProactiveRecruiterRepository";
 import { ProactiveRecruiterDiscoveryCandidate } from "./ProactiveRecruiterDiscoveryService";
 
 const hiringPostCandidate = (overrides: Partial<ProactiveRecruiterDiscoveryCandidate> = {}): ProactiveRecruiterDiscoveryCandidate => ({
@@ -38,6 +38,35 @@ describe("ProactiveRecruiterRepository hiring-post persistence", () => {
     expect(String(insertParams?.[16])).toContain("profile:");
     const sourceParams = database.query.mock.calls[2]?.[1] as unknown[];
     expect(sourceParams?.[2]).toBe("job_hiring_evidence");
+  });
+
+  it("persists a legitimate recruiter using a generic mailbox without treating the mailbox provider as an employer-domain mismatch", async () => {
+    const database = { query: jest.fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: "contact-generic-mailbox" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] }) };
+    const repository = new ProactiveRecruiterRepository(database as never);
+
+    const result = await repository.persistCandidate("candidate-generic-mailbox", hiringPostCandidate({
+      email: "jane.recruiter@gmail.com",
+      emailStatus: "UNVERIFIED",
+      employerDomain: "acme.example"
+    }));
+
+    expect(result).toBe("contact-generic-mailbox");
+    expect(database.query).toHaveBeenCalledTimes(5);
+    const insertParams = database.query.mock.calls[1]?.[1] as unknown[];
+    expect(insertParams?.[2]).toBe("jane.recruiter@gmail.com");
+    expect(insertParams?.[6]).toBe(false);
+    expect(insertParams?.[7]).toBe("public-web-unverified");
+  });
+
+  it("accepts generic mailbox providers but rejects a non-generic employer-domain contradiction", () => {
+    expect(isEmployerEmailDomainConsistent("gmail.com", "acme.example")).toBe(true);
+    expect(isEmployerEmailDomainConsistent("outlook.com", "acme.example")).toBe(true);
+    expect(isEmployerEmailDomainConsistent("recruiter@othercorp.example", "acme.example")).toBe(false);
   });
 
   it("rejects a search-engine result without genuine identity evidence", async () => {
