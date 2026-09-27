@@ -15,25 +15,36 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     const profile = `<html><head><title>Anita Rao | Technical Recruiter | Acme Corp</title></head><body><h1>Anita Rao</h1><p>Technical Recruiter at Acme Corp. Hiring React engineers in Bengaluru.</p></body></html>`;
     const search = `Anita Rao — Technical Recruiter at Acme Corp <${target}>`;
     const calls:string[] = [];
-    const service = new ProactiveRecruiterDiscoveryService({
-      maxQueries: 1,
-      fetchText: async (url) => {
-        calls.push(url);
-        if (url.startsWith("https://s.jina.ai/")) return search;
-        if (url === target) return profile;
-        return "";
-      }
-    });
-    const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
-    expect(calls.some((url) => url.startsWith("https://s.jina.ai/"))).toBe(true);
-    expect(results[0]?.recruiterName).toBe("Anita Rao");
-    expect(results[0]?.discoveryUrl).toBe(target);
-    expect(service.getLastRunMetrics().linkedinUrlsExtracted).toBeGreaterThan(0);
-    expect(service.getLastRunMetrics().profileFetchAttempts).toBeGreaterThan(0);
+    const previousProviders = process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS;
+    const previousJinaKey = process.env.JINA_API_KEY;
+    delete process.env.JINA_API_KEY;
+    process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS = "jina-search";
+    try {
+      const service = new ProactiveRecruiterDiscoveryService({
+        maxQueries: 1,
+        fetchText: async (url) => {
+          calls.push(url);
+          if (url.startsWith("https://s.jina.ai/")) return search;
+          if (url === target) return profile;
+          return "";
+        }
+      });
+      const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
+      expect(calls.some((url) => url.startsWith("https://s.jina.ai/"))).toBe(true);
+      expect(results[0]?.recruiterName).toBe("Anita Rao");
+      expect(results[0]?.discoveryUrl).toBe(target);
+      expect(service.getLastRunMetrics().linkedinUrlsExtracted).toBeGreaterThan(0);
+      expect(service.getLastRunMetrics().profileFetchAttempts).toBeGreaterThan(0);
+    } finally {
+      if (previousProviders === undefined) delete process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS;
+      else process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS = previousProviders;
+      if (previousJinaKey === undefined) delete process.env.JINA_API_KEY;
+      else process.env.JINA_API_KEY = previousJinaKey;
+    }
   });
 
   it("rejects search infrastructure person-photo URLs as public profiles", async () => {
-    const infrastructure = "Search results <https://business.bing.com/api/v3/search/person/photo?caller=IP%5Cu0026id%3D%7B0%7D>";
+    const infrastructure = "Search results <https://business.bing.com/api/v3/search/person/photo?caller=IP%5Cu0026id%3D%7B0%7}>";
     const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => infrastructure });
     const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
     expect(results).toEqual([]);
