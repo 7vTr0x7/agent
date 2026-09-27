@@ -65,7 +65,7 @@ jobs:
           set -euo pipefail
           docker exec job-agent-phase10-postgres psql -U job_agent -d job_agent -v ON_ERROR_STOP=1 -c 'SELECT 1;'
           test "false" = "${GMAIL_LIVE_SEND_DURING_HARDENING:-false}"
-          test "false" = "${APPLICATION_LIVE_SUBMISSION_DURING_HARDENING:-false"
+          test "false" = "${APPLICATION_LIVE_SUBMISSION_DURING_HARDENING:-false}"
       - name: Cleanup
         if: always()
         run: |
