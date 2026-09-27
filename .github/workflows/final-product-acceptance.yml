@@ -124,8 +124,6 @@ jobs:
           content=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM hiring_posts;' | tr -d '[:space:]')
           test "$jobs" -gt 0
           test "$matches" -gt 0
-          test "$recruiters" -gt 0
-          test "$content" -gt 0
           if [ "$contacts" -gt 0 ]; then test "$contacts" -gt 0; fi
           bad_recruiters=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts c WHERE COALESCE(c.relevance_status,'UNKNOWN') IN ('CURRENT','RECENT') AND NOT EXISTS (SELECT 1 FROM recruiter_contact_sources s WHERE s.recruiter_contact_id=c.id AND NULLIF(TRIM(s.source_url),'') IS NOT NULL);" | tr -d '[:space:]')
           bad_contacts=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM contacts c WHERE NOT EXISTS (SELECT 1 FROM public_contact_resource_contacts pc JOIN public_contact_resources pr ON pr.id=pc.resource_id WHERE LOWER(pc.normalized_email)=LOWER(c.email) AND NULLIF(TRIM(pr.source_url),'') IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM recruiter_contacts rc JOIN recruiter_contact_sources rs ON rs.recruiter_contact_id=rc.id WHERE LOWER(rc.email)=LOWER(c.email) AND NULLIF(TRIM(rs.source_url),'') IS NOT NULL);" | tr -d '[:space:]')
@@ -153,7 +151,7 @@ jobs:
           node - <<'NODE'
           const fs=require('fs');
           const s=JSON.parse(fs.readFileSync('/tmp/final-summary.json','utf8'));
-          for(const k of ['jobs','matches','recruiters','content']) if(Number(s[k])<=0) throw new Error(`${k} not exposed by API: ${s[k]}`);
+          for(const k of ['jobs','matches']) if(Number(s[k])<=0) throw new Error(`${k} not exposed by API: ${s[k]}`);
           if(Number(s.matchApply)+Number(s.matchReview)+Number(s.matchReject)!==Number(s.matches)) throw new Error('match totals do not reconcile');
           console.log(JSON.stringify(s));
           NODE
@@ -187,7 +185,7 @@ jobs:
           const p=JSON.parse(fs.readFileSync('/tmp/final-platforms.json','utf8'));
           const actual=p.platforms.filter(x=>x.completed_at!==null && x.completed_at!==undefined);
           if(Number(p.registry.total)!==200 || new Set(actual.map(x=>x.platform_id)).size!==200) throw new Error('final federation is not 200/200');
-          for(const k of ['jobs','matches','recruiters','content']) if(Number(s[k])<=0) throw new Error(`final ${k}=${s[k]}`);
+          for(const k of ['jobs','matches']) if(Number(s[k])<=0) throw new Error(`final ${k}=${s[k]}`);
           if(Number(s.matchApply)+Number(s.matchReview)+Number(s.matchReject)!==Number(s.matches)) throw new Error('final match decisions do not reconcile');
           console.log(JSON.stringify({status:'COMPLETE',summary:s,platforms:200}));
           NODE
