@@ -66,8 +66,7 @@ for container in "${CONTAINERS[@]}"; do
   done
 done
 
-# The worker lifecycle gate deliberately verifies execution only. Persisted
-# record counts are checked after the workers have completed, by the runtime
-# acceptance/API/database gates. This avoids racing an asynchronous worker's
-# first cycle while still failing on an actual worker lifecycle error.
-curl --fail --silent "$API_BASE/api/summary" >/tmp/enrichment-worker-final-summary.json 2>/dev/null || true
+# The worker lifecycle gate verifies that all three independent enrichment
+# workers actually execute and reach a terminal COMPLETED state. Persisted
+# record counts are checked only after all workers have completed, by the
+# runtime acceptance/API/database gates, avoiding a race with the first cycle.
