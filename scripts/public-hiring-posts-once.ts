@@ -22,7 +22,7 @@ function readableText(value: unknown): string {
     .trim();
 }
 
-function formatEvidence(value: unknown): string {
+export function formatEvidence(value: unknown): string {
   if (typeof value === "string") return readableText(value).slice(0, 3500);
   if (!value || typeof value !== "object") return readableText(value).slice(0, 3500);
   const evidence = value as Record<string, unknown>;
