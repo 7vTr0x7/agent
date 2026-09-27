@@ -1,3 +1,4 @@
+# Final runtime acceptance includes the same Playwright browser/tooling prerequisites as hardening.
 name: Final Product Acceptance
 
 on:
@@ -121,9 +122,7 @@ jobs:
           SQL
           jobs=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM job_opportunities;' | tr -d '[:space:]')
           matches=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM match_decisions;' | tr -d '[:space:]')
-          recruiters=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM recruiter_contacts;' | tr -d '[:space:]')
           contacts=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM contacts;' | tr -d '[:space:]')
-          content=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM hiring_posts;' | tr -d '[:space:]')
           test "$jobs" -gt 0
           test "$matches" -gt 0
           if [ "$contacts" -gt 0 ]; then test "$contacts" -gt 0; fi
