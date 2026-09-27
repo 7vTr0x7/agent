@@ -77,17 +77,18 @@ async function main(): Promise<void> {
     // Reconcile malformed public-resource emails before they can be promoted or
     // displayed as active contacts. This is intentionally runtime-safe and does
     // not require a schema migration.
+    const emailSql = "^[A-Za-z0-9.!#$%&'*+/=?^_{}|~-]+@[A-Za-z0-9-]+(\\\\.[A-Za-z0-9-]+)+$";
     await database.query(
       `UPDATE public_contact_resource_contacts
           SET validation_status='INVALID', relevance_score=0, updated_at=NOW()
         WHERE normalized_email IS NULL
-           OR normalized_email !~ '^[A-Za-z0-9.!#$%&''*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$'`
+           OR normalized_email !~ '${emailSql}'`
     );
     await database.query(
       `UPDATE contacts
           SET suppressed=TRUE, validation_status='INVALID', updated_at=NOW()
         WHERE COALESCE(suppressed,FALSE)=FALSE
-          AND (email IS NULL OR email !~ '^[A-Za-z0-9.!#$%&''*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$')`
+          AND (email IS NULL OR email !~ '${emailSql}')`
     );
 
     const result = await database.query<{
@@ -116,7 +117,7 @@ async function main(): Promise<void> {
        WHERE c.relevance_score >= 60
          AND c.validation_status IN ('LIKELY', 'VERIFIED')
          AND NULLIF(TRIM(c.normalized_email), '') IS NOT NULL
-         AND c.normalized_email ~ '^[A-Za-z0-9.!#$%&''*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$'
+         AND c.normalized_email ~ '${emailSql}'
        ORDER BY c.normalized_email, c.relevance_score DESC, c.observed_at DESC`
     );
 
