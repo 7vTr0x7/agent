@@ -1,4 +1,4 @@
-import { buildContactPromotion } from "./promote-public-contact-resources-once";
+import { buildContactPromotion, isSafePublicEmail } from "./promote-public-contact-resources-once";
 
 describe("public contact promotion", () => {
   it("preserves public evidence and never claims mailbox verification", () => {
@@ -27,5 +27,36 @@ describe("public contact promotion", () => {
       mailboxVerification: "NOT_CLAIMED"
     });
     expect(String(result.provenance.evidenceContext)).toContain("hiring React developers");
+  });
+
+  it.each([
+    "22employer%20recruiting%20contact%22@example.com",
+    "recruiting@example.com%22",
+    "recruiting@example.com%5C",
+    "recruiting@example.com...",
+    "recruiting@example.com)",
+    "recruiting@example.com\""
+  ])("rejects malformed/search-result email fragments: %s", (value) => {
+    expect(isSafePublicEmail(value)).toBe(false);
+    expect(() => buildContactPromotion({
+      resourceId: "resource-1",
+      email: value,
+      companyName: "Example Careers",
+      sourceUrl: "https://example.com/careers/frontend",
+      sourceType: "HTML",
+      validationStatus: "LIKELY",
+      relevanceScore: 85,
+      evidenceContext: "Hiring evidence",
+      observedAt: "2026-09-26T06:00:00.000Z"
+    })).toThrow("INVALID_PUBLIC_EMAIL");
+  });
+
+  it("accepts a legitimate recruiter email", () => {
+    expect(isSafePublicEmail("laura.korth@virtual7.de")).toBe(true);
+  });
+
+  it("does not promote generic machine mailboxes as qualified public contacts", () => {
+    expect(isSafePublicEmail("support@example.com")).toBe(false);
+    expect(isSafePublicEmail("sales@example.com")).toBe(false);
   });
 });
