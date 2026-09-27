@@ -1,7 +1,7 @@
 -- Reject recruiter records whose public-web employer identity is clearly search-page/UI chrome
--- or whose employer domain contradicts the supplied recruiter email domain. The guard is
--- deliberately narrow so legitimate recruiter-first fixtures and employer-level hiring
--- evidence are not rejected merely because person/profile fields are unavailable.
+-- or whose employer domain contradicts a non-generic recruiter email domain. Generic
+-- mailbox providers do not establish employer identity, so they are stored as
+-- unverified public-web evidence rather than treated as an employer-domain conflict.
 
 CREATE OR REPLACE FUNCTION recruiter_identity_quality_consistent(
   provider_value TEXT,
@@ -29,7 +29,9 @@ BEGIN
   company_domain := lower(regexp_replace(btrim(COALESCE(company_domain_value, '')), '^www\\.', '', 'i'));
   email_domain := lower(split_part(btrim(COALESCE(email_value, '')), '@', 2));
 
-  IF email_domain <> '' AND company_domain <> '' AND email_domain <> company_domain THEN
+  IF email_domain <> '' AND company_domain <> ''
+     AND email_domain NOT IN ('gmail.com','googlemail.com','outlook.com','hotmail.com','live.com','yahoo.com','yahoo.co.in','icloud.com','proton.me','protonmail.com')
+     AND email_domain <> company_domain THEN
     RETURN FALSE;
   END IF;
 
