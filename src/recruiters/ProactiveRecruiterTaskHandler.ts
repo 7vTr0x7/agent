@@ -5,7 +5,7 @@ import { RecruiterVerificationEvidence } from "./RecruiterDiscovery";
 import { RecruiterOutreachSendTaskDispatcher } from "./RecruiterOutreachSendTask";
 import { ProactiveRecruiterDiscoveryService } from "./ProactiveRecruiterDiscoveryService";
 import { rankProactiveRecruiters } from "./ProactiveRecruiterRanking";
-import { ProactiveRecruiterRepository } from "./ProactiveRecruiterRepository";
+import { ProactiveRecruiterRepository, isEmployerEmailDomainConsistent } from "./ProactiveRecruiterRepository";
 import { PublicRecruiterSearchProvider } from "./PublicRecruiterSearchProvider";
 import { ProactiveRecruiterDiscoveryPayload, ProactiveRecruiterOutreachPayload, PROACTIVE_RECRUITER_DISCOVERY_TASK, PROACTIVE_RECRUITER_OUTREACH_TASK } from "./ProactiveRecruiterTask";
 
@@ -92,7 +92,7 @@ export class ProactiveRecruiterTaskHandler {
             ((candidate.recruiterName && contact.fullName && contact.fullName.toLowerCase() === candidate.recruiterName.toLowerCase()) ||
              (candidate.recruiterRole && contact.title && contact.title.toLowerCase().includes(candidate.recruiterRole.toLowerCase().split(" ")[0] ?? "")))
           );
-          if (sameIdentity?.email) {
+          if (sameIdentity?.email && isCompatibleRecruiterEnrichmentEmail(sameIdentity.email, candidate.employerDomain)) {
             candidate.email = sameIdentity.email;
             candidate.emailStatus = "UNVERIFIED";
             candidate.verificationEvidence = [];
@@ -163,6 +163,11 @@ export class ProactiveRecruiterTaskHandler {
     if (!this.options.sendEnabled) return;
     await this.sendDispatcher.enqueue({ messageId: payload.messageId, companyDomain: payload.companyDomain });
   }
+}
+
+export function isCompatibleRecruiterEnrichmentEmail(email: string, employerDomain: string): boolean {
+  const emailDomain = email.trim().toLowerCase().split("@")[1] ?? "";
+  return Boolean(emailDomain) && isEmployerEmailDomainConsistent(emailDomain, employerDomain);
 }
 
 function assertDiscoveryPayload(payload: Record<string, unknown>): ProactiveRecruiterDiscoveryPayload {
