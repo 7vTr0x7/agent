@@ -12,11 +12,11 @@ const DEFAULT_PLATFORM_ITEM_TIMEOUT_MS = 30_000;
 type PlatformDiagnosticWithId = PlatformDiscoveryDiagnostics & { readonly platformId: string };
 
 /**
- * Runs every registered platform while keeping catalog/configuration state truthful.
- * Catalog-only entries receive UNSUPPORTED and configurable adapters without a
- * configured adapter receive CONFIGURATION_ERROR. Only executable adapters use
- * the existing real public-search implementation. A hard per-platform timeout
- * prevents a renderer/provider from keeping the whole federation worker alive.
+ * Runs the complete registered federation through a truthful acquisition path.
+ * Direct/configurable capability labels describe dedicated adapters available to
+ * the product; this federation source additionally uses the public-web search
+ * path for every platform name so a catalog entry is never silently skipped.
+ * No result is fabricated: the public page still has to be fetched and parsed.
  */
 export class CatalogAwarePlatformSearchJobSource implements JobSource {
   readonly name = "platform-search-federation";
@@ -50,46 +50,6 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
           this.onDiagnostic(diagnostic);
         };
 
-        if (platform.capability === "catalog-only") {
-          emit({
-            platform: platform.name,
-            searchPages: 0,
-            searchUrlsGenerated: 0,
-            searchReturnedUrls: 0,
-            uniqueUrls: 0,
-            pageSuccesses: 0,
-            pageFailures: 0,
-            parseSuccesses: 0,
-            parseFailures: 0,
-            parseFailureReasons: { catalog_only: 1 },
-            jobs: 0,
-            errors: 0,
-            finalOutcome: "UNSUPPORTED",
-            extractionMode: "STATIC_ZERO_RENDER_ZERO"
-          });
-          return [];
-        }
-
-        if (platform.capability === "configurable-adapter") {
-          emit({
-            platform: platform.name,
-            searchPages: 0,
-            searchUrlsGenerated: 0,
-            searchReturnedUrls: 0,
-            uniqueUrls: 0,
-            pageSuccesses: 0,
-            pageFailures: 0,
-            parseSuccesses: 0,
-            parseFailures: 0,
-            parseFailureReasons: { configuration_required: 1 },
-            jobs: 0,
-            errors: 0,
-            finalOutcome: "CONFIGURATION_ERROR",
-            extractionMode: "STATIC_ZERO_RENDER_ZERO"
-          });
-          return [];
-        }
-
         const timeoutMs = readPlatformItemTimeoutMs();
         const platformController = new AbortController();
         const abortFromParent = (): void => platformController.abort(signal?.reason);
@@ -122,7 +82,8 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
               jobs: 0,
               errors: 0,
               timeouts: 1,
-              finalOutcome: "TIMEOUT"
+              finalOutcome: "TIMEOUT",
+              extractionMode: "STATIC_ZERO_RENDER_ZERO"
             });
             suppressLateDiagnostics = true;
             void discoveryPromise.catch(() => undefined);
@@ -144,7 +105,7 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
               jobs: result.jobs.length,
               errors: 0,
               finalOutcome: result.jobs.length > 0 ? "SUCCESS_WITH_JOBS" : "SUCCESS_ZERO_JOBS",
-              extractionMode: "STATIC_ZERO_RENDER_ZERO"
+              extractionMode: result.jobs.length > 0 ? "STATIC_ONLY_SUCCESS" : "STATIC_ZERO_RENDER_ZERO"
             });
           }
 
@@ -165,7 +126,8 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
             jobs: 0,
             errors: timedOut ? 0 : 1,
             timeouts: timedOut ? 1 : 0,
-            finalOutcome: timedOut ? "TIMEOUT" : "UNKNOWN_ERROR"
+            finalOutcome: timedOut ? "TIMEOUT" : "UNKNOWN_ERROR",
+            extractionMode: "STATIC_ZERO_RENDER_ZERO"
           });
           suppressLateDiagnostics = true;
           return [];
