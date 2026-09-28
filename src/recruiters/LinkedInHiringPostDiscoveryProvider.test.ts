@@ -21,7 +21,7 @@ describe("LinkedInHiringPostDiscoveryProvider", () => {
 
   it("extracts recruiter, public email, role and hiring evidence from a search-indexed LinkedIn post", async () => {
     const postUrl = "https://www.linkedin.com/posts/vinay-sharma_hiring-mern-stack-engineer-activity-123456789";
-    mockSearch([postUrl, "Vinay Sharma's Post 2d", "Hiring: MERN Stack Engineer | Pune | 3+ Years", "We're hiring a MERN Stack Engineer in Pune. MongoDB, Express.js, React.js, Node.js, JavaScript, TypeScript, REST APIs, Redux/Context API, JWT/OAuth, HTML5, CSS3, Jest and Git/GitHub.", "Please share your updated CV. Email: vinay.sharma@codersbrain.com"].join("\n"));
+    mockSearch([postUrl, "Vinay Sharma's Post 2d", "Hiring: MERN Stack Engineer / Frontend Engineer | Pune | 3+ Years", "We're hiring a MERN Stack Engineer / Frontend Engineer in Pune. MongoDB, Express.js, React.js, Node.js, JavaScript, TypeScript, REST APIs, Redux/Context API, JWT/OAuth, HTML5, CSS3, Jest and Git/GitHub.", "Please share your updated CV. Email: vinay.sharma@codersbrain.com"].join("\n"));
     process.env.LINKEDIN_HIRING_POST_MAX_QUERIES = "1";
     const result = await new LinkedInHiringPostDiscoveryProvider().discover({ companyName: "CodersBrain", companyDomain: "codersbrain.com", jobTitle: "Frontend Developer", jobDescription: "React TypeScript JavaScript Node.js REST APIs", location: "Pune", candidateProfileId: "candidate-1" });
     expect(result.contacts).toHaveLength(1);
