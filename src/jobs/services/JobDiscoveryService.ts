@@ -2,25 +2,90 @@ import { Database } from "../../database/Database";
 import { canonicalizeJobUrl, createCanonicalJobId, createJobContentFingerprint } from "../domain/JobCanonicalization";
 import { Job } from "../domain/Job";
 import { JobSource } from "../sources/JobSource";
+import { evaluateJobEligibility, JobSearchPolicy } from "../policy/JobEligibility";
 
-export interface DiscoveryResult { source: string; fetched: number; inserted: number; duplicates: number; insertedOpportunityIds: string[]; }
+export interface DiscoveryResult {
+  source: string;
+  fetched: number;
+  normalized: number;
+  hardRejected: number;
+  ambiguous: number;
+  eligible: number;
+  inserted: number;
+  duplicates: number;
+  insertedOpportunityIds: string[];
+  rejectionReasons: Record<string, number>;
+  acceptedRoleFamilies: Record<string, number>;
+  rejectedSamples: Array<{ sourceJobId: string; title: string; classification: string; reason: string }>;
+}
 interface OpportunityRow { id: string; }
 
 export class JobDiscoveryService {
-  constructor(private readonly database: Database) {}
+  constructor(private readonly database: Database, private readonly policy: JobSearchPolicy) {}
 
   async discover(source: JobSource, signal?: AbortSignal): Promise<DiscoveryResult> {
     if (signal?.aborted) throw new Error("Discovery aborted before source execution");
     const jobs = await source.fetchJobs(signal);
     if (signal?.aborted) throw new Error("Discovery aborted after source execution");
 
-    let inserted = 0; let duplicates = 0; const insertedOpportunityIds: string[] = [];
+    let inserted = 0;
+    let duplicates = 0;
+    let hardRejected = 0;
+    let ambiguous = 0;
+    let eligible = 0;
+    const insertedOpportunityIds: string[] = [];
+    const rejectionReasons: Record<string, number> = {};
+    const acceptedRoleFamilies: Record<string, number> = {};
+    const rejectedSamples: Array<{ sourceJobId: string; title: string; classification: string; reason: string }> = [];
+
     for (const job of jobs) {
       if (signal?.aborted) throw new Error("Discovery aborted during persistence");
+      const eligibility = evaluateJobEligibility({
+        companyName: job.companyName,
+        title: job.title,
+        description: job.description,
+        location: job.location,
+        country: job.country,
+        workplaceType: job.workplaceType,
+        postedAt: job.postedAt
+      }, this.policy);
+
+      if (eligibility.decision === "REJECT") {
+        hardRejected++;
+        const key = eligibility.reason.split(".")[0] || "RELEVANCE_REJECTED";
+        rejectionReasons[key] = (rejectionReasons[key] ?? 0) + 1;
+        if (rejectedSamples.length < 10) rejectedSamples.push({ sourceJobId: job.sourceJobId, title: job.title.slice(0, 200), classification: eligibility.classification, reason: eligibility.reason.slice(0, 300) });
+        continue;
+      }
+
+      eligible++;
+      if (eligibility.classification === "AMBIGUOUS") ambiguous++;
+      const roleFamily = eligibility.matchedSignals[0] ?? eligibility.classification;
+      acceptedRoleFamilies[roleFamily] = (acceptedRoleFamilies[roleFamily] ?? 0) + 1;
+
       const result = await this.persistJob(job);
-      if (result.inserted) { inserted++; insertedOpportunityIds.push(result.opportunityId); } else duplicates++;
+      if (result.inserted) {
+        inserted++;
+        insertedOpportunityIds.push(result.opportunityId);
+      } else {
+        duplicates++;
+      }
     }
-    return { source: source.name, fetched: jobs.length, inserted, duplicates, insertedOpportunityIds };
+
+    return {
+      source: source.name,
+      fetched: jobs.length,
+      normalized: jobs.length,
+      hardRejected,
+      ambiguous,
+      eligible,
+      inserted,
+      duplicates,
+      insertedOpportunityIds,
+      rejectionReasons,
+      acceptedRoleFamilies,
+      rejectedSamples
+    };
   }
 
   private async persistJob(job: Job): Promise<{ inserted: boolean; opportunityId: string }> {
@@ -85,7 +150,7 @@ export class JobDiscoveryService {
             closed_at = NULL
           RETURNING id
         `,
-        [canonicalId, canonicalUrl, job.title, job.companyName, job.companyDomain ?? null, job.location, job.country, job.workplaceType, job.employmentType, job.description, job.postedAt, job.updatedAt]
+        [job.url ? createCanonicalJobId(job.url) : canonicalId, canonicalUrl, job.title, job.companyName, job.companyDomain ?? null, job.location, job.country, job.workplaceType, job.employmentType, job.description, job.postedAt, job.updatedAt]
       );
       const opportunity = opportunityResult.rows[0];
       if (!opportunity) throw new Error("Failed to persist job opportunity");
