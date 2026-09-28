@@ -1,4 +1,5 @@
 import { JobPostingRecruiterDiscoveryProvider } from "./JobPostingRecruiterDiscoveryProvider";
+import { LinkedInHiringPostDiscoveryProvider } from "./LinkedInHiringPostDiscoveryProvider";
 import { PublicRecruiterSearchProvider } from "./PublicRecruiterSearchProvider";
 import { PublicRecruiterIdentitySearchProvider } from "./PublicRecruiterIdentitySearchProvider";
 import { SnovRecruiterDiscoveryProvider } from "./SnovRecruiterDiscoveryProvider";
@@ -82,16 +83,15 @@ function identityCandidatesToContacts(candidates: RecruiterIdentityCandidate[]):
 /**
  * Free-first layered recruiter discovery.
  *
- * Public web acquisition is centralized in PublicRecruiterSearchProvider so
- * identity and email discovery share the same bounded search-source pool.
- * First-party job-posting evidence remains an independent acquisition layer.
- * An independent public identity search is also executed so recruiter
- * discovery does not depend on a matching job having an employer-specific
- * recruiter page.
+ * The public hiring-post layer is intentionally separate from job-page
+ * discovery: social hiring posts are evidence about the person/company
+ * recruiting for a role, and can contain a public email, LinkedIn identity,
+ * location, experience and skill requirements that a job page does not expose.
  */
 class LayeredPublicRecruiterDiscoveryProvider implements RecruiterDiscoveryProvider {
   readonly name = "public-web";
   private readonly identitySearch = new PublicRecruiterIdentitySearchProvider();
+  private readonly hiringPostSearch = new LinkedInHiringPostDiscoveryProvider();
 
   constructor(
     private readonly firstParty = new JobPostingRecruiterDiscoveryProvider(),
@@ -99,36 +99,52 @@ class LayeredPublicRecruiterDiscoveryProvider implements RecruiterDiscoveryProvi
   ) {}
 
   async discover(input: RecruiterDiscoveryInput): Promise<RecruiterDiscoveryResult> {
-    const [firstPartyResult, publicSearchResult, identityCandidates] = await Promise.all([
+    const [firstPartyResult, publicSearchResult, identityCandidates, hiringPostResult] = await Promise.all([
       this.firstParty.discover(input),
       this.publicSearch.discover(input),
-      this.identitySearch.discover(input)
+      this.identitySearch.discover(input),
+      this.hiringPostSearch.discover(input)
     ]);
     return {
       provider: this.name,
       contacts: mergeContacts([
         ...firstPartyResult.contacts,
         ...publicSearchResult.contacts,
-        ...identityCandidatesToContacts(identityCandidates)
+        ...identityCandidatesToContacts(identityCandidates),
+        ...hiringPostResult.contacts
       ]),
       discoveredAt: new Date(),
-      metrics: publicSearchResult.metrics
+      metrics: {
+        ...(publicSearchResult.metrics ?? {}),
+        rawPages: (publicSearchResult.metrics?.rawPages ?? 0) + (hiringPostResult.metrics?.rawPages ?? 0),
+        uniqueUrls: (publicSearchResult.metrics?.uniqueUrls ?? 0) + (hiringPostResult.metrics?.uniqueUrls ?? 0),
+        linkedinUrls: (publicSearchResult.metrics?.linkedinUrls ?? 0) + (hiringPostResult.metrics?.linkedinUrls ?? 0),
+        recruiterCandidates: (publicSearchResult.metrics?.recruiterCandidates ?? 0) + (hiringPostResult.metrics?.recruiterCandidates ?? 0)
+      }
     };
   }
 
   async discoverEmails(input: RecruiterDiscoveryInput): Promise<RecruiterDiscoveryResult> {
-    const [firstPartyResult, publicSearchResult] = await Promise.all([
+    const [firstPartyResult, publicSearchResult, hiringPostResult] = await Promise.all([
       this.firstParty.discover(input),
-      this.publicSearch.discover(input)
+      this.publicSearch.discover(input),
+      this.hiringPostSearch.discoverEmails(input)
     ]);
     return {
       provider: this.name,
       contacts: mergeContacts([
         ...firstPartyResult.contacts.filter(hasEmail),
-        ...publicSearchResult.contacts.filter(hasEmail)
+        ...publicSearchResult.contacts.filter(hasEmail),
+        ...hiringPostResult.contacts.filter(hasEmail)
       ]),
       discoveredAt: new Date(),
-      metrics: publicSearchResult.metrics
+      metrics: {
+        ...(publicSearchResult.metrics ?? {}),
+        rawPages: (publicSearchResult.metrics?.rawPages ?? 0) + (hiringPostResult.metrics?.rawPages ?? 0),
+        uniqueUrls: (publicSearchResult.metrics?.uniqueUrls ?? 0) + (hiringPostResult.metrics?.uniqueUrls ?? 0),
+        linkedinUrls: (publicSearchResult.metrics?.linkedinUrls ?? 0) + (hiringPostResult.metrics?.linkedinUrls ?? 0),
+        recruiterCandidates: (publicSearchResult.metrics?.recruiterCandidates ?? 0) + (hiringPostResult.metrics?.recruiterCandidates ?? 0)
+      }
     };
   }
 
