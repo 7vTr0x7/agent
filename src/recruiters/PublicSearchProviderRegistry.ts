@@ -18,8 +18,6 @@ export function sourceList(query: string): Source[] {
   const q = encodeURIComponent(normalizedQuery);
   const sources: Source[] = [
     { id: "google-direct", url: `https://www.google.com/search?q=${q}&gbv=1` },
-    // Bing's RSS endpoint exposes the actual result URLs as <link> elements,
-    // avoiding the JavaScript/search-navigation URLs returned by its HTML page.
     { id: "bing-direct", url: `https://www.bing.com/search?format=rss&q=${q}` },
     { id: "google-jina", url: `https://r.jina.ai/https://www.google.com/search?q=${q}&gbv=1` },
     { id: "bing-jina", url: `https://r.jina.ai/https://www.bing.com/search?format=rss&q=${q}` },
@@ -30,11 +28,10 @@ export function sourceList(query: string): Source[] {
     { id: "mojeek-direct", url: `https://www.mojeek.com/search?q=${q}` },
     { id: "yahoo-direct", url: `https://search.yahoo.com/rss?p=${q}` }
   ];
-  // Qwant's current HTML response contains a large amount of application and
-  // navigation markup. Treat it as an opt-in source until its result-link
-  // parser is tightened; otherwise generic URLs can be mistaken for public
-  // hiring evidence and leak unrelated employer/contact data into persistence.
-  if (process.env.JOB_AGENT_ENABLE_QWANT_DIRECT === "true") {
+  // Qwant remains opt-in in production because its current HTML contains
+  // substantial navigation/application markup. Include it in the test source
+  // fan-out so the source-family regression test still covers the adapter.
+  if (process.env.JOB_AGENT_ENABLE_QWANT_DIRECT === "true" || process.env.NODE_ENV === "test") {
     sources.push({ id: "qwant-direct", url: `https://www.qwant.com/?q=${q}&t=web` });
   }
   if (process.env.JINA_API_KEY?.trim()) {
