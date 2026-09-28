@@ -20,7 +20,6 @@ const ROLE_TERMS = /(?:frontend|front-end|react(?:\.js)?|next\.js|javascript|typ
 const SKILLS = [
   "React", "React.js", "Next.js", "TypeScript", "JavaScript", "Node.js", "Express.js", "MongoDB", "REST APIs", "GraphQL", "Redux", "Redux Toolkit", "Tailwind CSS", "HTML", "CSS", "Jest", "Playwright", "Docker", "Git/GitHub"
 ];
-const SEARCH_HOSTS = new Set(["google.com", "www.google.com", "bing.com", "www.bing.com", "duckduckgo.com", "html.duckduckgo.com", "startpage.com", "www.startpage.com", "ecosia.org", "www.ecosia.org", "qwant.com", "www.qwant.com", "search.yahoo.com", "www.yahoo.com", "search.brave.com", "www.mojeek.com"]);
 
 function clean(value: string): string {
   return value
@@ -93,12 +92,6 @@ function extractExperience(text: string): string | undefined {
   return text.match(/(?:experience|exp)\s*[:\-]?\s*(\d+\s*(?:-|to|–|—)\s*\d+\s*years?|\d+\+?\s*years?)/i)?.[1]?.trim();
 }
 
-function experienceCompatible(text: string, years: number): boolean {
-  const ranges = [...text.matchAll(/(\d+)\s*(?:-|to|–|—)\s*(\d+)\s*years?/gi)];
-  if (!ranges.length) return true;
-  return ranges.some((match) => years >= Number(match[1]) && years <= Number(match[2])) || /\b(?:0|1|2|3)\s*[-+]?\s*years?/i.test(text);
-}
-
 function sourceList(query: string): SearchSource[] {
   const q = encodeURIComponent(query);
   return [
@@ -138,7 +131,6 @@ function extractUrls(text: string): string[] {
 function candidateFromText(text: string, postUrl: string, input: RecruiterDiscoveryInput): RecruiterContactCandidate | null {
   const normalized = clean(text);
   if (!HIRING.test(normalized) || !ROLE_TERMS.test(normalized)) return null;
-  if (!experienceCompatible(normalized, 3)) return null;
 
   const emails = [...new Set((normalized.match(EMAIL) ?? []).map((email) => email.toLowerCase()))];
   const email = emails.find((value) => domainOf(value) && !NON_RECRUITER.test(normalized.slice(Math.max(0, normalized.indexOf(value) - 180), normalized.indexOf(value) + 180))) ?? emails.find((value) => domainOf(value));
@@ -208,11 +200,11 @@ export class LinkedInHiringPostDiscoveryProvider implements RecruiterDiscoveryPr
     let uniqueUrls = 0;
 
     for (const query of queries) {
-      if (input.candidateProfileId && contacts.size >= 12) break;
+      if (contacts.size >= 12) break;
       queriesExecuted++;
       const sources = sourceList(query);
       for (const source of sources) {
-        const page = await fetchText(source.url);
+        const page = await fetchText(source.url, undefined);
         if (!page) continue;
         rawPages++;
         const urls = extractUrls(page);
