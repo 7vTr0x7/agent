@@ -90,8 +90,10 @@ async function main(): Promise<void> {
         total: allPlatforms.length,
         activeAdapters: allPlatforms.filter((p) => p.capability === "active-adapter").length,
         configurableAdapters: allPlatforms.filter((p) => p.capability === "configurable-adapter").length,
-        catalogOnly: allPlatforms.filter((p) => p.capability === "catalog-only").length,
-        executable: allPlatforms.filter((p) => p.capability !== "catalog-only").length
+        publicWebDiscovery: allPlatforms.filter((p) => p.capability === "public-web-discovery").length,
+        unavailable: allPlatforms.filter((p) => p.capability === "unavailable").length,
+        operationalAcquisitionPaths: allPlatforms.filter((p) => p.capability !== "unavailable").length,
+        executable: allPlatforms.filter((p) => p.capability !== "unavailable").length
       },
       runtime: {
         sourceCount: runtime.sourceCount,
