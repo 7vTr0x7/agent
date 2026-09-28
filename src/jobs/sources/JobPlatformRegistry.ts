@@ -1,5 +1,5 @@
 export type JobPlatformKind = "job-board" | "remote-board" | "developer-board" | "aggregator" | "ats" | "community" | "category";
-export type JobPlatformCapability = "active-adapter" | "configurable-adapter" | "catalog-only";
+export type JobPlatformCapability = "active-adapter" | "configurable-adapter" | "public-web-fallback";
 
 export interface JobPlatformDefinition {
   readonly id: string;
@@ -31,7 +31,11 @@ function kindFor(name: string): JobPlatformKind {
 }
 
 function definition(name: string, index: number): JobPlatformDefinition {
-  const capability: JobPlatformCapability = activeAdapterNames.has(name) ? "active-adapter" : configurableNames.has(name) ? "configurable-adapter" : "catalog-only";
+  const capability: JobPlatformCapability = activeAdapterNames.has(name)
+    ? "active-adapter"
+    : configurableNames.has(name)
+      ? "configurable-adapter"
+      : "public-web-fallback";
   return { id: `${String(index + 1).padStart(3, "0")}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`, name, kind: kindFor(name), capability };
 }
 
