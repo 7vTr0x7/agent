@@ -24,6 +24,7 @@ const SUCCESS_OUTCOMES = new Set(["SUCCESS_WITH_JOBS", "SUCCESS_ZERO_JOBS"]);
 const KNOWN_OUTCOMES = new Set([
   "SUCCESS_WITH_JOBS",
   "SUCCESS_ZERO_JOBS",
+  "CATALOG_ONLY",
   "PARSER_ERROR",
   "NETWORK_ERROR",
   "HTTP_ERROR",
@@ -84,8 +85,8 @@ async function main(): Promise<void> {
         total: JOB_PLATFORM_REGISTRY.length,
         activeAdapters: counts.get("active-adapter") ?? 0,
         configurableAdapters: counts.get("configurable-adapter") ?? 0,
-        publicWebFallback: counts.get("public-web-fallback") ?? 0,
-        executable: JOB_PLATFORM_REGISTRY.length
+        catalogOnly: counts.get("catalog-only") ?? 0,
+        executable: JOB_PLATFORM_REGISTRY.filter((platform) => platform.capability !== "catalog-only").length
       },
       latestRuntime: {
         expected: JOB_PLATFORM_REGISTRY.length,
@@ -96,6 +97,7 @@ async function main(): Promise<void> {
         successful: rows.filter((row) => SUCCESS_OUTCOMES.has(row.outcome)).length,
         successWithJobs: outcomeCount("SUCCESS_WITH_JOBS"),
         successZeroJobs: outcomeCount("SUCCESS_ZERO_JOBS"),
+        catalogOnly: outcomeCount("CATALOG_ONLY"),
         parserFailures: outcomeCount("PARSER_ERROR"),
         networkFailures: outcomeCount("NETWORK_ERROR"),
         httpFailures: outcomeCount("HTTP_ERROR"),
@@ -105,7 +107,7 @@ async function main(): Promise<void> {
         configurationErrors: outcomeCount("CONFIGURATION_ERROR"),
         unsupported: outcomeCount("UNSUPPORTED"),
         unknownFailures: unknownOutcomes.length,
-        failed: rows.filter((row) => !SUCCESS_OUTCOMES.has(row.outcome)).length,
+        failed: rows.filter((row) => !SUCCESS_OUTCOMES.has(row.outcome) && row.outcome !== "CATALOG_ONLY").length,
         fetched,
         normalized,
         inserted,
