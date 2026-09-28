@@ -9,7 +9,10 @@ export interface MatchQueueResult {
   queued: number;
 }
 
-const CURRENT_MATCHER_VERSION = "matcher-v4";
+// Keep stale-decision detection in lock-step with MatchPipeline's persisted
+// input hash. A version mismatch must requeue existing ACTIVE opportunities so
+// matcher fixes are applied to already-ingested jobs, not only new jobs.
+const CURRENT_MATCHER_VERSION = "matcher-v6";
 
 export class MatchQueueService {
   constructor(
