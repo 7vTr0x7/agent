@@ -3,95 +3,110 @@ import { ConfiguredCandidateProfileResolver } from "../src/candidates/Configured
 import { sourceList } from "../src/recruiters/PublicSearchProviderRegistry";
 
 const POST_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"')]+|feed\/update\/urn:li:activity:\d+)/gi;
-const HIRING = /we['’]?re hiring|we are hiring|my team is hiring|our team is hiring|hiring:|looking for|send (?:your|me your) (?:resume|cv)|share (?:your|an updated) (?:resume|cv)|dm (?:me|us)|apply (?:here|now)|referrals? welcome/i;
-const TECH = /react(?:\.js)?|next(?:\.js)?|typescript|javascript|mern|frontend|front-end|full[ -]?stack|web developer|software engineer|application developer|customer software engineer|product engineer|ui engineer|developer|engineer/i;
+const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+const HIRING = /we['’]?re hiring|we are hiring|my team is hiring|our team is hiring|hiring\s*[:\-–—]|looking for|send (?:your|me your) (?:resume|cv)|share (?:your|an updated) (?:resume|cv)|dm (?:me|us)|apply (?:here|now)|referrals? welcome/i;
+const TECH = /react(?:\.js)?|next(?:\.js)?|typescript|javascript|mern|frontend|front-end|full[ -]?stack|developer|engineer/i;
+const BLOCKED_LOCAL = /^(?:support|info|admin|press|media|legal|privacy|marketing|sales|hello|contact|help|feedback|abuse|postmaster|webmaster|noreply|no-reply|donotreply|automation|automated|bot|machine|system)$/i;
+const GENERIC_DOMAINS = new Set(["gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com", "proton.me", "protonmail.com"]);
+const NON_RECRUITING = /customer support|technical support|sales|billing|privacy|legal|security|press|media|partnerships?|helpdesk|procurement|accounting|finance|customer success|marketing/i;
 
 function clean(value: string): string {
-  return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/\s+/g, " ").trim();
+  return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&#64;|&#x40;/gi, "@").replace(/&#46;|&#x2e;/gi, ".").replace(/\s+/g, " ").trim();
 }
 
 function canonical(value: string): string {
   try {
-    const url = new URL(value);
-    url.hash = "";
-    ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "trk", "trackingId", "refId"].forEach((key) => url.searchParams.delete(key));
+    const url = new URL(value); url.hash = "";
+    ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "trk", "trackingId", "refId", "lipi"].forEach((key) => url.searchParams.delete(key));
     return url.toString().replace(/\/$/, "");
-  } catch { return value.replace(/\/$/, ""); }
+  } catch { return value.replace(/\/+$/, ""); }
 }
 
-function extractPosts(text: string): string[] {
-  return [...new Set((text.match(POST_URL) ?? []).map(canonical))];
-}
+function extractPosts(text: string): string[] { return [...new Set((text.match(POST_URL) ?? []).map(canonical))]; }
 
 function relevant(text: string, skills: string[]): boolean {
-  const value = text.toLowerCase();
+  const value = clean(text).toLowerCase();
   if (!HIRING.test(value) || !TECH.test(value)) return false;
   const normalizedSkills = skills.map((skill) => skill.toLowerCase()).filter(Boolean);
-  if (!normalizedSkills.length) return true;
-  return normalizedSkills.some((skill) => value.includes(skill));
+  return !normalizedSkills.length || normalizedSkills.some((skill) => value.includes(skill));
 }
 
-async function fetchText(url: string): Promise<string | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 9000);
+function recruitingEmails(text: string): string[] {
+  const normalized = clean(text);
+  return [...new Set((normalized.match(EMAIL) ?? []).map((email) => email.toLowerCase()))].filter((email) => {
+    const parts = email.split("@"); const local = parts[0]; const domain = parts[1];
+    if (!local || !domain || GENERIC_DOMAINS.has(domain) || BLOCKED_LOCAL.test(local)) return false;
+    const index = normalized.toLowerCase().indexOf(email);
+    const context = normalized.slice(Math.max(0, index - 500), Math.min(normalized.length, index + 500));
+    if (NON_RECRUITING.test(context) && !/recruiter|recruiting|talent|hiring|hr/i.test(context)) return false;
+    return /send|email|contact|reach out|resume|cv|apply|hiring|recruiting|recruiter|talent|job|dm/i.test(context);
+  });
+}
+
+function evidenceFor(text: string, postUrl: string): string {
+  const index = text.toLowerCase().indexOf(postUrl.toLowerCase());
+  return clean(index >= 0 ? text.slice(Math.max(0, index - 1800), Math.min(text.length, index + 4200)) : text).slice(0, 6500);
+}
+
+async function fetchSearch(url: string, signal: AbortSignal, headers?: Record<string, string>): Promise<string | null> {
+  const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 8000); const abort = () => controller.abort(); signal.addEventListener("abort", abort, { once: true });
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        accept: "text/html,text/plain,*/*;q=0.8",
-        "user-agent": "Mozilla/5.0 (compatible; job-agent-linkedin-hiring-resources/1.0)"
-      }
-    });
+    const response = await fetch(url, { signal: controller.signal, headers: { accept: "text/plain,text/html,application/json,*/*;q=0.8", "user-agent": "job-agent-linkedin-public-hiring-resources/1.0", ...(headers ?? {}) } });
     return response.ok ? await response.text() : null;
   } catch { return null; }
-  finally { clearTimeout(timer); }
+  finally { clearTimeout(timer); signal.removeEventListener("abort", abort); }
+}
+
+async function search(query: string, signal: AbortSignal): Promise<string[]> {
+  const sources = sourceList(query); const texts: string[] = [];
+  for (let offset = 0; offset < sources.length; offset += 4) {
+    if (signal.aborted) break;
+    const pages = await Promise.all(sources.slice(offset, offset + 4).map((source) => fetchSearch(source.url, signal, source.headers)));
+    for (const page of pages) if (page) texts.push(page);
+  }
+  return texts;
 }
 
 async function main(): Promise<void> {
-  const profiles = ConfiguredCandidateProfileResolver.fromEnvironment();
-  const profile = await profiles.getById(process.env.CANDIDATE_PROFILE_ID ?? "");
+  const resolver = ConfiguredCandidateProfileResolver.fromEnvironment();
+  const profile = await resolver.getById(process.env.CANDIDATE_PROFILE_ID ?? "");
   if (!profile) throw new Error("Configured candidate profile could not be resolved.");
-
   const location = profile.location?.trim() || "India";
-  const skills = [...profile.skills];
-  const roleTerms = [...profile.targetTitles].slice(0, 8);
-  const roleQuery = roleTerms.length ? roleTerms.join(" ") : "Frontend React Developer";
-  const queries = [
+  const roleQuery = [...profile.targetTitles].slice(0, 8).join(" ") || "Frontend React Developer";
+  const queries = [...new Set([
     `site:linkedin.com/posts "we're hiring" React ${location}`,
     `site:linkedin.com/posts "we are hiring" React ${location}`,
-    `site:linkedin.com/posts "MERN" hiring ${location}`,
-    `site:linkedin.com/posts "Next.js" hiring ${location}`,
-    `site:linkedin.com/posts "Developer – Digital Products" React`,
-    `site:linkedin.com/posts "Application Developer" React ${location}`,
-    `site:linkedin.com/posts "Customer Software Engineer" React India`,
+    `site:linkedin.com/posts "my team is hiring" ${roleQuery} ${location}`,
+    `site:linkedin.com/posts "send your resume" React ${location}`,
+    `site:linkedin.com/posts "share your CV" frontend ${location}`,
+    `site:linkedin.com/posts "DM me" React recruiter ${location}`,
+    `site:linkedin.com/posts "hiring" "Next.js" ${location}`,
+    `site:linkedin.com/posts "hiring" "TypeScript" ${location}`,
     `site:linkedin.com/posts "${roleQuery}" hiring ${location}`,
+    `site:linkedin.com/posts "Frontend Developer" Bengaluru React`,
+    `site:linkedin.com/posts "React Developer" Bengaluru TypeScript`,
+    `site:linkedin.com/posts "Frontend Engineer" Pune React`,
     `site:linkedin.com/posts "send your resume" React India`,
-    `site:linkedin.com/posts "share your CV" frontend India`
-  ];
-
+    `site:linkedin.com/posts "share your CV" React India`,
+  ])].slice(0, Math.max(1, Math.min(Number(process.env.LINKEDIN_HIRING_POST_RESOURCE_MAX_QUERIES ?? 12), 16)));
+  const skills = [...profile.skills];
+  const signal = AbortSignal.timeout(Number(process.env.LINKEDIN_HIRING_POST_RESOURCE_TIMEOUT_MS ?? 90000));
   const db = new Database(process.env.DATABASE_URL ?? "");
-  let discovered = 0;
-  let relevantPosts = 0;
-  let persisted = 0;
-
+  const seen = new Set<string>();
+  let discovered = 0; let relevantPosts = 0; let persisted = 0; let emailsExtracted = 0;
   try {
-    const seen = new Set<string>();
     for (const query of queries) {
-      const results = await Promise.all(sourceList(query).map(async (source) => ({ text: await fetchText(source.url) })));
-      for (const result of results) {
-        if (!result.text) continue;
-        for (const postUrl of extractPosts(result.text)) {
+      if (signal.aborted) break;
+      for (const page of await search(query, signal)) {
+        for (const postUrl of extractPosts(page)) {
           if (seen.has(postUrl)) continue;
-          seen.add(postUrl);
-          discovered++;
-          const start = Math.max(0, result.text.indexOf(postUrl) - 1800);
-          const searchContext = result.text.slice(start, Math.min(result.text.length, start + 4200));
-          const direct = await fetchText(postUrl);
-          const content = clean(`${searchContext} ${direct ?? ""}`);
+          seen.add(postUrl); discovered++;
+          const content = evidenceFor(page, postUrl);
           if (!relevant(content, skills)) continue;
           relevantPosts++;
-          const title = content.match(/(?:hiring|we['’]?re hiring|we are hiring)\s*[:\-–—]?\s*([^.!?]{3,140})/i)?.[1]?.trim()?.slice(0, 300) || "LinkedIn hiring post";
-          const emails = [...new Set((content.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi) ?? []).map((email) => email.toLowerCase()))];
+          const emails = recruitingEmails(content); emailsExtracted += emails.length;
+          const match = content.match(/(?:hiring|we['’]?re hiring|we are hiring)\s*[:\-–—]?\s*([^.!?]{3,140})/i);
+          const title = match?.[1]?.trim().slice(0, 300) || "LinkedIn hiring post";
           await db.query(
             `INSERT INTO public_contact_resources(source_url,source_type,title,discovered_at,status,records_seen,emails_extracted,emails_normalized,invalid_emails,duplicate_emails,qualified_contacts)
              VALUES($1,'LINKEDIN_POST',$2,NOW(),'DISCOVERED',1,$3,$3,0,0,0)
@@ -102,10 +117,8 @@ async function main(): Promise<void> {
         }
       }
     }
-    console.log(JSON.stringify({ queries: queries.length, discovered, relevantPosts, persisted, sourceType: "LINKEDIN_POST" }, null, 2));
-  } finally {
-    await db.close();
-  }
+    console.log(JSON.stringify({ queries: queries.length, discovered, relevantPosts, persisted, emailsExtracted, sourceType: "LINKEDIN_POST", directLinkedInFetches: 0 }, null, 2));
+  } finally { await db.close(); }
 }
 
 void main().catch((error) => { console.error(error); process.exitCode = 1; });
