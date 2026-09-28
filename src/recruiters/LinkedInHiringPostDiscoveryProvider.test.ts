@@ -3,6 +3,10 @@ import { LinkedInHiringPostDiscoveryProvider } from "./LinkedInHiringPostDiscove
 describe("LinkedInHiringPostDiscoveryProvider", () => {
   const originalFetch = global.fetch;
 
+  beforeEach(() => {
+    process.env.LINKEDIN_HIRING_POST_TIMEOUT_MS = "2000";
+  });
+
   afterEach(() => {
     global.fetch = originalFetch;
     jest.restoreAllMocks();
