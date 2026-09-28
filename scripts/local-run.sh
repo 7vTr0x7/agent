@@ -14,7 +14,7 @@ DB_NAME="${JOB_AGENT_LOCAL_DB:-job_agent}"
 DB_USER="${JOB_AGENT_LOCAL_DB_USER:-job_agent}"
 DB_PASSWORD="${JOB_AGENT_LOCAL_DB_PASSWORD:-local_runtime_password}"
 API_PORT="${JOB_AGENT_LOCAL_API_PORT:-3000}"
-ENRICHMENT_INTERVAL_MS="${ENRICHMENT_INTERVAL_MS:-900000}"
+ENRICHMENT_INTERVAL_MS="${ENRICHMENT_INTERVAL_MS:-60000}"
 
 command -v docker >/dev/null || { echo "Docker is required." >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required." >&2; exit 1; }
@@ -140,13 +140,13 @@ docker run -d --restart unless-stopped --name "$APP" --network "$NETWORK" -p "${
   -e CANDIDATE_SPONSORSHIP_REQUIRED=false \
   -e JOB_EXCLUDED_COMPANIES="${JOB_EXCLUDED_COMPANIES:-Octopus Technologies,Sketch Brahma Technologies}" \
   -e FAST_MATCHING_LIMIT="${FAST_MATCHING_LIMIT:-150}" \
-  -e DISCOVERY_SOURCE_TIMEOUT_MS="${DISCOVERY_SOURCE_TIMEOUT_MS:-30000}" \
-  -e DISCOVERY_SOURCE_RETRIES="${DISCOVERY_SOURCE_RETRIES:-1}" \
+  -e DISCOVERY_SOURCE_TIMEOUT_MS="${DISCOVERY_SOURCE_TIMEOUT_MS:-20000}" \
+  -e DISCOVERY_SOURCE_RETRIES="${DISCOVERY_SOURCE_RETRIES:-0}" \
   -e DISCOVERY_FEDERATION_TIMEOUT_MS="${DISCOVERY_FEDERATION_TIMEOUT_MS:-1800000}" \
-  -e PLATFORM_SEARCH_CONCURRENCY="${PLATFORM_SEARCH_CONCURRENCY:-8}" \
-  -e PLATFORM_ITEM_TIMEOUT_MS="${PLATFORM_ITEM_TIMEOUT_MS:-30000}" \
+  -e PLATFORM_SEARCH_CONCURRENCY="${PLATFORM_SEARCH_CONCURRENCY:-16}" \
+  -e PLATFORM_ITEM_TIMEOUT_MS="${PLATFORM_ITEM_TIMEOUT_MS:-20000}" \
   -e APPLICATION_QUEUE_INTERVAL_MS="${APPLICATION_QUEUE_INTERVAL_MS:-30000}" \
-  -e JOB_DISCOVERY_INTERVAL_MS="${JOB_DISCOVERY_INTERVAL_MS:-900000}" \
+  -e JOB_DISCOVERY_INTERVAL_MS="${JOB_DISCOVERY_INTERVAL_MS:-120000}" \
   -e OLLAMA_TIMEOUT_MS="${OLLAMA_TIMEOUT_MS:-250}" \
   "$IMAGE" node -e "require('./dist/api/bootstrap'); require('./dist/index')" >/dev/null
 
@@ -203,8 +203,8 @@ Recruiter enrichment container: $RECRUITER
 Contact enrichment container: $CONTACTS
 Content enrichment container: $CONTENT
 Enrichment interval: ${ENRICHMENT_INTERVAL_MS}ms
-Federation concurrency: ${PLATFORM_SEARCH_CONCURRENCY:-8}
-Federation per-platform timeout: ${PLATFORM_ITEM_TIMEOUT_MS:-30000}ms
+Federation concurrency: ${PLATFORM_SEARCH_CONCURRENCY:-16}
+Federation per-platform timeout: ${PLATFORM_ITEM_TIMEOUT_MS:-20000}ms
 Logs: docker logs -f $APP
 Recruiter enrichment log: docker logs -f $RECRUITER
 Contact enrichment log: docker logs -f $CONTACTS
