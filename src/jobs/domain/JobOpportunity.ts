@@ -5,6 +5,8 @@ export interface JobOpportunity {
   id: string;
   canonicalId: string;
   canonicalUrl: string;
+  /** Optional source URL retained for compatibility with matching/source adapters. */
+  url?: string | null;
   title: string;
   companyName: string;
   companyDomain?: string | null;
