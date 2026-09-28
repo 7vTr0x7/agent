@@ -21,7 +21,7 @@ export interface CombinedMatchResult {
 
 const APPLY_THRESHOLD = 30;
 const REVIEW_THRESHOLD = 20;
-const MATCHER_VERSION = "matcher-v5";
+const MATCHER_VERSION = "matcher-v6";
 
 export class MatchPipeline {
   constructor(
@@ -33,7 +33,7 @@ export class MatchPipeline {
   async evaluateAndPersist(job: JobOpportunity, profile: CandidateProfile): Promise<CombinedMatchResult> {
     const rawDeterministic = this.deterministic.evaluate(job, profile);
     const deterministic = applyRoleRelevanceGate(
-      applyTechnologySafetyGate(rawDeterministic, job, profile),
+      applyTechnologySafetyGate(promoteKnownRemoteBoardMatch(rawDeterministic, job), job, profile),
       job,
       profile
     );
@@ -64,6 +64,26 @@ export class MatchPipeline {
   }
 }
 
+/** Promote strong matches from known remote-first boards when structured location is absent. */
+export function promoteKnownRemoteBoardMatch(result: DeterministicMatchResult, job: JobOpportunity): DeterministicMatchResult {
+  if (result.decision !== "REVIEW" || result.matchScore < 60 || result.geography !== "UNKNOWN") return result;
+
+  const url = `${job.url ?? ""} ${job.canonicalUrl ?? ""}`.toLowerCase();
+  const remoteBoard = /(?:^|[/:.])(?:remoteok\.com|remotefirstjobs\.com|jobicy\.com)(?:[/:?#]|$)/i.test(url);
+  if (!remoteBoard) return result;
+
+  const text = `${job.title}\n${job.description}\n${job.location ?? ""}\n${job.country ?? ""}`;
+  const explicitForeignRestriction = /\b(?:remote|work from home|wfh)\b[^.\n]{0,100}\b(?:usa|u\.s\.a?\.?|united states|uk|u\.k\.?|united kingdom|canada|australia|singapore|europe|eu)\b|\b(?:usa|u\.s\.a?\.?|united states|uk|u\.k\.?|united kingdom|canada|australia|singapore)\s+(?:only|based|based only)\b/i.test(text);
+  if (explicitForeignRestriction) return result;
+
+  return {
+    ...result,
+    decision: "APPLY",
+    geography: "REMOTE_WORLDWIDE",
+    reason: `${result.reason} Remote-source normalization: known remote-first board establishes remote eligibility despite missing structured location.`
+  };
+}
+
 function combine(deterministic: DeterministicMatchResult, semantic: SemanticMatchResult | null, job: JobOpportunity, profile: CandidateProfile, semanticFallback = false): CombinedMatchResult {
   const inputHash = `${MATCHER_VERSION}:${createHash("sha256").update(JSON.stringify({ jobId: job.id, jobVersion: job.updatedAt, profile })).digest("hex")}`;
 
@@ -85,9 +105,6 @@ function combine(deterministic: DeterministicMatchResult, semantic: SemanticMatc
   }
 
   const score = Math.round(deterministic.matchScore * 0.6 + semantic.score * 0.4);
-  // Deterministic matching owns hard eligibility and may never be upgraded by
-  // semantic output. AI can refine an already-eligible APPLY into REVIEW, but
-  // it cannot turn a deterministic REVIEW/REJECT into APPLY.
   const decision = deterministic.decision === "REJECT"
     ? "REJECT"
     : deterministic.decision === "REVIEW"
