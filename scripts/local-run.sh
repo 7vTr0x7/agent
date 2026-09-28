@@ -15,6 +15,8 @@ DB_USER="${JOB_AGENT_LOCAL_DB_USER:-job_agent}"
 DB_PASSWORD="${JOB_AGENT_LOCAL_DB_PASSWORD:-local_runtime_password}"
 API_PORT="${JOB_AGENT_LOCAL_API_PORT:-3000}"
 ENRICHMENT_INTERVAL_MS="${ENRICHMENT_INTERVAL_MS:-60000}"
+OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://ollama:11434}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:8b}"
 
 command -v docker >/dev/null || { echo "Docker is required." >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required." >&2; exit 1; }
@@ -129,6 +131,8 @@ docker run -d --restart unless-stopped --name "$APP" --network "$NETWORK" -p "${
   -e NODE_ENV=production \
   -e LOG_LEVEL="${LOG_LEVEL:-info}" \
   -e DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
+  -e OLLAMA_BASE_URL="$OLLAMA_BASE_URL" \
+  -e OLLAMA_MODEL="$OLLAMA_MODEL" \
   -e API_HOST=0.0.0.0 \
   -e API_PORT=3000 \
   -e AUTOMATION_ENABLED="${AUTOMATION_ENABLED:-false}" \
@@ -178,6 +182,8 @@ fi
 
 COMMON_ENV=(
   -e "DATABASE_URL=postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME"
+  -e "OLLAMA_BASE_URL=$OLLAMA_BASE_URL"
+  -e "OLLAMA_MODEL=$OLLAMA_MODEL"
   -e "CANDIDATE_PROFILE_ID=${CANDIDATE_PROFILE_ID:-local-runtime-candidate}"
   -e "CANDIDATE_YEARS_EXPERIENCE=${CANDIDATE_YEARS_EXPERIENCE:-3}"
   -e "CANDIDATE_SKILLS=${CANDIDATE_SKILLS:-React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS}"
@@ -220,6 +226,7 @@ Content enrichment container: $CONTENT
 Enrichment interval: ${ENRICHMENT_INTERVAL_MS}ms
 Federation concurrency: ${PLATFORM_SEARCH_CONCURRENCY:-16}
 Federation per-platform timeout: ${PLATFORM_ITEM_TIMEOUT_MS:-45000}ms
+Ollama: ${OLLAMA_BASE_URL}/${OLLAMA_MODEL}
 Ollama timeout: ${OLLAMA_TIMEOUT_MS:-15000}ms
 Logs: docker logs -f $APP
 Recruiter enrichment log: docker logs -f $RECRUITER
