@@ -31,13 +31,13 @@ const HIRING = /(?:we['’]?re\s+hiring|we\s+are\s+hiring|i['’]?m\s+hiring|i\s
 const RECRUITER_ROLE = /recruiter|recruiting|talent acquisition|talent partner|talent sourcer|technical sourcer|technical recruiter|engineering recruiter|hiring manager|hr professional|human resources|staffing|people operations|people partner|talent advisor|hiring lead|founder|co-founder|cofounder/i;
 const NON_RECRUITER = /customer support|technical support|sales executive|account(?:s)? executive|accounting|finance|marketing|press|media|legal|privacy|customer success/i;
 const GENERIC_EMAIL_DOMAIN = /^(?:gmail|outlook|hotmail|yahoo|icloud|proton(?:mail)?)[.]com$|^proton[.]me$/i;
+const GENERIC_EMPLOYER_DOMAIN = /^(?:example|localhost)(?:\.[a-z]+)?$/i;
 const NON_RECRUITING_LOCAL_PART = /^(?:noreply|no-reply|postmaster|webmaster|admin|support|info|press|media|legal|privacy|marketing|sales|security|billing|helpdesk|hello|contact|feedback)$/i;
 const RECRUITING_LOCAL_PART = /^(?:hr|hiring|recruit(?:er|ing)?|talent|careers?|jobs?|people|peopleops|talentacquisition)$/i;
 const ROLE_TERMS = /(?:frontend|front-end|react(?:\.js)?|next\.js|javascript|typescript|full[ -]?stack|mern|web developer|software engineer|application developer|ui engineer|product engineer|developer|engineer)/i;
 const SKILLS = [
   "React", "React.js", "Next.js", "TypeScript", "JavaScript", "Node.js", "Express.js", "MongoDB", "REST APIs", "GraphQL", "Redux", "Redux Toolkit", "Tailwind CSS", "HTML", "CSS", "Jest", "Playwright", "Docker", "Git/GitHub"
 ];
-const SEARCH_HOSTS = new Set(["google.com", "www.google.com", "bing.com", "www.bing.com", "duckduckgo.com", "html.duckduckgo.com", "startpage.com", "www.startpage.com", "search.yahoo.com", "www.yahoo.com", "search.brave.com", "www.mojeek.com", "qwant.com", "www.qwant.com"]);
 const MAX_QUERIES = 12;
 const MAX_RESULTS_PER_SOURCE = 12;
 const MAX_CONTACTS = 25;
@@ -58,7 +58,7 @@ function clean(value: string): string {
 
 function domainOf(email: string): string | undefined {
   const domain = email.split("@")[1]?.trim().toLowerCase();
-  return domain && !GENERIC_EMAIL_DOMAIN.test(domain) ? domain : undefined;
+  return domain && !GENERIC_EMAIL_DOMAIN.test(domain) && !GENERIC_EMPLOYER_DOMAIN.test(domain) ? domain : undefined;
 }
 
 function canonical(value: string): string {
@@ -83,7 +83,7 @@ function plausibleName(value: string): boolean {
 function extractName(text: string): string | undefined {
   const patterns = [
     /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})['’]s\s+(?:Post|post)\b/,
-    /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo|5mo|6mo)\b/i,
+    /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:2d|3d|4d|5d|6d|1w|2w|3w|4w|5w|6w|1mo|2mo|3mo|4mo|5mo|6mo)\b/i,
     /\b(?:DM|contact|reach out to|email)\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\b/i
   ];
   for (const pattern of patterns) {
@@ -169,7 +169,7 @@ function emailIsRecruiting(email: string, text: string): boolean {
 
 function companyDomainFromInput(input: RecruiterDiscoveryInput): string | undefined {
   const value = input.companyDomain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
-  return value && !GENERIC_EMAIL_DOMAIN.test(value) ? value : undefined;
+  return value && !GENERIC_EMPLOYER_DOMAIN.test(value) && !GENERIC_EMAIL_DOMAIN.test(value) ? value : undefined;
 }
 
 function candidateFromText(text: string, postUrl: string, input: RecruiterDiscoveryInput): RecruiterContactCandidate | null {
@@ -181,9 +181,8 @@ function candidateFromText(text: string, postUrl: string, input: RecruiterDiscov
   const name = extractName(normalized);
   const profileUrl = [...new Set((normalized.match(LINKEDIN_PROFILE) ?? []).map(canonical))][0];
   const recruiterLike = RECRUITER_ROLE.test(normalized);
-  const explicitHiringAction = HIRING.test(normalized);
   if (!name && !email) return null;
-  if (!recruiterLike && !email && !explicitHiringAction) return null;
+  if (!recruiterLike && !email) return null;
   if (NON_RECRUITER.test(normalized) && !recruiterLike && !email) return null;
 
   const skills = extractSkills(normalized);
@@ -242,8 +241,8 @@ export class LinkedInHiringPostDiscoveryProvider implements RecruiterDiscoveryPr
 
   async discover(input: RecruiterDiscoveryInput): Promise<RecruiterDiscoveryResult> {
     const timeoutSignal = AbortSignal.timeout(DISCOVERY_TIMEOUT_MS);
-    const signal = input as RecruiterDiscoveryInput & { signal?: AbortSignal };
-    const combinedSignal = signal.signal ? AbortSignal.any([signal.signal, timeoutSignal]) : timeoutSignal;
+    const signal = (input as RecruiterDiscoveryInput & { signal?: AbortSignal }).signal;
+    const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
     const title = input.jobTitle.trim() || "Frontend Developer";
     const location = input.location?.trim() || "India";
     const company = input.companyName.trim();
