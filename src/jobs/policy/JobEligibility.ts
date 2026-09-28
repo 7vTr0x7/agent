@@ -40,18 +40,9 @@ export interface JobEligibilityResult {
 function normalize(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9+#.]+/g, " ").replace(/\s+/g, " ").trim();
 }
-
-function normalizedCompact(value: string): string {
-  return normalize(value).replace(/\s+/g, "");
-}
-
-function containsNormalized(value: string, target: string): boolean {
-  return normalize(value).includes(normalize(target));
-}
-
-function isExcludedCompany(companyName: string, excludedCompanies: string[]): boolean {
-  return excludedCompanies.some((excluded) => normalize(companyName) === normalize(excluded));
-}
+function normalizedCompact(value: string): string { return normalize(value).replace(/\s+/g, ""); }
+function containsNormalized(value: string, target: string): boolean { return normalize(value).includes(normalize(target)); }
+function isExcludedCompany(companyName: string, excludedCompanies: string[]): boolean { return excludedCompanies.some((excluded) => normalize(companyName) === normalize(excluded)); }
 
 const TARGET_ROLE_PATTERNS: ReadonlyArray<[RegExp, number, string]> = [
   [/\b(frontend|front end|front-end)\s+(developer|engineer)\b/i, 40, "frontend role"],
@@ -67,12 +58,14 @@ const TARGET_ROLE_PATTERNS: ReadonlyArray<[RegExp, number, string]> = [
 ];
 
 const EXCLUDED_ROLE_PATTERNS: ReadonlyArray<[RegExp, string]> = [
-  [/\b(devops|site reliability|sre|network|data|ml|machine learning|ai|security|cybersecurity|cloud|infrastructure|platform|database|endpoint|windows|macos|linux|embedded|firmware)\s+(engineer|developer|architect)\b/i, "engineering role outside target domain"],
+  [/\b(devops|site reliability|sre|network|data|ml|machine learning|ai|security|cybersecurity|cloud|infrastructure|platform|database|endpoint|windows|macos|linux|embedded|firmware|hardware)\s+(engineer|developer|architect|administrator|scientist)\b/i, "engineering role outside target domain"],
   [/\b(system|systems)\s+engineer\b/i, "systems engineer"],
+  [/\bdata\s+scientist\b/i, "data scientist"],
+  [/\bnetwork\s+administrator\b/i, "network administrator"],
   [/\b(sales|support|technical support|customer support|customer service)\s+(engineer|developer|specialist|representative|manager)\b/i, "support/sales occupation"],
   [/\b(engineering\s+)?(manager|director|head|vp|vice president|chief)\b/i, "engineering leadership role"],
   [/\b(staff|principal|distinguished)\s+(software|frontend|full[ -]?stack|web|react|javascript|typescript)?\s*engineer\b/i, "seniority beyond target experience"],
-  [/\b(marketing|influencer|payroll|account(?:ing)?|customer success|recruiter|talent acquisition|human resources|hr|legal|operations|office|administration|chief of staff|project manager|program manager|product manager|business development|business operations|content writer|copywriter|course writer|education designer|graphic designer|social media|seo|pr|communications|construction|driver|warehouse|logistics|manufacturing|mechanical|electrical|civil|medical|nurse|doctor|teacher|professor|bookkeeper)\b/i, "unrelated occupation"]
+  [/\b(marketing|influencer|payroll|account(?:ing)?|customer success|recruiter|talent acquisition|human resources|hr|legal|operations|office|administration|chief of staff|project manager|program manager|product manager|business development|business operations|content writer|copywriter|course writer|education designer|graphic designer|social media|seo|pr|communications|construction|driver|warehouse|logistics|manufacturing|mechanical|electrical|civil|medical|nurse|doctor|teacher|professor|bookkeeper|bohrteam|baggerfahrer|lkw)\b/i, "unrelated occupation"]
 ];
 
 const FRONTEND_SIGNALS: ReadonlyArray<[RegExp, number, string]> = [
@@ -113,38 +106,16 @@ function classifyRole(title: string, description: string, policy: JobSearchPolic
   const negativeSignals: string[] = [];
   let score = 0;
 
-  for (const [pattern, weight, signal] of TARGET_ROLE_PATTERNS) {
-    if (pattern.test(title)) {
-      score = Math.max(score, weight);
-      matchedSignals.push(signal);
-    }
-  }
-
+  for (const [pattern, weight, signal] of TARGET_ROLE_PATTERNS) if (pattern.test(title)) { score = Math.max(score, weight); matchedSignals.push(signal); }
   for (const targetTitle of policy.targetTitles ?? []) {
     const normalizedTarget = normalizedCompact(targetTitle);
-    if (normalizedTarget && normalizedCompact(title).includes(normalizedTarget)) {
-      score = Math.max(score, 45);
-      matchedSignals.push(`configured target title: ${targetTitle}`);
-    }
+    if (normalizedTarget && normalizedCompact(title).includes(normalizedTarget)) { score = Math.max(score, 45); matchedSignals.push(`configured target title: ${targetTitle}`); }
   }
-
-  for (const [pattern, signal] of EXCLUDED_ROLE_PATTERNS) {
-    if (pattern.test(titleText)) negativeSignals.push(signal);
-  }
-
-  for (const [pattern, weight, signal] of FRONTEND_SIGNALS) {
-    if (pattern.test(body)) {
-      score += weight;
-      matchedSignals.push(signal);
-    }
-  }
-
+  for (const [pattern, signal] of EXCLUDED_ROLE_PATTERNS) if (pattern.test(titleText)) negativeSignals.push(signal);
+  for (const [pattern, weight, signal] of FRONTEND_SIGNALS) if (pattern.test(body)) { score += weight; matchedSignals.push(signal); }
   for (const skill of policy.candidateSkills ?? []) {
     const normalizedSkill = normalizedCompact(skill);
-    if (normalizedSkill && normalizedCompact(body).includes(normalizedSkill) && !matchedSignals.includes(skill)) {
-      score += 5;
-      matchedSignals.push(`candidate skill: ${skill}`);
-    }
+    if (normalizedSkill && normalizedCompact(body).includes(normalizedSkill) && !matchedSignals.includes(skill)) { score += 5; matchedSignals.push(`candidate skill: ${skill}`); }
   }
 
   const genericSoftware = /\b(software engineer|software developer|application developer)\b/i.test(title);
@@ -167,7 +138,6 @@ function geographyAllowed(job: JobEligibilityInput, policy: JobSearchPolicy): { 
   const description = normalize(job.description ?? "");
   const combined = `${location} ${country} ${description}`;
   const negativeSignals: string[] = [];
-
   for (const [pattern, signal] of FOREIGN_ONLY_PATTERNS) if (pattern.test(combined)) negativeSignals.push(signal);
 
   const india = country === normalize(policy.targetCountry) || containsNormalized(location, policy.targetCountry);
