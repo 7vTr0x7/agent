@@ -50,9 +50,10 @@ const TARGET_ROLE_PATTERNS: ReadonlyArray<[RegExp, number, string]> = [
   [/\b(mern|mean)\s+(stack\s+)?developer\b/i, 35, "full-stack javascript role"],
   [/\b(javascript|typescript)\s+(developer|engineer)\b/i, 35, "javascript/typescript role"],
   [/\bweb\s+(developer|engineer)\b/i, 30, "web role"],
+  [/\bweb\s+application\s+(developer|engineer)\b/i, 35, "web application role"],
   [/\bui\s+engineer\b/i, 30, "ui engineer role"],
-  [/\bsoftware\s+engineer\s*[-–—:]?\s*(frontend|front end|react|web)\b/i, 40, "frontend software role"],
-  [/\bsoftware\s+developer\s*[-–—:]?\s*(frontend|front end|react|web|full[ -]?stack)\b/i, 40, "frontend software role"]
+  [/\bsoftware\s+engineer\s*[-–—:]?\s*(frontend|front end|react|web|full[ -]?stack)\b/i, 40, "frontend/full-stack software role"],
+  [/\bsoftware\s+developer\s*[-–—:]?\s*(frontend|front end|react|web|full[ -]?stack)\b/i, 40, "frontend/full-stack software role"]
 ];
 
 const EXCLUDED_ROLE_PATTERNS: ReadonlyArray<[RegExp, string]> = [
