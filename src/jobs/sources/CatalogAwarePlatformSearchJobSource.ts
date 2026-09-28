@@ -12,11 +12,10 @@ const DEFAULT_PLATFORM_ITEM_TIMEOUT_MS = 30_000;
 type PlatformDiagnosticWithId = PlatformDiscoveryDiagnostics & { readonly platformId: string };
 
 /**
- * Runs every registered platform while keeping catalog/configuration state truthful.
- * Catalog-only entries receive UNSUPPORTED and configurable adapters without a
- * configured adapter receive CONFIGURATION_ERROR. Only executable adapters use
- * the existing real public-search implementation. A hard per-platform timeout
- * prevents a renderer/provider from keeping the whole federation worker alive.
+ * Runs every registered platform through its strongest available acquisition
+ * path. Direct/configured/feed strategies are represented by the platform
+ * discovery layer when available; otherwise the discovery layer uses the
+ * public-web fallback. No registry entry is silently treated as unsupported.
  */
 export class CatalogAwarePlatformSearchJobSource implements JobSource {
   readonly name = "platform-search-federation";
@@ -49,46 +48,6 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
           };
           this.onDiagnostic(diagnostic);
         };
-
-        if (platform.capability === "catalog-only") {
-          emit({
-            platform: platform.name,
-            searchPages: 0,
-            searchUrlsGenerated: 0,
-            searchReturnedUrls: 0,
-            uniqueUrls: 0,
-            pageSuccesses: 0,
-            pageFailures: 0,
-            parseSuccesses: 0,
-            parseFailures: 0,
-            parseFailureReasons: { catalog_only: 1 },
-            jobs: 0,
-            errors: 0,
-            finalOutcome: "UNSUPPORTED",
-            extractionMode: "STATIC_ZERO_RENDER_ZERO"
-          });
-          return [];
-        }
-
-        if (platform.capability === "configurable-adapter") {
-          emit({
-            platform: platform.name,
-            searchPages: 0,
-            searchUrlsGenerated: 0,
-            searchReturnedUrls: 0,
-            uniqueUrls: 0,
-            pageSuccesses: 0,
-            pageFailures: 0,
-            parseSuccesses: 0,
-            parseFailures: 0,
-            parseFailureReasons: { configuration_required: 1 },
-            jobs: 0,
-            errors: 0,
-            finalOutcome: "CONFIGURATION_ERROR",
-            extractionMode: "STATIC_ZERO_RENDER_ZERO"
-          });
-          return [];
-        }
 
         const timeoutMs = readPlatformItemTimeoutMs();
         const platformController = new AbortController();
@@ -144,7 +103,7 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
               jobs: result.jobs.length,
               errors: 0,
               finalOutcome: result.jobs.length > 0 ? "SUCCESS_WITH_JOBS" : "SUCCESS_ZERO_JOBS",
-              extractionMode: "STATIC_ZERO_RENDER_ZERO"
+              extractionMode: platform.capability === "public-web-fallback" ? "STATIC_ZERO_RENDER_ZERO" : undefined
             });
           }
 
