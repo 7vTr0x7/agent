@@ -41,10 +41,6 @@ async function main(): Promise<void> {
     try {
       results = await runtime.runner.runOnce();
     } catch (error) {
-      // A platform-level parser/network failure is already represented by its
-      // telemetry outcome. Do not turn an otherwise complete 200-platform
-      // accounting run into a process failure merely because one adapter failed.
-      // Missing telemetry remains a hard failure below.
       runnerError = error instanceof Error ? error.message : String(error);
       logger.warn({ error: runnerError }, "Federation runner reported platform-level failures; continuing to reconcile explicit outcomes");
     }
@@ -90,8 +86,8 @@ async function main(): Promise<void> {
         total: allPlatforms.length,
         activeAdapters: allPlatforms.filter((p) => p.capability === "active-adapter").length,
         configurableAdapters: allPlatforms.filter((p) => p.capability === "configurable-adapter").length,
-        catalogOnly: allPlatforms.filter((p) => p.capability === "catalog-only").length,
-        executable: allPlatforms.filter((p) => p.capability !== "catalog-only").length
+        publicWebFallback: allPlatforms.filter((p) => p.capability === "public-web-fallback").length,
+        executable: allPlatforms.length
       },
       runtime: {
         sourceCount: runtime.sourceCount,
