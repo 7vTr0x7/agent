@@ -72,7 +72,7 @@ export class JobDiscoveryService {
       }
     }
 
-    return {
+    const result: DiscoveryResult = {
       source: source.name,
       fetched: jobs.length,
       normalized: jobs.length,
@@ -86,6 +86,36 @@ export class JobDiscoveryService {
       acceptedRoleFamilies,
       rejectedSamples
     };
+    await this.persistRelevanceTelemetry(result);
+    return result;
+  }
+
+  private async persistRelevanceTelemetry(result: DiscoveryResult): Promise<void> {
+    try {
+      await this.database.query(
+        `INSERT INTO job_relevance_runs (
+           source_id, discovered_count, normalized_count, hard_rejected_count,
+           ambiguous_count, eligible_count, inserted_count, duplicate_count,
+           rejection_reasons, accepted_role_families, rejected_samples
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb)`,
+        [
+          result.source,
+          result.fetched,
+          result.normalized,
+          result.hardRejected,
+          result.ambiguous,
+          result.eligible,
+          result.inserted,
+          result.duplicates,
+          JSON.stringify(result.rejectionReasons),
+          JSON.stringify(result.acceptedRoleFamilies),
+          JSON.stringify(result.rejectedSamples)
+        ]
+      );
+      await this.database.query(`DELETE FROM job_relevance_runs WHERE created_at < NOW() - INTERVAL '30 days'`);
+    } catch (error) {
+      console.error("job relevance telemetry persistence failed:", error instanceof Error ? error.message : String(error));
+    }
   }
 
   private async persistJob(job: Job): Promise<{ inserted: boolean; opportunityId: string }> {
@@ -150,7 +180,7 @@ export class JobDiscoveryService {
             closed_at = NULL
           RETURNING id
         `,
-        [job.url ? createCanonicalJobId(job.url) : canonicalId, canonicalUrl, job.title, job.companyName, job.companyDomain ?? null, job.location, job.country, job.workplaceType, job.employmentType, job.description, job.postedAt, job.updatedAt]
+        [canonicalId, canonicalUrl, job.title, job.companyName, job.companyDomain ?? null, job.location, job.country, job.workplaceType, job.employmentType, job.description, job.postedAt, job.updatedAt]
       );
       const opportunity = opportunityResult.rows[0];
       if (!opportunity) throw new Error("Failed to persist job opportunity");
