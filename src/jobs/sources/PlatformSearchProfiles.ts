@@ -35,6 +35,31 @@ const SEARCH_PROFILES: Readonly<Record<string, PlatformSearchProfile>> = {
       "https://www.foundit.in/search/full-stack-developer-jobs-in-bengaluru-bangalore",
       "https://www.foundit.in/search/react-js-jobs-in-bengaluru-bangalore"
     ]
+  },
+  "Remote OK": {
+    platform: "Remote OK",
+    searchUrls: [
+      "https://remoteok.com/remote-jobs.rss"
+    ]
+  },
+  "We Work Remotely": {
+    platform: "We Work Remotely",
+    searchUrls: [
+      "https://weworkremotely.com/remote-jobs.rss",
+      "https://weworkremotely.com/categories/remote-front-end-programming-jobs.rss"
+    ]
+  },
+  Himalayas: {
+    platform: "Himalayas",
+    searchUrls: [
+      "https://himalayas.app/jobs/rss"
+    ]
+  },
+  Jobicy: {
+    platform: "Jobicy",
+    searchUrls: [
+      "https://jobicy.com/jobs/feed"
+    ]
   }
 };
 
