@@ -21,10 +21,10 @@ export interface JobSearchPolicy {
   allowRemote: boolean;
   excludedCompanies: string[];
   maxAgeDays: number;
-  targetTitles: string[];
-  candidateSkills: string[];
-  yearsExperience: number;
-  minPersistenceRelevance: number;
+  targetTitles?: string[];
+  candidateSkills?: string[];
+  yearsExperience?: number;
+  minPersistenceRelevance?: number;
 }
 
 export interface JobEligibilityResult {
@@ -58,7 +58,6 @@ const TARGET_ROLE_PATTERNS: ReadonlyArray<[RegExp, number, string]> = [
   [/\breact(?:\.js)?\s+(developer|engineer)\b/i, 40, "react role"],
   [/\bnext(?:\.js)?\s+(developer|engineer)\b/i, 40, "next.js role"],
   [/\b(full[ -]?stack)\s+(developer|engineer)\b/i, 35, "full-stack role"],
-  [/\b(full[ -]?stack)\s+(software\s+)?(developer|engineer)\b/i, 35, "full-stack role"],
   [/\b(mern|mean)\s+(stack\s+)?developer\b/i, 35, "full-stack javascript role"],
   [/\b(javascript|typescript)\s+(developer|engineer)\b/i, 35, "javascript/typescript role"],
   [/\bweb\s+(developer|engineer)\b/i, 30, "web role"],
@@ -121,7 +120,7 @@ function classifyRole(title: string, description: string, policy: JobSearchPolic
     }
   }
 
-  for (const targetTitle of policy.targetTitles) {
+  for (const targetTitle of policy.targetTitles ?? []) {
     const normalizedTarget = normalizedCompact(targetTitle);
     if (normalizedTarget && normalizedCompact(title).includes(normalizedTarget)) {
       score = Math.max(score, 45);
@@ -140,16 +139,25 @@ function classifyRole(title: string, description: string, policy: JobSearchPolic
     }
   }
 
+  for (const skill of policy.candidateSkills ?? []) {
+    const normalizedSkill = normalizedCompact(skill);
+    if (normalizedSkill && normalizedCompact(body).includes(normalizedSkill) && !matchedSignals.includes(skill)) {
+      score += 5;
+      matchedSignals.push(`candidate skill: ${skill}`);
+    }
+  }
+
   const genericSoftware = /\b(software engineer|software developer|application developer)\b/i.test(title);
   const fullStack = /\b(full[ -]?stack|mern)\b/i.test(title);
-  const strongFrontendEvidence = matchedSignals.some((signal) => ["React", "Next.js", "TypeScript", "JavaScript", "frontend", "web application", "MERN"].includes(signal));
-  const explicitTarget = TARGET_ROLE_PATTERNS.some(([pattern]) => pattern.test(title)) || policy.targetTitles.some((target) => normalizedCompact(title).includes(normalizedCompact(target)));
+  const strongFrontendEvidence = matchedSignals.some((signal) => ["React", "Next.js", "TypeScript", "JavaScript", "frontend", "web application", "MERN"].includes(signal) || signal.startsWith("candidate skill: React") || signal.startsWith("candidate skill: Next"));
+  const explicitTarget = TARGET_ROLE_PATTERNS.some(([pattern]) => pattern.test(title)) || (policy.targetTitles ?? []).some((target) => normalizedCompact(title).includes(normalizedCompact(target)));
 
   if (genericSoftware && !strongFrontendEvidence && !explicitTarget) return { classification: "AMBIGUOUS", score, matchedSignals, negativeSignals };
   if (fullStack && !strongFrontendEvidence) return { classification: "AMBIGUOUS", score, matchedSignals, negativeSignals };
   if (negativeSignals.length > 0 && !strongFrontendEvidence && !explicitTarget) return { classification: "IRRELEVANT", score: Math.min(score, 10), matchedSignals, negativeSignals };
-  if (explicitTarget || score >= policy.minPersistenceRelevance) return { classification: "TARGET", score, matchedSignals, negativeSignals };
-  if (strongFrontendEvidence && score >= Math.max(40, policy.minPersistenceRelevance - 10)) return { classification: "ADJACENT", score, matchedSignals, negativeSignals };
+  const threshold = policy.minPersistenceRelevance ?? 45;
+  if (explicitTarget || score >= threshold) return { classification: "TARGET", score, matchedSignals, negativeSignals };
+  if (strongFrontendEvidence && score >= Math.max(40, threshold - 10)) return { classification: "ADJACENT", score, matchedSignals, negativeSignals };
   return { classification: "AMBIGUOUS", score, matchedSignals, negativeSignals };
 }
 
@@ -185,16 +193,7 @@ function seniorityAllowed(title: string, description: string, yearsExperience: n
 }
 
 function baseResult(overrides: Partial<JobEligibilityResult>): JobEligibilityResult {
-  return {
-    decision: "REJECT",
-    priority: null,
-    reason: "Job did not satisfy the relevance policy.",
-    score: 0,
-    classification: "IRRELEVANT",
-    matchedSignals: [],
-    negativeSignals: [],
-    ...overrides
-  };
+  return { decision: "REJECT", priority: null, reason: "Job did not satisfy the relevance policy.", score: 0, classification: "IRRELEVANT", matchedSignals: [], negativeSignals: [], ...overrides };
 }
 
 function isTooOld(job: JobEligibilityInput, policy: JobSearchPolicy, now: Date): boolean {
@@ -218,22 +217,14 @@ export function evaluateJobEligibility(job: JobEligibilityInput, policy: JobSear
 
   const relevance = classifyRole(job.title, job.description ?? "", policy);
   const geography = geographyAllowed(job, policy);
-  const seniority = seniorityAllowed(job.title, job.description ?? "", policy.yearsExperience);
+  const seniority = seniorityAllowed(job.title, job.description ?? "", policy.yearsExperience ?? 3);
   const negativeSignals = [...relevance.negativeSignals, ...geography.negativeSignals, ...seniority.negativeSignals];
 
   if (relevance.classification === "IRRELEVANT") return baseResult({ reason: "Role is outside the candidate's target engineering domain.", score: relevance.score, classification: relevance.classification, matchedSignals: relevance.matchedSignals, negativeSignals });
   if (!geography.allowed) return baseResult({ reason: geography.reason ?? "Geography is outside the candidate policy.", score: relevance.score, classification: relevance.classification, matchedSignals: relevance.matchedSignals, negativeSignals });
   if (!seniority.allowed) return baseResult({ reason: seniority.reason ?? "Seniority is outside the candidate policy.", score: relevance.score, classification: relevance.classification, matchedSignals: relevance.matchedSignals, negativeSignals });
-  if (relevance.classification === "AMBIGUOUS" && relevance.score < policy.minPersistenceRelevance) return baseResult({ reason: "Insufficient frontend/full-stack evidence for an ambiguous engineering role.", score: relevance.score, classification: relevance.classification, matchedSignals: relevance.matchedSignals, negativeSignals });
+  if (relevance.classification === "AMBIGUOUS" && relevance.score < (policy.minPersistenceRelevance ?? 45)) return baseResult({ reason: "Insufficient frontend/full-stack evidence for an ambiguous engineering role.", score: relevance.score, classification: relevance.classification, matchedSignals: relevance.matchedSignals, negativeSignals });
 
   const warning = risk.level === "MEDIUM" ? " Medium-risk warning retained for matcher review." : "";
-  return {
-    decision: "ELIGIBLE",
-    priority: geography.priority,
-    reason: `${relevance.classification} role with ${relevance.matchedSignals.length} matched signals.${warning}`,
-    score: relevance.score,
-    classification: relevance.classification,
-    matchedSignals: relevance.matchedSignals,
-    negativeSignals
-  };
+  return { decision: "ELIGIBLE", priority: geography.priority, reason: `${relevance.classification} role with ${relevance.matchedSignals.length} matched signals.${warning}`, score: relevance.score, classification: relevance.classification, matchedSignals: relevance.matchedSignals, negativeSignals };
 }
