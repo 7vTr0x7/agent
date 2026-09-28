@@ -11,7 +11,7 @@ describe("JobPlatformRegistry", () => {
     expect(new Set(ids).size).toBe(ids.length);
 
     for (const platform of JOB_PLATFORM_REGISTRY) {
-      expect(["active-adapter", "configurable-adapter", "catalog-only"]).toContain(platform.capability);
+      expect(["active-adapter", "configurable-adapter", "public-web-fallback"]).toContain(platform.capability);
       expect(platform.name.trim()).not.toBe("");
       expect(platform.id.trim()).not.toBe("");
     }
