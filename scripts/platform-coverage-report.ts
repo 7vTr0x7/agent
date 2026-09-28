@@ -79,25 +79,29 @@ async function main(): Promise<void> {
     const normalized = rows.reduce((sum, row) => sum + Number(row.normalized ?? row.fetched), 0);
     const inserted = rows.reduce((sum, row) => sum + Number(row.inserted), 0);
     const duplicates = rows.reduce((sum, row) => sum + Number(row.duplicates), 0);
+    const actuallyFetchedSources = rows.filter((row) => Number(row.fetched) > 0).length;
+    const actuallyProducedJobs = rows.filter((row) => Number(row.inserted) > 0).length;
 
     console.log(JSON.stringify({
       registry: {
         total: JOB_PLATFORM_REGISTRY.length,
         activeAdapters: counts.get("active-adapter") ?? 0,
         configurableAdapters: counts.get("configurable-adapter") ?? 0,
-        catalogOnly: counts.get("catalog-only") ?? 0,
-        executable: JOB_PLATFORM_REGISTRY.filter((platform) => platform.capability !== "catalog-only").length
+        publicWebDiscovery: counts.get("public-web-discovery") ?? 0,
+        unavailable: counts.get("unavailable") ?? 0,
+        operationalAcquisitionPaths: JOB_PLATFORM_REGISTRY.length - (counts.get("unavailable") ?? 0),
+        executable: JOB_PLATFORM_REGISTRY.length - (counts.get("unavailable") ?? 0)
       },
       latestRuntime: {
         expected: JOB_PLATFORM_REGISTRY.length,
         attempted: rows.length,
-        executed: rows.length,
+        actuallyFetchedSources,
+        actuallyProducedJobs,
         notExecuted: notExecuted.length,
         notExecutedPlatforms: notExecuted.map((platform) => ({ id: platform.id, name: platform.name, capability: platform.capability })),
         successful: rows.filter((row) => SUCCESS_OUTCOMES.has(row.outcome)).length,
         successWithJobs: outcomeCount("SUCCESS_WITH_JOBS"),
         successZeroJobs: outcomeCount("SUCCESS_ZERO_JOBS"),
-        catalogOnly: outcomeCount("CATALOG_ONLY"),
         parserFailures: outcomeCount("PARSER_ERROR"),
         networkFailures: outcomeCount("NETWORK_ERROR"),
         httpFailures: outcomeCount("HTTP_ERROR"),
@@ -112,7 +116,7 @@ async function main(): Promise<void> {
         normalized,
         inserted,
         duplicates,
-        jobsProduced: rows.filter((row) => Number(row.fetched) > 0).length
+        jobsProduced: actuallyProducedJobs
       },
       platforms: rows
     }, null, 2));
