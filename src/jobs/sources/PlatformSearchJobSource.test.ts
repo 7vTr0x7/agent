@@ -12,7 +12,8 @@ describe("PlatformSearchJobSource", () => {
     expect(JOB_PLATFORM_REGISTRY.length).toBeGreaterThanOrEqual(200);
     const registered = registeredPlatforms();
     expect(registered.length).toBe(JOB_PLATFORM_REGISTRY.length);
-    expect(registered.every((platform) => ["active-adapter", "configurable-adapter", "public-web-fallback"].includes(platform.capability))).toBe(true);
+    expect(registered.some((platform) => platform.capability === "public-web-discovery")).toBe(true);
+    expect(registered.every((platform) => platform.capability !== "catalog-only")).toBe(true);
     process.env.PLATFORM_SEARCH_CONCURRENCY = "9";
     expect(getPlatformConcurrency()).toBe(9);
     let active = 0; let peak = 0; const processed: string[] = [];
@@ -21,6 +22,7 @@ describe("PlatformSearchJobSource", () => {
     expect(discovery).toHaveBeenCalledTimes(registered.length);
     expect(processed).toHaveLength(registered.length);
     expect(new Set(processed).size).toBe(new Set(registered.map((platform) => platform.name)).size);
+    expect(processed).toContain(JOB_PLATFORM_REGISTRY.find((platform) => platform.name === "Naukri")?.name);
     expect(peak).toBeGreaterThan(4);
     expect(peak).toBeLessThanOrEqual(9);
   });

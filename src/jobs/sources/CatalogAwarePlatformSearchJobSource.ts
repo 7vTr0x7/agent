@@ -12,10 +12,11 @@ const DEFAULT_PLATFORM_ITEM_TIMEOUT_MS = 30_000;
 type PlatformDiagnosticWithId = PlatformDiscoveryDiagnostics & { readonly platformId: string };
 
 /**
- * Runs every registered platform through its strongest available acquisition
- * path. Direct/configured/feed strategies are represented by the platform
- * discovery layer when available; otherwise the discovery layer uses the
- * public-web fallback. No registry entry is silently treated as unsupported.
+ * Runs the complete registered federation through a truthful acquisition path.
+ * Direct/configurable capability labels describe dedicated adapters available to
+ * the product; this federation source additionally uses the public-web search
+ * path for every platform name so a catalog entry is never silently skipped.
+ * No result is fabricated: the public page still has to be fetched and parsed.
  */
 export class CatalogAwarePlatformSearchJobSource implements JobSource {
   readonly name = "platform-search-federation";
@@ -81,7 +82,8 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
               jobs: 0,
               errors: 0,
               timeouts: 1,
-              finalOutcome: "TIMEOUT"
+              finalOutcome: "TIMEOUT",
+              extractionMode: "STATIC_ZERO_RENDER_ZERO"
             });
             suppressLateDiagnostics = true;
             void discoveryPromise.catch(() => undefined);
@@ -103,7 +105,7 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
               jobs: result.jobs.length,
               errors: 0,
               finalOutcome: result.jobs.length > 0 ? "SUCCESS_WITH_JOBS" : "SUCCESS_ZERO_JOBS",
-              extractionMode: platform.capability === "public-web-fallback" ? "STATIC_ZERO_RENDER_ZERO" : undefined
+              extractionMode: result.jobs.length > 0 ? "STATIC_ONLY_SUCCESS" : "STATIC_ZERO_RENDER_ZERO"
             });
           }
 
@@ -124,7 +126,8 @@ export class CatalogAwarePlatformSearchJobSource implements JobSource {
             jobs: 0,
             errors: timedOut ? 0 : 1,
             timeouts: timedOut ? 1 : 0,
-            finalOutcome: timedOut ? "TIMEOUT" : "UNKNOWN_ERROR"
+            finalOutcome: timedOut ? "TIMEOUT" : "UNKNOWN_ERROR",
+            extractionMode: "STATIC_ZERO_RENDER_ZERO"
           });
           suppressLateDiagnostics = true;
           return [];

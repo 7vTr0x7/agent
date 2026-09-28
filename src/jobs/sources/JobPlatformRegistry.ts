@@ -1,5 +1,6 @@
 export type JobPlatformKind = "job-board" | "remote-board" | "developer-board" | "aggregator" | "ats" | "community" | "category";
-export type JobPlatformCapability = "active-adapter" | "configurable-adapter" | "public-web-fallback";
+/** @deprecated Legacy persisted/API compatibility only; no current registry entry uses this capability. */
+export type JobPlatformCapability = "active-adapter" | "configurable-adapter" | "public-web-discovery" | "catalog-only" | "unavailable";
 
 export interface JobPlatformDefinition {
   readonly id: string;
@@ -35,7 +36,7 @@ function definition(name: string, index: number): JobPlatformDefinition {
     ? "active-adapter"
     : configurableNames.has(name)
       ? "configurable-adapter"
-      : "public-web-fallback";
+      : "public-web-discovery";
   return { id: `${String(index + 1).padStart(3, "0")}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`, name, kind: kindFor(name), capability };
 }
 
