@@ -111,24 +111,38 @@ fi
 
 docker build --tag "$IMAGE" .
 remove_container "$APP"
+# Reclaim a stale Job Agent container that can reappear during a long image build
+# because of an older restart policy. Never remove an unrelated container here.
+while IFS= read -r container_id; do
+  [[ -z "$container_id" ]] && continue
+  container_name="$(docker inspect -f '{{.Name}}' "$container_id" 2>/dev/null | sed 's#^/##')"
+  case "$container_name" in
+    "$APP"|job-agent-local-*) docker rm -f "$container_id" >/dev/null ;;
+    *)
+      echo "Port ${API_PORT} is already owned by unrelated container ${container_name}. Stop it or set JOB_AGENT_LOCAL_API_PORT to a free port." >&2
+      exit 1
+      ;;
+  esac
+done < <(docker ps -q --filter "publish=${API_PORT}")
+
 docker run -d --restart unless-stopped --name "$APP" --network "$NETWORK" -p "${API_PORT}:3000" \
   -e NODE_ENV=production \
   -e LOG_LEVEL="${LOG_LEVEL:-info}" \
   -e DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
   -e API_HOST=0.0.0.0 \
   -e API_PORT=3000 \
-  -e AUTOMATION_ENABLED=false \
-  -e APPLICATION_DRY_RUN=true \
-  -e APPLICATION_LIVE_ENABLED=false \
-  -e OUTBOUND_ENABLED=false \
-  -e GMAIL_ENABLED=false \
-  -e EMAIL_ENABLED=false \
-  -e JOB_DISCOVERY_ENABLED=true \
-  -e PROACTIVE_RECRUITER_ENABLED=true \
-  -e PROACTIVE_RECRUITER_SEND_ENABLED=false \
-  -e RECRUITER_OUTREACH_ENABLED=false \
-  -e RECRUITER_OUTREACH_DRY_RUN=true \
-  -e RECRUITER_OUTREACH_ACTIVATION=disabled \
+  -e AUTOMATION_ENABLED="${AUTOMATION_ENABLED:-false}" \
+  -e APPLICATION_DRY_RUN="${APPLICATION_DRY_RUN:-true}" \
+  -e APPLICATION_LIVE_ENABLED="${APPLICATION_LIVE_ENABLED:-false}" \
+  -e OUTBOUND_ENABLED="${OUTBOUND_ENABLED:-false}" \
+  -e GMAIL_ENABLED="${GMAIL_ENABLED:-false}" \
+  -e EMAIL_ENABLED="${EMAIL_ENABLED:-false}" \
+  -e JOB_DISCOVERY_ENABLED="${JOB_DISCOVERY_ENABLED:-true}" \
+  -e PROACTIVE_RECRUITER_ENABLED="${PROACTIVE_RECRUITER_ENABLED:-true}" \
+  -e PROACTIVE_RECRUITER_SEND_ENABLED="${PROACTIVE_RECRUITER_SEND_ENABLED:-false}" \
+  -e RECRUITER_OUTREACH_ENABLED="${RECRUITER_OUTREACH_ENABLED:-false}" \
+  -e RECRUITER_OUTREACH_DRY_RUN="${RECRUITER_OUTREACH_DRY_RUN:-true}" \
+  -e RECRUITER_OUTREACH_ACTIVATION="${RECRUITER_OUTREACH_ACTIVATION:-disabled}" \
   -e CANDIDATE_PROFILE_ID="${CANDIDATE_PROFILE_ID:-local-runtime-candidate}" \
   -e CANDIDATE_YEARS_EXPERIENCE="${CANDIDATE_YEARS_EXPERIENCE:-3}" \
   -e CANDIDATE_SKILLS="${CANDIDATE_SKILLS:-React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS}" \
@@ -140,14 +154,14 @@ docker run -d --restart unless-stopped --name "$APP" --network "$NETWORK" -p "${
   -e CANDIDATE_SPONSORSHIP_REQUIRED=false \
   -e JOB_EXCLUDED_COMPANIES="${JOB_EXCLUDED_COMPANIES:-Octopus Technologies,Sketch Brahma Technologies}" \
   -e FAST_MATCHING_LIMIT="${FAST_MATCHING_LIMIT:-150}" \
-  -e DISCOVERY_SOURCE_TIMEOUT_MS="${DISCOVERY_SOURCE_TIMEOUT_MS:-20000}" \
+  -e DISCOVERY_SOURCE_TIMEOUT_MS="${DISCOVERY_SOURCE_TIMEOUT_MS:-180000}" \
   -e DISCOVERY_SOURCE_RETRIES="${DISCOVERY_SOURCE_RETRIES:-0}" \
   -e DISCOVERY_FEDERATION_TIMEOUT_MS="${DISCOVERY_FEDERATION_TIMEOUT_MS:-1800000}" \
   -e PLATFORM_SEARCH_CONCURRENCY="${PLATFORM_SEARCH_CONCURRENCY:-16}" \
-  -e PLATFORM_ITEM_TIMEOUT_MS="${PLATFORM_ITEM_TIMEOUT_MS:-20000}" \
+  -e PLATFORM_ITEM_TIMEOUT_MS="${PLATFORM_ITEM_TIMEOUT_MS:-45000}" \
   -e APPLICATION_QUEUE_INTERVAL_MS="${APPLICATION_QUEUE_INTERVAL_MS:-30000}" \
   -e JOB_DISCOVERY_INTERVAL_MS="${JOB_DISCOVERY_INTERVAL_MS:-120000}" \
-  -e OLLAMA_TIMEOUT_MS="${OLLAMA_TIMEOUT_MS:-250}" \
+  -e OLLAMA_TIMEOUT_MS="${OLLAMA_TIMEOUT_MS:-15000}" \
   "$IMAGE" node -e "require('./dist/api/bootstrap'); require('./dist/index')" >/dev/null
 
 for i in $(seq 1 30); do
@@ -172,12 +186,13 @@ COMMON_ENV=(
   -e "CANDIDATE_PREFERRED_LOCATIONS=${CANDIDATE_PREFERRED_LOCATIONS:-Bengaluru,Bangalore,India,Remote}"
   -e CANDIDATE_REMOTE_ELIGIBLE=true
   -e "ENRICHMENT_INTERVAL_MS=$ENRICHMENT_INTERVAL_MS"
+  -e "ENRICHMENT_COMMAND_TIMEOUT_SECONDS=${ENRICHMENT_COMMAND_TIMEOUT_SECONDS:-300}"
   -e "PROACTIVE_RECRUITER_MAX_QUERIES=${PROACTIVE_RECRUITER_MAX_QUERIES:-8}"
   -e "PROACTIVE_RECRUITER_TARGET_CANDIDATES=${PROACTIVE_RECRUITER_TARGET_CANDIDATES:-8}"
   -e "PROACTIVE_RECRUITER_SEARCH_PROVIDERS=${PROACTIVE_RECRUITER_SEARCH_PROVIDERS:-bing-direct,google-direct,qwant-direct}"
   -e "PUBLIC_HIRING_POST_MAX_QUERIES=${PUBLIC_HIRING_POST_MAX_QUERIES:-8}"
-  -e PROACTIVE_RECRUITER_ENABLED=true
-  -e PROACTIVE_RECRUITER_SEND_ENABLED=false
+  -e PROACTIVE_RECRUITER_ENABLED="${PROACTIVE_RECRUITER_ENABLED:-true}"
+  -e PROACTIVE_RECRUITER_SEND_ENABLED="${PROACTIVE_RECRUITER_SEND_ENABLED:-false}"
 )
 
 start_enrichment_worker() {
@@ -204,7 +219,8 @@ Contact enrichment container: $CONTACTS
 Content enrichment container: $CONTENT
 Enrichment interval: ${ENRICHMENT_INTERVAL_MS}ms
 Federation concurrency: ${PLATFORM_SEARCH_CONCURRENCY:-16}
-Federation per-platform timeout: ${PLATFORM_ITEM_TIMEOUT_MS:-20000}ms
+Federation per-platform timeout: ${PLATFORM_ITEM_TIMEOUT_MS:-45000}ms
+Ollama timeout: ${OLLAMA_TIMEOUT_MS:-15000}ms
 Logs: docker logs -f $APP
 Recruiter enrichment log: docker logs -f $RECRUITER
 Contact enrichment log: docker logs -f $CONTACTS
