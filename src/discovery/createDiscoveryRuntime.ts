@@ -44,7 +44,7 @@ export function createDiscoveryRuntime(
   const opportunityRepository = new PostgresJobOpportunityRepository(database);
   const matchDecisions = new PostgresMatchDecisionRepository(database);
   const rankingRepository = new PostgresJobRankingRepository(database);
-  const policy = loadJobSearchPolicy();
+  const policy = loadJobSearchPolicy(candidateProfile);
   const adaptiveLearning = new AdaptiveLearningService(database);
 
   const semanticMatcher = new SemanticJobMatcher(
@@ -158,7 +158,7 @@ export function createDiscoveryRuntime(
   );
 
   const runner = new DiscoveryRunner(
-    new JobDiscoveryService(database),
+    new JobDiscoveryService(database, policy),
     new SourceHealthGate(database),
     new SourceRunTracker(database),
     matchDispatcher,
