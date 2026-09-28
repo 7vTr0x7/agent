@@ -28,11 +28,15 @@ export function sourceList(query: string): Source[] {
     { id: "ecosia-jina", url: `https://r.jina.ai/https://www.ecosia.org/search?q=${q}` },
     { id: "brave-direct", url: `https://search.brave.com/search?q=${q}&source=web` },
     { id: "mojeek-direct", url: `https://www.mojeek.com/search?q=${q}` },
-    { id: "qwant-direct", url: `https://www.qwant.com/?q=${q}&t=web` },
-    // Yahoo's RSS feed exposes canonical result URLs and snippets without the
-    // client-side navigation/consent markup returned by its HTML search page.
     { id: "yahoo-direct", url: `https://search.yahoo.com/rss?p=${q}` }
   ];
+  // Qwant's current HTML response contains a large amount of application and
+  // navigation markup. Treat it as an opt-in source until its result-link
+  // parser is tightened; otherwise generic URLs can be mistaken for public
+  // hiring evidence and leak unrelated employer/contact data into persistence.
+  if (process.env.JOB_AGENT_ENABLE_QWANT_DIRECT === "true") {
+    sources.push({ id: "qwant-direct", url: `https://www.qwant.com/?q=${q}&t=web` });
+  }
   if (process.env.JINA_API_KEY?.trim()) {
     sources.push({ id: "jina-search", url: `https://s.jina.ai/${q}`, headers: { authorization: `Bearer ${process.env.JINA_API_KEY.trim()}` } });
   } else {
