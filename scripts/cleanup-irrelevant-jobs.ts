@@ -73,22 +73,24 @@ async function main(): Promise<void> {
 
     await database.transaction(async (client) => {
       for (const row of remove) {
-        const applications = await client.query<{ count: string }>(
+        const applicationByOpportunity = await client.query<{ count: string }>(
           `SELECT COUNT(*)::text AS count FROM applications WHERE job_opportunity_id = $1`,
           [row.id]
         );
-        if (Number(applications.rows[0]?.count ?? 0) > 0) {
+        const applicationByLegacyJob = await client.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count
+           FROM applications a
+           JOIN jobs j ON j.id = a.job_id
+           WHERE j.job_opportunity_id = $1`,
+          [row.id]
+        );
+        if (Number(applicationByOpportunity.rows[0]?.count ?? 0) > 0 || Number(applicationByLegacyJob.rows[0]?.count ?? 0) > 0) {
           throw new Error(`Refusing to delete ${row.id}: application references this opportunity`);
         }
 
+        await client.query(`DELETE FROM jobs WHERE job_opportunity_id = $1`, [row.id]);
         await client.query(`DELETE FROM job_opportunities WHERE id = $1`, [row.id]);
       }
-
-      await client.query(
-        `DELETE FROM jobs j
-         WHERE j.job_opportunity_id IS NULL
-           AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.id)`
-      );
     });
   } finally {
     await database.close();
