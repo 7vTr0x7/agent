@@ -1,9 +1,9 @@
 import { JOB_PLATFORM_COUNT, JOB_PLATFORM_REGISTRY } from "./JobPlatformRegistry";
 
 describe("JobPlatformRegistry", () => {
-  it("contains the full federation catalog without accidental truncation", () => {
-    expect(JOB_PLATFORM_COUNT).toBeGreaterThanOrEqual(200);
-    expect(JOB_PLATFORM_REGISTRY).toHaveLength(JOB_PLATFORM_COUNT);
+  it("contains exactly the 200 registered federation platforms", () => {
+    expect(JOB_PLATFORM_COUNT).toBe(200);
+    expect(JOB_PLATFORM_REGISTRY).toHaveLength(200);
   });
 
   it("assigns unique identifiers and honest acquisition classifications", () => {
