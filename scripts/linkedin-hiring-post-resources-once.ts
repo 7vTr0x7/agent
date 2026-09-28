@@ -110,7 +110,7 @@ async function main(): Promise<void> {
           await db.query(
             `INSERT INTO public_contact_resources(source_url,source_type,title,discovered_at,status,records_seen,emails_extracted,emails_normalized,invalid_emails,duplicate_emails,qualified_contacts)
              VALUES($1,'LINKEDIN_POST',$2,NOW(),'DISCOVERED',1,$3,$3,0,0,0)
-             ON CONFLICT(source_url) DO UPDATE SET title=EXCLUDED.title, records_seen=GREATEST(public_contact_resources.records_seen, EXCLUDED.records_seen), emails_extracted=GREATEST(public_contact_resources.emails_extracted, EXCLUDED.emails_extracted), emails_normalized=GREATEST(public_contact_resources.emails_normalized, EXCLUDED.emails_normalIZED)`,
+             ON CONFLICT(source_url) DO UPDATE SET title=EXCLUDED.title, records_seen=GREATEST(public_contact_resources.records_seen, EXCLUDED.records_seen), emails_extracted=GREATEST(public_contact_resources.emails_extracted, EXCLUDED.emails_extracted), emails_normalized=GREATEST(public_contact_resources.emails_normalized, EXCLUDED.emails_normalized)`,
             [postUrl, title, emails.length]
           );
           persisted++;
