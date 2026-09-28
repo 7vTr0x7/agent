@@ -1,5 +1,6 @@
 import { JobOpportunity } from "../jobs/domain/JobOpportunity";
-import { DeterministicMatchResult, promoteKnownRemoteBoardMatch } from "./MatchPipeline";
+import { DeterministicMatchResult } from "./DeterministicJobMatcher";
+import { promoteKnownRemoteBoardMatch } from "./MatchPipeline";
 
 function result(overrides: Partial<DeterministicMatchResult> = {}): DeterministicMatchResult {
   return {
