@@ -1,5 +1,6 @@
 export type JobPlatformKind = "job-board" | "remote-board" | "developer-board" | "aggregator" | "ats" | "community" | "category";
-export type JobPlatformCapability = "active-adapter" | "configurable-adapter" | "public-web-discovery";
+/** @deprecated Legacy persisted/API compatibility only; no current registry entry uses this capability. */
+export type JobPlatformCapability = "active-adapter" | "configurable-adapter" | "public-web-discovery" | "catalog-only";
 
 export interface JobPlatformDefinition {
   readonly id: string;
