@@ -6,6 +6,7 @@ APP="${JOB_AGENT_LOCAL_APP:-job-agent-local-app}"
 RECRUITER="${JOB_AGENT_LOCAL_RECRUITER:-job-agent-local-recruiter}"
 CONTACTS="${JOB_AGENT_LOCAL_CONTACTS:-job-agent-local-contacts}"
 CONTENT="${JOB_AGENT_LOCAL_CONTENT:-job-agent-local-content}"
+NETWORK="${JOB_AGENT_LOCAL_NETWORK:-job-agent-local}"
 API_PORT="${JOB_AGENT_LOCAL_API_PORT:-3000}"
 
 # A restart is a process/container restart, not a database reset. Keep PostgreSQL
@@ -13,6 +14,47 @@ API_PORT="${JOB_AGENT_LOCAL_API_PORT:-3000}"
 if docker inspect "$POSTGRES" >/dev/null 2>&1; then
   if [[ "$(docker inspect -f '{{.State.Running}}' "$POSTGRES")" != "true" ]]; then
     docker start "$POSTGRES" >/dev/null
+  fi
+fi
+
+# The normal Docker Compose stack is also a supported local runtime. If its app
+# currently owns port 3000, adopt its existing PostgreSQL container/network for
+# the feature-complete local runtime instead of treating the compose app as an
+# unrelated service or silently switching to a fresh empty database.
+COMPOSE_APP="$(docker ps -q \
+  --filter 'label=com.docker.compose.service=app' \
+  --filter 'label=com.docker.compose.project=job-agent' | head -n 1)"
+if [[ -n "$COMPOSE_APP" ]]; then
+  COMPOSE_POSTGRES="$(docker ps -q \
+    --filter 'label=com.docker.compose.service=postgres' \
+    --filter 'label=com.docker.compose.project=job-agent' | head -n 1)"
+  if [[ -n "$COMPOSE_POSTGRES" ]]; then
+    COMPOSE_NETWORK="$(docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}' "$COMPOSE_APP" | head -n 1)"
+    if [[ -n "$COMPOSE_NETWORK" ]]; then
+      NETWORK="$COMPOSE_NETWORK"
+    fi
+    POSTGRES="$(docker inspect -f '{{.Name}}' "$COMPOSE_POSTGRES" | sed 's#^/##')"
+
+    # Preserve the compose runtime's database/profile configuration. This keeps
+    # local:restart on the same real local data rather than creating a second DB.
+    while IFS='=' read -r key value; do
+      case "$key" in
+        POSTGRES_DB|POSTGRES_USER|POSTGRES_PASSWORD)
+          export "${key}=${value}"
+          ;;
+      esac
+    done < <(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$COMPOSE_POSTGRES")
+
+    while IFS='=' read -r key value; do
+      case "$key" in
+        CANDIDATE_PROFILE_ID|CANDIDATE_YEARS_EXPERIENCE|CANDIDATE_SKILLS|CANDIDATE_TARGET_TITLES|CANDIDATE_FIRST_NAME|CANDIDATE_LAST_NAME|CANDIDATE_FULL_NAME|CANDIDATE_EMAIL|CANDIDATE_PHONE|CANDIDATE_LOCATION|CANDIDATE_WORK_AUTHORIZATION|CANDIDATE_SPONSORSHIP_REQUIRED|CANDIDATE_NOTICE_PERIOD_DAYS|CANDIDATE_LINKEDIN_URL|CANDIDATE_GITHUB_URL|CANDIDATE_PORTFOLIO_URL|CANDIDATE_RESUME_PATH)
+          export "${key}=${value}"
+          ;;
+      esac
+    done < <(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$COMPOSE_APP")
+
+    echo "Adopting Docker Compose PostgreSQL/network for the local feature-complete runtime: ${POSTGRES} on ${NETWORK}." >&2
+    docker rm -f "$COMPOSE_APP" >/dev/null
   fi
 fi
 
@@ -51,4 +93,4 @@ export PLATFORM_SEARCH_CONCURRENCY="${PLATFORM_SEARCH_CONCURRENCY:-16}"
 export PLATFORM_ITEM_TIMEOUT_MS="${PLATFORM_ITEM_TIMEOUT_MS:-45000}"
 export ENRICHMENT_COMMAND_TIMEOUT_SECONDS="${ENRICHMENT_COMMAND_TIMEOUT_SECONDS:-300}"
 
-JOB_AGENT_LOCAL_RESET=false JOB_AGENT_LOCAL_CLEANUP=false bash scripts/local-run.sh
+JOB_AGENT_LOCAL_NETWORK="$NETWORK" JOB_AGENT_LOCAL_POSTGRES="$POSTGRES" JOB_AGENT_LOCAL_RESET=false JOB_AGENT_LOCAL_CLEANUP=false bash scripts/local-run.sh
