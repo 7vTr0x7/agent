@@ -85,6 +85,19 @@ export class DiscoveryRunner {
           inserted: discovered.inserted,
           duplicates: discovered.duplicates
         });
+        console.info("discovery relevance metrics", {
+          source: descriptor.id,
+          discovered: discovered.fetched,
+          normalized: discovered.normalized,
+          hardRejected: discovered.hardRejected,
+          ambiguous: discovered.ambiguous,
+          eligible: discovered.eligible,
+          deduped: discovered.duplicates,
+          persisted: discovered.inserted,
+          rejectionReasons: discovered.rejectionReasons,
+          acceptedRoleFamilies: discovered.acceptedRoleFamilies,
+          rejectedSamples: discovered.rejectedSamples
+        });
         return { source: descriptor.id, discovered, matching };
       } catch (error) {
         lastError = error;
