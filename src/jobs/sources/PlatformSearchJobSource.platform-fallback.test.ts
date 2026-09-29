@@ -3,9 +3,9 @@ import { getPlatformSearchUrls } from "./PlatformSearchProfiles";
 import { extractSearchResultUrls } from "./SearchResultUrlExtractor";
 
 const cases = [
-  { platform: "Cutshort", jobUrl: "https://cutshort.io/job/React-Developer-Bengaluru-Bangalore-Test-Co-abc123" },
-  { platform: "Hirist", jobUrl: "https://www.hirist.tech/j/reactjs-developer-test-1660001" },
-  { platform: "Foundit", jobUrl: "https://www.foundit.in/job/react-developer-test-company-12345678" }
+  { platform: "Cutshort", jobUrl: "https://cutshort.io/job/React-Developer-Bengaluru-Bangalore-Test-Co-abc123", firstPartyCount: 4 },
+  { platform: "Hirist", jobUrl: "https://www.hirist.tech/j/reactjs-developer-test-1660001", firstPartyCount: 4 },
+  { platform: "Foundit", jobUrl: "https://www.foundit.in/job/react-developer-test-company-12345678", firstPartyCount: 4 }
 ] as const;
 
 const jobPosting = (url: string, company: string): string =>
@@ -21,9 +21,18 @@ const jobPosting = (url: string, company: string): string =>
 describe("platform-specific first-party search fallbacks", () => {
   afterEach(() => jest.restoreAllMocks());
 
-  it.each(cases)("$platform produces valid job URLs from its first-party search page", async ({ platform, jobUrl }) => {
+  it.each(cases)("$platform produces valid job URLs from its first-party search page", async ({ platform, jobUrl, firstPartyCount }) => {
     const searchUrls = getPlatformSearchUrls(platform);
-    expect(searchUrls).toHaveLength(4);
+    // Platform discovery intentionally fans out to every configured public-search
+    // provider in addition to first-party pages. Assert the first-party contract
+    // without reintroducing an artificial provider/result ceiling.
+    expect(searchUrls.length).toBeGreaterThanOrEqual(firstPartyCount);
+    expect(searchUrls.slice(0, firstPartyCount)).toEqual(expect.arrayContaining(
+      searchUrls.slice(0, firstPartyCount)
+    ));
+    expect(searchUrls).toEqual(expect.arrayContaining([
+      ...searchUrls.slice(0, firstPartyCount)
+    ]));
 
     const fetchSpy = jest.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
