@@ -26,14 +26,9 @@ export function sourceList(query: string): Source[] {
     { id: "ecosia-jina", url: `https://r.jina.ai/https://www.ecosia.org/search?q=${q}` },
     { id: "brave-direct", url: `https://search.brave.com/search?q=${q}&source=web` },
     { id: "mojeek-direct", url: `https://www.mojeek.com/search?q=${q}` },
-    { id: "yahoo-direct", url: `https://search.yahoo.com/rss?p=${q}` }
+    { id: "yahoo-direct", url: `https://search.yahoo.com/rss?p=${q}` },
+    { id: "qwant-direct", url: `https://www.qwant.com/?q=${q}&t=web` }
   ];
-  // Qwant remains opt-in in production because its current HTML contains
-  // substantial navigation/application markup. Include it in the test source
-  // fan-out so the source-family regression test still covers the adapter.
-  if (process.env.JOB_AGENT_ENABLE_QWANT_DIRECT === "true" || process.env.NODE_ENV === "test") {
-    sources.push({ id: "qwant-direct", url: `https://www.qwant.com/?q=${q}&t=web` });
-  }
   if (process.env.JINA_API_KEY?.trim()) {
     sources.push({ id: "jina-search", url: `https://s.jina.ai/${q}`, headers: { authorization: `Bearer ${process.env.JINA_API_KEY.trim()}` } });
   } else {
