@@ -9,6 +9,7 @@ import { GlobalExternalSideEffectGate } from "../src/shared/safety/GlobalExterna
 import { CONTROLLED_SEND_CONFIRMATION } from "../src/recruiters/RecruiterOutreachActivationGate";
 
 const APPROVAL = "SEND_ONE_REAL_RECRUITER_EMAIL";
+const MIN_ACTIVATION_MIGRATION = 51;
 
 async function main(): Promise<void> {
   const approval = process.env.PHASE10_LIVE_TEST_APPROVAL?.trim();
@@ -34,7 +35,9 @@ async function main(): Promise<void> {
   const database = new Database(databaseUrl);
   try {
     const migrations = await database.query<{ name: string }>("SELECT name FROM schema_migrations ORDER BY id DESC LIMIT 1");
-    if (migrations.rows[0]?.name !== "039_recruiter_hiring_evidence_relevance.sql") throw new Error("Phase 10 activation migration is not applied.");
+    const latestMigration = migrations.rows[0]?.name ?? "";
+    const latestMigrationNumber = Number(latestMigration.match(/^\d+/)?.[0] ?? 0);
+    if (latestMigrationNumber < MIN_ACTIVATION_MIGRATION) throw new Error(`Current database migration ${latestMigration || "<none>"} is older than the required activation baseline ${MIN_ACTIVATION_MIGRATION}.`);
     const safety = new GlobalExternalSideEffectGate(database);
     const gate = await safety.evaluate();
     if (!gate.allowed) throw new Error(`Global emergency stop blocks live test: ${gate.reason}`);
