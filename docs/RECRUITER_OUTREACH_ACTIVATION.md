@@ -1,6 +1,6 @@
 # Recruiter Outreach Activation Procedure
 
-Recruiter outreach is disabled by default. This document defines the only supported progression from dry-run to a controlled real-send canary and then to live operation.
+Recruiter outreach is disabled by default. This document defines the supported progression from dry-run to a controlled real-send canary and then to live operation.
 
 ## 1. Validate the repository
 
@@ -33,9 +33,9 @@ A canary is exactly one recruiter message per day and one per hour. The canary r
 - `RECRUITER_OUTBOUND_ENABLED=true`
 - `RECRUITER_MAX_MESSAGES_PER_DAY=1`
 - `RECRUITER_MAX_MESSAGES_PER_HOUR=1`
-- all existing recruiter safety gates to pass, including verified-email and confidence requirements
+- all existing recruiter safety gates to pass
 
-Do not use the canary mode with wider limits. The runtime activation gate rejects it.
+Real sending does **not** require Gmail to verify that the recipient mailbox exists. The recipient must instead be a plausible email address on the resolved employer domain, must not be suppressed or automated/no-reply, and must have current/recent hiring relevance. A mailbox-verified contact remains eligible, and a public-web `LIKELY` contact remains eligible.
 
 After the one-message canary is sent, reconcile Gmail before any further activation:
 
@@ -61,7 +61,9 @@ The configured daily/hourly limits must also pass the recruiter preflight and Gm
 Immediately keep or return activation to `disabled` if any of these occur:
 
 - unexpected recipient or domain
-- unverified recruiter email
+- invalid recipient address
+- recipient is not on the resolved employer domain
+- automated/no-reply recipient
 - low confidence contact
 - duplicate application/contact sequence
 - suppression match
