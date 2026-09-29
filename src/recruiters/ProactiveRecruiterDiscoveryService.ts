@@ -2,6 +2,7 @@ import { promises as dns } from "node:dns";
 import { isIP } from "node:net";
 import { ProactiveRecruiterRoleMatcher, CandidateProfileLike } from "./ProactiveRecruiterRoleMatcher";
 import { RecruiterVerificationEvidence } from "./RecruiterDiscovery";
+import { isPlausibleMailboxAddress } from "./RecruiterMailboxVerification";
 import { fetchPublicEvidenceFallback, PublicEvidenceFetchResult } from "./PublicProfileEvidenceFallback";
 import { PublicHiringPostDiscoveryProvider, PublicHiringPostDiscoveryMetrics } from "./PublicHiringPostDiscoveryProvider";
 import { isJinaReader, sourceList } from "./PublicSearchProviderRegistry";
