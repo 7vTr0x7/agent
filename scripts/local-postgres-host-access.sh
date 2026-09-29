@@ -11,8 +11,7 @@ if ! docker inspect "$POSTGRES" >/dev/null 2>&1; then
   exit 0
 fi
 
-host_binding="$(docker inspect -f '{{json .NetworkSettings.Ports}}' "$POSTGRES")"
-if [[ "$host_binding" == *"0.0.0.0:${DB_PORT}"* || "$host_binding" == *"127.0.0.1:${DB_PORT}"* || "$host_binding" == *":::${DB_PORT}"* ]]; then
+if docker port "$POSTGRES" 5432/tcp 2>/dev/null | grep -Eq "(^|:)${DB_PORT}$"; then
   exit 0
 fi
 
