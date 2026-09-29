@@ -18,7 +18,7 @@ function staleReconciliationEnabled(): boolean {
   return value === "true";
 }
 
-/** Reports durable stale submission attempts; optional reconciliation is separately gated and never blindly resubmits. */
+/** Reports durable stale submission attempts only when stale reconciliation is enabled; reconciliation itself is separately guarded. */
 export class StaleSubmissionMonitor {
   constructor(
     private readonly applicationRepository: Pick<ApplicationRepository, "listStaleSubmissions"> & Partial<Pick<ApplicationRepository, "reconcileStaleSubmissions">>,
@@ -29,9 +29,18 @@ export class StaleSubmissionMonitor {
   }
 
   async runOnce(_olderThanMinutesOverride?: number): Promise<StaleSubmissionMonitorResult> {
+    const reconciliationEnabled = staleReconciliationEnabled();
+    if (!reconciliationEnabled) {
+      this.logger.info(
+        { staleCount: 0, reconciliationEnabled: false },
+        "Stale application reconciliation is disabled"
+      );
+      return { staleCount: 0, submissions: [], requeued: 0 };
+    }
+
     const submissions = await this.applicationRepository.listStaleSubmissions(this.olderThanMinutes);
     if (submissions.length > 0) {
-      const reconciliation = staleReconciliationEnabled() && this.applicationRepository.reconcileStaleSubmissions
+      const reconciliation = this.applicationRepository.reconcileStaleSubmissions
         ? await this.applicationRepository.reconcileStaleSubmissions(this.olderThanMinutes)
         : null;
       this.logger.warn(
