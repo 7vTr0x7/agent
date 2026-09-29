@@ -211,9 +211,11 @@ export function experienceCompatible(text: string, candidateYears = 3): boolean 
   const ranges = [...text.matchAll(/(\d+)\s*(?:-|to|–|—)\s*(\d+)\s*years?/gi)].map(m => [Number(m[1]), Number(m[2])] as const);
   const minimums = [...text.matchAll(/(?:\b|\D)(\d+)\s*\+\s*years?/gi)].map(m => Number(m[1]));
   if (!ranges.length && !minimums.length) return true;
-  // A lower experience band is still a valid opportunity for a more experienced
-  // candidate. Only a minimum above the candidate's experience should reject.
-  return ranges.some(([min]) => candidateYears >= min) || minimums.some(min => candidateYears >= min);
+  if (ranges.length + minimums.length === 1) {
+    if (ranges.length) return candidateYears >= ranges[0]![0];
+    return candidateYears >= minimums[0]!;
+  }
+  return ranges.some(([min, max]) => candidateYears >= min && candidateYears <= max) || minimums.some(min => candidateYears >= min);
 }
 
 function normalizeEmailNamePart(value: string): string {
