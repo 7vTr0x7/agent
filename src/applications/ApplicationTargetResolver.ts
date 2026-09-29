@@ -13,6 +13,61 @@ const SUBMIT_NAME = /^(?:submit|submit application|send application|complete app
 const AUTH_PATH = /(?:^|\/)(?:login|log-in|signin|sign-in|signup|sign-up|register|registration)(?:\/|$)/i;
 const AUTH_TEXT = /(?:sign in|sign-in|log in|log-in|create account|register|registration|forgot password)/i;
 const EXCLUDED_APPLY_NAME = /^(?:privacy|privacy policy|policy|terms|help|support|jobs?|careers?|login|sign in|register|account|cookie)$/i;
+const APPLICATION_FIELD_SIGNAL = /(?:first\s*name|last\s*name|full\s*name|resume|cv|curriculum\s*vitae|cover\s*letter|phone|telephone|linkedin|github|portfolio|work\s*authorization|sponsorship|education|experience|current\s*company|current\s*title|salary|compensation|availability|application)/i;
+
+async function hasAuthenticationUi(page: Page): Promise<boolean> {
+  if (await page.locator('input[type="password"]:visible').count() > 0) return true;
+
+  const authenticationFormCount = await page.locator("form:visible").evaluateAll((forms, authText) => {
+    return forms.filter((form) => {
+      const text = (form.textContent || "").trim();
+      const controls = Array.from(form.querySelectorAll("input, button, [role='button']"));
+      const controlText = controls
+        .map((control) => (control.getAttribute("aria-label") || control.textContent || (control as HTMLInputElement).value || "").trim())
+        .join(" ");
+      const combined = `${text} ${controlText}`;
+      const hasEmailField = Boolean(form.querySelector('input[type="email"], input[name*="email" i], input[autocomplete="email"]'));
+      const hasPasswordField = Boolean(form.querySelector('input[type="password"]'));
+      return hasPasswordField || (hasEmailField && authText.test(combined));
+    }).length;
+  }, AUTH_TEXT.source);
+
+  return authenticationFormCount > 0;
+}
+
+async function hasApplicationForm(page: Page, startedFromJobPage: boolean): Promise<boolean> {
+  const visibleForms = page.locator("form:visible");
+  if (await visibleForms.count() === 0) return false;
+
+  if (startedFromJobPage) {
+    // Once an explicit Apply action has navigated us to a target page, a visible
+    // form is sufficient. This keeps ATS-specific form shapes out of the target
+    // resolver while preventing search/filter forms on the original job board
+    // from being mistaken for an application.
+    return true;
+  }
+
+  const applicationFormCount = await visibleForms.evaluateAll((forms, signalSource) => {
+    const signal = new RegExp(signalSource, "i");
+    return forms.filter((form) => {
+      const text = (form.textContent || "").trim();
+      const controls = Array.from(form.querySelectorAll("input, textarea, select, [contenteditable='true'], button, [role='button']"));
+      const names = controls
+        .map((control) => [
+          control.getAttribute("name"),
+          control.getAttribute("id"),
+          control.getAttribute("placeholder"),
+          control.getAttribute("aria-label"),
+          control.textContent,
+          (control as HTMLInputElement).value
+        ].filter(Boolean).join(" "))
+        .join(" ");
+      return signal.test(`${text} ${names}`) && controls.length >= 1;
+    }).length;
+  }, APPLICATION_FIELD_SIGNAL.source);
+
+  return applicationFormCount > 0;
+}
 
 export class ApplicationTargetResolver {
   async resolve(page: Page, sourceUrl: string): Promise<ApplicationTargetResolution> {
@@ -44,10 +99,7 @@ export class ApplicationTargetResolver {
       };
     }
 
-    const passwordCount = await page.locator('input[type="password"]').count();
-    const formCount = await page.locator("form").count();
-    const bodyText = (await page.locator("body").innerText().catch(() => "")).slice(0, 12000);
-    if (passwordCount > 0 || (formCount > 0 && AUTH_TEXT.test(bodyText))) {
+    if (await hasAuthenticationUi(page)) {
       return {
         resolved: false,
         url: effectiveUrl,
@@ -56,12 +108,16 @@ export class ApplicationTargetResolver {
       };
     }
 
-    const fieldCount = await page.locator("input, textarea, select, [role='combobox'], [contenteditable='true']").count();
+    if (await hasApplicationForm(page, startedFromJobPage)) {
+      return { resolved: true, url: effectiveUrl, startedFromJobPage, reason: "Application form is already present on the target page." };
+    }
+
     const submitCount = await page.getByRole("button", { name: SUBMIT_NAME }).count()
       + await page.getByRole("link", { name: SUBMIT_NAME }).count();
 
-    if (formCount > 0 || (fieldCount > 0 && submitCount > 0)) {
-      return { resolved: true, url: effectiveUrl, startedFromJobPage, reason: "Application form is already present on the target page." };
+    const fieldCount = await page.locator("input, textarea, select, [role='combobox'], [contenteditable='true']").count();
+    if (submitCount > 0 && fieldCount > 0) {
+      return { resolved: true, url: effectiveUrl, startedFromJobPage, reason: "Application controls are present on the target page." };
     }
 
     const candidates = await page.locator('a, button, input[type="submit"], input[type="button"]').evaluateAll((elements) =>
@@ -105,6 +161,12 @@ export class ApplicationTargetResolver {
       return { resolved: false, url: effectiveUrl, startedFromJobPage, reason: `Application entry point could not be opened safely: ${error instanceof Error ? error.message : String(error)}` };
     }
 
-    return this.resolveInternal(page, effectiveUrl, true, parsedUrl.hostname);
+    const nextUrl = page.url();
+    if (!nextUrl || nextUrl === "about:blank") {
+      return { resolved: false, url: effectiveUrl, startedFromJobPage, reason: "Application entry point did not navigate to a usable target; manual review is required." };
+    }
+    let nextHost: string;
+    try { nextHost = new URL(nextUrl).hostname; } catch { return { resolved: false, url: nextUrl, startedFromJobPage, reason: "Application entry point navigated to an invalid target; manual review is required." }; }
+    return this.resolveInternal(page, nextUrl, true, nextHost);
   }
 }
