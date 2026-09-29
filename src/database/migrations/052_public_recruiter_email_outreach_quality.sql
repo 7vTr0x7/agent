@@ -9,8 +9,15 @@ LANGUAGE sql
 IMMUTABLE
 AS $$
   SELECT COALESCE(email_value,'') ~* '^[A-Za-z0-9!#$&''*+/=?^_`{|}~.-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
-     AND split_part(COALESCE(email_value,''),'@',1) !~* '(^\\.|\\.$|\\.\\.|%)'
-     AND split_part(COALESCE(email_value,''),'@',2) !~* '(^\\.|\\.$|\\.\\.)';
+     AND split_part(COALESCE(email_value,''),'@',1) !~* '(^\\.|\\.$|\\.\\.|%)';
+$$;
+
+CREATE OR REPLACE FUNCTION job_agent_non_recruiting_mailbox(email_value TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT lower(split_part(COALESCE(email_value,''),'@',1)) IN ('sales','support','customer-support','customersupport','help','helpdesk','billing','accounts','finance','press','media','legal','privacy','marketing','partnerships','partnership','procurement','info','hello','contact','admin','webmaster','postmaster','noreply','no-reply');
 $$;
 
 CREATE OR REPLACE FUNCTION normalize_public_recruiter_email_quality()
@@ -29,7 +36,6 @@ BEGIN
   email_domain := lower(split_part(NEW.email,'@',2));
   company_domain := lower(regexp_replace(btrim(COALESCE(NEW.company_domain,'')),'^www\\.','','i'));
 
-  -- Never retain malformed search-engine noise as an email address.
   IF NOT job_agent_public_email_address_quality(NEW.email) THEN
     NEW.email := NULL;
     NEW.email_status := 'UNVERIFIED';
@@ -41,10 +47,9 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- A public company-domain address with fresh hiring evidence is outreach-usable,
-  -- but remains explicitly non-verified at mailbox level.
   IF company_domain <> ''
      AND email_domain = company_domain
+     AND NOT job_agent_non_recruiting_mailbox(NEW.email)
      AND UPPER(COALESCE(NEW.relevance_status,'UNKNOWN')) IN ('CURRENT','RECENT')
      AND UPPER(COALESCE(NEW.email_status,'UNVERIFIED')) IN ('UNVERIFIED','LIKELY')
      AND COALESCE(NEW.verified,FALSE)=FALSE
@@ -52,12 +57,7 @@ BEGIN
     NEW.email_status := 'LIKELY';
     NEW.verification_status := 'public-web-likely';
     NEW.mx_status := CASE WHEN COALESCE(NEW.mx_status,'UNKNOWN')='EXISTS' THEN NEW.mx_status ELSE 'UNKNOWN' END;
-    NEW.verification_evidence := jsonb_build_array(jsonb_build_object(
-      'provider','public-web',
-      'status','public-web-likely',
-      'mailboxLevel',false,
-      'source','public-hiring-evidence'
-    ));
+    NEW.verification_evidence := jsonb_build_array(jsonb_build_object('provider','public-web','status','public-web-likely','mailboxLevel',false,'source','public-hiring-evidence'));
   END IF;
 
   RETURN NEW;
@@ -71,35 +71,22 @@ ON recruiter_contacts
 FOR EACH ROW
 EXECUTE FUNCTION normalize_public_recruiter_email_quality();
 
--- Repair existing proactive-public-web rows created before this contract existed.
 UPDATE recruiter_contacts
-SET email = NULL,
-    email_status = 'UNVERIFIED',
-    verification_status = 'public-web-unverified',
-    mx_status = 'UNKNOWN',
-    mailbox_evidence = FALSE,
-    verification_evidence = '[]'::jsonb,
-    email_discovery_status = 'PENDING',
-    updated_at = NOW()
-WHERE provider='proactive-public-web'
-  AND email IS NOT NULL
-  AND NOT job_agent_public_email_address_quality(email);
+SET email = NULL, email_status = 'UNVERIFIED', verification_status = 'public-web-unverified', mx_status = 'UNKNOWN', mailbox_evidence = FALSE, verification_evidence = '[]'::jsonb, email_discovery_status = 'PENDING', updated_at = NOW()
+WHERE provider='proactive-public-web' AND email IS NOT NULL AND NOT job_agent_public_email_address_quality(email);
 
 UPDATE recruiter_contacts
-SET email_status = 'LIKELY',
-    verification_status = 'public-web-likely',
-    mailbox_evidence = FALSE,
-    verified = FALSE,
-    verification_evidence = jsonb_build_array(jsonb_build_object(
-      'provider','public-web',
-      'status','public-web-likely',
-      'mailboxLevel',false,
-      'source','public-hiring-evidence'
-    )),
+SET email_status = 'UNVERIFIED', verification_status = 'public-web-unverified', mailbox_evidence = FALSE, verified = FALSE, verification_evidence = '[]'::jsonb, updated_at = NOW()
+WHERE provider='proactive-public-web' AND email IS NOT NULL AND job_agent_non_recruiting_mailbox(email);
+
+UPDATE recruiter_contacts
+SET email_status = 'LIKELY', verification_status = 'public-web-likely', mailbox_evidence = FALSE, verified = FALSE,
+    verification_evidence = jsonb_build_array(jsonb_build_object('provider','public-web','status','public-web-likely','mailboxLevel',false,'source','public-hiring-evidence')),
     updated_at = NOW()
 WHERE provider='proactive-public-web'
   AND email IS NOT NULL
   AND job_agent_public_email_address_quality(email)
+  AND NOT job_agent_non_recruiting_mailbox(email)
   AND lower(split_part(email,'@',2)) = lower(company_domain)
   AND UPPER(COALESCE(relevance_status,'UNKNOWN')) IN ('CURRENT','RECENT')
   AND COALESCE(verified,FALSE)=FALSE
