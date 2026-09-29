@@ -56,7 +56,9 @@ function experienceCompatible(text: string, years: number): boolean {
 }
 function freshness(text: string): "current" | "recent" | "historical" | "unknown" { if (/\b(?:today|1d|2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo)\b/i.test(text)) return "current"; if (/\b(?:5mo|6mo|7mo|8mo|9mo|10mo|11mo|12mo)\b/i.test(text)) return "recent"; const years = [...text.matchAll(/\b(20\d{2})\b/g)].map((match) => Number(match[1])); const current = new Date().getFullYear(); if (years.includes(current)) return "current"; if (years.includes(current - 1)) return "recent"; if (years.some((year) => year < current - 1)) return "historical"; return "unknown"; }
 function recruitingEmail(text: string): string | undefined {
-  const normalized = clean(text); const found = [...new Set((normalized.match(EMAIL) ?? []).map((email) => email.toLowerCase()))];
+  const normalized = clean(text);
+  const emailPattern = new RegExp(EMAIL.source, "gi");
+  const found = [...new Set((normalized.match(emailPattern) ?? []).map((email) => email.toLowerCase()))];
   const ranked = [...found].sort((a, b) => {
     const aLocal = a.split("@")[0]?.toLowerCase() ?? ""; const bLocal = b.split("@")[0]?.toLowerCase() ?? "";
     return Number(GENERIC_RECRUITING_MAILBOXES.has(aLocal)) - Number(GENERIC_RECRUITING_MAILBOXES.has(bLocal));
@@ -72,9 +74,6 @@ function employer(text: string, input: RecruiterDiscoveryInput, email?: string):
 function profileUrl(text: string, name?: string): string | undefined { const urls = [...new Set((text.match(PROFILE_URL) ?? []).map(canonical))]; if (!name) return urls[0]; const tokens = name.toLowerCase().split(/\s+/).map((token) => token.replace(/[^a-z0-9-]/g, "")); return urls.find((url) => tokens.length >= 2 && tokens.every((token) => url.toLowerCase().includes(token))); }
 function evidence(text: string, postUrl: string): string { const index = text.toLowerCase().indexOf(postUrl.toLowerCase()); return clean(index >= 0 ? text.slice(Math.max(0, index - 1800), Math.min(text.length, index + 4200)) : text).slice(0, 6500); }
 function extractPostUrls(text: string): string[] {
-  // POST_URL is global for multi-match extraction. Reset explicitly because
-  // discovery processes many independent search pages and a leaked lastIndex
-  // can otherwise make an otherwise valid indexed LinkedIn post disappear.
   POST_URL.lastIndex = 0;
   const matches = text.match(POST_URL) ?? [];
   POST_URL.lastIndex = 0;
@@ -99,7 +98,7 @@ export class LinkedInHiringPostDiscoveryProvider implements RecruiterDiscoveryPr
           const text = evidence(result.text, postUrl); const role = roleInfo(text, input.jobTitle); const years = Number(process.env.CANDIDATE_YEARS ?? 3); const technicalEvidence = FRONTEND_EVIDENCE.some((pattern) => pattern.test(text));
           if ((!HIRING.test(text) && !JOB_DESCRIPTION.test(text)) || !role.terms.length || role.score < 80 || !technicalEvidence || !experienceCompatible(text, years)) { rejectedCandidates++; continue; }
           const email = recruitingEmail(text); const name = authorName(text); const profile = profileUrl(text, name); const company = employer(text, input, email); const fresh = freshness(text);
-          const explicitRecruiting = RECRUITER.test(text) || /(?:my team|our team|i['’]?m hiring|i am hiring|join (?:our|my) team|send (?:your|me your) resume|reach out to me|apply here|apply now|dm me|share (?:your|an updated) (?:resume|cv))/i.test(text);
+          const explicitRecruiting = RECRUITER.test(text) || /(?:we['’]?re hiring|we are hiring|we['’]?re looking for|we are looking for|my team|our team|i['’]?m hiring|i am hiring|join (?:our|my) team|send (?:your|me your) resume|reach out to me|apply here|apply now|dm me|share (?:your|an updated) (?:resume|cv))/i.test(text);
           if (!company.name || fresh === "unknown" || fresh === "historical" || (!name && !email) || (!explicitRecruiting && !email)) { rejectedCandidates++; continue; }
           if (email && company.domain && email.split("@")[1]?.toLowerCase() !== company.domain.toLowerCase()) { rejectedCandidates++; continue; }
           const matchedSkills = SKILLS.filter((skill) => text.toLowerCase().includes(skill.toLowerCase())); const score = Math.min(100, 60 + Math.min(20, matchedSkills.length * 3) + (name ? 8 : 0) + (email ? 15 : 0) + (profile ? 5 : 0));
