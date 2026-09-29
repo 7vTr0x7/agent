@@ -69,9 +69,6 @@ if ! docker inspect "$POSTGRES" >/dev/null 2>&1; then
     postgres:17-alpine >/dev/null
 fi
 
-# `docker run --network` already attaches a newly created container. Use Docker's
-# structured container-name output here instead of grepping the JSON representation,
-# which is sensitive to Docker's formatting and failed on a clean runner.
 if ! docker network inspect "$NETWORK" --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' | grep -Fxq "$POSTGRES"; then
   docker network connect "$NETWORK" "$POSTGRES" >/dev/null
 fi
@@ -113,8 +110,6 @@ fi
 
 docker build --tag "$IMAGE" .
 remove_container "$APP"
-# Reclaim a stale Job Agent container that can reappear during a long image build
-# because of an older restart policy. Never remove an unrelated container here.
 while IFS= read -r container_id; do
   [[ -z "$container_id" ]] && continue
   container_name="$(docker inspect -f '{{.Name}}' "$container_id" 2>/dev/null | sed 's#^/##')"
@@ -127,7 +122,11 @@ while IFS= read -r container_id; do
   esac
 done < <(docker ps -q --filter "publish=${API_PORT}")
 
+# Pass the complete local .env into the application container so Gmail/Resend OAuth
+# and recruiter activation settings are not silently lost at the Docker boundary.
+# The explicit DATABASE_URL below remains authoritative for the container-local DB.
 docker run -d --restart unless-stopped --name "$APP" --network "$NETWORK" -p "${API_PORT}:3000" \
+  --env-file .env \
   -e NODE_ENV=production \
   -e LOG_LEVEL="${LOG_LEVEL:-info}" \
   -e DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
@@ -181,6 +180,7 @@ if ! curl -fsS "http://127.0.0.1:${API_PORT}/healthz" >/dev/null 2>&1; then
 fi
 
 COMMON_ENV=(
+  --env-file .env
   -e "DATABASE_URL=postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME"
   -e "OLLAMA_BASE_URL=$OLLAMA_BASE_URL"
   -e "OLLAMA_MODEL=$OLLAMA_MODEL"
