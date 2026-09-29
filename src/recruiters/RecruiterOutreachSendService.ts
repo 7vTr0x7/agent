@@ -36,9 +36,10 @@ export class RecruiterOutreachSendService {
     if (this.dryRun) return { status: "DRY_RUN", messageId: message.id };
     const activation = evaluateRecruiterOutreachActivation({ activation: this.activation, dryRun: this.dryRun, liveActivationConfirmed: this.liveActivationConfirmed, controlledSendConfirmation: this.controlledSendConfirmation, controlledMessageId: this.controlledMessageId, controlledRecipient: this.controlledRecipient, maxMessagesPerDay: this.maxMessagesPerDay, maxMessagesPerHour: this.maxMessagesPerHour });
     if (!activation.allowed) return { status: "SKIPPED", messageId: message.id, reason: activation.reason };
-    if (this.automationEnabled && sequence.jobOpportunityId !== null) return { status: "SKIPPED", messageId: message.id, reason: "Broad application automation cannot be used to authorize recruiter delivery." };
+    // Channel kill switches are authoritative before broader automation policy.
     if (!this.outboundEnabled) return { status: "SKIPPED", messageId: message.id, reason: "Global outbound kill switch is disabled." };
     if (!this.gmailEnabled) return { status: "SKIPPED", messageId: message.id, reason: "Gmail sending is disabled." };
+    if (this.automationEnabled && sequence.jobOpportunityId !== null) return { status: "SKIPPED", messageId: message.id, reason: "Broad application automation cannot be used to authorize recruiter delivery." };
     if (!this.options.mailbox) return { status: "SKIPPED", messageId: message.id, reason: "Gmail mailbox is not configured for live recruiter outreach." };
     if (!this.options.database) return { status: "SKIPPED", messageId: message.id, reason: "Live Gmail sending requires database-backed atomic claim and reconciliation." };
     if (this.options.externalSideEffectGate) { const gate = await this.options.externalSideEffectGate.evaluate(); if (!gate.allowed) return { status: "SKIPPED", messageId: message.id, reason: gate.reason }; }
