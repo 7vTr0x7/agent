@@ -47,125 +47,102 @@ export interface PublicHiringPostDiscoveryInput {
   fetchText?: (url: string, signal?: AbortSignal, headers?: Record<string,string>) => Promise<string | null>;
 }
 
-const HIRING_INTENT = /(?:we['’]?re\s+hiring|we\s+are\s+hiring|my\s+team\s+is\s+hiring|we['’]?re\s+looking\s+for|we\s+are\s+looking\s+for|looking\s+for\s+(?:a|an)?\s*(?:frontend|front-end|react|next\.js|javascript|typescript|software|full[ -]?stack)\s*(?:developer|engineer|developers|engineers)|hiring\s+(?:for\s+)?(?:a\s+)?(?:frontend|front-end|react|next\.js|javascript|typescript|software|full[ -]?stack)|join\s+(?:our|my)\s+team|send\s+(?:your|me\s+your)\s+(?:resume|cv)|share\s+your\s+(?:resume|cv)|dm\s+(?:me|us)\s+(?:if|for)|reach\s+out\s+(?:with|to)|apply\s+(?:here|now)|referrals?\s+welcome|know\s+someone\s+who)/i;
-const JOB_POSTING_INTENT = /(?:apply\s*(?:now|here)|apply\s+for\s+(?:this|the)\s+(?:job|role)|job\s+description|responsibilities|qualifications|required\s+(?:skills|experience)|employment\s+type|job\s+type|submit\s+(?:an\s+)?application|application\s+instructions|easy\s+apply)/i;
-function hasHiringIntent(text: string): boolean {
-  return HIRING_INTENT.test(text) || (ROLE_PATTERNS.some(([, pattern]) => pattern.test(text)) && JOB_POSTING_INTENT.test(text));
-}
-const ROLE_PATTERNS: Array<[string, RegExp]> = [
-  ["Frontend Engineer", /frontend\s+engineer|front-end\s+engineer/i],
-  ["Frontend Developer", /frontend\s+developer|front-end\s+developer/i],
-  ["React Developer", /react(?:\.js)?\s+developer|developer\s*[-|/]\s*react(?:\.js)?/i],
-  ["React Engineer", /react(?:\.js)?\s+engineer/i],
-  ["Next.js Developer", /next\.?js\s+developer/i],
-  ["JavaScript Developer", /javascript\s+developer/i],
-  ["TypeScript Developer", /typescript\s+developer/i],
-  ["Software Engineer — Frontend", /software\s+engineer.{0,60}(?:frontend|front-end)|(?:frontend|front-end).{0,60}software\s+engineer/i],
-  ["Full Stack Developer — React", /full[ -]?stack\s+developer.{0,80}react|react.{0,80}full[ -]?stack\s+developer/i],
-  ["Full Stack Engineer — React", /full[ -]?stack\s+engineer.{0,80}react|react.{0,80}full[ -]?stack\s+engineer/i],
-  ["Web Developer", /web\s+developer/i]
+const HIRING_INTENT = /(?:we['’]?re\s+hiring|we\s+are\s+hiring|my\s+team\s+is\s+hiring|we['’]?re\s+looking\s+for|we\s+are\s+looking\s+for|looking\s+for\s+(?:a|an)?\s*(?:frontend|front-end|front\s+end|react|next\.js|javascript|typescript|software|full[ -]?stack|web)\s*(?:developer|engineer|developers|engineers)|hiring\s+(?:for\s+)?(?:a\s+)?(?:frontend|front-end|front\s+end|react|next\.js|javascript|typescript|software|full[ -]?stack|web)|join\s+(?:our|my)\s+team|send\s+(?:your|me\s+your)\s+(?:resume|cv)|share\s+your\s+(?:resume|cv)|dm\s+(?:me|us)\s+(?:if|for)|reach\s+out\s+(?:with|to)|apply\s+(?:here|now)|referrals?\s+welcome|know\s+someone\s+who)/i;
+const JOB_POSTING_INTENT = /(?:apply\s*(?:now|here)|apply\s+for\s+(?:this|the)\s+(?:job|role)|job\s+description|responsibilities|qualifications|required\s+(?:skills|experience)|employment\s+type|job\s+type|submit\s+(?:an\s+)?application|application\s+instructions|easy\s+apply|what\s+you['’]?ll\s+work\s+on|what\s+we['’]?re\s+looking\s+for|key\s+(?:skills|requirements)|must\s+have)/i;
+
+const FRONTEND_EVIDENCE = [
+  /\breact(?:\.js)?\b/i,
+  /\bnext\.?js\b/i,
+  /\breact\s+native\b/i,
+  /\btypescript\b/i,
+  /\bjavascript\b/i,
+  /\bhtml(?:5)?\b/i,
+  /\bcss(?:3)?\b/i,
+  /\bresponsive\b/i,
+  /\b(?:redux|context\s*api|zustand|mobx|state\s+management)\b/i,
+  /\b(?:rest\s*api|restful\s*api|api\s+integration|graphql)\b/i,
+  /\b(?:hooks|component\s+architecture|component\s+library|design\s+system|ui\s+components?)\b/i,
+  /\b(?:frontend|front-end|front\s+end|user-facing|web\s+application|web\s+app)\b/i,
+  /\b(?:jest|react\s+testing\s+library|playwright|cypress)\b/i,
+  /\b(?:web\s+performance|core\s+web\s+vitals|browser\s+rendering)\b/i,
 ];
-const AUTHOR_ROLE = /recruiter|recruiting|talent\s+acquisition|talent\s+partner|talent\s+advisor|technical\s+recruiter|engineering\s+recruiter|hiring\s+manager|human\s+resources|\bhr\b|people\s+(?:ops|operations|partner)|founder|co-founder|cofounder|hiring\s+lead|team\s+lead|engineering\s+manager/i;
-const EXPLICIT_RECRUITING_ACTION = /(?:my|our)\s+team\s+is\s+hiring|\bi['’]?m\s+hiring\b|\bi\s+am\s+hiring\b|join\s+(?:my|our)\s+team|we['’]?re\s+hiring\s+at|we\s+are\s+hiring\s+at/i;
-const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const POST_URL = /(?:https?:\/\/)?(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"'\\)]+|feed\/update\/urn:li:activity:\d+)/gi;
-const PROFILE_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
-const LINKEDIN_POST_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"]+|feed\/update\/urn:li:activity:\d+)/i;
-const SEARCH_HOSTS = new Set(["google.com","www.google.com","bing.com","www.bing.com","duckduckgo.com","html.duckduckgo.com","startpage.com","www.startpage.com","search.yahoo.com","www.yahoo.com","search.brave.com","www.mojeek.com","qwant.com","www.qwant.com"]);
-const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com","outlook.com","hotmail.com","yahoo.com","icloud.com","proton.me","protonmail.com"]);
-const GENERIC_EMPLOYER_DOMAINS = new Set(["example.com","example.org","example.net","localhost"]);
+const BACKEND_EVIDENCE = [
+  /\bnode(?:\.js)?\b/i,
+  /\bexpress(?:\.js)?\b/i,
+  /\bnest(?:\.js)?\b/i,
+  /\bfastify\b/i,
+  /\bmongodb\b/i,
+  /\b(?:sql|postgres(?:ql)?|mysql)\b/i,
+  /\b(?:backend|back-end|server-side|api\s+development)\b/i,
+];
 
-const MAX_DESTINATION_URLS_PER_SEARCH = 8;
-const MAX_POST_EVIDENCE = 16;
-const MAX_PROFILE_URLS_PER_SEARCH = 4;
-const PUBLIC_HIRING_RUNTIME_TIMEOUT_MS = 45_000;
+function hasFrontendEvidence(text: string): boolean {
+  const hits = FRONTEND_EVIDENCE.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0);
+  const reactLike = /\b(?:react(?:\.js)?|next\.?js|react\s+native)\b/i.test(text);
+  const webLanguage = /\b(?:typescript|javascript|html(?:5)?|css(?:3)?)\b/i.test(text);
+  const uiOrApi = /\b(?:hooks|components?|state\s+management|redux|context|responsive|rest\s*api|graphql|ui|user-facing|dashboard|design\s+system|web\s+application)\b/i.test(text);
+  return hits >= 3 || (reactLike && webLanguage && uiOrApi);
+}
 
-function clean(value: string): string {
-  return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/\s+/g, " ").trim();
+function hasHiringIntent(text: string): boolean {
+  if (HIRING_INTENT.test(text)) return true;
+  return JOB_POSTING_INTENT.test(text) && hasFrontendEvidence(text);
 }
-function canonicalUrl(value: string): string {
-  try {
-    const u = new URL(value);
-    u.hash = "";
-    ["utm_source","utm_medium","utm_campaign","utm_term","utm_content","trk","trackingId","refId","lipi"].forEach(k => u.searchParams.delete(k));
-    return u.toString().replace(/\/$/, "");
-  } catch { return value.replace(/\/+$/, ""); }
-}
-function normalizeDomain(value: string): string {
-  return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? "";
-}
-function plausibleName(value: string): boolean {
-  const v = value.trim().replace(/\s+/g, " ");
-  if (v.length < 5 || v.length > 80) return false;
-  if (/^(the|we|our|my|team|hiring|frontend|react|software|developer|engineer|post)\b/i.test(v)) return false;
-  const parts = v.split(" ");
-  return parts.length >= 2 && parts.length <= 5 && parts.every(p => /^[A-Z][A-Za-z.'-]*$/.test(p));
-}
-function extractAuthorNameCandidate(value: string): string | undefined {
-  const tokens = value.trim().split(/\s+/).filter(Boolean);
-  for (let count = Math.min(5, tokens.length); count >= 2; count--) {
-    const candidate = tokens.slice(-count).join(" ");
-    if (plausibleName(candidate)) return candidate;
-  }
-  return undefined;
-}
-function profileFromPostUrl(_url: string): string | undefined {
-  return undefined;
-}
-function extractAuthor(text: string, postUrl: string): { name?: string; profileUrl?: string } {
-  const patterns = [
-    /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo|5mo|6mo)\b/i,
-    /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})['’]s\s+(?:Post|post)\b/i,
-    /#?(?:hiring|we.?re.?hiring)[^\n]{0,80}\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*\b(?:posted|shared)/i,
-    /(?:^|\n)([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s*[-|]\s*LinkedIn/i,
-    /(?:^|\n)([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo|5mo|6mo)\b/i
-  ];
-  for (const pattern of patterns) {
-    const name = extractAuthorNameCandidate(text.match(pattern)?.[1] ?? "");
-    if (name) return { name, profileUrl: profileFromPostUrl(postUrl) };
-  }
-  const profileUrl = profileFromPostUrl(postUrl);
-  const slugName = profileUrl?.split("/in/")[1]?.replace(/[-_]+/g, " ");
-  if (slugName) {
-    const name = slugName.split(" ").map(p => p ? p.charAt(0).toUpperCase()+p.slice(1) : p).join(" ");
-    if (plausibleName(name)) return { name, profileUrl };
-  }
-  return { profileUrl };
-}
-function extractEmployer(text: string, email?: string, profileText?: string, sourceUrl?: string): { name?: string; domain?: string } {
-  const haystack = [text, profileText ?? ""].join(" ");
-  const emailDomain = email?.split("@")[1]?.toLowerCase();
-  const strongAt = haystack.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,80})(?=\s*[.!?](?:\s|$)|\s+(?:Location|Experience|Skills?)\s*:|$)/)?.[1]?.trim();
-  const linkedinEmployer = haystack.match(/(?:^|\n)[^\n]{1,120}?\s+-\s+([A-Z][A-Za-z0-9&.' -]{2,80})\s+\|\s+LinkedIn/i)?.[1]?.trim();
-  const hiringEmployer = haystack.match(/([A-Z][A-Za-z0-9&.' -]{2,80})\s+(?:is|are)\s+(?:hiring|looking for)/i)?.[1]?.trim();
-  const explicitCompany = haystack.match(/\b(?:company|employer|organization|organisation)\s*[:=-]\s*([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\s+(?:frontend|front-end|react|next\.js|javascript|typescript|software|full[ -]?stack|job\s+description|responsibilities|qualifications|employment\s+type|apply\s+(?:now|here)|\d{4})\b|$)/i)?.[1]?.trim();
-  const structuredCompany = haystack.match(/"@type"\s*:\s*"Organization"[\s\S]{0,500}?"name"\s*:\s*"([^"]{2,100})"/i)?.[1]?.trim();
-  const titleCompany = haystack.match(/<title[^>]*>\s*[^<]{2,140}?\s+(?:at|@|\||-|–|—)\s*([A-Z][A-Za-z0-9&.' -]{2,80})\s*(?:\||-|–|—|<)/i)?.[1]?.trim();
-  const companyPath = sourceUrl?.match(/\/(?:companies?|employers?)\/([^/?#]+)\/(?:jobs?|roles?)\//i)?.[1]?.replace(/[-_]+/g, " ").trim();
-  let name = strongAt || linkedinEmployer || hiringEmployer || explicitCompany || structuredCompany || titleCompany || (companyPath ? companyPath.replace(/\b\w/g, c => c.toUpperCase()) : undefined);
-  const urlDomains = [...haystack.matchAll(/https?:\/\/([^\s/<>"']+)/gi)].map(m => normalizeDomain(m[1] ?? "")).filter(d => d && !SEARCH_HOSTS.has(d) && !d.endsWith("linkedin.com"));
-  const domain = emailDomain || urlDomains.find(d => d && !/^lnkd\.in$/i.test(d));
-  const usableEmployerDomain = domain && !GENERIC_EMPLOYER_DOMAINS.has(domain) ? domain : undefined;
-  if (emailDomain && name && /\b(?:hiring[- ]frontend|frontend[- ]developer|hiring[- ]react|react[- ]developer|min\s+read|skip\s+to|navigation)\b/i.test(name)) name = undefined;
-  if (!name && usableEmployerDomain) name = usableEmployerDomain.split(".")[0]?.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-  if (name && usableEmployerDomain) return { name: name.replace(/[|•,.-]+$/, "").trim(), domain: usableEmployerDomain };
-  if (name) return { name: name.replace(/[|•,.-]+$/, "").trim() };
-  return {};
-}
-function extractRole(text: string): { role?: string; score: number; terms: string[] } {
+
+function substantiveRoleEvidence(text: string): { role?: string; score: number; terms: string[] } {
   const terms: string[] = [];
+  const lower = text.toLowerCase();
+  const frontendHits = FRONTEND_EVIDENCE.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0);
+  const backendHits = BACKEND_EVIDENCE.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0);
+  const react = /\breact(?:\.js)?\b/i.test(text);
+  const next = /\bnext\.?js\b/i.test(text);
+  const web = /\b(?:web\s+application|web\s+app|responsive|user-facing|frontend|front-end|front\s+end)\b/i.test(text);
+  const javascript = /\bjavascript\b/i.test(text);
+  const typescript = /\btypescript\b/i.test(text);
+  const api = /\b(?:rest\s*api|restful\s*api|graphql|api\s+integration)\b/i.test(text);
+  const node = /\b(?:node(?:\.js)?|express(?:\.js)?|nest(?:\.js)?|fastify)\b/i.test(text);
+
+  if (react && (web || frontendHits >= 4)) {
+    terms.push("React");
+    terms.push("Frontend");
+  }
+  if (next && react) terms.push("Next.js");
+  if (typescript) terms.push("TypeScript");
+  if (javascript) terms.push("JavaScript");
+  if (node && (react || backendHits >= 2)) terms.push("Node.js");
+  if (api) terms.push("REST APIs");
+
+  let role: string | undefined;
   let score = 0;
-  for (const [label, pattern] of ROLE_PATTERNS) if (pattern.test(text)) { terms.push(label); score = Math.max(score, 75); }
-  const skillHits = ["react","react.js","next.js","javascript","typescript","redux","node.js","express","graphql","mongodb","rest api","html","css"].filter(s => text.toLowerCase().includes(s));
-  score = Math.min(100, score + Math.min(25, skillHits.length * 5));
-  return { role: terms[0], score, terms };
+  if (react && node && (api || backendHits >= 2)) {
+    role = "Full Stack Developer — React";
+    score = 82 + Math.min(13, frontendHits + backendHits);
+  } else if (react && (web || frontendHits >= 4)) {
+    role = "Frontend Developer";
+    score = 82 + Math.min(13, frontendHits);
+  } else if (next && web && (javascript || typescript)) {
+    role = "Next.js Developer";
+    score = 80 + Math.min(15, frontendHits);
+  } else if (web && javascript && frontendHits >= 4) {
+    role = "Web Developer";
+    score = 78 + Math.min(17, frontendHits);
+  }
+
+  if (!role) return { score: 0, terms: [] };
+  return { role, score: Math.min(100, score), terms: [...new Set(terms)] };
 }
+
+function extractRole(text: string): { role?: string; score: number; terms: string[] } {
+  return substantiveRoleEvidence(text);
+}
+
 function experienceCompatible(text: string, candidateYears = 3): boolean {
-  const ranges = [...text.matchAll(/(\d+)\s*(?:-|to|–|—)\s*(\d+)\s*years?/gi)];
-  for (const m of ranges) { const min = Number(m[1]); const max = Number(m[2]); if (candidateYears < min || candidateYears > max) return false; }
-  const minimums = [...text.matchAll(/(?:\b|\D)(\d+)\s*\+\s*years?/gi)];
-  for (const m of minimums) if (candidateYears < Number(m[1])) return false;
-  return true;
+  const ranges = [...text.matchAll(/(\d+)\s*(?:-|to|–|—)\s*(\d+)\s*years?/gi)].map(m => [Number(m[1]), Number(m[2])] as const);
+  const minimums = [...text.matchAll(/(?:\b|\D)(\d+)\s*\+\s*years?/gi)].map(m => Number(m[1]));
+  if (!ranges.length && !minimums.length) return true;
+  const compatibleRange = ranges.some(([min, max]) => candidateYears >= min && candidateYears <= max);
+  const compatibleMinimum = minimums.some(min => candidateYears >= min);
+  return compatibleRange || compatibleMinimum;
 }
 
 function normalizeEmailNamePart(value: string): string {
@@ -173,30 +150,42 @@ function normalizeEmailNamePart(value: string): string {
 }
 
 export function recruiterEmailLocalPartMatchesName(name: string, localPart: string): boolean {
-  const normalizedLocal = normalizeEmailNamePart(localPart.split("+")[0] ?? "");
+  let normalizedLocal = normalizeEmailNamePart(localPart.split("+")[0] ?? "");
   if (!normalizedLocal) return false;
+  const numericSuffix = normalizedLocal.match(/\d{1,4}$/)?.[0] ?? "";
+  if (numericSuffix) normalizedLocal = normalizedLocal.slice(0, -numericSuffix.length);
   const parts = name.trim().split(/\s+/).map(normalizeEmailNamePart).filter(Boolean);
   if (parts.length < 2) return false;
   const first = parts[0]!;
   const last = parts[parts.length - 1]!;
   if (first.length < 2 || last.length < 2) return false;
-
-  const middleInitials = parts.slice(1, -1).map(part => part[0]).join("");
+  const middleInitials = parts.slice(1, -1).map(part => part[0]).filter(Boolean).join("");
+  const allInitials = parts.map(part => part[0]).filter(Boolean).join("");
   const aliases = new Set<string>([
+    first,
+    last,
     first + last,
     last + first,
     first[0] + last,
     last + first[0],
     first + last[0],
+    last + first[0],
     first[0] + last[0],
-    parts.map(part => part[0]).join(""),
+    allInitials,
     first + middleInitials + last,
     first + middleInitials,
     first[0] + middleInitials + last,
   ]);
-
+  for (const width of [1, 2, 3, 4]) {
+    aliases.add(first.slice(0, width) + last);
+    aliases.add(last.slice(0, width) + first);
+    aliases.add(first + last.slice(0, width));
+    aliases.add(last + first.slice(0, width));
+    aliases.add(first[0] + last.slice(0, width));
+    aliases.add(last[0] + first.slice(0, width));
+  }
   for (const alias of aliases) {
-    if (alias.length >= 4 && alias === normalizedLocal) return true;
+    if (alias.length >= 3 && alias === normalizedLocal) return true;
   }
   return false;
 }
@@ -216,8 +205,10 @@ function hasRecruitingEmailEvidence(text: string, email: string): boolean {
   if (index < 0) return false;
   const context = text.slice(Math.max(0, index - 650), Math.min(text.length, index + 650));
   const localPart = email.split("@")[0]?.toLowerCase() ?? "";
+  const normalizedMailbox = localPart.replace(/[._-]+/g, "");
   if (NON_RECRUITING_MAILBOXES.has(localPart) || /(?:^|[-_.])(machine|bot|system|automation|automated|donotreply)(?:[-_.]|$)/.test(localPart)) return false;
-  const recruitingContext = /(?:send|email|contact|reach out|resume|cv|apply|hiring|recruiting|recruiter|talent|job|join (?:our|my) team|share (?:your|the) (?:resume|cv))/i.test(context);
+  if (NON_RECRUITING_MAILBOXES.has(normalizedMailbox)) return false;
+  const recruitingContext = /(?:send|email|contact|reach out|resume|cv|apply|hiring|recruiting|recruiter|talent|job|join (?:our|my) team|share (?:your|the) (?:resume|cv)|drop (?:your|the) (?:resume|cv))/i.test(context);
   if (!recruitingContext) return false;
   return true;
 }
@@ -375,7 +366,7 @@ export class PublicHiringPostDiscoveryProvider {
           if (!evidence || !hasHiringIntent(evidence)) continue;
           metrics.hiringIntentPosts++;
           const extractedRole = extractRole(evidence);
-          if (!extractedRole.role || extractedRole.score < 75 || !experienceCompatible(evidence, input.yearsExperience ?? 3)) { metrics.rejectedPosts++; continue; }
+          if (!extractedRole.role || extractedRole.score < 78 || !experienceCompatible(evidence, input.yearsExperience ?? 3)) { metrics.rejectedPosts++; continue; }
           metrics.relevantRolePosts++;
           if (process.env.PUBLIC_HIRING_POST_DIAGNOSTICS === "true" && postEvidence.size < 12) console.error(JSON.stringify({ event: "public-hiring-post-evidence", source: result.source, url, evidence: evidence.slice(0, 5000) }));
           postEvidence.set(url, { url, text: evidence, discoveryText: discoveryEvidence, source: result.source });
@@ -402,7 +393,7 @@ export class PublicHiringPostDiscoveryProvider {
           const snippets = extractHiringSnippets(profileText);
           for (const snippet of snippets) {
             const role = extractRole(snippet);
-            if (!role.role || role.score < 75 || !experienceCompatible(snippet, input.yearsExperience ?? 3)) continue;
+            if (!role.role || role.score < 78 || !experienceCompatible(snippet, input.yearsExperience ?? 3)) continue;
             metrics.hiringIntentPosts++; metrics.relevantRolePosts++;
             const candidateEmail = extractDirectEmail(snippet);
             const directEmail = candidateEmail && hasRecruitingEmailEvidence(snippet, candidateEmail) ? candidateEmail : undefined;
@@ -449,7 +440,7 @@ export class PublicHiringPostDiscoveryProvider {
         const extractedRole = extractRole(post.text);
         const contactFreshnessValue = freshness(post.text);
         const contactFreshness = contactFreshnessValue === "unknown" ? freshness(post.discoveryText) : contactFreshnessValue;
-        if (employerContact.name && extractedRole.role && extractedRole.score >= 75 && contactFreshness !== "unknown") {
+        if (employerContact.name && extractedRole.role && extractedRole.score >= 78 && contactFreshness !== "unknown") {
           metrics.employersExtracted++; metrics.validatedContacts++;
           const candidate: ProactiveRecruiterDiscoveryCandidate = { contactType: "EMPLOYER", recruiterName: "Employer recruiting contact", recruiterRole: "Employer recruiting contact", employer: employerContact.name, ...(employerContact.domain ? { employerDomain: normalizeDomain(employerContact.domain) } : {}), targetRoles: extractedRole.terms, roleMatchScore: extractedRole.score, hiringEvidenceScore: 85, overallConfidence: Math.min(100, extractedRole.score + 15), discoverySource: "public-web", discoveryUrl: post.url, discoveryEvidence: [post.text.slice(0, 3500), post.discoveryText.slice(0, 1200)].filter(Boolean), evidenceType: "job_hiring_evidence", evidenceDate: new Date().toISOString(), evidenceFreshness: contactFreshness, ...(employerEmail && employerContact.domain && usableDirectEmail(employerEmail, employerContact.domain) && hasRecruitingEmailEvidence(post.text, employerEmail) ? { email: employerEmail } : {}), emailStatus: "UNVERIFIED" };
           const key = canonicalIdentityKey(undefined, employerContact.name, post.url, employerEmail);
