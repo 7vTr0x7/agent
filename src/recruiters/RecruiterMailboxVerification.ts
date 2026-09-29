@@ -1,46 +1,27 @@
 export type CanonicalMailboxVerificationStatus = "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID";
 export type CanonicalRecruiterRelevanceStatus = "CURRENT" | "RECENT" | "HISTORICAL" | "UNKNOWN";
-
 export interface RecruiterMailboxVerificationEvidence { provider?: string | null; status?: string | null; confidence?: number | null; mailboxLevel?: boolean | null; source?: string | null; }
 export interface RecruiterMailboxVerificationRecord { verified?: boolean | null; verificationStatus?: string | null; emailStatus?: string | null; mailboxEvidence?: boolean | null; verificationEvidence?: unknown[] | null; suppressed?: boolean | null; relevanceStatus?: string | null; email?: string | null; companyDomain?: string | null; provider?: string | null; }
 const VERIFIED_STATUS = "mailbox_verified";
 const PUBLIC_LIKELY_STATUS = "public-web-likely";
 const LEGACY_UNSAFE_STATUSES = new Set(["verified_public_source","domain_mx_verified","domain_mx_verified_doh","unverified_public_source","verified_mailbox","verified","valid"]);
 
-export function isPlausibleMailboxAddress(email: string | null | undefined): boolean {
-  const normalized = email?.trim().toLowerCase() ?? "";
-  if (!normalized || normalized.length > 254 || normalized.includes("%") || /[\s"'<>()[\],;:]/.test(normalized)) return false;
-  const parts = normalized.split("@");
-  if (parts.length !== 2) return false;
-  const [local, domain] = parts;
-  if (!local || !domain || local.length > 64 || local.startsWith(".") || local.endsWith(".") || local.includes("..")) return false;
-  if (domain.startsWith(".") || domain.endsWith(".") || domain.includes("..")) return false;
-  if (!/^[a-z0-9!#$&'*+/=?^_`{|}~.-]+$/i.test(local)) return false;
-  if (!/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(domain)) return false;
-  return true;
-}
-
+export function isPlausibleMailboxAddress(email: string | null | undefined): boolean { const normalized=email?.trim().toLowerCase()??""; if(!normalized||normalized.length>254||normalized.includes("%")||/[\s"'<>()[\],;:]/.test(normalized))return false; const parts=normalized.split("@"); if(parts.length!==2)return false; const [local,domain]=parts; if(!local||!domain||local.length>64||local.startsWith(".")||local.endsWith(".")||local.includes(".."))return false; if(domain.startsWith(".")||domain.endsWith(".")||domain.includes(".."))return false; if(!/^[a-z0-9!#$&'*+/=?^_`{|}~.-]+$/i.test(local))return false; if(!/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(domain))return false; return true; }
 export function normalizeMailboxVerificationStatus(status: string | null | undefined): CanonicalMailboxVerificationStatus { const normalized=status?.trim().toLowerCase()??""; if(normalized===VERIFIED_STATUS)return"VERIFIED"; if(normalized===PUBLIC_LIKELY_STATUS||normalized==="likely"||normalized==="domain_mx_verified"||normalized==="domain_mx_verified_doh")return"LIKELY"; if(normalized==="invalid"||normalized==="invalid_email_format"||normalized==="no_mx_record"||normalized==="missing_email_domain"||normalized==="not_valid")return"INVALID"; return"UNVERIFIED"; }
-
 export function hasExplicitMailboxEvidence(evidence: unknown[] | null | undefined): boolean { if(!Array.isArray(evidence)||evidence.length===0)return false; return evidence.some((item):item is RecruiterMailboxVerificationEvidence=>{if(!item||typeof item!=="object")return false;const candidate=item as RecruiterMailboxVerificationEvidence;return candidate.mailboxLevel===true&&typeof candidate.provider==="string"&&candidate.provider.trim().length>0&&typeof candidate.status==="string"&&candidate.status.trim().length>0;}); }
-
 export function hasExplicitPublicEmailEvidence(evidence: unknown[] | null | undefined): boolean { if(!Array.isArray(evidence)||evidence.length===0)return false; return evidence.some((item):item is RecruiterMailboxVerificationEvidence=>{if(!item||typeof item!=="object")return false;const candidate=item as RecruiterMailboxVerificationEvidence;return candidate.mailboxLevel===false&&typeof candidate.provider==="string"&&candidate.provider.trim().length>0&&typeof candidate.status==="string"&&candidate.status.trim().length>0&&typeof candidate.source==="string"&&candidate.source.trim().length>0;}); }
-
 export function isMailboxVerifiedForRealSend(record: RecruiterMailboxVerificationRecord): boolean { const status=String(record.verificationStatus??"").trim().toLowerCase(); return record.verified===true&&record.mailboxEvidence===true&&hasExplicitMailboxEvidence(record.verificationEvidence)&&String(record.emailStatus??"").toUpperCase()==="VERIFIED"&&status===VERIFIED_STATUS&&!LEGACY_UNSAFE_STATUSES.has(status); }
-
 export function isPubliclyLikelyForRealSend(record: RecruiterMailboxVerificationRecord): boolean {
   const status=String(record.verificationStatus??"").trim().toLowerCase();
   const emailStatus=String(record.emailStatus??"").trim().toUpperCase();
   const relevance=String(record.relevanceStatus??"UNKNOWN").trim().toUpperCase();
-  const email=record.email?.trim().toLowerCase()??"";
-  const domain=record.companyDomain?.trim().toLowerCase().replace(/^www\./,"")??"";
-  const emailDomain=email.split("@")[1]??"";
-  return record.provider==="proactive-public-web"&&record.verified!==true&&record.mailboxEvidence!==true&&emailStatus==="LIKELY"&&status===PUBLIC_LIKELY_STATUS&&hasExplicitPublicEmailEvidence(record.verificationEvidence)&&relevance!=="HISTORICAL"&&relevance!=="UNKNOWN"&&isPlausibleMailboxAddress(email)&&!!domain&&emailDomain===domain&&record.suppressed!==true;
+  if(record.verified===true||record.mailboxEvidence===true||emailStatus!=="LIKELY"||status!==PUBLIC_LIKELY_STATUS||!hasExplicitPublicEmailEvidence(record.verificationEvidence)||relevance!=="CURRENT"&&relevance!=="RECENT"||record.suppressed===true)return false;
+  if(record.provider!==undefined&&record.provider!==null&&record.provider!=="proactive-public-web")return false;
+  if(record.email!==undefined||record.companyDomain!==undefined){ const email=record.email?.trim().toLowerCase()??""; const domain=record.companyDomain?.trim().toLowerCase().replace(/^www\./,"")??""; if(!isPlausibleMailboxAddress(email)||!domain||email.split("@")[1]!==domain)return false; }
+  return true;
 }
-
 export function isRecruiterRelevantForRealSend(record: RecruiterMailboxVerificationRecord): boolean { const relevance=String(record.relevanceStatus??"UNKNOWN").trim().toUpperCase(); return relevance==="CURRENT"||relevance==="RECENT"; }
 export function isEligibleForRealRecruiterSend(record: RecruiterMailboxVerificationRecord): boolean { return isMailboxVerifiedForRealSend(record)||isPubliclyLikelyForRealSend(record); }
-
 export function recruiterRealSendEligibilitySql(alias="c"):string{return `(
     (
       COALESCE(${alias}.verified,FALSE)=TRUE
