@@ -1,14 +1,12 @@
 import { loadConfig } from "../config/env";
 import { Database } from "../database/Database";
-import { JobAgentApiServer } from "./JobAgentApiServer";
+import { RecruiterAwareJobAgentApiServer } from "./RecruiterAwareJobAgentApiServer";
 
 const config = loadConfig();
 const database = new Database(config.databaseUrl);
-const server = new JobAgentApiServer(database);
+const server = new RecruiterAwareJobAgentApiServer(database);
 
 void server.start().catch((error: unknown) => {
-  // Keep the worker process authoritative. A dashboard bind failure must not
-  // prevent discovery/application automation from running.
   console.error("Job Agent API failed to start:", error instanceof Error ? error.message : String(error));
 });
 
