@@ -14,6 +14,7 @@ DB_NAME="${JOB_AGENT_LOCAL_DB:-job_agent}"
 DB_USER="${JOB_AGENT_LOCAL_DB_USER:-job_agent}"
 DB_PASSWORD="${JOB_AGENT_LOCAL_DB_PASSWORD:-local_runtime_password}"
 API_PORT="${JOB_AGENT_LOCAL_API_PORT:-3000}"
+DB_PORT="${JOB_AGENT_LOCAL_DB_PORT:-5432}"
 ENRICHMENT_INTERVAL_MS="${ENRICHMENT_INTERVAL_MS:-60000}"
 OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://ollama:11434}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:8b}"
@@ -64,6 +65,7 @@ if ! docker inspect "$POSTGRES" >/dev/null 2>&1; then
     docker volume create "$POSTGRES_VOLUME" >/dev/null
   fi
   docker run -d --restart unless-stopped --name "$POSTGRES" --network "$NETWORK" \
+    -p "${DB_PORT}:5432" \
     -v "$POSTGRES_VOLUME:/var/lib/postgresql/data" \
     -e POSTGRES_DB="$DB_NAME" -e POSTGRES_USER="$DB_USER" -e POSTGRES_PASSWORD="$DB_PASSWORD" \
     postgres:17-alpine >/dev/null
@@ -219,6 +221,7 @@ Dashboard: http://127.0.0.1:${API_PORT}/
 API summary: http://127.0.0.1:${API_PORT}/api/summary
 App container: $APP
 PostgreSQL container: $POSTGRES
+PostgreSQL host endpoint: 127.0.0.1:${DB_PORT}
 PostgreSQL volume: $POSTGRES_VOLUME
 Recruiter enrichment container: $RECRUITER
 Contact enrichment container: $CONTACTS
