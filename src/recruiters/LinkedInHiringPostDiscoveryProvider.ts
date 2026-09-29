@@ -7,6 +7,7 @@ import {
 } from "./RecruiterDiscovery";
 import { PublicRecruiterSearchProvider } from "./PublicRecruiterSearchProvider";
 import { sourceList, type SourceId } from "./PublicSearchProviderRegistry";
+import { isPlausibleMailboxAddress } from "./RecruiterMailboxVerification";
 
 const POST_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"')]+|feed\/update\/urn:li:activity:\d+)/gi;
 const PROFILE_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
@@ -58,7 +59,7 @@ function freshness(text: string): "current" | "recent" | "historical" | "unknown
 function recruitingEmail(text: string): string | undefined {
   const normalized = clean(text);
   const emailPattern = new RegExp(EMAIL.source, "gi");
-  const found = [...new Set(Array.from(normalized.matchAll(emailPattern), (match) => match[0].toLowerCase()))];
+  const found = [...new Set(Array.from(normalized.matchAll(emailPattern), (match) => match[0].toLowerCase()))].filter(isPlausibleMailboxAddress);
   const ranked = [...found].sort((a, b) => {
     const aLocal = a.split("@")[0]?.toLowerCase() ?? ""; const bLocal = b.split("@")[0]?.toLowerCase() ?? "";
     return Number(GENERIC_RECRUITING_MAILBOXES.has(aLocal)) - Number(GENERIC_RECRUITING_MAILBOXES.has(bLocal));
@@ -67,7 +68,7 @@ function recruitingEmail(text: string): string | undefined {
     const [local, domain] = email.split("@"); if (!local || !domain || GENERIC_DOMAINS.has(domain) || BLOCKED_LOCAL.test(local)) return false;
     const index = normalized.toLowerCase().indexOf(email); const context = normalized.slice(Math.max(0, index - 650), Math.min(normalized.length, index + 650));
     if (NON_RECRUITING.test(context) && !RECRUITER.test(context)) return false;
-    return /send|email|contact|reach\s+out|resume|cv|apply|hiring|recruiting|recruiter|talent|job|dm|drop/i.test(context);
+    return /resume|cv|apply|hiring|recruiting|recruiter|talent|job|referral|join\s+(?:our|my)\s+team|share\s+(?:your|the)\s+(?:resume|cv)|drop\s+(?:your|the)\s+(?:resume|cv)/i.test(context);
   });
 }
 function employer(text: string, input: RecruiterDiscoveryInput, email?: string): { name?: string; domain?: string } { const normalized = clean(text); const emailDomain = email?.split("@")[1]?.toLowerCase(); const configuredDomain = input.companyDomain.trim().toLowerCase().replace(/^www\./, ""); const atCompany = normalized.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,90})(?=\s*[.!?,]|\s+(?:location|experience|skills?)\s*:|$)/i)?.[1]?.trim(); const hiringCompany = normalized.match(/([A-Z][A-Za-z0-9&.' -]{2,90})\s+(?:is|are)\s+(?:hiring|looking\s+for)/i)?.[1]?.trim(); const name = atCompany || hiringCompany || input.companyName.trim() || (emailDomain ? emailDomain.split(".")[0] : undefined); const domain = emailDomain ?? (configuredDomain || undefined); return name ? { name: name.replace(/[|•,.-]+$/, "").trim(), domain } : {}; }
