@@ -1,20 +1,29 @@
 describe("loadConfig runtime loop intervals", () => {
   const originalEnv = { ...process.env };
 
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    process.env.DATABASE_URL = "postgresql://test/test";
+    process.env.OUTBOUND_ENABLED = "false";
+    process.env.EMAIL_ENABLED = "false";
+    process.env.GMAIL_ENABLED = "false";
+    process.env.AUTOMATION_ENABLED = "false";
+    process.env.APPLICATION_DRY_RUN = "true";
+    delete process.env.APPLICATION_RATE_LIMIT_PER_DAY;
+    delete process.env.APPLICATION_COMPANY_RATE_LIMIT_PER_DAY;
+    delete process.env.APPLICATION_QUEUE_INTERVAL_MS;
+    delete process.env.FOLLOW_UP_INTERVAL_MS;
+    delete process.env.INTERVIEW_REMINDER_INTERVAL_MS;
+    jest.resetModules();
+  });
+
   afterEach(() => {
     process.env = { ...originalEnv };
     jest.resetModules();
   });
 
   it("uses safe defaults for configurable runtime loops", async () => {
-    process.env.DATABASE_URL = "postgresql://test/test";
-    process.env.APPLICATION_DRY_RUN = "true";
-    process.env.OUTBOUND_ENABLED = "false";
     process.env.RECRUITER_OUTREACH_ACTIVATION = "disabled";
-    delete process.env.APPLICATION_QUEUE_INTERVAL_MS;
-    delete process.env.FOLLOW_UP_INTERVAL_MS;
-    delete process.env.INTERVIEW_REMINDER_INTERVAL_MS;
-
     const { loadConfig } = await import("./env");
     const config = loadConfig();
     expect(config.applicationQueueIntervalMs).toBe(30_000);
@@ -23,22 +32,13 @@ describe("loadConfig runtime loop intervals", () => {
   });
 
   it("uses dry-run mode by default", async () => {
-    process.env.DATABASE_URL = "postgresql://test/test";
-    process.env.APPLICATION_DRY_RUN = "true";
     const { loadConfig } = await import("./env");
     expect(loadConfig().applicationDryRun).toBe(true);
   });
 
   it("defaults automation to disabled when activation variables are absent", async () => {
-    process.env.DATABASE_URL = "postgresql://test/test";
-    process.env.APPLICATION_DRY_RUN = "true";
-    process.env.OUTBOUND_ENABLED = "false";
     process.env.RECRUITER_OUTREACH_ENABLED = "false";
     process.env.RECRUITER_OUTREACH_ACTIVATION = "disabled";
-    process.env.AUTOMATION_ENABLED = "false";
-    delete process.env.APPLICATION_RATE_LIMIT_PER_DAY;
-    delete process.env.APPLICATION_COMPANY_RATE_LIMIT_PER_DAY;
-
     const { loadConfig } = await import("./env");
     const config = loadConfig();
     expect(config.automationEnabled).toBe(false);
@@ -53,21 +53,18 @@ describe("loadConfig runtime loop intervals", () => {
   });
 
   it("accepts explicit automation enablement", async () => {
-    process.env.DATABASE_URL = "postgresql://test/test";
     process.env.AUTOMATION_ENABLED = "true";
     const { loadConfig } = await import("./env");
     expect(loadConfig().automationEnabled).toBe(true);
   });
 
   it("accepts an explicit application dry-run setting", async () => {
-    process.env.DATABASE_URL = "postgresql://test/test";
     process.env.APPLICATION_DRY_RUN = "false";
     const { loadConfig } = await import("./env");
     expect(loadConfig().applicationDryRun).toBe(false);
   });
 
   it("accepts explicit positive runtime loop intervals", async () => {
-    process.env.DATABASE_URL = "postgresql://test/test";
     process.env.APPLICATION_QUEUE_INTERVAL_MS = "45000";
     process.env.FOLLOW_UP_INTERVAL_MS = "600000";
     process.env.INTERVIEW_REMINDER_INTERVAL_MS = "180000";
@@ -79,16 +76,13 @@ describe("loadConfig runtime loop intervals", () => {
   });
 
   it("rejects non-positive runtime loop intervals", async () => {
-    process.env.DATABASE_URL = "postgresql://test/test";
     process.env.APPLICATION_QUEUE_INTERVAL_MS = "0";
     const { loadConfig } = await import("./env");
     expect(() => loadConfig()).toThrow("APPLICATION_QUEUE_INTERVAL_MS must be a positive integer");
   });
 
   it("uses current, known-public RSS endpoints plus the platform federation in the built-in discovery set", async () => {
-    process.env.DATABASE_URL = "postgresql://test/test";
     delete process.env.JOB_SOURCES;
-
     const { loadConfig } = await import("./env");
     const sources = JSON.parse(loadConfig().jobSources) as Array<{ id: string; feedUrl?: string; name?: string }>;
     const byId = new Map(sources.map((source) => [source.id, source]));
