@@ -28,25 +28,29 @@ export class ApplicationQueueService {
   private readonly dispatcher: ApplicationTaskDispatcher;
   private readonly rateLimitPolicy: ApplicationRateLimitPolicy;
   private readonly companyRateLimitPolicy: ApplicationCompanyRateLimitPolicy;
+  private readonly excludedCompanies: readonly string[];
 
   constructor(
     database: Database,
     dispatcher: ApplicationTaskDispatcher,
     rateLimitPolicy?: ApplicationRateLimitPolicy,
-    companyRateLimitPolicy?: ApplicationCompanyRateLimitPolicy
+    companyRateLimitPolicy?: ApplicationCompanyRateLimitPolicy,
+    excludedCompanies?: readonly string[]
   );
   /** @deprecated Compatibility overload for the runtime wiring used by older commits. */
   constructor(
     taskQueue: TaskQueue,
     _applicationRepository: unknown,
     rateLimitPolicy?: ApplicationRateLimitPolicy,
-    companyRateLimitPolicy?: ApplicationCompanyRateLimitPolicy
+    companyRateLimitPolicy?: ApplicationCompanyRateLimitPolicy,
+    excludedCompanies?: readonly string[]
   );
   constructor(
     databaseOrTaskQueue: Database | TaskQueue,
     dispatcherOrRepository: ApplicationTaskDispatcher | unknown,
     rateLimitPolicy = new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 200 }),
-    companyRateLimitPolicy = new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 20 })
+    companyRateLimitPolicy = new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 20 }),
+    excludedCompanies: readonly string[] = []
   ) {
     if (databaseOrTaskQueue instanceof TaskQueue) {
       this.database = databaseOrTaskQueue.getDatabase();
@@ -57,6 +61,7 @@ export class ApplicationQueueService {
     }
     this.rateLimitPolicy = rateLimitPolicy;
     this.companyRateLimitPolicy = companyRateLimitPolicy;
+    this.excludedCompanies = excludedCompanies;
   }
 
   async enqueueEligible(
@@ -98,7 +103,14 @@ export class ApplicationQueueService {
     }
 
     const companyLimit = this.companyRateLimitPolicy.maxSubmissionsPerCompanyPerDay;
-    const excludedCompanyPlaceholders = PERMANENTLY_EXCLUDED_COMPANIES.map((_, index) => `$${index + 4}`).join(", ");
+    const excludedCompanies = [
+      ...PERMANENTLY_EXCLUDED_COMPANIES,
+      ...this.excludedCompanies
+    ]
+      .map((name) => name.trim().toLowerCase())
+      .filter(Boolean)
+      .filter((name, index, values) => values.indexOf(name) === index);
+    const excludedCompanyPlaceholders = excludedCompanies.map((_, index) => `$${index + 4}`).join(", ");
     const result = await this.database.query<CandidateApplicationRow>(
       `
         WITH company_submission_counts AS (
@@ -149,7 +161,7 @@ export class ApplicationQueueService {
         ORDER BY tier ASC, rank_score DESC
         LIMIT $3
       `,
-      [candidateProfileId, companyLimit, effectiveLimit, ...PERMANENTLY_EXCLUDED_COMPANIES.map((name) => name.toLowerCase())]
+      [candidateProfileId, companyLimit, effectiveLimit, ...excludedCompanies]
     );
 
     for (const row of result.rows) {
