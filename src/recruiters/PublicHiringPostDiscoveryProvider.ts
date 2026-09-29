@@ -1,6 +1,7 @@
 import type { ProactiveRecruiterDiscoveryCandidate } from "./ProactiveRecruiterDiscoveryService";
 import { sourceList } from "./PublicSearchProviderRegistry";
 import type { SourceId } from "./PublicSearchProviderRegistry";
+import { isPlausibleMailboxAddress } from "./RecruiterMailboxVerification";
 
 export interface PublicHiringPostDiscoveryMetrics {
   queriesGenerated: number;
@@ -276,10 +277,10 @@ function hasRecruitingEmailEvidence(text: string, email: string): boolean {
   const localPart = email.split("@")[0]?.toLowerCase() ?? "";
   const normalizedMailbox = localPart.replace(/[._-]+/g, "");
   if (NON_RECRUITING_MAILBOXES.has(localPart) || NON_RECRUITING_MAILBOXES.has(normalizedMailbox) || /(?:^|[-_.])(machine|bot|system|automation|automated|donotreply)(?:[-_.]|$)/.test(localPart)) return false;
-  return /(?:send|email|contact|reach out|resume|cv|apply|hiring|recruiting|recruiter|talent|job|join (?:our|my) team|share (?:your|the) (?:resume|cv)|drop (?:your|the) (?:resume|cv))/i.test(context);
+  return /(?:resume|cv|apply|hiring|recruiting|recruiter|talent|job|referral|join (?:our|my) team|share (?:your|the) (?:resume|cv)|drop (?:your|the) (?:resume|cv))/i.test(context);
 }
 function extractDirectEmail(text: string): string | undefined {
-  const found = [...new Set((text.match(EMAIL) ?? []).map(v => v.toLowerCase()))].filter(e => !/^(noreply|no-reply)@/i.test(e));
+  const found = [...new Set((text.match(EMAIL) ?? []).map(v => v.toLowerCase()))].filter(isPlausibleMailboxAddress).filter(e => !/^(noreply|no-reply)@/i.test(e));
   const ranked = [...found].sort((a, b) => Number(GENERIC_RECRUITING_MAILBOXES.has(a.split("@")[0]?.toLowerCase() ?? "")) - Number(GENERIC_RECRUITING_MAILBOXES.has(b.split("@")[0]?.toLowerCase() ?? "")));
   return ranked.find(e => hasRecruitingEmailEvidence(text, e));
 }
