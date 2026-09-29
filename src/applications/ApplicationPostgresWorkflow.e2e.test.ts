@@ -38,7 +38,11 @@ class PostgresWorkflowAdapter implements ApplicationAdapter {
 }
 
 describe("application workflow with PostgreSQL persistence", () => {
-  const databaseUrl = process.env.DATABASE_URL;
+  // Never run this integration test against the live application database.
+  // Use an explicitly provisioned TEST_DATABASE_URL when exercising the
+  // PostgreSQL integration path. The normal test suite must remain isolated
+  // from the production/local runtime database configured by DATABASE_URL.
+  const databaseUrl = process.env.TEST_DATABASE_URL;
   const runIntegration = databaseUrl ? describe : describe.skip;
 
   let database: Database;
@@ -48,7 +52,7 @@ describe("application workflow with PostgreSQL persistence", () => {
   let jobId: string;
   let candidateProfileId: string;
 
-  runIntegration("when DATABASE_URL is configured", () => {
+  runIntegration("when TEST_DATABASE_URL is configured", () => {
     beforeAll(async () => {
       database = new Database(databaseUrl!);
       await new MigrationRunner(database).run();
@@ -151,7 +155,7 @@ describe("application workflow with PostgreSQL persistence", () => {
         `,
         [jobOpportunityId, candidateProfileId, "High-priority Bengaluru frontend opportunity."]
       );
-    });
+    }, 120_000);
 
     afterAll(async () => {
       await new Promise<void>((resolve, reject) => {
@@ -167,7 +171,7 @@ describe("application workflow with PostgreSQL persistence", () => {
         await database.query("DELETE FROM job_opportunities WHERE id = $1", [jobOpportunityId]);
         await database.close();
       }
-    });
+    }, 120_000);
 
     it("persists the complete queued application flow in PostgreSQL", async () => {
       const candidateProfile: CandidateProfile = {
@@ -207,8 +211,6 @@ describe("application workflow with PostgreSQL persistence", () => {
       );
 
       const queue = new TaskQueue(database);
-      // This test may run against a shared PostgreSQL database. Ensure its
-      // own task is claimed before unrelated pending application tasks.
       const testTaskPriority = Number.MAX_SAFE_INTEGER;
       const taskId = await queue.enqueue({
         taskType: APPLY_JOB_TASK,
