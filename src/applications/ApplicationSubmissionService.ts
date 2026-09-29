@@ -93,8 +93,8 @@ export class ApplicationSubmissionService {
       }
       if (!reservation) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: true, reason: "Application has already been completed, is ambiguous, or is otherwise not eligible for submission.", adapterName: adapter.name, result: null };
 
-      const updatePhase = this.applications.updateSubmissionAttemptPhase;
-      const finalize = this.applications.finalizeSubmissionAttempt;
+      const updatePhase = this.applications.updateSubmissionAttemptPhase?.bind(this.applications);
+      const finalize = this.applications.finalizeSubmissionAttempt?.bind(this.applications);
       if (!updatePhase || !finalize) {
         const beforeLegacySubmit = await this.checkExternalSideEffectGate();
         if (!beforeLegacySubmit.allowed) return { submitted: false, outcome: "NOT_SUBMITTED", safetyAllowed: false, reason: beforeLegacySubmit.reason, adapterName: adapter.name, result: null, attemptId: reservation.attemptId };
