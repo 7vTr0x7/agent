@@ -1,3 +1,5 @@
+import { sourceList } from "../../recruiters/PublicSearchProviderRegistry";
+
 export interface PlatformSearchProfile {
   readonly platform: string;
   readonly searchUrls: readonly string[];
@@ -5,8 +7,9 @@ export interface PlatformSearchProfile {
 
 /**
  * Verified first-party collection/search pages for platforms whose public search
- * pages are more reliable than search-engine result pages. These are fallbacks;
- * the generic search-engine federation remains enabled for every platform.
+ * pages are more reliable than search-engine result pages. These are combined
+ * with the complete public-search provider fan-out so one provider never hides
+ * results from the others.
  */
 const SEARCH_PROFILES: Readonly<Record<string, PlatformSearchProfile>> = {
   Cutshort: {
@@ -38,9 +41,7 @@ const SEARCH_PROFILES: Readonly<Record<string, PlatformSearchProfile>> = {
   },
   "Remote OK": {
     platform: "Remote OK",
-    searchUrls: [
-      "https://remoteok.com/remote-jobs.rss"
-    ]
+    searchUrls: ["https://remoteok.com/remote-jobs.rss"]
   },
   "We Work Remotely": {
     platform: "We Work Remotely",
@@ -51,22 +52,29 @@ const SEARCH_PROFILES: Readonly<Record<string, PlatformSearchProfile>> = {
   },
   Himalayas: {
     platform: "Himalayas",
-    searchUrls: [
-      "https://himalayas.app/jobs/rss"
-    ]
+    searchUrls: ["https://himalayas.app/jobs/rss"]
   },
   Jobicy: {
     platform: "Jobicy",
-    searchUrls: [
-      "https://jobicy.com/jobs/feed"
-    ]
+    searchUrls: ["https://jobicy.com/jobs/feed"]
   }
 };
 
+function publicSearchQuery(platformName: string): string {
+  return `"${platformName}" (React OR "Next.js" OR Frontend OR "Frontend Developer" OR "Full Stack Developer" OR TypeScript) (Bengaluru OR Bangalore OR India OR Remote)`;
+}
+
+/**
+ * Returns first-party sources plus one URL for every configured public search
+ * provider. Platform discovery therefore performs provider fan-out even when
+ * the generic search helper has an early-success result for one provider.
+ */
 export function getPlatformSearchProfile(platformName: string): PlatformSearchProfile | undefined {
   return SEARCH_PROFILES[platformName];
 }
 
 export function getPlatformSearchUrls(platformName: string): readonly string[] {
-  return getPlatformSearchProfile(platformName)?.searchUrls ?? [];
+  const firstParty = [...(getPlatformSearchProfile(platformName)?.searchUrls ?? [])];
+  const providerUrls = sourceList(publicSearchQuery(platformName)).map((source) => source.url);
+  return [...new Set([...firstParty, ...providerUrls])];
 }
