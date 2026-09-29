@@ -155,8 +155,18 @@ class LayeredPublicRecruiterDiscoveryProvider implements RecruiterDiscoveryProvi
 
 export function createRecruiterDiscoveryProvider(config: RecruiterDiscoveryProviderConfig): RecruiterDiscoveryProvider {
   if (config.provider === "snov") {
-    const clientId = config.snovClientId?.trim() || process.env.SNOV_CLIENT_ID?.trim();
-    const clientSecret = config.snovClientSecret?.trim() || process.env.SNOV_CLIENT_SECRET?.trim();
+    const configClientId = config.snovClientId?.trim();
+    const configClientSecret = config.snovClientSecret?.trim();
+
+    if (configClientId || configClientSecret) {
+      if (!configClientId || !configClientSecret) {
+        throw new Error("Snov recruiter discovery requires SNOV_CLIENT_ID and SNOV_CLIENT_SECRET.");
+      }
+      return new SnovRecruiterDiscoveryProvider({ clientId: configClientId, clientSecret: configClientSecret });
+    }
+
+    const clientId = process.env.SNOV_CLIENT_ID?.trim();
+    const clientSecret = process.env.SNOV_CLIENT_SECRET?.trim();
     if (!clientId || !clientSecret) {
       throw new Error("Snov recruiter discovery requires SNOV_CLIENT_ID and SNOV_CLIENT_SECRET.");
     }
