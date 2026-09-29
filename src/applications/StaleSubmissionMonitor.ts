@@ -14,11 +14,11 @@ export interface StaleSubmissionMonitorResult {
 
 function staleReconciliationEnabled(): boolean {
   const value = process.env.STALE_SUBMISSION_RECONCILIATION_ENABLED;
-  // Safe-by-default: stale reconciliation/reporting must be explicitly enabled.
+  // Safe-by-default: stale reconciliation itself must be explicitly enabled.
   return value === "true";
 }
 
-/** Reports durable stale submission attempts only when stale reconciliation is enabled; reconciliation itself is separately guarded. */
+/** Reports durable stale submission attempts; reconciliation itself is separately guarded. */
 export class StaleSubmissionMonitor {
   constructor(
     private readonly applicationRepository: Pick<ApplicationRepository, "listStaleSubmissions"> & Partial<Pick<ApplicationRepository, "reconcileStaleSubmissions">>,
@@ -29,27 +29,27 @@ export class StaleSubmissionMonitor {
   }
 
   async runOnce(_olderThanMinutesOverride?: number): Promise<StaleSubmissionMonitorResult> {
-    const reconciliationEnabled = staleReconciliationEnabled();
-    if (!reconciliationEnabled) {
-      this.logger.info(
-        { staleCount: 0, reconciliationEnabled: false },
-        "Stale application reconciliation is disabled"
-      );
-      return { staleCount: 0, submissions: [], requeued: 0 };
-    }
-
     const submissions = await this.applicationRepository.listStaleSubmissions(this.olderThanMinutes);
     if (submissions.length > 0) {
-      const reconciliation = this.applicationRepository.reconcileStaleSubmissions
+      const reconciliation = staleReconciliationEnabled() && this.applicationRepository.reconcileStaleSubmissions
         ? await this.applicationRepository.reconcileStaleSubmissions(this.olderThanMinutes)
         : null;
       this.logger.warn(
-        { staleCount: submissions.length, applicationIds: submissions.map((submission) => submission.applicationId), reconciliation },
+        {
+          staleCount: submissions.length,
+          applicationIds: submissions.map((submission) => submission.applicationId),
+          reconciliation
+        },
         "Stale application submissions detected; manual verification required"
       );
       for (const submission of submissions) {
         this.logger.warn(
-          { applicationId: submission.applicationId, candidateProfileId: submission.candidateProfileId, companyName: submission.companyName, startedAt: submission.startedAt.toISOString() },
+          {
+            applicationId: submission.applicationId,
+            candidateProfileId: submission.candidateProfileId,
+            companyName: submission.companyName,
+            startedAt: submission.startedAt.toISOString()
+          },
           "Application submission remains in progress"
         );
       }
