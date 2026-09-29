@@ -27,8 +27,24 @@ describe("public-likely recruiter outreach safety", () => {
     expect(evaluateRecruiterOutreachSafety(base).allowed).toBe(true);
   });
 
+  it("allows a current company contact mailbox without Gmail/mailbox verification", () => {
+    expect(evaluateRecruiterOutreachSafety({
+      ...base,
+      contact: {
+        ...base.contact,
+        email: "contact@i-exceed.com",
+        verificationStatus: "public-web-unverified",
+        verificationEvidence: [],
+      },
+    }).allowed).toBe(true);
+  });
+
   it("still rejects an email from the wrong domain", () => {
     expect(evaluateRecruiterOutreachSafety({ ...base, contact: { ...base.contact, email: "person@gmail.com" } }).allowed).toBe(false);
+  });
+
+  it("still rejects automated no-reply addresses", () => {
+    expect(evaluateRecruiterOutreachSafety({ ...base, contact: { ...base.contact, email: "noreply@i-exceed.com", verificationStatus: "public-web-unverified", verificationEvidence: [] } }).allowed).toBe(false);
   });
 
   it("still rejects stale recruiter evidence", () => {
