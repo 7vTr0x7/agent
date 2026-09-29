@@ -8,6 +8,22 @@ const staleSubmission = {
 };
 
 describe("StaleSubmissionMonitor", () => {
+  const originalReconciliationSetting = process.env.STALE_SUBMISSION_RECONCILIATION_ENABLED;
+
+  beforeEach(() => {
+    // These tests exercise the reporting behavior explicitly; production defaults
+    // remain safe-by-default with stale reconciliation disabled.
+    process.env.STALE_SUBMISSION_RECONCILIATION_ENABLED = "true";
+  });
+
+  afterEach(() => {
+    if (originalReconciliationSetting === undefined) {
+      delete process.env.STALE_SUBMISSION_RECONCILIATION_ENABLED;
+    } else {
+      process.env.STALE_SUBMISSION_RECONCILIATION_ENABLED = originalReconciliationSetting;
+    }
+  });
+
   it("reports stale submissions without mutating them", async () => {
     const listStaleSubmissions = jest.fn().mockResolvedValue([staleSubmission]);
     const logger = {
