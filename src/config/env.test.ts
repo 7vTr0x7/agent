@@ -1,3 +1,5 @@
+jest.mock("dotenv/config", () => ({}));
+
 describe("loadConfig runtime loop intervals", () => {
   const originalEnv = { ...process.env };
 
