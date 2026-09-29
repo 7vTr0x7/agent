@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+test -f .env || touch .env
+
 POSTGRES="${JOB_AGENT_LOCAL_POSTGRES:-job-agent-local-postgres}"
 APP="${JOB_AGENT_LOCAL_APP:-job-agent-local-app}"
 RECRUITER="${JOB_AGENT_LOCAL_RECRUITER:-job-agent-local-recruiter}"
