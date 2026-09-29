@@ -207,13 +207,16 @@ describe("application workflow with PostgreSQL persistence", () => {
       );
 
       const queue = new TaskQueue(database);
+      // This test may run against a shared PostgreSQL database. Ensure its
+      // own task is claimed before unrelated pending application tasks.
+      const testTaskPriority = Number.MAX_SAFE_INTEGER;
       const taskId = await queue.enqueue({
         taskType: APPLY_JOB_TASK,
         payload: {
           jobOpportunityId,
           candidateProfileId
         },
-        priority: 1000,
+        priority: testTaskPriority,
         dedupeKey: `postgres-apply:${jobOpportunityId}:${candidateProfileId}`
       });
 
@@ -276,7 +279,7 @@ describe("application workflow with PostgreSQL persistence", () => {
       const duplicateTaskId = await queue.enqueue({
         taskType: APPLY_JOB_TASK,
         payload: { jobOpportunityId, candidateProfileId },
-        priority: 1000,
+        priority: testTaskPriority,
         dedupeKey: `postgres-apply:${jobOpportunityId}:${candidateProfileId}`
       });
       expect(duplicateTaskId).not.toBe(taskId);
