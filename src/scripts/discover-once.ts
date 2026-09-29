@@ -27,9 +27,18 @@ function isRunningInsideDocker(): boolean {
 }
 
 function runInsideComposeApp(): never {
+  const app = process.env.JOB_AGENT_LOCAL_APP ?? "job-agent-local-app";
   const result = spawnSync(
     "docker",
-    ["compose", "exec", "-T", "app", "node", "dist/scripts/discover-once.js"],
+    [
+      "exec",
+      "-i",
+      "-e",
+      "DISCOVER_ONCE_IN_CONTAINER=1",
+      app,
+      "./node_modules/.bin/tsx",
+      "src/scripts/discover-once.ts"
+    ],
     { stdio: "inherit" }
   );
 
@@ -48,9 +57,8 @@ async function main(): Promise<void> {
 
   const config = loadConfig();
   const logger = pino({ level: config.logLevel });
-  // Keep the configured DATABASE_URL untouched. Inside Compose, the hostname
-  // `postgres` is the correct service address; rewriting it to 127.0.0.1 would
-  // incorrectly point the app container back at itself.
+  // Keep the configured DATABASE_URL untouched. Inside the local app container,
+  // the container runtime already provides the correct database hostname.
   const database = new Database(config.databaseUrl);
 
   try {
