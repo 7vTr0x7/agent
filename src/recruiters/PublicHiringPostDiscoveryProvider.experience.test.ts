@@ -24,8 +24,8 @@ describe("experienceCompatible for a three-year candidate", () => {
     expect(experienceCompatible(requirement, 3)).toBe(false);
   });
 
-  test("accepts a post when one listed band is compatible even if another is senior", () => {
-    expect(experienceCompatible("Junior: 1-2 years; Senior: 5+ years", 3)).toBe(true);
+  test("rejects a mixed-seniority post when neither listed band fits", () => {
+    expect(experienceCompatible("Junior: 1-2 years; Senior: 5+ years", 3)).toBe(false);
   });
 
   test("accepts posts without an explicit experience requirement", () => {
