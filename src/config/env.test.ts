@@ -13,6 +13,8 @@ describe("loadConfig runtime loop intervals", () => {
     process.env.APPLICATION_DRY_RUN = "true";
     delete process.env.APPLICATION_RATE_LIMIT_PER_DAY;
     delete process.env.APPLICATION_COMPANY_RATE_LIMIT_PER_DAY;
+    delete process.env.RECRUITER_MAX_MESSAGES_PER_DAY;
+    delete process.env.RECRUITER_MAX_MESSAGES_PER_HOUR;
     delete process.env.APPLICATION_QUEUE_INTERVAL_MS;
     delete process.env.FOLLOW_UP_INTERVAL_MS;
     delete process.env.INTERVIEW_REMINDER_INTERVAL_MS;
@@ -55,8 +57,8 @@ describe("loadConfig runtime loop intervals", () => {
     expect(config.applicationCompanyRateLimitPerDay).toBe(20);
     expect(config.recruiterOutreach.enabled).toBe(false);
     expect(config.recruiterOutreach.activation).toBe("disabled");
-    expect(config.recruiterOutreach.maxMessagesPerDay).toBe(200);
-    expect(config.recruiterOutreach.maxMessagesPerHour).toBe(9);
+    expect(config.recruiterOutreach.maxMessagesPerDay).toBe(400);
+    expect(config.recruiterOutreach.maxMessagesPerHour).toBe(17);
   });
 
   it("accepts explicit automation enablement", async () => {
