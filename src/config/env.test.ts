@@ -35,7 +35,7 @@ describe("loadConfig runtime loop intervals", () => {
     process.env.OUTBOUND_ENABLED = "false";
     process.env.RECRUITER_OUTREACH_ENABLED = "false";
     process.env.RECRUITER_OUTREACH_ACTIVATION = "disabled";
-    delete process.env.AUTOMATION_ENABLED;
+    process.env.AUTOMATION_ENABLED = "false";
     delete process.env.APPLICATION_RATE_LIMIT_PER_DAY;
     delete process.env.APPLICATION_COMPANY_RATE_LIMIT_PER_DAY;
 

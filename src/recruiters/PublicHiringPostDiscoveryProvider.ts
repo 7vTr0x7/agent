@@ -187,7 +187,7 @@ export function substantiveRoleEvidence(text: string): { role?: string; score: n
   const javascript = /\bjavascript\b/i.test(text);
   const typescript = /\btypescript\b/i.test(text);
   const api = /\b(?:rest\s*api|restful\s*api|graphql|api\s+integration)\b/i.test(text);
-  const node = /\b(?:node(?:\.js)?|express(?:\.js)?|nest(?:\.js)?|fastify)\b/i.test(text);
+  const node = /\b(?:node(?:\.js)?|express(?:\.js)|nest(?:\.js)|fastify)\b/i.test(text);
 
   if (react && (web || frontendHits >= 4)) { terms.push("React", "Frontend"); }
   if (next && react) terms.push("Next.js");
@@ -230,11 +230,29 @@ export function recruiterEmailLocalPartMatchesName(name: string, localPart: stri
   const first = parts[0]!;
   const last = parts[parts.length - 1]!;
   if (first.length < 2 || last.length < 2) return false;
-  const middleInitials = parts.slice(1, -1).map(part => part[0]).filter(Boolean).join("");
-  const allInitials = parts.map(part => part[0]).filter(Boolean).join("");
-  const aliases = new Set<string>([first, last, first + last, last + first, first[0] + last, last + first[0], first + last[0], last + first[0], first[0] + last[0], allInitials, first + middleInitials + last, first + middleInitials, first[0] + middleInitials + last]);
+  const middleInitials = parts.slice(1, -1).map(part => part[0] ?? "").join("");
+  const allInitials = parts.map(part => part[0] ?? "").join("");
+  const firstInitial = first[0] ?? "";
+  const lastInitial = last[0] ?? "";
+  const fullName = parts.join("");
+  const aliases = new Set<string>([
+    first,
+    last,
+    first + last,
+    last + first,
+    firstInitial + last,
+    last + firstInitial,
+    first + lastInitial,
+    last + firstInitial,
+    firstInitial + lastInitial,
+    allInitials,
+    fullName,
+    first + middleInitials + last,
+    first + middleInitials,
+    firstInitial + middleInitials + last,
+  ]);
   for (const width of [1, 2, 3, 4]) {
-    aliases.add(first.slice(0, width) + last); aliases.add(last.slice(0, width) + first); aliases.add(first + last.slice(0, width)); aliases.add(last + first.slice(0, width)); aliases.add(first[0] + last.slice(0, width)); aliases.add(last[0] + first.slice(0, width));
+    aliases.add(first.slice(0, width) + last); aliases.add(last.slice(0, width) + first); aliases.add(first + last.slice(0, width)); aliases.add(last + first.slice(0, width)); aliases.add(firstInitial + last.slice(0, width)); aliases.add(lastInitial + first.slice(0, width));
   }
   for (const alias of aliases) if (alias.length >= 3 && alias === normalizedLocal) return true;
   return false;
