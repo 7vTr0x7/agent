@@ -42,7 +42,7 @@ export function loadConfig(): AppConfig {
   if (gmailAccountTier !== "consumer" && gmailAccountTier !== "workspace") throw new Error("GMAIL_ACCOUNT_TIER must be consumer or workspace");
   const gmailDailySendLimit = gmailAccountTier === "workspace" ? 2000 : 500;
   const proactiveRecruiterEnabled = booleanValue("PROACTIVE_RECRUITER_ENABLED", process.env.PROACTIVE_RECRUITER_ENABLED, false);
-  const recruiterOutreachEnabled = booleanValue("RECRUITER_OUTREACH_ENABLED", process.env.RECRUITER_OUTREACH_ENABLED, false) || proactiveRecruiterEnabled;
+  const recruiterOutreachEnabled = booleanValue("RECRUITER_OUTREACH_ENABLED", process.env.RECRUITER_OUTREACH_ENABLED, false);
   const recruiterDryRun = booleanValue("RECRUITER_OUTREACH_DRY_RUN", process.env.RECRUITER_OUTREACH_DRY_RUN, true); const recruiterActivation = process.env.RECRUITER_OUTREACH_ACTIVATION ?? "disabled";
   if (!["disabled", "canary", "live"].includes(recruiterActivation)) throw new Error("RECRUITER_OUTREACH_ACTIVATION must be disabled, canary, or live");
   const recruiterLiveActivationConfirmed = booleanValue("RECRUITER_LIVE_ACTIVATION_CONFIRMED", process.env.RECRUITER_LIVE_ACTIVATION_CONFIRMED, false); const recruiterProvider = process.env.RECRUITER_DISCOVERY_PROVIDER ?? "public-web";
