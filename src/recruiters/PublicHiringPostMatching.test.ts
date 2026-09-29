@@ -12,9 +12,9 @@ describe("public hiring evidence matching", () => {
     ["john-doe", true],
     ["john_doe", true],
     ["john.doe123", true],
-    ["aksharma", true],
-    ["asharma", true],
-    ["amitk", true],
+    ["aksharma", false],
+    ["asharma", false],
+    ["amitk", false],
     ["unrelated.person", false],
   ])("matches common recruiter email alias %s", (localPart, expected) => {
     expect(recruiterEmailLocalPartMatchesName("John Doe", localPart)).toBe(expected);
