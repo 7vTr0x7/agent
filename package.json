@@ -44,7 +44,7 @@
     "cleanup:irrelevant-jobs": "tsx scripts/cleanup-irrelevant-jobs.ts",
     "repair:job-bridge": "tsx scripts/repair-opportunity-job-bridge.ts",
     "typecheck:scripts": "tsc --noEmit --target ES2022 --module CommonJS --moduleResolution Node --strict --esModuleInterop --skipLibCheck --noUncheckedIndexedAccess --noImplicitOverride src/types/pg.d.ts scripts/fast-outcome-jobs.ts scripts/proactive-recruiter-once.ts scripts/proactive-recruiter-final-once.ts scripts/supplement-proactive-recruiters-once.ts scripts/public-contact-resources-once.ts scripts/supplement-public-job-contact-resources-once.ts scripts/promote-public-contact-resources-once.ts scripts/public-hiring-posts-once.ts scripts/linkedin-hiring-post-resources-once.ts scripts/content-first-final-once.ts scripts/platform-coverage-report.ts scripts/platform-federation-once.ts scripts/cleanup-irrelevant-jobs.ts scripts/repair-opportunity-job-bridge.ts",
-    "local:run": "bash scripts/local-run.sh",
+    "local:run": "test -f .env || touch .env; bash scripts/local-run.sh",
     "local:watch": "bash scripts/local-watch.sh",
     "local:status": "bash scripts/local-status.sh",
     "local:stop": "bash scripts/local-stop.sh",
@@ -57,7 +57,6 @@
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "@types/node": "^24.3.0",
     "jest": "^30.1.3",
     "playwright": "^1.63.0",
     "ts-jest": "^29.4.1",
