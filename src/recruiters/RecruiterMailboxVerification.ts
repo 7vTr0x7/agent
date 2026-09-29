@@ -1,3 +1,5 @@
+import { Database } from "../../database/Database";
+
 export type CanonicalMailboxVerificationStatus = "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID";
 export type CanonicalRecruiterRelevanceStatus = "CURRENT" | "RECENT" | "HISTORICAL" | "UNKNOWN";
 
@@ -5,6 +7,7 @@ export interface RecruiterMailboxVerificationEvidence { provider?: string | null
 export interface RecruiterMailboxVerificationRecord { verified?: boolean | null; verificationStatus?: string | null; emailStatus?: string | null; mailboxEvidence?: boolean | null; verificationEvidence?: unknown[] | null; suppressed?: boolean | null; relevanceStatus?: string | null; }
 const VERIFIED_STATUS = "mailbox_verified";
 const LEGACY_UNSAFE_STATUSES = new Set(["verified_public_source","domain_mx_verified","domain_mx_verified_doh","unverified_public_source","verified_mailbox","verified","valid"]);
+
 export function isPlausibleMailboxAddress(email: string | null | undefined): boolean {
   const normalized = email?.trim().toLowerCase() ?? "";
   if (!normalized || normalized.length > 254 || normalized.includes("%") || /[\s"'<>()[\],;:]/.test(normalized)) return false;
@@ -13,11 +16,11 @@ export function isPlausibleMailboxAddress(email: string | null | undefined): boo
   const [local, domain] = parts;
   if (!local || !domain || local.length > 64 || local.startsWith(".") || local.endsWith(".") || local.includes("..")) return false;
   if (domain.startsWith(".") || domain.endsWith(".") || domain.includes("..")) return false;
-  if (!/^[a-z0-9!#const LEGACY_UNSAFE_STATUSES = new Set(["verified_public_source","domain_mx_verified","domain_mx_verified_doh","unverified_public_source","verified_mailbox","verified","valid"]);
-'*+/=?^_`{|}~.-]+$/i.test(local)) return false;
+  if (!/^[a-z0-9!#$&'*+/=?^_`{|}~.-]+$/i.test(local)) return false;
   if (!/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(domain)) return false;
   return true;
 }
+
 export function normalizeMailboxVerificationStatus(status: string | null | undefined): CanonicalMailboxVerificationStatus { const normalized=status?.trim().toLowerCase()??""; if(normalized===VERIFIED_STATUS)return"VERIFIED"; if(normalized==="likely"||normalized==="domain_mx_verified"||normalized==="domain_mx_verified_doh")return"LIKELY"; if(normalized==="invalid"||normalized==="invalid_email_format"||normalized==="no_mx_record"||normalized==="missing_email_domain"||normalized==="not_valid")return"INVALID"; return"UNVERIFIED"; }
 export function hasExplicitMailboxEvidence(evidence: unknown[] | null | undefined): boolean { if(!Array.isArray(evidence)||evidence.length===0)return false; return evidence.some((item):item is RecruiterMailboxVerificationEvidence=>{if(!item||typeof item!=="object")return false;const candidate=item as RecruiterMailboxVerificationEvidence;return candidate.mailboxLevel===true&&typeof candidate.provider==="string"&&candidate.provider.trim().length>0&&typeof candidate.status==="string"&&candidate.status.trim().length>0;}); }
 export function isMailboxVerifiedForRealSend(record: RecruiterMailboxVerificationRecord): boolean { const status=String(record.verificationStatus??"").trim().toLowerCase(); return record.verified===true&&record.mailboxEvidence===true&&hasExplicitMailboxEvidence(record.verificationEvidence)&&String(record.emailStatus??"").toUpperCase()==="VERIFIED"&&status===VERIFIED_STATUS&&!LEGACY_UNSAFE_STATUSES.has(status); }
@@ -31,13 +34,9 @@ export function recruiterRealSendEligibilitySql(alias="c"):string{return `COALES
     AND LOWER(COALESCE(${alias}.verification_status,''))='mailbox_verified'
     AND UPPER(COALESCE(${alias}.relevance_status,'UNKNOWN')) IN ('CURRENT','RECENT')
     AND COALESCE(${alias}.suppressed,FALSE)=FALSE
-    AND ${alias}.email ~* '^[A-Za-z0-9!#    AND ${alias}.email ~* '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$'
-''*+/=?^_`{|}~.-]+@[A-Za-z0-9][A-Za-z0-9.-]+    AND SPLIT_PART(${alias}.email,'@',1) !~* '(^\\.|\\.$|\\.\\.)'
-    AND SPLIT_PART(${alias}.email,'@',2) !~* '(^\\.|\\.$|\\.\\.)'
+    AND ${alias}.email ~* '^[A-Za-z0-9!#$&''*+/=?^_{|}~.-]+@[A-Za-z0-9][A-Za-z0-9.-]+$'
+    AND SPLIT_PART(${alias}.email,'@',1) !~* '(^\.|\.$|\.\.)'
+    AND SPLIT_PART(${alias}.email,'@',2) !~* '(^\.|\.$|\.\.)'
     AND LOWER(SPLIT_PART(${alias}.email,'@',2))=LOWER(${alias}.company_domain)
-    AND NOT EXISTS (SELECT 1 FROM recruiter_suppressions suppression WHERE LOWER(COALESCE(suppression.email,''))=LOWER(${alias}.email) OR LOWER(COALESCE(suppression.company_domain,''))=LOWER(${alias}.company_domain))`;}
-export const CANONICAL_MAILBOX_VERIFICATION_STATUS=VERIFIED_STATUS;
-
-    AND LOWER(SPLIT_PART(${alias}.email,'@',2))=LOWER(${alias}.company_domain)
-    AND NOT EXISTS (SELECT 1 FROM recruiter_suppressions suppression WHERE LOWER(COALESCE(suppression.email,''))=LOWER(${alias}.email) OR LOWER(COALESCE(suppression.company_domain,''))=LOWER(${alias}.company_domain))`;}
+    AND NOT EXISTS (SELECT 1 FROM recruiter_suppressions suppression WHERE LOWER(COALESCE(suppression.email,''))=LOWER(${alias}.email) OR LOWER(COALESCE(suppression.company_domain,''))=LOWER(${alias}.company_domain))`;} 
 export const CANONICAL_MAILBOX_VERIFICATION_STATUS=VERIFIED_STATUS;
