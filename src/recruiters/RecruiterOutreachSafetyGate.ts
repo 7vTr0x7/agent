@@ -2,7 +2,7 @@ import { PERMANENTLY_EXCLUDED_COMPANIES } from "../applications/ApplicationPolic
 import { RecruiterContactCandidate } from "./RecruiterDiscovery";
 import { isBlockedEmployerDomain } from "./RecruiterCompanyDomainResolver";
 import { hasExplicitMailboxEvidence, isEligibleForRealRecruiterSend, isRecruiterRelevantForRealSend } from "./RecruiterMailboxVerification";
-export interface RecruiterOutreachSafetyInput{companyName:string;companyDomain:string;jobTitle:string;jobDescription?:string;contact:RecruiterContactCandidate;minConfidence:number;requireVerifiedEmail:boolean;suppressedEmail:boolean;suppressedDomain:boolean;duplicateSequence:boolean;dryRun:boolean;relevanceStatus?:"CURRENT"|"RECENT"|"HISTORICAL"|"UNKNOWN"}
+export interface RecruiterOutreachSafetyInput{companyName:string;companyDomain:string;contact:RecruiterContactCandidate;minConfidence:number;requireVerifiedEmail:boolean;suppressedEmail:boolean;suppressedDomain:boolean;duplicateSequence:boolean;dryRun:boolean;relevanceStatus?:"CURRENT"|"RECENT"|"HISTORICAL"|"UNKNOWN"}
 export interface RecruiterOutreachSafetyResult{allowed:boolean;reason:string}
 const normalize=(value:string):string=>value.trim().toLowerCase();
 export function evaluateRecruiterOutreachSafety(input:RecruiterOutreachSafetyInput):RecruiterOutreachSafetyResult{
