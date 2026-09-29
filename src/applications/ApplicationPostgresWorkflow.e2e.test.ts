@@ -61,6 +61,7 @@ describe("application workflow with PostgreSQL persistence", () => {
             <input id="first-name" name="first_name" type="text" required />
             <label for="email">Email Address</label>
             <input id="email" name="email" type="email" required />
+            <button type="submit">Submit Application</button>
           </form>
         `);
       });
