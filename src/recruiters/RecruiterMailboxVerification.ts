@@ -44,7 +44,7 @@ export function recruiterRealSendEligibilitySql(alias="c"):string{return `(
     )
     AND COALESCE(${alias}.suppressed,FALSE)=FALSE
     AND ${alias}.email IS NOT NULL
-    AND ${alias}.email ~* '^[A-Za-z0-9!#$&''*+/=?^_`{|}~.-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
+    AND ${alias}.email ~* '^[A-Za-z0-9!#$&''*+/=?^_\\x60{|}~.-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
     AND SPLIT_PART(${alias}.email,'@',1) !~* '(^\\.|\\.$|\\.\\.|%)'
     AND SPLIT_PART(${alias}.email,'@',2) !~* '(^\\.|\\.$|\\.\\.)'
     AND LOWER(SPLIT_PART(${alias}.email,'@',2))=LOWER(${alias}.company_domain)
