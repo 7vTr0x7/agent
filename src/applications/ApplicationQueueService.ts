@@ -50,7 +50,7 @@ export class ApplicationQueueService {
     dispatcherOrRepository: ApplicationTaskDispatcher | unknown,
     rateLimitPolicy = new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 200 }),
     companyRateLimitPolicy = new ApplicationCompanyRateLimitPolicy({ maxSubmissionsPerCompanyPerDay: 20 }),
-    excludedCompanies: readonly string[] = []
+    excludedCompanies?: readonly string[]
   ) {
     if (databaseOrTaskQueue instanceof TaskQueue) {
       this.database = databaseOrTaskQueue.getDatabase();
@@ -61,7 +61,10 @@ export class ApplicationQueueService {
     }
     this.rateLimitPolicy = rateLimitPolicy;
     this.companyRateLimitPolicy = companyRateLimitPolicy;
-    this.excludedCompanies = excludedCompanies;
+    this.excludedCompanies = excludedCompanies ?? (process.env.JOB_EXCLUDED_COMPANIES ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean);
   }
 
   async enqueueEligible(
