@@ -58,7 +58,7 @@ function freshness(text: string): "current" | "recent" | "historical" | "unknown
 function recruitingEmail(text: string): string | undefined {
   const normalized = clean(text);
   const emailPattern = new RegExp(EMAIL.source, "gi");
-  const found = [...new Set((normalized.match(emailPattern) ?? []).map((email) => email.toLowerCase()))];
+  const found = [...new Set(Array.from(normalized.matchAll(emailPattern), (match) => match[0].toLowerCase()))];
   const ranked = [...found].sort((a, b) => {
     const aLocal = a.split("@")[0]?.toLowerCase() ?? ""; const bLocal = b.split("@")[0]?.toLowerCase() ?? "";
     return Number(GENERIC_RECRUITING_MAILBOXES.has(aLocal)) - Number(GENERIC_RECRUITING_MAILBOXES.has(bLocal));
