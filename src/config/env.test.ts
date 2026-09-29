@@ -5,7 +5,7 @@ describe("loadConfig runtime loop intervals", () => {
     process.env = { ...originalEnv };
     process.env.DATABASE_URL = "postgresql://test/test";
     process.env.OUTBOUND_ENABLED = "false";
-    process.env.EMAIL_ENABLED = "false";
+    process.env.EMAIL_ENABLED = "true";
     process.env.GMAIL_ENABLED = "false";
     process.env.AUTOMATION_ENABLED = "false";
     process.env.APPLICATION_DRY_RUN = "true";
@@ -31,9 +31,14 @@ describe("loadConfig runtime loop intervals", () => {
     expect(config.interviewReminderIntervalMs).toBe(300_000);
   });
 
-  it("uses dry-run mode by default", async () => {
+  it("uses dry-run mode by default and keeps Resend disabled behind the outbound kill switch", async () => {
     const { loadConfig } = await import("./env");
-    expect(loadConfig().applicationDryRun).toBe(true);
+    const config = loadConfig();
+    expect(config.applicationDryRun).toBe(true);
+    expect(config.outboundEnabled).toBe(false);
+    expect(config.email.enabled).toBe(false);
+    expect(config.email.apiKey).toBeNull();
+    expect(config.email.from).toBeNull();
   });
 
   it("defaults automation to disabled when activation variables are absent", async () => {
