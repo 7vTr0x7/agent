@@ -14,7 +14,7 @@ export interface StaleSubmissionMonitorResult {
 
 function staleReconciliationEnabled(): boolean {
   const value = process.env.STALE_SUBMISSION_RECONCILIATION_ENABLED;
-  if (value === undefined) return true;
+  // Safe-by-default: stale reconciliation/reporting must be explicitly enabled.
   return value === "true";
 }
 
