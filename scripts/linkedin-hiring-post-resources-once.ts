@@ -93,7 +93,7 @@ async function main(): Promise<void> {
   const signal = AbortSignal.timeout(Number(process.env.LINKEDIN_HIRING_POST_RESOURCE_TIMEOUT_MS ?? 90000));
   const db = new Database(process.env.DATABASE_URL ?? "");
   const seen = new Set<string>();
-  let discovered = 0; let relevantPosts = 0; let persisted = 0; let emailsExtracted = 0;
+  let discovered = 0; let relevantPosts = 0; let persisted = 0; let emailsExtracted = 0; let contactRowsPersisted = 0;
   try {
     for (const query of queries) {
       if (signal.aborted) break;
@@ -107,17 +107,33 @@ async function main(): Promise<void> {
           const emails = recruitingEmails(content); emailsExtracted += emails.length;
           const match = content.match(/(?:hiring|we['’]?re hiring|we are hiring)\s*[:\-–—]?\s*([^.!?]{3,140})/i);
           const title = match?.[1]?.trim().slice(0, 300) || "LinkedIn hiring post";
-          await db.query(
+          const resource = await db.query<{ id: string }>(
             `INSERT INTO public_contact_resources(source_url,source_type,title,discovered_at,status,records_seen,emails_extracted,emails_normalized,invalid_emails,duplicate_emails,qualified_contacts)
-             VALUES($1,'LINKEDIN_POST',$2,NOW(),'DISCOVERED',1,$3,$3,0,0,0)
-             ON CONFLICT(source_url) DO UPDATE SET title=EXCLUDED.title, records_seen=GREATEST(public_contact_resources.records_seen, EXCLUDED.records_seen), emails_extracted=GREATEST(public_contact_resources.emails_extracted, EXCLUDED.emails_extracted), emails_normalized=GREATEST(public_contact_resources.emails_normalized, EXCLUDED.emails_normalized)`,
-            [postUrl, title, emails.length]
+             VALUES($1,'LINKEDIN_POST',$2,NOW(),'DISCOVERED',1,$3,$3,0,0,$4)
+             ON CONFLICT(source_url) DO UPDATE SET title=EXCLUDED.title, records_seen=GREATEST(public_contact_resources.records_seen, EXCLUDED.records_seen), emails_extracted=GREATEST(public_contact_resources.emails_extracted, EXCLUDED.emails_extracted), emails_normalized=GREATEST(public_contact_resources.emails_normalized, EXCLUDED.emails_normalized), qualified_contacts=GREATEST(public_contact_resources.qualified_contacts, EXCLUDED.qualified_contacts)
+             RETURNING id`,
+            [postUrl, title, emails.length, emails.length]
           );
+          const resourceId = resource.rows[0]?.id;
+          if (resourceId) {
+            for (const email of emails) {
+              const index = clean(content).toLowerCase().indexOf(email.toLowerCase());
+              const context = clean(content).slice(Math.max(0, index - 700), Math.min(clean(content).length, index + 1400)).slice(0, 3500);
+              const inserted = await db.query(
+                `INSERT INTO public_contact_resource_contacts(resource_id,normalized_email,domain,validation_status,relevance_score,evidence_context,observed_at,updated_at)
+                 VALUES($1,$2,$3,'LIKELY',80,$4,NOW(),NOW())
+                 ON CONFLICT(resource_id,normalized_email) DO UPDATE SET validation_status='LIKELY',relevance_score=GREATEST(public_contact_resource_contacts.relevance_score,80),evidence_context=EXCLUDED.evidence_context,updated_at=NOW()
+                 RETURNING id`,
+                [resourceId, email, email.split("@")[1] ?? "", context]
+              );
+              if (inserted.rowCount === 1) contactRowsPersisted += 1;
+            }
+          }
           persisted++;
         }
       }
     }
-    console.log(JSON.stringify({ queries: queries.length, discovered, relevantPosts, persisted, emailsExtracted, sourceType: "LINKEDIN_POST", directLinkedInFetches: 0 }, null, 2));
+    console.log(JSON.stringify({ queries: queries.length, discovered, relevantPosts, persisted, emailsExtracted, contactRowsPersisted, sourceType: "LINKEDIN_POST", directLinkedInFetches: 0 }, null, 2));
   } finally { await db.close(); }
 }
 
