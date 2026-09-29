@@ -167,24 +167,73 @@ function experienceCompatible(text: string, candidateYears = 3): boolean {
   for (const m of minimums) if (candidateYears < Number(m[1])) return false;
   return true;
 }
+
+function normalizeEmailNamePart(value: string): string {
+  return value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
+}
+
+export function recruiterEmailLocalPartMatchesName(name: string, localPart: string): boolean {
+  const normalizedLocal = normalizeEmailNamePart(localPart.split("+")[0] ?? "");
+  if (!normalizedLocal) return false;
+  const parts = name.trim().split(/\s+/).map(normalizeEmailNamePart).filter(Boolean);
+  if (parts.length < 2) return false;
+  const first = parts[0]!;
+  const last = parts[parts.length - 1]!;
+  if (first.length < 2 || last.length < 2) return false;
+
+  const middleInitials = parts.slice(1, -1).map(part => part[0]).join("");
+  const aliases = new Set<string>([
+    first + last,
+    last + first,
+    first[0] + last,
+    last + first[0],
+    first + last[0],
+    first[0] + last[0],
+    parts.map(part => part[0]).join(""),
+    first + middleInitials + last,
+    first + middleInitials,
+    first[0] + middleInitials + last,
+  ]);
+
+  for (const alias of aliases) {
+    if (alias.length >= 4 && alias === normalizedLocal) return true;
+  }
+  return false;
+}
+
+const GENERIC_RECRUITING_MAILBOXES = new Set(["hr","careers","career","jobs","job","recruitment","recruiting","talent","hiring","apply","joinus","join-us","workwithus","work-with-us","info"]);
+const NON_RECRUITING_MAILBOXES = new Set(["support","admin","press","media","legal","privacy","marketing","machine","postmaster","webmaster","noreply","no-reply"]);
+
 function usableDirectEmail(email: string | undefined, employerDomain?: string): boolean {
   if (!email) return false;
   const domain = email.split("@")[1]?.toLowerCase();
   if (!domain || GENERIC_EMAIL_DOMAINS.has(domain)) return false;
   return !employerDomain || domain === employerDomain.toLowerCase();
 }
-function extractDirectEmail(text: string): string | undefined {
-  const found = [...new Set((text.match(EMAIL) ?? []).map(v => v.toLowerCase()))];
-  return found.find(e => !/^(noreply|no-reply)@/i.test(e));
-}
+
 function hasRecruitingEmailEvidence(text: string, email: string): boolean {
   const index = text.toLowerCase().indexOf(email.toLowerCase());
   if (index < 0) return false;
-  const context = text.slice(Math.max(0, index - 500), Math.min(text.length, index + 500));
+  const context = text.slice(Math.max(0, index - 650), Math.min(text.length, index + 650));
   const localPart = email.split("@")[0]?.toLowerCase() ?? "";
-  if (/^(support|info|admin|press|media|legal|privacy|marketing|noreply|no-reply|machine|postmaster|webmaster)$/.test(localPart) || /(?:^|[-_.])(machine|bot|system|automation|automated|donotreply)(?:[-_.]|$)/.test(localPart)) return false;
-  return /(?:send|email|contact|reach out|resume|cv|apply|hiring|recruiting|recruiter|talent|job|join (?:our|my) team)/i.test(context);
+  if (NON_RECRUITING_MAILBOXES.has(localPart) || /(?:^|[-_.])(machine|bot|system|automation|automated|donotreply)(?:[-_.]|$)/.test(localPart)) return false;
+  const recruitingContext = /(?:send|email|contact|reach out|resume|cv|apply|hiring|recruiting|recruiter|talent|job|join (?:our|my) team|share (?:your|the) (?:resume|cv))/i.test(context);
+  if (!recruitingContext) return false;
+  return true;
 }
+
+function extractDirectEmail(text: string): string | undefined {
+  const found = [...new Set((text.match(EMAIL) ?? []).map(v => v.toLowerCase()))].filter(e => !/^(noreply|no-reply)@/i.test(e));
+  const ranked = [...found].sort((a, b) => {
+    const localA = a.split("@")[0]?.toLowerCase() ?? "";
+    const localB = b.split("@")[0]?.toLowerCase() ?? "";
+    const aGeneric = GENERIC_RECRUITING_MAILBOXES.has(localA) ? 1 : 0;
+    const bGeneric = GENERIC_RECRUITING_MAILBOXES.has(localB) ? 1 : 0;
+    return aGeneric - bGeneric;
+  });
+  return ranked.find(e => hasRecruitingEmailEvidence(text, e));
+}
+
 async function fetchText(url: string, signal?: AbortSignal, timeoutMs = 6500): Promise<string | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -248,7 +297,7 @@ function extractPublicEvidenceUrls(text: string): string[] {
 }
 function extractProfileUrlFromSearch(text: string, name: string): string | undefined {
   const urls = [...new Set((text.match(PROFILE_URL) ?? []).map(canonicalUrl))];
-  const tokens = name.toLowerCase().split(/\\s+/).filter(Boolean);
+  const tokens = name.toLowerCase().split(/\s+/).filter(Boolean);
   return urls.find(url => tokens.length >= 2 && tokens.every(token => url.toLowerCase().includes(token.replace(/[^a-z0-9-]/g, ""))));
 }
 function extractProfileUrls(text: string): string[] {
@@ -440,8 +489,11 @@ export class PublicHiringPostDiscoveryProvider {
       const q = `"${candidate.recruiterName}" "${candidate.employer}" "${candidate.employerDomain}" @${candidate.employerDomain}`;
       const results = await search(q, runtimeSignal);
       const emails = results.flatMap(r => [...new Set((r.text.match(EMAIL) ?? []).map(e => e.toLowerCase()))]);
-      const nameTokens = candidate.recruiterName.toLowerCase().split(/\s+/).filter(Boolean);
-      const found = emails.find(email => { const local = email.split("@")[0] ?? ""; return email.endsWith(`@${candidate.employerDomain}`) && nameTokens.length >= 2 && nameTokens.every(token => local.includes(token.replace(/[^a-z]/g,""))); });
+      const found = emails.find(email => {
+        const domain = email.split("@")[1]?.toLowerCase();
+        const local = email.split("@")[0] ?? "";
+        return domain === candidate.employerDomain?.toLowerCase() && recruiterEmailLocalPartMatchesName(candidate.recruiterName, local);
+      });
       if (found) { candidate.email = found; candidate.emailStatus = "UNVERIFIED"; metrics.publiclyDiscoveredEmails++; }
     }
     return { candidates: [...candidates.values()], metrics };
