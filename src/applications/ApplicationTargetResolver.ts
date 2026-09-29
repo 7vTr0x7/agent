@@ -19,6 +19,7 @@ async function hasAuthenticationUi(page: Page): Promise<boolean> {
   if (await page.locator('input[type="password"]:visible').count() > 0) return true;
 
   const authenticationFormCount = await page.locator("form:visible").evaluateAll((forms, authText) => {
+    const authSignal = new RegExp(authText, "i");
     return forms.filter((form) => {
       const text = (form.textContent || "").trim();
       const controls = Array.from(form.querySelectorAll("input, button, [role='button']"));
@@ -28,7 +29,7 @@ async function hasAuthenticationUi(page: Page): Promise<boolean> {
       const combined = `${text} ${controlText}`;
       const hasEmailField = Boolean(form.querySelector('input[type="email"], input[name*="email" i], input[autocomplete="email"]'));
       const hasPasswordField = Boolean(form.querySelector('input[type="password"]'));
-      return hasPasswordField || (hasEmailField && authText.test(combined));
+      return hasPasswordField || (hasEmailField && authSignal.test(combined));
     }).length;
   }, AUTH_TEXT.source);
 
