@@ -1,13 +1,39 @@
-import { defaultJobSources } from "./jobSources";
+import "dotenv/config";
 
 export interface AppConfig { nodeEnv: string; logLevel: string; automationEnabled: boolean; applicationDryRun: boolean; applicationLiveEnabled: boolean; outboundEnabled: boolean; discoveryEnabled: boolean; discoveryIntervalMs: number; applicationQueueIntervalMs: number; staleSubmissionCheckIntervalMs: number; staleSubmissionThresholdMinutes: number; staleSubmissionReconciliationEnabled: boolean; followUpIntervalMs: number; interviewReminderIntervalMs: number; jobSources: string; genericApplicationAdapterEnabled: boolean; applicationRateLimitPerDay: number; applicationCompanyRateLimitPerDay: number; proactiveRecruiter: { enabled: boolean; sendEnabled: boolean; intervalMs: number; maxCandidatesPerRun: number; }; recruiterOutreach: { enabled: boolean; dryRun: boolean; activation: "disabled" | "canary" | "live"; liveActivationConfirmed: boolean; discoveryProvider: "public-web" | "snov"; snovClientId: string | null; snovClientSecret: string | null; minConfidence: number; requireVerifiedEmail: boolean; maxContactsPerApplication: number; maxMessagesPerDay: number; maxMessagesPerHour: number; followUpEnabled: boolean; followUpDayOffsets: number[]; genericEmailFallback: boolean; }; resume: { tailoringEnabled: boolean; masterPath: string | null; outputDirectory: string; }; ollama: { baseUrl: string; model: string; timeoutMs: number; }; databaseUrl: string; email: { enabled: boolean; provider: "resend"; apiKey: string | null; from: string | null }; gmail: { enabled: boolean; accountTier: "consumer" | "workspace"; dailySendLimit: number; clientId: string | null; clientSecret: string | null; refreshToken: string | null; userEmail: string | null; syncQuery: string; syncIntervalMs: number; }; }
 
-function booleanValue(name: string, value: string | undefined, fallback: boolean): boolean { if (value === undefined) return fallback; if (value === "true") return true; if (value === "false") return false; throw new Error(`${name} must be true or false`); }
-function dayOffsets(name: string, value: string): number[] { const offsets = value.split(",").map(item => nonNegativeInteger(name, item.trim())); if (!offsets.length) throw new Error(`${name} must contain strictly increasing non-negative integers`); for (let i = 1; i < offsets.length; i++) { if ((offsets[i] ?? 0) <= (offsets[i - 1] ?? 0)) throw new Error(`${name} must contain strictly increasing non-negative integers`); } return offsets; }
+const BASE_JOB_SOURCES = [
+  { id: "remoteok:json", type: "api", name: "remoteok", feedUrl: "https://remoteok.com/api", status: "APPROVED" },
+  { id: "himalayas:json", type: "api", name: "himalayas", feedUrl: "https://himalayas.app/jobs/api?limit=20", status: "APPROVED" },
+  { id: "jobicy:json", type: "api", name: "jobicy", feedUrl: "https://jobicy.com/api/v2/remote-jobs?count=200", status: "APPROVED" },
+  { id: "arbeitnow:json", type: "api", name: "arbeitnow", feedUrl: "https://www.arbeitnow.com/api/job-board-api", status: "APPROVED" },
+  { id: "arbeitnow:uk:json", type: "api", name: "arbeitnow", feedUrl: "https://www.arbeitnow.co.uk/api/job-board-api", status: "APPROVED" },
+  { id: "weworkremotely:rss", type: "rss", name: "weworkremotely", feedUrl: "https://weworkremotely.com/remote-jobs.rss", status: "APPROVED" },
+  { id: "remotefirstjobs:react:rss", type: "rss", name: "remotefirstjobs-react", feedUrl: "https://remotefirstjobs.com/rss/jobs/react.rss", status: "APPROVED" },
+  { id: "remotefirstjobs:software:rss", type: "rss", name: "remotefirstjobs-software", feedUrl: "https://remotefirstjobs.com/rss/jobs/software-development.rss", status: "APPROVED" },
+  { id: "remoteyeah:engineering:rss", type: "rss", name: "remoteyeah-engineering", feedUrl: "https://remoteyeah.com/rss.xml", status: "APPROVED" },
+  { id: "realworkfromanywhere:frontend:rss", type: "rss", name: "realworkfromanywhere-frontend", feedUrl: "https://www.realworkfromanywhere.com/remote-frontend-jobs/rss.xml", status: "APPROVED" },
+  { id: "realworkfromanywhere:fullstack:rss", type: "rss", name: "realworkfromanywhere-fullstack", feedUrl: "https://www.realworkfromanywhere.com/remote-fullstack-jobs/rss.xml", status: "APPROVED" },
+  { id: "hireweb3:rss", type: "rss", name: "hireweb3", feedUrl: "https://hireweb3.io/job/rss", status: "APPROVED" },
+  { id: "free-public-job-feeds:bundle", type: "api", name: "free-public-feeds", status: "APPROVED" },
+  { id: "platform-search:federation", type: "api", name: "platform-search", pages: 3, resultOnPage: 20, status: "APPROVED" }
+];
+
+const BROAD_TECHMAP_PORTALS: string[] = [];
+function defaultJobSources(): string {
+  const sources: unknown[] = [...BASE_JOB_SOURCES];
+  if (process.env.TECHMAP_RAPIDAPI_KEY?.trim() && booleanValue("TECHMAP_ENABLED", process.env.TECHMAP_ENABLED, true)) sources.push({ id: "techmap:broad", type: "api", name: "techmap", apiUrl: "https://daily-international-job-postings.p.rapidapi.com/api/v2/jobs/search", apiKeyEnv: "TECHMAP_RAPIDAPI_KEY", portals: csv("TECHMAP_PORTALS", BROAD_TECHMAP_PORTALS), countryCode: "in", city: process.env.TECHMAP_CITY ?? "Bengaluru", title: process.env.TECHMAP_TITLE ?? "React OR Frontend OR \"Front End\" OR Next.js OR TypeScript", skills: process.env.TECHMAP_SKILLS ?? "Javascript,Typescript,React,Next.js", dateCreated: process.env.TECHMAP_DATE_CREATED || new Date().toISOString().slice(0, 7), resultOnPage: Number(process.env.TECHMAP_RESULTS_PER_PAGE ?? "50"), status: "APPROVED" });
+  if (process.env.ADZUNA_APP_ID?.trim() && process.env.ADZUNA_APP_KEY?.trim() && booleanValue("ADZUNA_ENABLED", process.env.ADZUNA_ENABLED, true)) sources.push({ id: "adzuna:india", type: "api", name: "adzuna", countryCode: "in", pages: 1, resultsPerPage: 50, queries: csv("ADZUNA_QUERIES", ["React", "Frontend Engineer", "Front End Developer", "Next.js", "TypeScript"]), locations: csv("ADZUNA_LOCATIONS", ["Bengaluru", "India"]), status: "APPROVED" });
+  if (process.env.JOOBLE_API_KEY?.trim() && booleanValue("JOOBLE_ENABLED", process.env.JOOBLE_ENABLED, true)) sources.push({ id: "jooble:india", type: "api", name: "jooble", apiUrl: process.env.JOOBLE_API_BASE_URL ?? "https://in.jooble.org/api", apiKeyEnv: "JOOBLE_API_KEY", city: "Bengaluru, India", query: "React Frontend TypeScript Next.js", resultOnPage: 100, status: "APPROVED" });
+  return JSON.stringify(sources);
+}
+function csv(name: string, fallback: string[]): string[] { return (process.env[name] ?? fallback.join(",")).split(",").map(v => v.trim()).filter(Boolean); }
 function required(name: string, value: string | undefined): string { if (!value) throw new Error(`Missing required environment variable: ${name}`); return value; }
 function positiveInteger(name: string, value: string | undefined): number { const parsed = Number(value); if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive integer`); return parsed; }
 function nonNegativeInteger(name: string, value: string): number { const parsed = Number(value); if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${name} must be a non-negative integer`); return parsed; }
 function boundedInteger(name: string, value: string | undefined, min: number, max: number): number { const parsed = Number(value); if (!Number.isInteger(parsed) || parsed < min || parsed > max) throw new Error(`${name} must be an integer between ${min} and ${max}`); return parsed; }
+function booleanValue(name: string, value: string | undefined, fallback: boolean): boolean { if (value === undefined) return fallback; if (value === "true") return true; if (value === "false") return false; throw new Error(`${name} must be true or false`); }
+function dayOffsets(name: string, value: string): number[] { const offsets = value.split(",").map(item => nonNegativeInteger(name, item.trim())); if (!offsets.length) throw new Error(`${name} must contain strictly increasing non-negative integers`); for (let i = 1; i < offsets.length; i++) { if ((offsets[i] ?? 0) <= (offsets[i - 1] ?? 0)) throw new Error(`${name} must contain strictly increasing non-negative integers`); } return offsets; }
 
 export function loadConfig(): AppConfig {
   const outboundEnabled = booleanValue("OUTBOUND_ENABLED", process.env.OUTBOUND_ENABLED, false);
