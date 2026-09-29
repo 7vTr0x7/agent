@@ -36,7 +36,6 @@ function clean(value: string): string {
 function canonical(value: string): string { try { const url = new URL(value); url.hash = ""; ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "trk", "trackingId", "refId", "lipi"].forEach((key) => url.searchParams.delete(key)); return url.toString().replace(/\/$/, ""); } catch { return value.replace(/\/+$/, ""); } }
 function plausibleName(value: string): boolean { const parts = value.trim().replace(/\s+/g, " ").split(" "); if (parts.length < 2 || parts.length > 5) return false; const name = parts.join(" "); return name.length >= 5 && name.length <= 80 && parts.every((part) => /^[A-Z][A-Za-z.'-]+$/.test(part)) && !/^(the|we|our|my|team|hiring|frontend|react|software|developer|engineer|post|linkedin|job|role)$/i.test(parts[0] ?? ""); }
 function authorName(text: string): string | undefined { const patterns = [/\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})['’]s\s+Post\b/i,/\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:posted|shared)\b/i,/\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+(?:[1-9]\d?d|[1-9]\d?w|[1-9]\d?mo)\b/i]; for (const pattern of patterns) { const value = text.match(pattern)?.[1]?.trim(); if (value && plausibleName(value)) return value; } return undefined; }
-
 function roleInfo(text: string, fallback: string): { role: string; terms: string[]; score: number } {
   const frontendHits = FRONTEND_EVIDENCE.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0);
   const backendHits = BACKEND_EVIDENCE.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0);
@@ -49,16 +48,13 @@ function roleInfo(text: string, fallback: string): { role: string; terms: string
   if (web && react && javascript && frontendHits >= 3) return { role: "Web Developer", terms, score: Math.min(100, 80 + Math.min(15, frontendHits)) };
   return { role: fallback, terms: [], score: 0 };
 }
-
 function experienceCompatible(text: string, years: number): boolean {
   const ranges = [...text.matchAll(/(\d+)\s*(?:-|to|–|—)\s*(\d+)\s*years?/gi)].map((match) => [Number(match[1]), Number(match[2])] as const);
   const minimums = [...text.matchAll(/(?:\b|\D)(\d+)\s*\+\s*years?/gi)].map((match) => Number(match[1]));
   if (!ranges.length && !minimums.length) return true;
   return ranges.some(([min, max]) => years >= min && years <= max) || minimums.some((min) => years >= min);
 }
-
 function freshness(text: string): "current" | "recent" | "historical" | "unknown" { if (/\b(?:today|1d|2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo)\b/i.test(text)) return "current"; if (/\b(?:5mo|6mo|7mo|8mo|9mo|10mo|11mo|12mo)\b/i.test(text)) return "recent"; const years = [...text.matchAll(/\b(20\d{2})\b/g)].map((match) => Number(match[1])); const current = new Date().getFullYear(); if (years.includes(current)) return "current"; if (years.includes(current - 1)) return "recent"; if (years.some((year) => year < current - 1)) return "historical"; return "unknown"; }
-
 function recruitingEmail(text: string): string | undefined {
   const normalized = clean(text); const found = [...new Set((normalized.match(EMAIL) ?? []).map((email) => email.toLowerCase()))];
   const ranked = [...found].sort((a, b) => {
@@ -75,6 +71,15 @@ function recruitingEmail(text: string): string | undefined {
 function employer(text: string, input: RecruiterDiscoveryInput, email?: string): { name?: string; domain?: string } { const normalized = clean(text); const emailDomain = email?.split("@")[1]?.toLowerCase(); const configuredDomain = input.companyDomain.trim().toLowerCase().replace(/^www\./, ""); const atCompany = normalized.match(/\bat\s+([A-Z][A-Za-z0-9&.' -]{2,90})(?=\s*[.!?,]|\s+(?:location|experience|skills?)\s*:|$)/i)?.[1]?.trim(); const hiringCompany = normalized.match(/([A-Z][A-Za-z0-9&.' -]{2,90})\s+(?:is|are)\s+(?:hiring|looking\s+for)/i)?.[1]?.trim(); const name = atCompany || hiringCompany || input.companyName.trim() || (emailDomain ? emailDomain.split(".")[0] : undefined); const domain = emailDomain ?? (configuredDomain || undefined); return name ? { name: name.replace(/[|•,.-]+$/, "").trim(), domain } : {}; }
 function profileUrl(text: string, name?: string): string | undefined { const urls = [...new Set((text.match(PROFILE_URL) ?? []).map(canonical))]; if (!name) return urls[0]; const tokens = name.toLowerCase().split(/\s+/).map((token) => token.replace(/[^a-z0-9-]/g, "")); return urls.find((url) => tokens.length >= 2 && tokens.every((token) => url.toLowerCase().includes(token))); }
 function evidence(text: string, postUrl: string): string { const index = text.toLowerCase().indexOf(postUrl.toLowerCase()); return clean(index >= 0 ? text.slice(Math.max(0, index - 1800), Math.min(text.length, index + 4200)) : text).slice(0, 6500); }
+function extractPostUrls(text: string): string[] {
+  // POST_URL is global for multi-match extraction. Reset explicitly because
+  // discovery processes many independent search pages and a leaked lastIndex
+  // can otherwise make an otherwise valid indexed LinkedIn post disappear.
+  POST_URL.lastIndex = 0;
+  const matches = text.match(POST_URL) ?? [];
+  POST_URL.lastIndex = 0;
+  return [...new Set(matches.map(canonical))];
+}
 function queries(input: RecruiterDiscoveryInput): string[] { const location = input.location?.trim() || "India"; const title = input.jobTitle.trim(); const company = input.companyName.trim(); const skills = SKILLS.filter((skill) => input.jobDescription.toLowerCase().includes(skill.toLowerCase())).slice(0, 4).join(" ") || "React Next.js TypeScript JavaScript"; return [...new Set([`site:linkedin.com/posts "we're hiring" "${title}" "${location}"`,`site:linkedin.com/posts "we are hiring" "${title}" "${location}"`,`site:linkedin.com/posts "my team is hiring" ${skills} "${location}"`,`site:linkedin.com/posts "send your resume" ${skills} "${location}"`,`site:linkedin.com/posts "share your CV" ${skills} "${location}"`,`site:linkedin.com/posts "DM me" ${skills} "${location}" recruiter`,`site:linkedin.com/posts "${company}" hiring ${skills}`,`site:linkedin.com/posts "${title}" recruiter "${location}"`,`site:linkedin.com/posts "${title}" "Bengaluru" React`,`site:linkedin.com/posts "${title}" "Pune" React`,`site:linkedin.com/in "${company}" recruiter "${location}"`,`site:linkedin.com/in "${company}" "talent acquisition" "${location}"`,`site:linkedin.com/in recruiter "${title}" "${location}"`])].slice(0, 16); }
 async function fetchSearch(url: string, signal: AbortSignal, headers?: Record<string, string>): Promise<string | null> { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 8000); const abort = () => controller.abort(); signal.addEventListener("abort", abort, { once: true }); try { const response = await fetch(url, { signal: controller.signal, headers: { accept: "text/plain,text/html,application/json,*/*;q=0.8", "user-agent": "job-agent-linkedin-public-hiring-evidence/1.0", ...(headers ?? {}) } }); return response.ok ? await response.text() : null; } catch { return null; } finally { clearTimeout(timer); signal.removeEventListener("abort", abort); } }
 async function search(query: string, signal: AbortSignal): Promise<PublicSearchResult[]> { const sources = sourceList(query); const results: PublicSearchResult[] = []; for (let offset = 0; offset < sources.length; offset += 4) { if (signal.aborted) break; const pages = await Promise.all(sources.slice(offset, offset + 4).map(async (source) => ({ source: source.id, text: await fetchSearch(source.url, signal, source.headers) }))); for (const page of pages) if (page.text) results.push({ source: page.source, text: page.text }); } return results; }
@@ -89,7 +94,7 @@ export class LinkedInHiringPostDiscoveryProvider implements RecruiterDiscoveryPr
       if (signal.aborted) break; queriesExecuted++;
       for (const result of await search(query, signal)) {
         if (signal.aborted) break; rawPages++;
-        for (const postUrl of [...new Set((result.text.match(POST_URL) ?? []).map(canonical))]) {
+        for (const postUrl of extractPostUrls(result.text)) {
           if (signal.aborted) break; uniqueUrls++; linkedinUrls++; if (seenPosts.has(postUrl)) { duplicateCandidates++; continue; } seenPosts.add(postUrl);
           const text = evidence(result.text, postUrl); const role = roleInfo(text, input.jobTitle); const years = Number(process.env.CANDIDATE_YEARS ?? 3); const technicalEvidence = FRONTEND_EVIDENCE.some((pattern) => pattern.test(text));
           if ((!HIRING.test(text) && !JOB_DESCRIPTION.test(text)) || !role.terms.length || role.score < 80 || !technicalEvidence || !experienceCompatible(text, years)) { rejectedCandidates++; continue; }
