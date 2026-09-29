@@ -53,6 +53,15 @@ describe("LinkedInHiringPostDiscoveryProvider", () => {
     expect(result.contacts[0]?.fullName).toBe("Example Recruiter");
   });
 
+  it("rejects URL-encoded search noise as a recruiter mailbox", async () => {
+    const postUrl = "https://www.linkedin.com/posts/noisy-hiring-frontend-activity-123456789";
+    mockSearch([postUrl, "Noisy Recruiter 1d", "We're hiring a Frontend Developer in Bengaluru. React, TypeScript and REST APIs.", "Send your resume to 22employer%20recruiting%20contact%22%20%22indeed.com%22@indeed.com"].join("\n"));
+    process.env.LINKEDIN_HIRING_POST_MAX_QUERIES = "1";
+    const result = await new LinkedInHiringPostDiscoveryProvider().discover({ companyName: "Mercor", companyDomain: "indeed.com", jobTitle: "Frontend Developer", jobDescription: "React TypeScript", location: "Bengaluru", candidateProfileId: "candidate-1" });
+    expect(result.contacts).toHaveLength(1);
+    expect(result.contacts[0]?.email).toBe("");
+  });
+
   it("keeps a legitimate employer recruiting mailbox unverified", async () => {
     const postUrl = "https://www.linkedin.com/posts/nextgraph_hiring-frontend-activity-123456789";
     mockSearch([postUrl, "NextGraph Team 1w", "We are hiring a Frontend Developer for an open source project.", "React and TypeScript. Fully remote.", "Send a short message to job@nextgraph.org", "Jun 9, 2026"].join("\n"));
