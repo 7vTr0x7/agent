@@ -3,9 +3,36 @@ import { getPlatformSearchUrls } from "./PlatformSearchProfiles";
 import { extractSearchResultUrls } from "./SearchResultUrlExtractor";
 
 const cases = [
-  { platform: "Cutshort", jobUrl: "https://cutshort.io/job/React-Developer-Bengaluru-Bangalore-Test-Co-abc123", firstPartyCount: 4 },
-  { platform: "Hirist", jobUrl: "https://www.hirist.tech/j/reactjs-developer-test-1660001", firstPartyCount: 4 },
-  { platform: "Foundit", jobUrl: "https://www.foundit.in/job/react-developer-test-company-12345678", firstPartyCount: 4 }
+  {
+    platform: "Cutshort",
+    jobUrl: "https://cutshort.io/job/React-Developer-Bengaluru-Bangalore-Test-Co-abc123",
+    firstPartyUrls: [
+      "https://cutshort.io/jobs/reactjs-jobs-in-bangalore-bengaluru",
+      "https://cutshort.io/jobs/frontend-developer-jobs-in-bangalore-bengaluru",
+      "https://cutshort.io/jobs/fullstack-developer-jobs-in-bangalore-bengaluru",
+      "https://cutshort.io/jobs/reactjs-jobs"
+    ]
+  },
+  {
+    platform: "Hirist",
+    jobUrl: "https://www.hirist.tech/j/reactjs-developer-test-1660001",
+    firstPartyUrls: [
+      "https://www.hirist.tech/k/reactjs-jobs?pref=rl",
+      "https://www.hirist.tech/k/frontend-developer-jobs?pref=rl",
+      "https://www.hirist.tech/k/full-stack-developer-jobs?pref=rl",
+      "https://www.hirist.tech/k/javascript-jobs?pref=rl"
+    ]
+  },
+  {
+    platform: "Foundit",
+    jobUrl: "https://www.foundit.in/job/react-developer-test-company-12345678",
+    firstPartyUrls: [
+      "https://www.foundit.in/search/reactjs-jobs-in-bengaluru-bangalore",
+      "https://www.foundit.in/search/frontend-developer-jobs-in-bengaluru-bangalore",
+      "https://www.foundit.in/search/full-stack-developer-jobs-in-bengaluru-bangalore",
+      "https://www.foundit.in/search/react-js-jobs-in-bengaluru-bangalore"
+    ]
+  }
 ] as const;
 
 const jobPosting = (url: string, company: string): string =>
@@ -21,18 +48,13 @@ const jobPosting = (url: string, company: string): string =>
 describe("platform-specific first-party search fallbacks", () => {
   afterEach(() => jest.restoreAllMocks());
 
-  it.each(cases)("$platform produces valid job URLs from its first-party search page", async ({ platform, jobUrl, firstPartyCount }) => {
+  it.each(cases)("$platform produces valid job URLs from its first-party search page", async ({ platform, jobUrl, firstPartyUrls }) => {
     const searchUrls = getPlatformSearchUrls(platform);
     // Platform discovery intentionally fans out to every configured public-search
     // provider in addition to first-party pages. Assert the first-party contract
     // without reintroducing an artificial provider/result ceiling.
-    expect(searchUrls.length).toBeGreaterThanOrEqual(firstPartyCount);
-    expect(searchUrls.slice(0, firstPartyCount)).toEqual(expect.arrayContaining(
-      searchUrls.slice(0, firstPartyCount)
-    ));
-    expect(searchUrls).toEqual(expect.arrayContaining([
-      ...searchUrls.slice(0, firstPartyCount)
-    ]));
+    expect(searchUrls.length).toBeGreaterThanOrEqual(firstPartyUrls.length);
+    expect(searchUrls).toEqual(expect.arrayContaining(firstPartyUrls));
 
     const fetchSpy = jest.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
