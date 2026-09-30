@@ -42,6 +42,7 @@ const PROFILE_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const SEARCH_HOST = /^(?:www\.)?(?:google|bing|qwant|startpage|duckduckgo|search\.yahoo|search\.brave|mojeek)\.com$/i;
 const AUTOMATED_LOCAL = /^(?:noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot)$/i;
+const INDIAN_LOCATION = /\\b(?:pune|bengaluru|bangalore|mumbai|navi mumbai|hyderabad|chennai|delhi|new delhi|noida|greater noida|gurgaon|gurugram|jaipur|indore|chandigarh|ahmedabad|kolkata|kochi|thiruvananthapuram|nagpur|surat|bhubaneswar|mysore|mysuru)\\b/i;
 
 const HIRING = /(?:we['’]?re\s+hiring|we\s+are\s+hiring|my\s+team\s+is\s+hiring|we['’]?re\s+looking\s+for|we\s+are\s+looking\s+for|hiring\s+(?:for\s+)?(?:a\s+)?(?:frontend|front-end|react|next\.?js|mern|full[ -]?stack|web|software)|looking\s+for\s+(?:a\s+)?(?:frontend|front-end|react|next\.?js|mern|full[ -]?stack|web|software)|send\s+(?:your|me\s+your)\s+(?:resume|cv)|share\s+(?:your|the)\s+(?:resume|cv)|drop\s+(?:your|the)\s+(?:resume|cv)|apply\s+(?:here|now)|dm\s+(?:me|us)|reach\s+out)/i;
 
