@@ -163,9 +163,13 @@ function extractEmployer(text: string, email?: string, profileText?: string, sou
   // third-party resources). A domain is usable here only when it independently
   // matches the extracted employer name; a direct email domain gets the same
   // identity check before it can establish employer ownership.
-  const domain = (emailDomain && name && domainMatchesEmployerName(emailDomain, name))
+  const emailBackedDomain = emailDomain && name && domainMatchesEmployerName(emailDomain, name)
     ? emailDomain
-    : urlDomains.find(d => d && !/^lnkd\.in$/i.test(d) && !!name && domainMatchesEmployerName(d, name));
+    : undefined;
+  const urlBackedDomain = urlDomains.find(d => d && !/^lnkd\.in$/i.test(d) && !!name && domainMatchesEmployerName(d, name));
+  // Direct recruiting email evidence is stronger than an arbitrary URL found
+  // in the page. Keep it when it independently matches the extracted employer.
+  const domain = emailBackedDomain ?? urlBackedDomain;
   const usableEmployerDomain = domain && !GENERIC_EMPLOYER_DOMAINS.has(domain) ? domain : undefined;
   if (emailDomain && name && /\b(?:hiring[- ]frontend|frontend[- ]developer|hiring[- ]react|react[- ]developer|min\s+read|skip\s+to|navigation)\b/i.test(name)) name = undefined;
   if (!name && usableEmployerDomain) name = usableEmployerDomain.split(".")[0]?.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
