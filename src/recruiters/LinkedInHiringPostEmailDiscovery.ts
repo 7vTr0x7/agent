@@ -122,6 +122,7 @@ function locationCompatible(text: string, preferred: string[]): boolean {
   if (/\bremote\b/i.test(haystack) && preferred.some(value => /remote/i.test(value))) return true;
   if (preferred.some(value => /^india$/i.test(value)) && (INDIAN_LOCATION.test(haystack) || /\bindia\b/i.test(haystack))) return true;
   return preferred.some(value => haystack.includes(value.toLowerCase()));
+}
 
 function roleScore(text: string, roles: string[], skills: string[]): { score: number; terms: string[] } {
   const haystack = text.toLowerCase();
@@ -164,7 +165,7 @@ function extractEmployer(text: string, email: string): { name: string; domain: s
     const match = decode(text).match(pattern)?.[1]?.trim();
     if (match && !/^(the|we|our|my|team|frontend|react|software|developer|engineer)$/i.test(match)) return { name: match.replace(/[|•,.-]+$/, "").trim(), domain };
   }
-  const name = domain.split(".")[0]!.replace(/[-_]+/g, " ").replace(/\\b\\w/g, c => c.toUpperCase());
+  const name = domain.split(".")[0]!.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   return { name, domain };
 }
 
