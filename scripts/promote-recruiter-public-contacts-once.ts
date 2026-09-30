@@ -26,8 +26,8 @@ async function main(): Promise<void> {
       domain_status: string;
       relevance_status: string | null;
     }>(
-      `SELECT DISTINCT ON (LOWER(c.email))
-          c.email,
+      `SELECT DISTINCT ON (LOWER(canonical_contact.email))
+          canonical_contact.email,
           c.company_name,
           s.source_url,
           c.relevance_score,
@@ -36,8 +36,9 @@ async function main(): Promise<void> {
           c.domain_status,
           c.relevance_status
        FROM recruiter_contacts c
+       JOIN contacts canonical_contact ON canonical_contact.id=c.contact_id
        JOIN recruiter_contact_sources s ON s.recruiter_contact_id = c.id
-       WHERE c.email IS NOT NULL
+       WHERE canonical_contact.email IS NOT NULL
          AND c.email_status IN ('LIKELY','VERIFIED')
          AND c.domain_status = 'VALID'
          AND COALESCE(c.suppressed,FALSE) = FALSE
@@ -45,7 +46,7 @@ async function main(): Promise<void> {
          AND COALESCE(c.relevance_score,0) >= 60
          AND COALESCE(c.relevance_status,'UNKNOWN') IN ('CURRENT','RECENT')
          AND NULLIF(TRIM(s.source_url),'') IS NOT NULL
-       ORDER BY LOWER(c.email), c.relevance_score DESC NULLS LAST, c.confidence DESC NULLS LAST, s.observed_at DESC`
+       ORDER BY LOWER(canonical_contact.email), c.relevance_score DESC NULLS LAST, c.confidence DESC NULLS LAST, s.observed_at DESC`
     );
 
     let promoted = 0;
