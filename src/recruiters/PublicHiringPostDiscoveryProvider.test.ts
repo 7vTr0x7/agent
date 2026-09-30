@@ -190,6 +190,42 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(result.candidates[0]?.discoveryEvidence.join(" ")).toContain("job@nextgraph.org");
   });
 
+  it("rejects generic frontend/resource pages as hiring evidence without a hiring destination or recruiting mailbox", async () => {
+    const resourceUrl = "https://www.w3schools.com/whatis/whatis_frontenddev.asp";
+    const searchPage = [
+      resourceUrl,
+      "What is a Front-End Developer",
+      "Frontend developer skills: HTML, CSS, JavaScript, React, TypeScript.",
+      "Job description examples and apply guidance are included."
+    ].join("\n");
+    const resourcePage = [
+      "<title>What is a Front-End Developer</title>",
+      "W3Schools Tutorials References Exercises",
+      "What is a Front-End Developer?",
+      "Frontend developers use HTML, CSS, JavaScript, React and TypeScript.",
+      "This is an introduction to frontend development.",
+      "Job description examples and apply guidance."
+    ].join("\n");
+
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return new Response(url === resourceUrl ? resourcePage : searchPage, {
+        status: 200,
+        headers: { "content-type": "text/plain" }
+      });
+    }) as typeof fetch;
+
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({
+      targetRoles: ["Frontend Developer", "React Developer"],
+      skills: ["React", "TypeScript"],
+      maxQueries: 1
+    });
+
+    expect(result.candidates).toHaveLength(0);
+    expect(result.metrics.validatedContacts).toBe(0);
+  });
+
   it("does not adopt unrelated public URLs as the employer domain", async () => {
     const postUrl = "https://acme.test/jobs/frontend-engineer-react";
     const unrelatedUrl = "https://freefrontend.com/frontend-resources";
