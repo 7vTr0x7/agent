@@ -225,6 +225,8 @@ export class LinkedInHiringPostEmailDiscovery {
           }
           const email = extractEmails(combined).find(value => emailIsRecruiting(combined, value));
           if (!email) { metrics.rejected++; continue; }
+          const candidateKey = `${email.toLowerCase()}|${url.toLowerCase()}`;
+          if (candidates.has(candidateKey)) continue;
           metrics.relevantPosts++;
           metrics.directEmails++;
           const employer = extractEmployer(combined, email);
@@ -254,7 +256,7 @@ export class LinkedInHiringPostEmailDiscovery {
               source: url
             }]
           };
-          candidates.set(`${email.toLowerCase()}|${url.toLowerCase()}`, candidate);
+          candidates.set(candidateKey, candidate);
         }
       }
     }
