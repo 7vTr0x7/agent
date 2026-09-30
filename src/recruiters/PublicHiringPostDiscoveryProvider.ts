@@ -343,12 +343,92 @@ function isLegitimatePublicResultUrl(value: string, infrastructureHosts: Set<str
 function isSafePublicDestinationUrl(value: string): boolean {
   try { const u = new URL(value); const decoded = decodeURIComponent(value); if (u.protocol !== "http:" && u.protocol !== "https:") return false; if (/\/https?:\/\//i.test(decoded) || /https?:\/\/.*\/https?:\/\//i.test(decoded)) return false; if (/%3a%2f%2f/i.test(value) && /(?:^|\/)https?:/i.test(decoded)) return false; const host = u.hostname.toLowerCase(); if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return false; if (/^127\.|^10\.|^192\.168\.|^169\.254\.|^0\./.test(host)) return false; if (/^172\.(?:1[6-9]|2\d|3[0-1])\./.test(host)) return false; return true; } catch { return false; }
 }
-function extractPublicEvidenceUrls(text: string): string[] { const infrastructureHosts = configuredSearchInfrastructureHosts(); const urls = [...new Set((text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []).map(canonicalUrl))]; return urls.filter(url => isLegitimatePublicResultUrl(url, infrastructureHosts)); }
+function decodeSearchResultText(value: string): string {
+  let current = value
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\\u003A/gi, ":")
+    .replace(/\\u003a/gi, ":")
+    .replace(/\\u002F/gi, "/")
+    .replace(/\\u002f/gi, "/")
+    .replace(/\\u0026/gi, "&")
+    .replace(/\\u003D/gi, "=")
+    .replace(/\\u003d/gi, "=")
+    .replace(/\\\//g, "/");
+  for (let i = 0; i < 3; i++) {
+    try {
+      const decoded = decodeURIComponent(current);
+      if (decoded === current) break;
+      current = decoded;
+    } catch {
+      break;
+    }
+  }
+  return current;
+}
+function extractPublicEvidenceUrls(text: string): string[] {
+  const infrastructureHosts = configuredSearchInfrastructureHosts();
+  const decoded = decodeSearchResultText(text);
+  const candidates = [
+    ...(text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []),
+    ...(decoded.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []),
+    ...[...text.matchAll(/\b(?:href|url|target|destination|clickurl|targeturl|data-href|data-url)\s*=\s*["']([^"']+)["']/gi)].map(match => match[1] ?? ""),
+    ...[...text.matchAll(/\[[^\]]+\]\((https?:[^)]+)\)/gi)].map(match => match[1] ?? "")
+  ];
+  const urls = [...new Set(candidates
+    .map(value => decodeSearchResultText(value).replace(/[),.;]+$/, ""))
+    .map(value => canonicalUrl(value))
+    .filter(value => isLegitimatePublicResultUrl(value, infrastructureHosts)))];
+  return urls;
+}
 function extractProfileUrlFromSearch(text: string, name: string): string | undefined { const urls = [...new Set((text.match(PROFILE_URL) ?? []).map(canonicalUrl))]; const tokens = name.toLowerCase().split(/\s+/).filter(Boolean); return urls.find(url => tokens.length >= 2 && tokens.every(token => url.toLowerCase().includes(token.replace(/[^a-z0-9-]/g, "")))); }
 function extractProfileUrls(text: string): string[] { return [...new Set((text.match(PROFILE_URL) ?? []).map(canonicalUrl))].filter(url => !/\/pub\/dir\//i.test(url)); }
 function extractProfileName(profileText: string, profileUrl: string): string | undefined { const title = profileText.match(/(?:^|<title>)\s*([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\s+-\s+/i)?.[1]; if (title && plausibleName(title)) return title.trim(); try { const slug = new URL(profileUrl).pathname.match(/^\/in\/([^/?#]+)/i)?.[1]; const name = slug?.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase()); if (name && plausibleName(name)) return name; } catch {} return undefined; }
 function extractHiringSnippets(profileText: string): string[] { const text = clean(profileText); const re = new RegExp(HIRING_INTENT.source, "gi"); const snippets: string[] = []; for (const match of text.matchAll(re)) { const index = match.index ?? 0; const snippet = text.slice(Math.max(0, index - 1000), Math.min(text.length, index + 3500)).trim(); if (snippet && !snippets.includes(snippet)) snippets.push(snippet); } return snippets.slice(0, 8); }
-function buildEvidence(text: string, postUrl: string): string { const i = text.toLowerCase().indexOf(postUrl.toLowerCase()); if (i < 0) return ""; const infrastructureHosts = configuredSearchInfrastructureHosts(); const window = text.slice(Math.max(0, i - 1800), Math.min(text.length, i + 2600)); const sanitized = window.replace(/https?:\/\/[^\s<>"')\]]+/gi, url => isLegitimatePublicResultUrl(url, infrastructureHosts) ? url : ""); return sanitized.replace(/\s+/g, " ").trim().slice(0, 4400); }
+function buildEvidence(text: string, postUrl: string): string {
+  const infrastructureHosts = configuredSearchInfrastructureHosts();
+  const decodedText = decodeSearchResultText(text);
+  const targetVariants = new Set<string>([
+    postUrl,
+    decodeSearchResultText(postUrl),
+    canonicalUrl(postUrl)
+  ]);
+  try {
+    const target = new URL(postUrl);
+    targetVariants.add(target.origin + target.pathname);
+    targetVariants.add(target.hostname + target.pathname);
+    targetVariants.add(target.pathname);
+  } catch {}
+  const lowerText = decodedText.toLowerCase();
+  let index = -1;
+  let matchedLength = 0;
+  for (const variant of targetVariants) {
+    const normalizedVariant = variant.trim();
+    if (!normalizedVariant) continue;
+    const candidateIndex = lowerText.indexOf(normalizedVariant.toLowerCase());
+    if (candidateIndex >= 0 && (index < 0 || candidateIndex < index)) {
+      index = candidateIndex;
+      matchedLength = normalizedVariant.length;
+    }
+  }
+  if (index < 0) {
+    const targetHost = (() => {
+      try { return new URL(postUrl).hostname.toLowerCase(); } catch { return ""; }
+    })();
+    if (targetHost) {
+      const hostIndex = lowerText.indexOf(targetHost);
+      if (hostIndex >= 0) {
+        index = hostIndex;
+        matchedLength = targetHost.length;
+      }
+    }
+  }
+  if (index < 0) return "";
+  const window = decodedText.slice(Math.max(0, index - 1800), Math.min(decodedText.length, index + Math.max(2600, matchedLength)));
+  const sanitized = window.replace(/https?:\/\/[^\s<>"')\]]+/gi, url => isLegitimatePublicResultUrl(url, infrastructureHosts) ? url : "");
+  return sanitized.replace(/\s+/g, " ").trim().slice(0, 4400);
+}
 function freshness(evidence: string): ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"] { if (/\b(?:today|1d|2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo)\b/i.test(evidence)) return "current"; if (/\b(?:5mo|6mo|7mo|8mo|9mo|10mo|11mo|12mo)\b/i.test(evidence)) return "recent"; const years = [...evidence.matchAll(/\b(20\d{2})\b/g)].map(match => Number(match[1])).filter(Number.isFinite); const currentYear = new Date().getFullYear(); if (years.some(year => year === currentYear)) return "current"; if (years.some(year => year === currentYear - 1)) return "recent"; if (years.some(year => year < currentYear - 1)) return "historical"; return "unknown"; }
 function canonicalIdentityKey(name: string | undefined, employer: string, _evidenceKey: string, email?: string): string { if (email) return `email:${email.toLowerCase()}`; if (!name) return `employer:${employer.toLowerCase().replace(/[^a-z0-9]+/g,"").trim()}`; return `${name.toLowerCase().replace(/[^a-z0-9]+/g," ").trim()}|${employer.toLowerCase().replace(/[^a-z0-9]+/g," ").trim()}`; }
 
