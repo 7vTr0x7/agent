@@ -470,4 +470,50 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(result.metrics.duplicatePosts).toBeGreaterThan(0);
     expect(result.candidates).toHaveLength(1);
   });
+  it("preserves hiring evidence when search providers encode destination URLs", async () => {
+    const postUrl = "https://example.com/careers/frontend-react";
+    const encodedPostUrl = encodeURIComponent(postUrl);
+    const searchPage = [
+      `<a href="https://www.google.com/search?q=frontend">${encodedPostUrl}</a>`,
+      "Frontend Developer — Example Corp",
+      "We're hiring a Frontend Developer to join our React team.",
+      "React TypeScript JavaScript",
+      "Experience: 2-5 years",
+      "Send your resume to hiring@example.com"
+    ].join("\n");
+    const postPage = [
+      "<title>Frontend Developer — Example Corp</title>",
+      "We're hiring a Frontend Developer to join our React team.",
+      "React TypeScript JavaScript",
+      "Experience: 2-5 years",
+      "Send your resume to hiring@example.com"
+    ].join("\n");
+
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return new Response(url === postUrl ? postPage : searchPage, {
+        status: 200,
+        headers: { "content-type": "text/plain" }
+      });
+    }) as typeof fetch;
+
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({
+      targetRoles: ["Frontend Developer"],
+      skills: ["React", "TypeScript"],
+      maxQueries: 1
+    });
+
+    expect(result.metrics.normalizedResults).toBeGreaterThan(0);
+    expect(result.metrics.hiringIntentPosts).toBeGreaterThan(0);
+    expect(result.metrics.relevantRolePosts).toBeGreaterThan(0);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      contactType: "EMPLOYER",
+      employer: "Example Corp",
+      email: "hiring@example.com",
+      discoveryUrl: postUrl
+    });
+  });
+
 });
