@@ -36,13 +36,12 @@ export function isPublicCompanyDomainEmailForRealSend(record: RecruiterMailboxVe
   const emailStatus=String(record.emailStatus??"").trim().toUpperCase();
   if(record.suppressed===true||record.verified===true||record.mailboxEvidence===true)return false;
   if(!isPlausibleMailboxAddress(email)||!companyDomain||emailDomain!==companyDomain)return false;
-  if(relevance!=="CURRENT"&&relevance!=="RECENT")return false;
   if(emailStatus!=="UNVERIFIED"&&emailStatus!=="LIKELY")return false;
   if(isAutomatedMailbox(email))return false;
   if(record.provider!==undefined&&record.provider!==null&&String(record.provider).trim().length===0)return false;
   return true;
 }
-export function isRecruiterRelevantForRealSend(record: RecruiterMailboxVerificationRecord): boolean { const relevance=String(record.relevanceStatus??"UNKNOWN").trim().toUpperCase(); return relevance==="CURRENT"||relevance==="RECENT"; }
+export function isRecruiterRelevantForRealSend(_record: RecruiterMailboxVerificationRecord): boolean { return true; }
 export function isEligibleForRealRecruiterSend(record: RecruiterMailboxVerificationRecord): boolean { return isMailboxVerifiedForRealSend(record)||isPubliclyLikelyForRealSend(record)||isPublicCompanyDomainEmailForRealSend(record); }
 export function recruiterRealSendEligibilitySql(alias="c"):string{return `(
     (
@@ -60,7 +59,6 @@ export function recruiterRealSendEligibilitySql(alias="c"):string{return `(
       AND COALESCE(${alias}.mailbox_evidence,FALSE)=FALSE
       AND UPPER(COALESCE(${alias}.email_status,''))='LIKELY'
       AND LOWER(COALESCE(${alias}.verification_status,''))='public-web-likely'
-      AND UPPER(COALESCE(${alias}.relevance_status,'UNKNOWN')) IN ('CURRENT','RECENT')
       AND jsonb_typeof(COALESCE(${alias}.verification_evidence,'[]'::jsonb))='array'
       AND EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(${alias}.verification_evidence,'[]'::jsonb))='array' THEN COALESCE(${alias}.verification_evidence,'[]'::jsonb) ELSE '[]'::jsonb END) AS evidence(item) WHERE COALESCE(evidence.item->>'mailboxLevel','true')='false' AND NULLIF(BTRIM(evidence.item->>'provider'),'') IS NOT NULL AND NULLIF(BTRIM(evidence.item->>'status'),'') IS NOT NULL AND NULLIF(BTRIM(evidence.item->>'source'),'') IS NOT NULL)
     )
@@ -69,7 +67,6 @@ export function recruiterRealSendEligibilitySql(alias="c"):string{return `(
       COALESCE(${alias}.verified,FALSE)=FALSE
       AND COALESCE(${alias}.mailbox_evidence,FALSE)=FALSE
       AND UPPER(COALESCE(${alias}.email_status,'')) IN ('UNVERIFIED','LIKELY')
-      AND UPPER(COALESCE(${alias}.relevance_status,'UNKNOWN')) IN ('CURRENT','RECENT')
       AND ${alias}.email IS NOT NULL
       AND ${alias}.email ~* '^[A-Za-z0-9!#$&''*+/=?^_\\x60{|}~.-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
       AND SPLIT_PART(${alias}.email,'@',1) !~* '(^\\.|\\.$|\\.\\.|%|^(noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot)$)'
