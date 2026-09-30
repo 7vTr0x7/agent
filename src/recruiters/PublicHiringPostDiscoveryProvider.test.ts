@@ -477,6 +477,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       `<a href="https://www.google.com/search?q=frontend">${encodedPostUrl}</a>`,
       "Frontend Developer — Example Corp",
       "We're hiring a Frontend Developer to join our React team.",
+      "Posted 2d",
       "React TypeScript JavaScript",
       "Experience: 2-5 years",
       "Send your resume to hiring@example.com"
