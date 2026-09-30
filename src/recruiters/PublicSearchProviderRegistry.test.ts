@@ -22,14 +22,33 @@ describe("PublicSearchProviderRegistry", () => {
     expect(decodeURIComponent(yahoo?.url ?? "")).toContain('site:linkedin.com/in "technical recruiter" React Bengaluru');
   });
 
-  it("includes public Jina search when no API key is configured", () => {
+  it("does not emit unauthenticated Jina Search requests", () => {
     const previous = process.env.JINA_API_KEY;
     delete process.env.JINA_API_KEY;
     try {
-      expect(sourceList("frontend recruiter").find(source => source.id === "jina-search")?.url).toContain("https://s.jina.ai/");
+      expect(sourceList("frontend recruiter").find(source => source.id === "jina-search")).toBeUndefined();
     } finally {
       if (previous === undefined) delete process.env.JINA_API_KEY;
       else process.env.JINA_API_KEY = previous;
+    }
+  });
+
+  it("uses authenticated Google Custom Search when configured", () => {
+    const previousKey = process.env.GOOGLE_SEARCH_API_KEY;
+    const previousCx = process.env.GOOGLE_SEARCH_CX;
+    process.env.GOOGLE_SEARCH_API_KEY = "test-google-key";
+    process.env.GOOGLE_SEARCH_CX = "test-google-cx";
+    try {
+      const google = sourceList('site:linkedin.com/posts "React Developer" hiring')
+        .find(source => source.id === "google-api");
+      expect(google?.headers?.accept).toBe("application/json");
+      expect(google?.url).toContain("customsearch/v1");
+      expect(google?.url).toContain("siteSearch=linkedin.com");
+    } finally {
+      if (previousKey === undefined) delete process.env.GOOGLE_SEARCH_API_KEY;
+      else process.env.GOOGLE_SEARCH_API_KEY = previousKey;
+      if (previousCx === undefined) delete process.env.GOOGLE_SEARCH_CX;
+      else process.env.GOOGLE_SEARCH_CX = previousCx;
     }
   });
 
