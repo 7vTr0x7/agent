@@ -47,6 +47,30 @@ describe("ApplicationQueueService", () => {
     expect(enqueue).toHaveBeenNthCalledWith(2, "job-2", "candidate-1", 2081);
   });
 
+  it("does not let a stale READY/DRAFTED application block a current APPLY decision", async () => {
+    const enqueue = jest.fn().mockResolvedValue("task-id");
+    const dispatcher = { enqueue } as unknown as ApplicationTaskDispatcher;
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [{ count: "0" }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const database = { query };
+
+    const service = new ApplicationQueueService(
+      database as never,
+      dispatcher,
+      new ApplicationRateLimitPolicy({ maxSubmissionsPerDay: 10 })
+    );
+
+    await service.enqueueEligible("candidate-1", 10);
+
+    expect(query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("a.status NOT IN ('READY', 'DRAFTED')"),
+      expect.any(Array)
+    );
+  });
+
   it("does not queue work once the daily submission limit is reached", async () => {
     const enqueue = jest.fn().mockResolvedValue("task-id");
     const dispatcher = { enqueue } as unknown as ApplicationTaskDispatcher;
