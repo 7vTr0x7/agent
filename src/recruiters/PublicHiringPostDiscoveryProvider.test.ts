@@ -484,6 +484,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     ].join("\n");
     const postPage = [
       "<title>Frontend Developer — Example Corp</title>",
+      "Posted 2d",
       "We're hiring a Frontend Developer to join our React team.",
       "React TypeScript JavaScript",
       "Experience: 2-5 years",
