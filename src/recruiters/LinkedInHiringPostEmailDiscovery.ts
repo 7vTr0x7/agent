@@ -37,27 +37,27 @@ const SEARCH_PROVIDERS = new Set<SourceId>([
   "jina-search"
 ]);
 
-const POST_URL = /https?:\\/\\/(?:www\\.|[a-z]{2}\\.)?linkedin\\.com\\/(?:posts\\/[^\\s<>"]+|feed\\/update\\/urn:li:activity:\\d+)/gi;
-const PROFILE_URL = /https?:\\/\\/(?:www\\.|[a-z]{2}\\.)?linkedin\\.com\\/in\\/[a-z0-9-_%]+/gi;
-const EMAIL = /\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b/gi;
-const SEARCH_HOST = /^(?:www\\.)?(?:google|bing|qwant|startpage|duckduckgo|search\\.yahoo|search\\.brave|mojeek)\\.com$/i;
+const POST_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"]+|feed\/update\/urn:li:activity:\d+)/gi;
+const PROFILE_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
+const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+const SEARCH_HOST = /^(?:www\.)?(?:google|bing|qwant|startpage|duckduckgo|search\.yahoo|search\.brave|mojeek)\.com$/i;
 const AUTOMATED_LOCAL = /^(?:noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot)$/i;
 
-const HIRING = /(?:we['’]?re\\s+hiring|we\\s+are\\s+hiring|my\\s+team\\s+is\\s+hiring|we['’]?re\\s+looking\\s+for|we\\s+are\\s+looking\\s+for|hiring\\s+(?:for\\s+)?(?:a\\s+)?(?:frontend|front-end|react|next\\.?js|mern|full[ -]?stack|web|software)|looking\\s+for\\s+(?:a\\s+)?(?:frontend|front-end|react|next\\.?js|mern|full[ -]?stack|web|software)|send\\s+(?:your|me\\s+your)\\s+(?:resume|cv)|share\\s+(?:your|the)\\s+(?:resume|cv)|drop\\s+(?:your|the)\\s+(?:resume|cv)|apply\\s+(?:here|now)|dm\\s+(?:me|us)|reach\\s+out)/i;
+const HIRING = /(?:we['’]?re\s+hiring|we\s+are\s+hiring|my\s+team\s+is\s+hiring|we['’]?re\s+looking\s+for|we\s+are\s+looking\s+for|hiring\s+(?:for\s+)?(?:a\s+)?(?:frontend|front-end|react|next\.?js|mern|full[ -]?stack|web|software)|looking\s+for\s+(?:a\s+)?(?:frontend|front-end|react|next\.?js|mern|full[ -]?stack|web|software)|send\s+(?:your|me\s+your)\s+(?:resume|cv)|share\s+(?:your|the)\s+(?:resume|cv)|drop\s+(?:your|the)\s+(?:resume|cv)|apply\s+(?:here|now)|dm\s+(?:me|us)|reach\s+out)/i;
 
-const FRONTEND = /\\b(?:frontend|front-end|front\\s+end|react(?:\\.js)?|next\\.?js|mern|full[ -]?stack|web\\s+developer|software\\s+developer|software\\s+engineer)\\b/i;
-const REACT = /\\breact(?:\\.js)?\\b/i;
-const NEXT = /\\bnext\\.?js\\b/i;
-const TECH = /\\b(?:react(?:\\.js)?|next\\.?js|typescript|javascript|redux|context\\s+api|tailwind|bootstrap|html5?|css3?|node(?:\\.js)?|express(?:\\.js)?|mongodb|rest(?:ful)?\\s+api|graphql|jest|react\\s+testing\\s+library)\\b/gi;
+const FRONTEND = /\b(?:frontend|front-end|front\s+end|react(?:\.js)?|next\.?js|mern|full[ -]?stack|web\s+developer|software\s+developer|software\s+engineer)\b/i;
+const REACT = /\breact(?:\.js)?\b/i;
+const NEXT = /\bnext\.?js\b/i;
+const TECH = /\b(?:react(?:\.js)?|next\.?js|typescript|javascript|redux|context\s+api|tailwind|bootstrap|html5?|css3?|node(?:\.js)?|express(?:\.js)?|mongodb|rest(?:ful)?\s+api|graphql|jest|react\s+testing\s+library)\b/gi;
 
 function decode(value: string): string {
   let current = value
     .replace(/&amp;/gi, "&")
     .replace(/&quot;/gi, '"')
-    .replace(/\\\\u003A/gi, ":")
-    .replace(/\\\\u002F/gi, "/")
-    .replace(/\\\\u0026/gi, "&")
-    .replace(/\\\\u003D/gi, "=")
+    .replace(/\\u003A/gi, ":")
+    .replace(/\\u002F/gi, "/")
+    .replace(/\\u0026/gi, "&")
+    .replace(/\\u003D/gi, "=")
     .replace(/\\\\\\//g, "/");
   for (let i = 0; i < 3; i++) {
     try {
@@ -83,16 +83,14 @@ function canonical(value: string): string {
 function isLinkedInPost(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.hostname.toLowerCase().endsWith("linkedin.com") &&
-      (/^\\/posts\\//i.test(url.pathname) || /^\\/feed\\/update\\/urn:li:activity:\\d+/i.test(url.pathname));
+    return url.hostname.toLowerCase().endsWith("linkedin.com") && (/^\/posts\//i.test(url.pathname) || /^\/feed\/update\/urn:li:activity:\d+/i.test(url.pathname));
   } catch { return false; }
 }
 
 function isLinkedInProfile(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.hostname.toLowerCase().endsWith("linkedin.com") && /^\\/in\\//i.test(url.pathname);
-  } catch { return false; }
+    return url.hostname.toLowerCase().endsWith("linkedin.com") && (/^\/posts\//i.test(url.pathname) || /^\/feed\/update\/urn:li:activity:\d+/i.test(url.pathname));
 }
 
 function extractLinkedInUrls(text: string): string[] {
