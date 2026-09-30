@@ -190,6 +190,34 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(result.candidates[0]?.discoveryEvidence.join(" ")).toContain("job@nextgraph.org");
   });
 
+  it("rejects talent-marketplace and developer-sourcing pages as employer hiring evidence", async () => {
+    const vendorUrl = "https://ellow.io/hire-developer/hire-next-js-developers";
+    const vendorPage = [
+      "<title>Hire Next.js Developers | SSR & React Experts | ellow</title>",
+      "Talent Solutions Talents on Demand Executive Search",
+      "Hire Top 3% of the Tech Talents in 24-48 hours!",
+      "With our AI-powered Talent Cloud, effortlessly hire remote Next.js developers from a pool of over 25,000 experts worldwide.",
+      "We deliver pre-screened candidates for your team in under 48 hours.",
+      "Apply as developer",
+      "Hire Next.js developers now"
+    ].join("\n");
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => new Response(String(input) === vendorUrl ? vendorPage : vendorUrl + "\n" + vendorPage, {
+      status: 200,
+      headers: { "content-type": "text/html" }
+    })) as typeof fetch;
+
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({
+      targetRoles: ["Frontend Developer", "React Developer", "Next.js Developer"],
+      skills: ["React", "Next.js", "TypeScript"],
+      maxQueries: 1
+    });
+
+    expect(result.candidates).toHaveLength(0);
+    expect(result.metrics.hiringIntentPosts).toBe(0);
+    expect(result.metrics.validatedContacts).toBe(0);
+  });
+
   it("rejects generic frontend/resource pages as hiring evidence without a hiring destination or recruiting mailbox", async () => {
     const resourceUrl = "https://www.w3schools.com/whatis/whatis_frontenddev.asp";
     const searchPage = [

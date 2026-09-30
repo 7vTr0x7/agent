@@ -86,6 +86,23 @@ const LINKEDIN_POST_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:pos
 const SEARCH_HOSTS = new Set(["google.com","www.google.com","bing.com","www.bing.com","duckduckgo.com","html.duckduckgo.com","startpage.com","www.startpage.com","search.yahoo.com","www.yahoo.com","search.brave.com","www.mojeek.com","qwant.com","www.qwant.com"]);
 const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com","outlook.com","hotmail.com","yahoo.com","icloud.com","proton.me","protonmail.com"]);
 const GENERIC_EMPLOYER_DOMAINS = new Set(["example.com","example.org","example.net","localhost"]);
+const TALENT_VENDOR_PATTERNS = [
+  /\btalent solutions\b/i,
+  /\btalent cloud\b/i,
+  /\b(?:pre[- ]screened|pre[- ]vetted)\s+(?:candidates|talent|developers|engineers)\b/i,
+  /\b(?:executive search|staff augmentation|talent sourcing|developer sourcing)\b/i,
+  /\bhire\s+(?:top|the)\s+\d{1,3}%\s+of\b/i,
+  /\b(?:pool|network)\s+of\s+[\d,]+\+?\s+(?:developers|engineers|experts|talents)\b/i,
+  /\b(?:recruitment|recruiting|talent)\s+(?:agency|firm|services)\b/i,
+];
+
+function isTalentVendorPage(text: string): boolean {
+  const normalized = clean(text);
+  const hits = TALENT_VENDOR_PATTERNS.reduce((count, pattern) => count + (pattern.test(normalized) ? 1 : 0), 0);
+  const candidateMarketplace = /\b(?:apply as (?:a )?developer|join (?:our|the) talent pool|become (?:a )?developer|for developers)\b/i.test(normalized);
+  return hits >= 2 || (hits >= 1 && candidateMarketplace);
+}
+
 
 const MAX_DESTINATION_URLS_PER_SEARCH = 8;
 const MAX_POST_EVIDENCE = 16;
@@ -365,12 +382,13 @@ export class PublicHiringPostDiscoveryProvider {
           const fetchedPostPage = await (input.fetchText ? input.fetchText(url, runtimeSignal) : fetchText(url, runtimeSignal, 6500));
           const fetchedEvidence = fetchedPostPage ? clean(fetchedPostPage).slice(0, 12000) : "";
           const jobLikeDestination = /(?:\/(?:jobs?|careers?|vacanc(?:y|ies)|positions?|openings?|roles?|hiring)(?:\/|$))/i.test(new URL(url).pathname);
+          const vendorPage = isTalentVendorPage(fetchedEvidence);
           const candidateEmailFromEvidence = extractDirectEmail(fetchedEvidence) ?? extractDirectEmail(discoveryEvidence);
           // Generic frontend/resource pages can contain job vocabulary such as
           // "job description" or "apply" without being hiring evidence. A
           // non-job destination is therefore admissible only when it is an
           // indexed hiring post or contains a concrete recruiting mailbox.
-          const hiringDestinationEvidence = indexedPost || jobLikeDestination || Boolean(candidateEmailFromEvidence);
+          const hiringDestinationEvidence = !vendorPage && (indexedPost || jobLikeDestination || Boolean(candidateEmailFromEvidence));
           const fetchedEvidenceUsable = hasHiringIntent(fetchedEvidence) && hiringDestinationEvidence;
           const searchEvidenceIsUsable = hasHiringIntent(discoveryEvidence) && hiringDestinationEvidence;
           const evidence = fetchedEvidenceUsable ? fetchedEvidence : (searchEvidenceIsUsable ? clean(discoveryEvidence).slice(0, 7000) : "");
