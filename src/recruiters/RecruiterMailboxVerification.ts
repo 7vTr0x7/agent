@@ -42,7 +42,7 @@ export function isPublicCompanyDomainEmailForRealSend(record: RecruiterMailboxVe
 }
 export function isRecruiterRelevantForRealSend(_record: RecruiterMailboxVerificationRecord): boolean { return true; }
 export function isEligibleForRealRecruiterSend(record: RecruiterMailboxVerificationRecord): boolean { return isMailboxVerifiedForRealSend(record)||isPubliclyLikelyForRealSend(record)||isPublicCompanyDomainEmailForRealSend(record); }
-export function recruiterRealSendEligibilitySql(alias="c"):string{return `(
+export function recruiterRealSendEligibilitySql(alias="c"):string{const emailSql=`(SELECT canonical_contact.email FROM contacts canonical_contact WHERE canonical_contact.id=${alias}.contact_id)`;return `(
     (
       COALESCE(${alias}.verified,FALSE)=TRUE
       AND COALESCE(${alias}.mailbox_evidence,FALSE)=TRUE
@@ -66,15 +66,15 @@ export function recruiterRealSendEligibilitySql(alias="c"):string{return `(
       COALESCE(${alias}.verified,FALSE)=FALSE
       AND COALESCE(${alias}.mailbox_evidence,FALSE)=FALSE
       AND UPPER(COALESCE(${alias}.email_status,'')) IN ('UNVERIFIED','LIKELY')
-      AND ${alias}.email IS NOT NULL
-      AND ${alias}.email ~* '^[A-Za-z0-9!#$&''*+/=?^_\\x60{|}~.-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
-      AND SPLIT_PART(${alias}.email,'@',1) !~* '(^\\.|\\.$|\\.\\.|%|^(noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot)$)'
-      AND SPLIT_PART(${alias}.email,'@',2) !~* '(^\\.|\\.$|\\.\\.)'
-      AND LOWER(SPLIT_PART(${alias}.email,'@',2))=LOWER(${alias}.company_domain)
+      AND ${emailSql} IS NOT NULL
+      AND ${emailSql} ~* '^[A-Za-z0-9!#$&''*+/=?^_\\x60{|}~.-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
+      AND SPLIT_PART(${emailSql},'@',1) !~* '(^\\.|\\.$|\\.\\.|%|^(noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot)$)'
+      AND SPLIT_PART(${emailSql},'@',2) !~* '(^\\.|\\.$|\\.\\.)'
+      AND LOWER(SPLIT_PART(${emailSql},'@',2))=LOWER(${alias}.company_domain)
     )
     AND COALESCE(${alias}.suppressed,FALSE)=FALSE
-    AND ${alias}.email IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM recruiter_suppressions suppression WHERE LOWER(COALESCE(suppression.email,''))=LOWER(${alias}.email) OR LOWER(COALESCE(suppression.company_domain,''))=LOWER(${alias}.company_domain))
+    AND ${emailSql} IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM recruiter_suppressions suppression WHERE LOWER(COALESCE(suppression.email,''))=LOWER(${emailSql}) OR LOWER(COALESCE(suppression.company_domain,''))=LOWER(${alias}.company_domain))
   )`;}
 export const CANONICAL_MAILBOX_VERIFICATION_STATUS=VERIFIED_STATUS;
 export const PUBLIC_LIKELY_MAILBOX_STATUS=PUBLIC_LIKELY_STATUS;
