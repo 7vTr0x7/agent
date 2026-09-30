@@ -20,6 +20,8 @@ export class ProactiveRecruiterRepository {
     if (!domain || isBlockedEmployerDomain(domain)) return null;
     const emailConsistent = !email || isEmployerEmailDomainConsistent(emailDomain, domain);
     const persistedEmail = emailConsistent ? email : null;
+    const linkedinProfileUrl = isLinkedInProfile(candidate.discoveryUrl) ? canonicalLinkedIn(candidate.discoveryUrl) : null;
+    const persistedFullName = normalizeRecruiterNameForLinkedIn(candidate.recruiterName, linkedinProfileUrl);
     let canonicalContactId: string | null = null;
     if (persistedEmail) {
       const contactResult = await this.database.query<{ id: string }>(`INSERT INTO contacts (company_name,name,email,role,source,updated_at) VALUES ($1,$2,$3,$4,$5,NOW()) ON CONFLICT (email) DO UPDATE SET company_name=COALESCE(NULLIF(contacts.company_name,''),EXCLUDED.company_name),name=COALESCE(contacts.name,EXCLUDED.name),role=COALESCE(contacts.role,EXCLUDED.role),source=COALESCE(contacts.source,EXCLUDED.source),updated_at=NOW() RETURNING id`, [employerName, candidate.contactType === "EMPLOYER" ? null : persistedFullName, persistedEmail, candidate.contactType === "EMPLOYER" ? null : candidate.recruiterRole, candidate.discoverySource]);
@@ -34,8 +36,6 @@ export class ProactiveRecruiterRepository {
     const persistedMxStatus = persistedEmailStatus === "LIKELY" || persistedEmailStatus === "VERIFIED" ? "EXISTS" : persistedEmailStatus === "INVALID" ? "MISSING" : "UNKNOWN";
     const verificationStatus = mailboxEvidence ? "mailbox_verified" : persistedEmailStatus === "LIKELY" ? "domain_mx_verified" : persistedEmailStatus === "INVALID" ? "INVALID" : "public-web-unverified";
     const verified = mailboxEvidence;
-    const linkedinProfileUrl = isLinkedInProfile(candidate.discoveryUrl) ? canonicalLinkedIn(candidate.discoveryUrl) : null;
-    const persistedFullName = normalizeRecruiterNameForLinkedIn(candidate.recruiterName, linkedinProfileUrl);
     const identityKeyCandidate = persistedEmail ? { ...candidate, email: persistedEmail } : { ...candidate, email: undefined };
     const identityKey = buildIdentityKey(identityKeyCandidate, domain);
     const existing = await this.database.query<{ id: string }>(`SELECT rc.id FROM recruiter_contacts rc LEFT JOIN contacts canonical_contact ON canonical_contact.id=rc.contact_id WHERE rc.company_domain=$1 AND (rc.identity_key=$2 OR ($3::text IS NOT NULL AND LOWER(rc.linkedin_profile_url)=LOWER($3)) OR ($4::text IS NOT NULL AND LOWER(canonical_contact.email)=LOWER($4))) ORDER BY CASE WHEN $4::text IS NOT NULL AND LOWER(canonical_contact.email)=LOWER($4) THEN 0 WHEN $3::text IS NOT NULL AND LOWER(rc.linkedin_profile_url)=LOWER($3) THEN 1 ELSE 2 END LIMIT 1`, [domain, identityKey, linkedinProfileUrl, persistedEmail]);
