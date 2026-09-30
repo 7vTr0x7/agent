@@ -16,6 +16,8 @@ export function sourceList(query: string): Source[] {
   // turns a targeted recruiter search into generic search-engine navigation.
   const normalizedQuery = query.replace(/\s+/g, " ").trim();
   const q = encodeURIComponent(normalizedQuery);
+  const jinaApiKey = process.env.JINA_API_KEY?.trim();
+  const jinaHeaders = jinaApiKey ? { authorization: `Bearer ${jinaApiKey}` } : undefined;
   const sources: Source[] = [
     // Google web HTML is retained as a best-effort fallback. In production
     // Google may challenge automated traffic, so an existing Custom Search
@@ -29,20 +31,21 @@ export function sourceList(query: string): Source[] {
         }]
       : []),
     { id: "bing-direct", url: `https://www.bing.com/search?format=rss&q=${q}` },
-    { id: "google-jina", url: `https://r.jina.ai/https://www.google.com/search?q=${q}&gbv=1` },
-    { id: "bing-jina", url: `https://r.jina.ai/https://www.bing.com/search?format=rss&q=${q}` },
-    { id: "duckduckgo-jina", url: `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${q}` },
-    { id: "startpage-jina", url: `https://r.jina.ai/https://www.startpage.com/sp/search?query=${q}` },
-    { id: "ecosia-jina", url: `https://r.jina.ai/https://www.ecosia.org/search?q=${q}` },
+    { id: "google-jina", url: `https://r.jina.ai/https://www.google.com/search?q=${q}&gbv=1`, headers: jinaHeaders },
+    { id: "bing-jina", url: `https://r.jina.ai/https://www.bing.com/search?format=rss&q=${q}`, headers: jinaHeaders },
+    { id: "duckduckgo-jina", url: `https://r.jina.ai/https://html.duckduckgo.com/html/?q=${q}`, headers: jinaHeaders },
+    { id: "startpage-jina", url: `https://r.jina.ai/https://www.startpage.com/sp/search?query=${q}`, headers: jinaHeaders },
+    { id: "ecosia-jina", url: `https://r.jina.ai/https://www.ecosia.org/search?q=${q}`, headers: jinaHeaders },
     { id: "brave-direct", url: `https://search.brave.com/search?q=${q}&source=web` },
     { id: "mojeek-direct", url: `https://www.mojeek.com/search?q=${q}` },
     { id: "yahoo-direct", url: `https://search.yahoo.com/rss?p=${q}` },
     { id: "qwant-direct", url: `https://www.qwant.com/?q=${q}&t=web` }
   ];
-  if (process.env.JINA_API_KEY?.trim()) {
-    sources.push({ id: "jina-search", url: `https://s.jina.ai/${q}`, headers: { authorization: `Bearer ${process.env.JINA_API_KEY.trim()}` } });
-  } else {
-    sources.push({ id: "jina-search", url: `https://s.jina.ai/${q}` });
+  // Jina Search currently blocks unauthenticated search requests. Do not
+  // spend a discovery slot on a guaranteed 401; enable it automatically when
+  // the user supplies a JINA_API_KEY.
+  if (jinaApiKey) {
+    sources.push({ id: "jina-search", url: `https://s.jina.ai/${q}`, headers: jinaHeaders });
   }
   if (process.env.BRAVE_SEARCH_API_KEY?.trim()) {
     sources.push({ id: "brave-api", url: `https://api.search.brave.com/res/v1/web/search?q=${q}&count=20&extra_snippets=true`, headers: { "x-subscription-token": process.env.BRAVE_SEARCH_API_KEY.trim(), accept: "application/json" } });
