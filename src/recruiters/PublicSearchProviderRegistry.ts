@@ -1,5 +1,5 @@
 export type SourceId =
-  | "google-jina" | "google-direct" | "bing-jina" | "bing-direct" | "duckduckgo-jina" | "startpage-jina" | "ecosia-jina"
+  | "google-jina" | "google-direct" | "google-regional-direct" | "google-news" | "bing-jina" | "bing-direct" | "duckduckgo-jina" | "startpage-jina" | "ecosia-jina"
   | "jina-search" | "google-api" | "brave-api" | "mojeek-api" | "brave-direct" | "mojeek-direct"
   | "qwant-direct" | "yahoo-direct";
 
@@ -22,7 +22,15 @@ export function sourceList(query: string): Source[] {
     // Google web HTML is retained as a best-effort fallback. In production
     // Google may challenge automated traffic, so an existing Custom Search
     // JSON API configuration is preferred when supplied.
-    { id: "google-direct", url: `https://www.google.com/search?q=${q}&gbv=1` },
+    // Google web search: use several legitimate regional surfaces because
+    // Google Search can vary by country/region and one hostname can challenge
+    // automated traffic independently of the others.
+    { id: "google-direct", url: `https://www.google.com/search?q=${q}&gbv=1&hl=en&gl=in&num=20&filter=0`, headers: { "accept-language": "en-IN,en;q=0.9" } },
+    { id: "google-regional-direct", url: `https://www.google.co.in/search?q=${q}&gbv=1&hl=en&gl=in&num=20&filter=0`, headers: { "accept-language": "en-IN,en;q=0.9" } },
+    { id: "google-regional-direct", url: `https://www.google.co.uk/search?q=${q}&gbv=1&hl=en&gl=gb&num=20&filter=0`, headers: { "accept-language": "en-GB,en;q=0.9" } },
+    // Google News is a separate Google index surface and can expose indexed
+    // LinkedIn hiring posts even when ordinary web HTML is challenged.
+    { id: "google-news", url: `https://news.google.com/rss/search?q=${q}&hl=en-IN&gl=IN&ceid=IN:en`, headers: { accept: "application/rss+xml,application/xml,text/xml,*/*;q=0.8", "accept-language": "en-IN,en;q=0.9" } },
     ...(process.env.GOOGLE_SEARCH_API_KEY?.trim() && process.env.GOOGLE_SEARCH_CX?.trim()
       ? [{
           id: "google-api" as SourceId,
