@@ -1,7 +1,7 @@
 import { PERMANENTLY_EXCLUDED_COMPANIES } from "../applications/ApplicationPolicy";
 import { RecruiterContactCandidate } from "./RecruiterDiscovery";
 import { isBlockedEmployerDomain } from "./RecruiterCompanyDomainResolver";
-import { hasExplicitMailboxEvidence, isEligibleForRealRecruiterSend, isRecruiterRelevantForRealSend } from "./RecruiterMailboxVerification";
+import { hasExplicitMailboxEvidence, isEligibleForRealRecruiterSend } from "./RecruiterMailboxVerification";
 export interface RecruiterOutreachSafetyInput{companyName:string;companyDomain:string;contact:RecruiterContactCandidate;minConfidence:number;requireVerifiedEmail:boolean;suppressedEmail:boolean;suppressedDomain:boolean;duplicateSequence:boolean;dryRun:boolean;relevanceStatus?:"CURRENT"|"RECENT"|"HISTORICAL"|"UNKNOWN"}
 export interface RecruiterOutreachSafetyResult{allowed:boolean;reason:string}
 const normalize=(value:string):string=>value.trim().toLowerCase();
@@ -28,7 +28,6 @@ export function evaluateRecruiterOutreachSafety(input:RecruiterOutreachSafetyInp
     provider:input.contact.provider,
   });
   if(input.requireVerifiedEmail&&!canonicalEligible)return{allowed:false,reason:"Contact does not satisfy the canonical verified or evidence-backed public recruiter email contract."};
-  if(input.requireVerifiedEmail&&input.relevanceStatus!==undefined&&!isRecruiterRelevantForRealSend({relevanceStatus:input.relevanceStatus}))return{allowed:false,reason:"Recruiter evidence is not current or recent for outreach."};
   if(typeof input.contact.confidence==="number"&&input.contact.confidence<input.minConfidence)return{allowed:false,reason:`Contact confidence ${input.contact.confidence} is below the configured minimum.`};
   if(input.suppressedEmail||input.suppressedDomain)return{allowed:false,reason:"Contact or company is suppressed from outreach."};
   if(input.duplicateSequence)return{allowed:false,reason:"An active or completed outreach sequence already exists for this contact and job."};
