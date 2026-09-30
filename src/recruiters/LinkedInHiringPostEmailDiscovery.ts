@@ -34,6 +34,8 @@ const SEARCH_PROVIDERS = new Set<SourceId>([
   // already registered by the application so one blocked proxy cannot
   // make the whole discovery pass empty.
   "google-direct",
+  "google-regional-direct",
+  "google-news",
   "google-api",
   "bing-direct",
   "qwant-direct",
