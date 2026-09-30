@@ -29,12 +29,20 @@ export interface LinkedInHiringPostResult {
 }
 
 const SEARCH_PROVIDERS = new Set<SourceId>([
-  "google-jina",
+  // Google/Jina is frequently challenge/429 limited in the local runtime.
+  // Keep reader providers when available, but also use direct providers
+  // already registered by the application so one blocked proxy cannot
+  // make the whole discovery pass empty.
+  "bing-direct",
+  "qwant-direct",
   "bing-jina",
   "duckduckgo-jina",
   "startpage-jina",
   "ecosia-jina",
-  "jina-search"
+  "jina-search",
+  "brave-direct",
+  "mojeek-direct",
+  "yahoo-direct"
 ]);
 
 const POST_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"]+|feed\/update\/urn:li:activity:\d+)/gi;
@@ -202,6 +210,7 @@ export class LinkedInHiringPostEmailDiscovery {
     ].slice(0, maxQueries);
     const metrics: LinkedInHiringPostMetrics = { queriesGenerated: queries.length, queriesExecuted: 0, searchPagesFetched: 0, postUrlsFound: 0, relevantPosts: 0, directEmails: 0, candidates: 0, rejected: 0 };
     const candidates = new Map<string, ProactiveRecruiterDiscoveryCandidate>();
+    const discoveredPostUrls = new Set<string>();
     const signal = input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000);
 
     for (const query of queries) {
@@ -214,6 +223,7 @@ export class LinkedInHiringPostEmailDiscovery {
         metrics.searchPagesFetched++;
         const urls = extractLinkedInUrls(text);
         for (const url of urls) {
+          if (isLinkedInPost(url)) discoveredPostUrls.add(url);
           const evidence = evidenceAround(text, url);
           const page = await (input.fetchText ? input.fetchText(url, signal) : fetchDefault(url, signal));
           const combined = decode(`${evidence} ${page ?? ""}`);
@@ -260,7 +270,7 @@ export class LinkedInHiringPostEmailDiscovery {
         }
       }
     }
-    metrics.postUrlsFound = candidates.size;
+    metrics.postUrlsFound = discoveredPostUrls.size;
     metrics.candidates = candidates.size;
     return { candidates: [...candidates.values()], metrics };
   }
