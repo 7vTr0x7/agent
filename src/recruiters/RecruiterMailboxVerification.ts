@@ -16,8 +16,7 @@ export function isMailboxVerifiedForRealSend(record: RecruiterMailboxVerificatio
 export function isPubliclyLikelyForRealSend(record: RecruiterMailboxVerificationRecord): boolean {
   const status=String(record.verificationStatus??"").trim().toLowerCase();
   const emailStatus=String(record.emailStatus??"").trim().toUpperCase();
-  const relevance=String(record.relevanceStatus??"UNKNOWN").trim().toUpperCase();
-  if(record.verified===true||record.mailboxEvidence===true||emailStatus!=="LIKELY"||status!==PUBLIC_LIKELY_STATUS||!hasExplicitPublicEmailEvidence(record.verificationEvidence)||relevance!=="CURRENT"&&relevance!=="RECENT"||record.suppressed===true)return false;
+  if(record.verified===true||record.mailboxEvidence===true||emailStatus!=="LIKELY"||status!==PUBLIC_LIKELY_STATUS||!hasExplicitPublicEmailEvidence(record.verificationEvidence)||record.suppressed===true)return false;
   if(record.provider!==undefined&&record.provider!==null&&record.provider!=="proactive-public-web")return false;
   if(record.email!==undefined||record.companyDomain!==undefined){ const email=record.email?.trim().toLowerCase()??""; const domain=record.companyDomain?.trim().toLowerCase().replace(/^www\./,"")??""; if(!isPlausibleMailboxAddress(email)||!domain||email.split("@")[1]!==domain)return false; }
   return true;
