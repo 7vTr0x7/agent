@@ -156,16 +156,11 @@ function emailIsRecruiting(text: string, email: string): boolean {
 
 function extractEmployer(text: string, email: string): { name: string; domain: string } {
   const domain = email.split("@")[1]!.toLowerCase();
-  const patterns = [
-    /\b(?:at|@)\s+([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\s+(?:is|are|hiring|looking|for|with|in|on)|[.!?]|$)/i,
-    /([A-Z][A-Za-z0-9&.' -]{2,80})\s+(?:is|are)\s+(?:hiring|looking\s+for)/i,
-    /(?:company|employer|organization|organisation)\s*[:=-]\s*([A-Z][A-Za-z0-9&.' -]{2,80})/i
-  ];
-  for (const pattern of patterns) {
-    const match = decode(text).match(pattern)?.[1]?.trim();
-    if (match && !/^(the|we|our|my|team|frontend|react|software|developer|engineer)$/i.test(match)) return { name: match.replace(/[|•,.-]+$/, "").trim(), domain };
-  }
-  const name = domain.split(".")[0]!.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  const name = domain
+    .split(".")[0]!
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, c => c.toUpperCase())
+    .trim();
   return { name, domain };
 }
 
