@@ -123,7 +123,7 @@ function extractLinkedInUrls(text: string): string[] {
   const protocolRelativeUrls = decoded.match(/\/\/[^\s<>"']+/g) ?? [];
   for (const value of protocolRelativeUrls) candidates.add(value);
 
-  const hrefs = [...decoded.matchAll(/(?:href|url|link|uddg|target|dest(?:ination)?)\\s*=\\s*["']([^"']+)["']/gi)];
+  const hrefs = [...decoded.matchAll(/(?:href|url|link|uddg|target|dest(?:ination)?)\s*=\s*["']([^"']+)["']/gi)];
   for (const match of hrefs) candidates.add(match[1]!);
 
   const linkedInUrls = new Set<string>();
