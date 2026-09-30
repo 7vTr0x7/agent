@@ -37,6 +37,39 @@ describe("LinkedInHiringPostEmailDiscovery", () => {
     expect(result.metrics.directEmails).toBe(1);
   });
 
+
+  it("extracts LinkedIn posts from escaped and search-engine redirect URLs", async () => {
+    const postUrl = "https://www.linkedin.com/posts/example-recruiter_hiring-react-activity-111222333";
+    const encodedPost = encodeURIComponent(postUrl);
+    const searchPage = [
+      `https://www.google.com/url?q=${encodedPost}`,
+      `<a href="https://www.google.com/url?url=${encodedPost}">LinkedIn result</a>`,
+      postUrl.replace(/https:\/\//, "https:\\/\\/"),
+      "Hiring: React Developer | Bengaluru",
+      "Experience: 3+ Years",
+      "Location: Bengaluru, India",
+      "React Next.js TypeScript JavaScript",
+      "Please send your resume to hiring@redirect-example.com"
+    ].join("\n");
+
+    const provider = new LinkedInHiringPostEmailDiscovery();
+    const result = await provider.discover({
+      targetRoles: ["Frontend Developer", "React Developer"],
+      skills: ["React", "Next.js", "TypeScript"],
+      yearsExperience: 3,
+      preferredLocations: ["Bengaluru", "Pune", "India", "Remote"],
+      maxQueries: 1,
+      fetchText: async () => searchPage
+    });
+
+    expect(result.metrics.postUrlsFound).toBe(1);
+    expect(result.metrics.directEmails).toBe(1);
+    expect(result.candidates[0]).toMatchObject({
+      discoveryUrl: postUrl,
+      email: "hiring@redirect-example.com"
+    });
+  });
+
   it("rejects a post outside the candidate experience range", async () => {
     const postUrl = "https://www.linkedin.com/posts/example-recruiter_frontend-activity-987654321";
     const page = [
