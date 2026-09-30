@@ -58,7 +58,7 @@ function decode(value: string): string {
     .replace(/\\u002F/gi, "/")
     .replace(/\\u0026/gi, "&")
     .replace(/\\u003D/gi, "=")
-    .replace(/\\\\\\//g, "/");
+    .replace(/\\\//g, "/");
   for (let i = 0; i < 3; i++) {
     try {
       const next = decodeURIComponent(current);
@@ -74,9 +74,9 @@ function canonical(value: string): string {
   try {
     const url = new URL(decoded);
     url.hash = "";
-    return url.toString().replace(/\\/$/, "");
+    return url.toString().replace(/\/$/, "");
   } catch {
-    return decoded.replace(/\\/$/, "");
+    return decoded.replace(/\/$/, "");
   }
 }
 
@@ -90,9 +90,9 @@ function isLinkedInPost(value: string): boolean {
 function isLinkedInProfile(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.hostname.toLowerCase().endsWith("linkedin.com") && (/^\/posts\//i.test(url.pathname) || /^\/feed\/update\/urn:li:activity:\d+/i.test(url.pathname));
+    return url.hostname.toLowerCase().endsWith("linkedin.com") && /^\/in\//i.test(url.pathname);
+  } catch { return false; }
 }
-
 function extractLinkedInUrls(text: string): string[] {
   const decoded = decode(text);
   const matches = [
@@ -109,8 +109,8 @@ function extractEmails(text: string): string[] {
 }
 
 function experienceCompatible(text: string, years: number): boolean {
-  const ranges = [...text.matchAll(/(\\d+)\\s*(?:-|to|–|—)\\s*(\\d+)\\s*years?/gi)].map(m => [Number(m[1]), Number(m[2])] as const);
-  const minimums = [...text.matchAll(/(\\d+)\\s*\\+\\s*years?/gi)].map(m => Number(m[1]));
+  const ranges = [...text.matchAll(/(\d+)\s*(?:-|to|–|—)\s*(\d+)\s*years?/gi)].map(m => [Number(m[1]), Number(m[2])] as const);
+  const minimums = [...text.matchAll(/(\d+)\s*\+\s*years?/gi)].map(m => Number(m[1]));
   if (!ranges.length && !minimums.length) return true;
   return ranges.some(([min, max]) => years >= min && years <= max) || minimums.some(min => years >= min);
 }
@@ -118,7 +118,7 @@ function experienceCompatible(text: string, years: number): boolean {
 function locationCompatible(text: string, preferred: string[]): boolean {
   const haystack = text.toLowerCase();
   if (!preferred.length) return true;
-  if (/\\bremote\\b/i.test(haystack) && preferred.some(value => /remote|india/i.test(value))) return true;
+  if (/\bremote\b/i.test(haystack) && preferred.some(value => /remote|india/i.test(value))) return true;
   return preferred.some(value => haystack.includes(value.toLowerCase()));
 }
 
