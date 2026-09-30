@@ -150,6 +150,7 @@ export class ApplicationQueueService {
            AND jr.candidate_profile_id = md.candidate_profile_id
           LEFT JOIN applications a
             ON a.job_opportunity_id = md.job_opportunity_id
+           AND a.status NOT IN ('READY', 'DRAFTED')
           LEFT JOIN company_submission_counts csc
             ON csc.company_key = LOWER(TRIM(jo.company_name))
           WHERE md.candidate_profile_id = $1
