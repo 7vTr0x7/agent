@@ -155,14 +155,32 @@ function extractEmployer(text: string, email?: string, profileText?: string, sou
   const titleCompany = haystack.match(/<title[^>]*>\s*[^<]{2,140}?\s+(?:at|@|\||-|–|—)\s*([A-Z][A-Za-z0-9&.' -]{2,80})\s*(?:\||-|–|—|<)/i)?.[1]?.trim();
   const companyPath = sourceUrl?.match(/\/(?:companies?|employers?)\/([^/?#]+)\/(?:jobs?|roles?)\//i)?.[1]?.replace(/[-_]+/g, " ").trim();
   let name = strongAt || linkedinEmployer || hiringEmployer || explicitCompany || structuredCompany || titleCompany || (companyPath ? companyPath.replace(/\b\w/g, c => c.toUpperCase()) : undefined);
-  const urlDomains = [...haystack.matchAll(/https?:\/\/([^\s/<>"']+)/gi)].map(m => normalizeDomain(m[1] ?? "")).filter(d => d && !SEARCH_HOSTS.has(d) && !d.endsWith("linkedin.com"));
-  const domain = emailDomain || urlDomains.find(d => d && !/^lnkd\.in$/i.test(d));
+  const urlDomains = [...haystack.matchAll(/https?:\/\/([^\s/<>"']+)/gi)]
+    .map(m => normalizeDomain(m[1] ?? ""))
+    .filter(d => d && !SEARCH_HOSTS.has(d) && !d.endsWith("linkedin.com"));
+  // Never adopt an arbitrary URL domain as the employer domain. Search/profile
+  // evidence often contains unrelated links (for example, navigation or
+  // third-party resources). A domain is usable here only when it independently
+  // matches the extracted employer name; a direct email domain gets the same
+  // identity check before it can establish employer ownership.
+  const domain = (emailDomain && name && domainMatchesEmployerName(emailDomain, name))
+    ? emailDomain
+    : urlDomains.find(d => d && !/^lnkd\.in$/i.test(d) && !!name && domainMatchesEmployerName(d, name));
   const usableEmployerDomain = domain && !GENERIC_EMPLOYER_DOMAINS.has(domain) ? domain : undefined;
   if (emailDomain && name && /\b(?:hiring[- ]frontend|frontend[- ]developer|hiring[- ]react|react[- ]developer|min\s+read|skip\s+to|navigation)\b/i.test(name)) name = undefined;
   if (!name && usableEmployerDomain) name = usableEmployerDomain.split(".")[0]?.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   if (name && usableEmployerDomain) return { name: name.replace(/[|•,.-]+$/, "").trim(), domain: usableEmployerDomain };
   if (name) return { name: name.replace(/[|•,.-]+$/, "").trim() };
   return {};
+}
+
+function domainMatchesEmployerName(domain: string, employerName: string): boolean {
+  const root = normalizeDomain(domain).split(".")[0] ?? "";
+  const tokens = employerName.toLowerCase()
+    .replace(/&/g, " and ")
+    .split(/[^a-z0-9]+/)
+    .filter(token => token.length >= 3 && !["the","and","inc","ltd","llc","corp","company","limited","private","pvt"].includes(token));
+  return Boolean(root && tokens.length && tokens.some(token => root.includes(token)));
 }
 
 function hasFrontendEvidence(text: string): boolean {
