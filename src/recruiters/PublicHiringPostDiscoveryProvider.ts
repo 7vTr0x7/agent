@@ -365,8 +365,14 @@ export class PublicHiringPostDiscoveryProvider {
           const fetchedPostPage = await (input.fetchText ? input.fetchText(url, runtimeSignal) : fetchText(url, runtimeSignal, 6500));
           const fetchedEvidence = fetchedPostPage ? clean(fetchedPostPage).slice(0, 12000) : "";
           const jobLikeDestination = /(?:\/(?:jobs?|careers?|vacanc(?:y|ies)|positions?|openings?|roles?|hiring)(?:\/|$))/i.test(new URL(url).pathname);
-          const fetchedEvidenceUsable = hasHiringIntent(fetchedEvidence);
-          const searchEvidenceIsUsable = hasHiringIntent(discoveryEvidence) && (indexedPost || jobLikeDestination);
+          const candidateEmailFromEvidence = extractDirectEmail(fetchedEvidence) ?? extractDirectEmail(discoveryEvidence);
+          // Generic frontend/resource pages can contain job vocabulary such as
+          // "job description" or "apply" without being hiring evidence. A
+          // non-job destination is therefore admissible only when it is an
+          // indexed hiring post or contains a concrete recruiting mailbox.
+          const hiringDestinationEvidence = indexedPost || jobLikeDestination || Boolean(candidateEmailFromEvidence);
+          const fetchedEvidenceUsable = hasHiringIntent(fetchedEvidence) && hiringDestinationEvidence;
+          const searchEvidenceIsUsable = hasHiringIntent(discoveryEvidence) && hiringDestinationEvidence;
           const evidence = fetchedEvidenceUsable ? fetchedEvidence : (searchEvidenceIsUsable ? clean(discoveryEvidence).slice(0, 7000) : "");
           if (!evidence || !hasHiringIntent(evidence)) continue;
           metrics.hiringIntentPosts++;
