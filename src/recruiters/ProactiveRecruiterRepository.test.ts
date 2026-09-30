@@ -21,6 +21,32 @@ const hiringPostCandidate = (overrides: Partial<ProactiveRecruiterDiscoveryCandi
 });
 
 describe("ProactiveRecruiterRepository hiring-post persistence", () => {
+  it("rejects permanently excluded employers before persistence", async () => {
+    const database = { query: jest.fn() };
+    const repository = new ProactiveRecruiterRepository(database as never);
+
+    const result = await repository.persistCandidate("candidate-excluded", hiringPostCandidate({
+      employer: "Octopus Technologies",
+      employerDomain: "octopus.example"
+    }));
+
+    expect(result).toBeNull();
+    expect(database.query).not.toHaveBeenCalled();
+  });
+
+  it("rejects blocked job-board and ATS domains before persistence", async () => {
+    const database = { query: jest.fn() };
+    const repository = new ProactiveRecruiterRepository(database as never);
+
+    const result = await repository.persistCandidate("candidate-ats", hiringPostCandidate({
+      employer: "Workable",
+      employerDomain: "workable.com"
+    }));
+
+    expect(result).toBeNull();
+    expect(database.query).not.toHaveBeenCalled();
+  });
+
   it("persists an identity-consistent named recruiter from a public hiring post without inventing a profile URL", async () => {
     const database = { query: jest.fn()
       .mockResolvedValueOnce({ rows: [] })
