@@ -1,6 +1,6 @@
 export type SourceId =
   | "google-jina" | "google-direct" | "bing-jina" | "bing-direct" | "duckduckgo-jina" | "startpage-jina" | "ecosia-jina"
-  | "jina-search" | "brave-api" | "mojeek-api" | "brave-direct" | "mojeek-direct"
+  | "jina-search" | "google-api" | "brave-api" | "mojeek-api" | "brave-direct" | "mojeek-direct"
   | "qwant-direct" | "yahoo-direct";
 
 export interface Source {
@@ -17,7 +17,17 @@ export function sourceList(query: string): Source[] {
   const normalizedQuery = query.replace(/\s+/g, " ").trim();
   const q = encodeURIComponent(normalizedQuery);
   const sources: Source[] = [
+    // Google web HTML is retained as a best-effort fallback. In production
+    // Google may challenge automated traffic, so an existing Custom Search
+    // JSON API configuration is preferred when supplied.
     { id: "google-direct", url: `https://www.google.com/search?q=${q}&gbv=1` },
+    ...(process.env.GOOGLE_SEARCH_API_KEY?.trim() && process.env.GOOGLE_SEARCH_CX?.trim()
+      ? [{
+          id: "google-api" as SourceId,
+          url: `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(process.env.GOOGLE_SEARCH_API_KEY.trim())}&cx=${encodeURIComponent(process.env.GOOGLE_SEARCH_CX.trim())}&q=${q}&num=10&siteSearch=linkedin.com&siteSearchFilter=i&hl=en&gl=in`,
+          headers: { accept: "application/json" }
+        }]
+      : []),
     { id: "bing-direct", url: `https://www.bing.com/search?format=rss&q=${q}` },
     { id: "google-jina", url: `https://r.jina.ai/https://www.google.com/search?q=${q}&gbv=1` },
     { id: "bing-jina", url: `https://r.jina.ai/https://www.bing.com/search?format=rss&q=${q}` },
