@@ -194,7 +194,8 @@ function extractEmployer(text: string, email?: string, profileText?: string, sou
   if (!name && usableEmployerDomain) name = usableEmployerDomain.split(".")[0]?.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   if (name && usableEmployerDomain) return { name: name.replace(/[|•,.-]+$/, "").trim(), domain: usableEmployerDomain };
   if (name) return { name: name.replace(/[|•,.-]+$/, "").trim() };
-  return {};}
+  return {};
+}
 
 function domainMatchesEmployerName(domain: string, employerName: string): boolean {
   const root = normalizeDomain(domain).split(".")[0] ?? "";
@@ -373,7 +374,8 @@ export class PublicHiringPostDiscoveryProvider {
         metrics.rawSearchResults += (result.text.match(/https?:\/\/[^\s<>"'\\)\\]]+/gi) ?? []).length;
         const stat = metrics.sourceStats[result.source] ?? (metrics.sourceStats[result.source] = { attempted:0,succeeded:0,empty:0,errors:0,posts:0 }); stat.attempted++; stat.succeeded++;
         const urls = extractPublicEvidenceUrls(result.text).slice(0, MAX_DESTINATION_URLS_PER_SEARCH); metrics.normalizedResults += urls.length; stat.posts += urls.length;
-        for (const url of urls) {          if (postEvidence.has(url)) { metrics.duplicatePosts++; metrics.deduplicatedResults++; continue; }
+        for (const url of urls) {
+          if (postEvidence.has(url)) { metrics.duplicatePosts++; metrics.deduplicatedResults++; continue; }
           if (!isSafePublicDestinationUrl(url)) continue;
           const discoveryEvidence = buildEvidence(result.text, url);
           const indexedPost = LINKEDIN_POST_URL.test(url) && hasHiringIntent(discoveryEvidence);
