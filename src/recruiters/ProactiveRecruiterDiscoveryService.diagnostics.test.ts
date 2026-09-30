@@ -38,6 +38,28 @@ describe("ProactiveRecruiterDiscoveryService rejected-candidate diagnostics", ()
     expect(JSON.stringify(metrics.rejectedCandidateDiagnostics)).not.toContain("9876543210");
   });
 
+  test("extracts LinkedIn profiles from JSON/JS escaped search-result URLs", async () => {
+    const escapedLinkedIn = "https:\\/\\/www.linkedin.com\\/in\\/jane-doe-recruiter";
+    const searchPage = `Jane Doe - Technical Recruiter at Example Corp actively hiring React frontend engineers in Bengaluru. ${escapedLinkedIn}`;
+    const calls:string[] = [];
+    const discovery = new ProactiveRecruiterDiscoveryService({
+      maxQueries: 1,
+      targetCandidates: 1,
+      fetchText: async (url) => {
+        calls.push(url);
+        return url === "https://www.linkedin.com/in/jane-doe-recruiter"
+          ? "<html><head><title>Jane Doe | Technical Recruiter | Example Corp</title></head><body><h1>Jane Doe</h1><p>Technical Recruiter at Example Corp actively hiring React frontend engineers in Bengaluru.</p></body></html>"
+          : searchPage;
+      }
+    });
+
+    const discovered = await discovery.discover(profile);
+
+    expect(discovered).toHaveLength(1);
+    expect(discovered[0]?.discoveryUrl).toBe("https://www.linkedin.com/in/jane-doe-recruiter");
+    expect(calls).toContain("https://www.linkedin.com/in/jane-doe-recruiter");
+  });
+
   test("accepted candidates are not added to rejected diagnostics", async () => {
     const page = "Jane Doe - Technical Recruiter at Example Corp actively hiring React frontend engineers in Bengaluru. https://example.com/talent/jane-doe jane@example.com";
     const discovery = new ProactiveRecruiterDiscoveryService({

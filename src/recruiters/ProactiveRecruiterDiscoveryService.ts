@@ -153,9 +153,10 @@ function decodeHtmlSearchUrl(value:string):string{
   return current;
 }
 function extractEmbeddedLinkedInUrls(value:string):string[]{
-  const decoded=value
+  // Search engines may serialize result links as JSON/JS escaped URLs.
+  // Decode those representations before applying the strict profile matcher.
+  const decoded=decodeEscapedUrlText(value)
     .replace(/&amp;/gi,"&")
-    .replace(/\\u002f/gi,"/")
     .replace(/%3A/gi,":")
     .replace(/%2F/gi,"/")
     .replace(/%3F/gi,"?")
