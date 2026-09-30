@@ -47,7 +47,8 @@ describe("public-likely recruiter outreach safety", () => {
     expect(evaluateRecruiterOutreachSafety({ ...base, contact: { ...base.contact, email: "noreply@i-exceed.com", verificationStatus: "public-web-unverified", verificationEvidence: [] } }).allowed).toBe(false);
   });
 
-  it("still rejects stale recruiter evidence", () => {
-    expect(evaluateRecruiterOutreachSafety({ ...base, relevanceStatus: "HISTORICAL" }).allowed).toBe(false);
+  it("does not require current/recent recruiter relevance", () => {
+    expect(evaluateRecruiterOutreachSafety({ ...base, relevanceStatus: "HISTORICAL" }).allowed).toBe(true);
+    expect(evaluateRecruiterOutreachSafety({ ...base, relevanceStatus: "UNKNOWN" }).allowed).toBe(true);
   });
 });
