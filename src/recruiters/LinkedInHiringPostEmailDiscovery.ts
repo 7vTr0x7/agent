@@ -33,6 +33,8 @@ const SEARCH_PROVIDERS = new Set<SourceId>([
   // Keep reader providers when available, but also use direct providers
   // already registered by the application so one blocked proxy cannot
   // make the whole discovery pass empty.
+  "google-direct",
+  "google-api",
   "bing-direct",
   "qwant-direct",
   "bing-jina",
@@ -45,8 +47,8 @@ const SEARCH_PROVIDERS = new Set<SourceId>([
   "yahoo-direct"
 ]);
 
-const POST_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"]+|feed\/update\/urn:li:activity:\d+)/gi;
-const PROFILE_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
+const POST_URL = /(?:https?:)?\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"]+|feed\/update\/urn:li:activity:\d+)/gi;
+const PROFILE_URL = /(?:https?:)?\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const SEARCH_HOST = /^(?:www\.)?(?:google|bing|qwant|startpage|duckduckgo|search\.yahoo|search\.brave|mojeek)\.com$/i;
 const AUTOMATED_LOCAL = /^(?:noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot)$/i;
@@ -104,11 +106,56 @@ function isLinkedInProfile(value: string): boolean {
 }
 function extractLinkedInUrls(text: string): string[] {
   const decoded = decode(text);
-  const matches = [
-    ...(decoded.match(POST_URL) ?? []),
-    ...(decoded.match(PROFILE_URL) ?? [])
-  ];
-  return [...new Set(matches.map(canonical).filter(url => isLinkedInPost(url) || isLinkedInProfile(url)))];
+  const candidates = new Set<string>();
+
+  // Search engines expose result links in several forms: plain URLs,
+  // protocol-relative URLs, HTML hrefs, JSON fields, and redirect URLs.
+  // Decode first so escaped JSON/HTML URLs become visible to the same parser.
+  for (const pattern of [POST_URL, PROFILE_URL]) {
+    for (const match of decoded.matchAll(pattern)) {
+      candidates.add(match[0]);
+    }
+  }
+
+  const absoluteUrls = decoded.match(/https?:\/\/[^\s<>"]+/gi) ?? [];
+  for (const value of absoluteUrls) candidates.add(value);
+
+  const protocolRelativeUrls = decoded.match(/\/\/[^\s<>"']+/g) ?? [];
+  for (const value of protocolRelativeUrls) candidates.add(value);
+
+  const hrefs = [...decoded.matchAll(/(?:href|url|link|uddg|target|dest(?:ination)?)\\s*=\\s*["']([^"']+)["']/gi)];
+  for (const match of hrefs) candidates.add(match[1]!);
+
+  const linkedInUrls = new Set<string>();
+  for (const raw of candidates) {
+    let value = canonical(raw);
+    if (value.startsWith("//")) value = canonical(`https:${value}`);
+    if (isLinkedInPost(value) || isLinkedInProfile(value)) {
+      linkedInUrls.add(value);
+      continue;
+    }
+
+    // Unwrap common search-engine redirect parameters without trusting the
+    // redirect host itself. This keeps Google/Bing/Qwant/Yahoo/etc. useful
+    // when they return tracking URLs around the actual LinkedIn destination.
+    try {
+      const url = new URL(value);
+      if (!SEARCH_HOST.test(url.hostname)) continue;
+      for (const key of ["q", "url", "uddg", "u", "target", "dest", "destination"]) {
+        const nested = url.searchParams.get(key);
+        if (!nested) continue;
+        const decodedNested = canonical(decode(nested));
+        if (isLinkedInPost(decodedNested) || isLinkedInProfile(decodedNested)) {
+          linkedInUrls.add(decodedNested);
+          break;
+        }
+      }
+    } catch {
+      // Ignore malformed search-result fragments.
+    }
+  }
+
+  return [...linkedInUrls];
 }
 
 function extractEmails(text: string): string[] {
