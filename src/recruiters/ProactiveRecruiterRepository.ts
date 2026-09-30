@@ -1,11 +1,13 @@
 import { Database } from "../database/Database";
+import { PERMANENTLY_EXCLUDED_COMPANIES } from "../applications/ApplicationPolicy";
 import { ProactiveRecruiterDiscoveryCandidate, hasRequiredRecruiterEvidence } from "./ProactiveRecruiterDiscoveryService";
 import { hasExplicitMailboxEvidence, isMailboxVerifiedForRealSend, recruiterRealSendEligibilitySql } from "./RecruiterMailboxVerification";
-import { resolveEmployerDomainFromPublicSearch } from "./RecruiterCompanyDomainResolver";
+import { isBlockedEmployerDomain, resolveEmployerDomainFromPublicSearch } from "./RecruiterCompanyDomainResolver";
 export interface ProactiveCampaignRecord { sequenceId: string; messageId: string; }
 export class ProactiveRecruiterRepository {
   constructor(private readonly database: Database) {}
   async persistCandidate(candidateProfileId: string, candidate: ProactiveRecruiterDiscoveryCandidate): Promise<string | null> {
+    if (PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === candidate.employer.trim().toLowerCase())) return null;
     if (candidate.contactType !== "EMPLOYER" && !hasRequiredRecruiterEvidence(candidate) && !hasPublicHiringPostIdentityEvidence(candidate)) return null;
     const email = candidate.email?.trim().toLowerCase() || null;
     const emailDomain = email?.split("@")[1]?.toLowerCase() ?? "";
@@ -15,7 +17,7 @@ export class ProactiveRecruiterRepository {
     if (!recoveredEmployer) return null;
     const employerName = recoveredEmployer.trim();
     const domain = normalizeDomain(candidate.employerDomain ?? "") || (candidate.employer === "Unknown employer" && observedEmailDomain ? observedEmailDomain : "") || (emailDomain && isCompanyMatchingDomain(emailDomain, employerName) ? normalizeDomain(emailDomain) : "") || (employerName ? await resolveEmployerDomainFromPersistedJobs(this.database, employerName) : "") || (employerName ? await resolveEmployerDomainFromPublicSearch(employerName) : "");
-    if (!domain) return null;
+    if (!domain || isBlockedEmployerDomain(domain)) return null;
     const emailConsistent = !email || isEmployerEmailDomainConsistent(emailDomain, domain);
     const persistedEmail = emailConsistent ? email : null;
     const persistedEmailDomain = persistedEmail?.split("@")[1]?.toLowerCase() ?? "";
@@ -49,6 +51,9 @@ export class ProactiveRecruiterRepository {
     return id;
   }
   async createProactiveCampaign(input: { recruiterContactId: string; candidateProfileId: string; targetRoles: string[]; subject: string; body: string; }): Promise<ProactiveCampaignRecord | null> {
+    const contact = await this.database.query<{ company_name: string; company_domain: string; email: string | null }>(`SELECT company_name,company_domain,email FROM recruiter_contacts WHERE id=$1`, [input.recruiterContactId]);
+    const contactRow = contact.rows[0];
+    if (!contactRow || PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === contactRow.company_name.trim().toLowerCase()) || isBlockedEmployerDomain(contactRow.company_domain)) return null;
     const eligible = await this.database.query<{ id: string }>(`SELECT c.id FROM recruiter_contacts c WHERE c.id=$1 AND ${recruiterRealSendEligibilitySql("c")}`, [input.recruiterContactId]);
     if (!eligible.rows[0]) return null;
     const existingContact = await this.database.query<{ email: string }>(`SELECT email FROM recruiter_contacts WHERE id=$1`, [input.recruiterContactId]);
