@@ -480,7 +480,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       "Posted 2d",
       "React TypeScript JavaScript",
       "Experience: 2-5 years",
-      "Send your resume to hiring@example.com"
+      "Send your resume to hiring@examplecorp.test"
     ].join("\n");
     const postPage = [
       "<title>Frontend Developer — Example Corp</title>",
@@ -488,7 +488,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       "We're hiring a Frontend Developer to join our React team.",
       "React TypeScript JavaScript",
       "Experience: 2-5 years",
-      "Send your resume to hiring@example.com"
+      "Send your resume to hiring@examplecorp.test"
     ].join("\n");
 
     global.fetch = jest.fn(async (input: RequestInfo | URL) => {
@@ -513,7 +513,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(result.candidates[0]).toMatchObject({
       contactType: "EMPLOYER",
       employer: "Example Corp",
-      email: "hiring@example.com",
+      email: "hiring@examplecorp.test",
       discoveryUrl: postUrl
     });
   });
