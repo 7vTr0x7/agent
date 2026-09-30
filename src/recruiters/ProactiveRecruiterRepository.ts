@@ -56,7 +56,7 @@ export class ProactiveRecruiterRepository {
     return id;
   }
   async createProactiveCampaign(input: { recruiterContactId: string; candidateProfileId: string; targetRoles: string[]; subject: string; body: string; }): Promise<ProactiveCampaignRecord | null> {
-    const contact = await this.database.query<{ company_name: string; company_domain: string; email: string | null }>(`SELECT company_name,company_domain,email FROM recruiter_contacts WHERE id=$1`, [input.recruiterContactId]);
+    const contact = await this.database.query<{ company_name: string; company_domain: string; email: string | null }>(`SELECT rc.company_name,rc.company_domain,canonical_contact.email FROM recruiter_contacts rc JOIN contacts canonical_contact ON canonical_contact.id=rc.contact_id WHERE rc.id=$1`, [input.recruiterContactId]);
     const contactRow = contact.rows[0];
     if (!contactRow || PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === contactRow.company_name.trim().toLowerCase()) || isBlockedEmployerDomain(contactRow.company_domain)) return null;
     const eligible = await this.database.query<{ id: string }>(`SELECT c.id FROM recruiter_contacts c WHERE c.id=$1 AND ${recruiterRealSendEligibilitySql("c")}`, [input.recruiterContactId]);
