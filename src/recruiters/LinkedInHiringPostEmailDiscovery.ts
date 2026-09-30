@@ -119,9 +119,9 @@ function experienceCompatible(text: string, years: number): boolean {
 function locationCompatible(text: string, preferred: string[]): boolean {
   const haystack = text.toLowerCase();
   if (!preferred.length) return true;
-  if (/\bremote\b/i.test(haystack) && preferred.some(value => /remote|india/i.test(value))) return true;
+  if (/\bremote\b/i.test(haystack) && preferred.some(value => /remote/i.test(value))) return true;
+  if (preferred.some(value => /^india$/i.test(value)) && (INDIAN_LOCATION.test(haystack) || /\bindia\b/i.test(haystack))) return true;
   return preferred.some(value => haystack.includes(value.toLowerCase()));
-}
 
 function roleScore(text: string, roles: string[], skills: string[]): { score: number; terms: string[] } {
   const haystack = text.toLowerCase();
@@ -156,9 +156,9 @@ function emailIsRecruiting(text: string, email: string): boolean {
 function extractEmployer(text: string, email: string): { name: string; domain: string } {
   const domain = email.split("@")[1]!.toLowerCase();
   const patterns = [
-    /\\b(?:at|@)\\s+([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\\s+(?:is|are|hiring|looking|for|with|in|on)|[.!?]|$)/i,
-    /([A-Z][A-Za-z0-9&.' -]{2,80})\\s+(?:is|are)\\s+(?:hiring|looking\\s+for)/i,
-    /(?:company|employer|organization|organisation)\\s*[:=-]\\s*([A-Z][A-Za-z0-9&.' -]{2,80})/i
+    /\b(?:at|@)\s+([A-Z][A-Za-z0-9&.' -]{2,80}?)(?=\s+(?:is|are|hiring|looking|for|with|in|on)|[.!?]|$)/i,
+    /([A-Z][A-Za-z0-9&.' -]{2,80})\s+(?:is|are)\s+(?:hiring|looking\s+for)/i,
+    /(?:company|employer|organization|organisation)\s*[:=-]\s*([A-Z][A-Za-z0-9&.' -]{2,80})/i
   ];
   for (const pattern of patterns) {
     const match = decode(text).match(pattern)?.[1]?.trim();
@@ -247,7 +247,7 @@ export class LinkedInHiringPostEmailDiscovery {
             discoveryEvidence: [combined.slice(0, 8000)],
             evidenceType: "job_hiring_evidence",
             evidenceDate: new Date().toISOString(),
-            evidenceFreshness: /\\b(?:today|1d|2d|3d|4d|5d|6d|1w)\\b/i.test(combined) ? "current" : "recent",
+            evidenceFreshness: /\b(?:today|1d|2d|3d|4d|5d|6d|1w)\b/i.test(combined) ? "current" : "recent",
             email,
             emailStatus: "UNVERIFIED",
             verificationEvidence: [{
