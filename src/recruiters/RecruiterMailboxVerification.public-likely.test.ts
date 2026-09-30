@@ -28,9 +28,9 @@ describe("public recruiter email eligibility", () => {
     expect(isPubliclyLikelyForRealSend({ ...candidate, verificationEvidence: [] })).toBe(false);
   });
 
-  it("rejects stale public-likely contacts", () => {
-    expect(isPubliclyLikelyForRealSend({ ...candidate, relevanceStatus: "HISTORICAL" })).toBe(false);
-    expect(isPubliclyLikelyForRealSend({ ...candidate, relevanceStatus: "UNKNOWN" })).toBe(false);
+  it("allows public-likely contacts without current/recent relevance", () => {
+    expect(isPubliclyLikelyForRealSend({ ...candidate, relevanceStatus: "HISTORICAL" })).toBe(true);
+    expect(isPubliclyLikelyForRealSend({ ...candidate, relevanceStatus: "UNKNOWN" })).toBe(true);
   });
 
   it("rejects encoded search noise", () => {
@@ -41,7 +41,7 @@ describe("public recruiter email eligibility", () => {
     const sql = recruiterRealSendEligibilitySql("c");
     expect(sql).toContain("public-web-likely");
     expect(sql).toContain("c.verification_evidence");
-    expect(sql).toContain("c.relevance_status");
+    expect(sql).not.toContain("c.relevance_status");
     expect(sql).toContain("recruiter_suppressions");
   });
 });
