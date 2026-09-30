@@ -36,12 +36,11 @@ function run(script: string): void {
 }
 
 function main(): void {
-  // Run the existing bounded public-hiring path first, then a separate bounded
-  // pass over recent real jobs. The fallback is not synthetic: it uses persisted
-  // job opportunities as hiring evidence and the existing public-web identity
-  // and database evidence gates.
-  run("scripts/proactive-recruiter-once.ts");
-  run("scripts/job-linked-recruiter-fallback-once.ts");
+  // Focus this one-shot on the actual user workflow: public LinkedIn hiring posts ->
+  // relevant role/experience/location match -> email extracted from the post ->
+  // prepared application message, with live send only when explicit activation flags
+  // are enabled in the environment.
+  run("scripts/linkedin-hiring-post-once.ts");
 }
 
 if (require.main === module) {
