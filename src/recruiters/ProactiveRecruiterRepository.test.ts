@@ -86,11 +86,13 @@ describe("ProactiveRecruiterRepository hiring-post persistence", () => {
 
     expect(result).toBe("contact-generic-mailbox");
     expect(database.query).toHaveBeenCalledTimes(6);
-    const insertCall = database.query.mock.calls.find((call: unknown[]) => String(call[0]).includes("INSERT INTO contacts"));
+    const contactInsertCall = database.query.mock.calls.find((call: unknown[]) => String(call[0]).includes("INSERT INTO contacts "));
+    const contactInsertParams = contactInsertCall?.[1] as unknown[];
+    expect(contactInsertParams?.[2]).toBe("jane.recruiter@gmail.com");
+    const insertCall = database.query.mock.calls.find((call: unknown[]) => String(call[0]).includes("INSERT INTO recruiter_contacts"));
     const insertParams = insertCall?.[1] as unknown[];
-    expect(insertParams?.[2]).toBe("jane.recruiter@gmail.com");
-    expect(insertParams?.[6]).toBe(false);
-    expect(insertParams?.[7]).toBe("public-web-unverified");
+    expect(insertParams?.[5]).toBe(false);
+    expect(insertParams?.[6]).toBe("public-web-unverified");
   });
 
   it("accepts generic mailbox providers but rejects a non-generic employer-domain contradiction", () => {
