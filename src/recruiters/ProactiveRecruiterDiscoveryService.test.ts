@@ -173,7 +173,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
         maxQueries: 1,
         targetCandidates: 3,
         fetchText: async (url) => {
-          if (url.includes("/in/")) return pages.find(([profileUrl]) => url === profileUrl)?.[1] ?? null;
+          if (url.includes("/in/")) return pages.find(([profileUrl]) => url.replace(/\/$/, "").startsWith(profileUrl))?.[1] ?? null;
           return search;
         },
         now: () => now
