@@ -162,8 +162,6 @@ describe("ProactiveRecruiterDiscoveryService", () => {
 
   it("classifies current, recent, and historical hiring evidence without treating history as current", async () => {
     const now = new Date("2026-09-11T00:00:00Z");
-    const previousProviders = process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS;
-    process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS = "qwant-direct";
     const pages = [
       ["https://linkedin.com/in/current-recruiter", "Current Recruiter - Technical Recruiter at Example Corp currently hiring React engineers"],
       ["https://linkedin.com/in/recent-recruiter", "Recent Recruiter - Technical Recruiter at Example Corp recently recruiting frontend engineers"],
@@ -175,16 +173,14 @@ describe("ProactiveRecruiterDiscoveryService", () => {
         maxQueries: 1,
         targetCandidates: 3,
         fetchText: async (url) => {
-          if (url.startsWith("https://www.qwant.com/")) return search;
-          return pages.find(([profileUrl]) => url === profileUrl)?.[1] ?? null;
+          if (url.includes("/in/")) return pages.find(([profileUrl]) => url === profileUrl)?.[1] ?? null;
+          return search;
         },
         now: () => now
       });
       const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
       expect(results.map((result) => result.evidenceFreshness).sort()).toEqual(["current", "historical", "recent"].sort());
     } finally {
-      if (previousProviders === undefined) delete process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS;
-      else process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS = previousProviders;
     }
   });
 
