@@ -52,7 +52,7 @@ const SEARCH_PROVIDERS = new Set<SourceId>([
 const POST_URL = /(?:https?:)?\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"]+|feed\/update\/urn:li:activity:\d+)/gi;
 const PROFILE_URL = /(?:https?:)?\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const SEARCH_HOST = /^(?:www\.)?(?:google|bing|qwant|startpage|duckduckgo|search\.yahoo|search\.brave|mojeek)\.com$/i;
+const SEARCH_HOST = /^(?:(?:www\.)?(?:google|bing|qwant|startpage|duckduckgo|mojeek)\.com|(?:www\.)?google\.(?:co\.in|co\.uk)|news\.google\.com|search\.yahoo\.com|search\.brave\.com)$/i;
 const AUTOMATED_LOCAL = /^(?:noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot)$/i;
 const INDIAN_LOCATION = /\b(?:pune|bengaluru|bangalore|mumbai|navi mumbai|hyderabad|chennai|delhi|new delhi|noida|greater noida|gurgaon|gurugram|jaipur|indore|chandigarh|ahmedabad|kolkata|kochi|thiruvananthapuram|nagpur|surat|bhubaneswar|mysore|mysuru)\b/i;
 
@@ -67,6 +67,10 @@ function decode(value: string): string {
   let current = value
     .replace(/&amp;/gi, "&")
     .replace(/&quot;/gi, '"')
+    .replace(/&#x2f;/gi, "/")
+    .replace(/&#47;/gi, "/")
+    .replace(/&#x3a;/gi, ":")
+    .replace(/&#58;/gi, ":")
     .replace(/\\u003A/gi, ":")
     .replace(/\\u002F/gi, "/")
     .replace(/\\u0026/gi, "&")
@@ -251,11 +255,17 @@ export class LinkedInHiringPostEmailDiscovery {
     const role = input.targetRoles.slice(0, 3).join('" OR "') || "Frontend Developer";
     const skillQuery = input.skills.filter(Boolean).slice(0, 4).join('" OR "');
     const locations = input.preferredLocations.filter(Boolean).slice(0, 4).join('" OR "');
+    const location = locations || "India";
+    const primaryRole = role.replace(/"/g, "").split('" OR "')[0] || "Frontend Developer";
     const queries = [
-      `site:linkedin.com/posts ("we're hiring" OR "we are hiring" OR "looking for") ("${role}") ("${skillQuery}") ("${locations}")`,
-      `site:linkedin.com/posts hiring ("${role}") ("${skillQuery}") ("${locations}")`,
-      `site:linkedin.com/posts ("send your resume" OR "share your CV" OR "drop your resume") (React OR Next.js OR MERN) ("${locations}")`,
-      `site:linkedin.com/posts ("Frontend Developer" OR "React Developer" OR "MERN Stack") (hiring OR opportunity) India`
+      `site:linkedin.com/posts "we're hiring" React ${location}`,
+      `site:linkedin.com/posts "send your resume" "${primaryRole}" ${location}`,
+      `site:linkedin.com/posts "Frontend Developer" hiring ${location}`,
+      `site:linkedin.com/posts "Next.js" hiring India`,
+      `site:linkedin.com/feed/update/ "React Developer" hiring India`,
+      `site:linkedin.com/posts "share your CV" React India`,
+      `site:linkedin.com/posts "React Developer" "hiring" Bengaluru`,
+      `site:linkedin.com/posts "Frontend Engineer" "hiring" Pune`
     ].slice(0, maxQueries);
     const metrics: LinkedInHiringPostMetrics = { queriesGenerated: queries.length, queriesExecuted: 0, searchPagesFetched: 0, postUrlsFound: 0, relevantPosts: 0, directEmails: 0, candidates: 0, rejected: 0 };
     const candidates = new Map<string, ProactiveRecruiterDiscoveryCandidate>();
