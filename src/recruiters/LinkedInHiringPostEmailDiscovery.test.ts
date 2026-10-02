@@ -70,6 +70,35 @@ describe("LinkedInHiringPostEmailDiscovery", () => {
     });
   });
 
+  it("falls back to a post-specific search when the post URL is found without its email in the first result", async () => {
+    const postUrl = "https://www.linkedin.com/posts/example-recruiter_hiring-react-developer-activity-222333444";
+    const previousProviders = process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS;
+    process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS = "google-direct";
+    let calls = 0;
+    try {
+      const provider = new LinkedInHiringPostEmailDiscovery();
+      const result = await provider.discover({
+        targetRoles: ["React Developer"],
+        skills: ["React", "Next.js"],
+        yearsExperience: 3,
+        preferredLocations: ["Bengaluru", "India"],
+        maxQueries: 1,
+        fetchText: async (url) => {
+          calls += 1;
+          if (url === postUrl) return "We are hiring a React Developer in Bengaluru. Send your resume to the recruiter.";
+          if (calls === 1) return `Search result: ${postUrl}`;
+          return `Search result: ${postUrl} — React Developer — send your resume to recruiter@company-example.com`;
+        }
+      });
+      expect(result.metrics.postUrlsFound).toBe(1);
+      expect(result.metrics.directEmails).toBe(1);
+      expect(result.candidates[0]?.email).toBe("recruiter@company-example.com");
+    } finally {
+      if (previousProviders === undefined) delete process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS;
+      else process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS = previousProviders;
+    }
+  });
+
   it("extracts an employer-domain email when the hiring instruction is far from the mailbox", async () => {
     const postUrl = "https://www.linkedin.com/posts/example-recruiter_hiring-react-activity-222333444";
     const longCaption = [
