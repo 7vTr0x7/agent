@@ -168,7 +168,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
       ["https://linkedin.com/in/historical-recruiter", "Historical Recruiter - Technical Recruiter at Example Corp 2023 previously recruited frontend engineers"]
     ];
     try {
-      const search = pages.map(([url]) => `Technical Recruiter Frontend Engineer React <${url}>`).join("\n");
+      const search = pages.map(([url]) => `Technical Recruiter hiring Frontend Engineer React <${url}>`).join("\n");
       const service = new ProactiveRecruiterDiscoveryService({
         maxQueries: 1,
         targetCandidates: 3,
