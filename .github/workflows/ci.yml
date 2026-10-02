@@ -115,7 +115,8 @@ jobs:
           docker logs "$fixture_name" > /tmp/proactive-recruiter-fixture.log 2>&1
           cat /tmp/proactive-recruiter-fixture.log
           test "$fixture_exit" = '0'
-          for expected in '"status":"ok"' '"discovered":1' '"persisted":1' '"prepared":0' '"sendEnabled":false'; do grep -q "$expected" /tmp/proactive-recruiter-fixture.log; done
+          for expected in '"status":"ok"' '"discovered":1' '"persisted":1' '"prepared":0'; do grep -q "$expected" /tmp/proactive-recruiter-fixture.log; done
+grep -Eq '"sendEnabled"[[:space:]]*:[[:space:]]*false' /tmp/proactive-recruiter-fixture.log
           recruiter_count="$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts rc JOIN contacts ct ON ct.id=rc.contact_id WHERE LOWER(ct.email)='jane@acme.com' AND LOWER(rc.company_domain)='acme.com';" | tr -d '[:space:]')"
           test "$recruiter_count" = '1'
           test "$(docker exec job-agent-runtime-postgres psql -U job_agent -d job_agent -tAc "SELECT verified::int FROM recruiter_contacts rc JOIN contacts ct ON ct.id=rc.contact_id WHERE LOWER(ct.email)='jane@acme.com' AND LOWER(company_domain)='acme.com';" | tr -d '[:space:]')" = '0'
