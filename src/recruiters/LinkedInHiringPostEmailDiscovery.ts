@@ -261,6 +261,43 @@ async function fetchDefault(url: string, signal?: AbortSignal, headers?: Record<
   finally { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); }
 }
 
+function postSpecificSearchTerms(postUrl: string): string {
+  try {
+    const pathname = new URL(postUrl).pathname;
+    const raw = pathname.match(/\/posts\/([^/]+)/i)?.[1] ?? pathname.split("/").filter(Boolean).pop() ?? "";
+    const withoutActivity = raw.replace(/-activity-\\d+(?:-[A-Za-z0-9_-]+)?$/i, "").replace(/[_-]+/g, " ");
+    return withoutActivity.replace(/\\b(?:hiring|jobs?|careers?|activity|post)\\b/gi, " ").replace(/\\s+/g, " ").trim().split(" ").slice(0, 7).join(" ");
+  } catch {
+    return "";
+  }
+}
+
+async function findEmailFromPostSpecificSearch(
+  postUrl: string,
+  input: LinkedInHiringPostInput,
+  signal: AbortSignal
+): Promise<{ email: string; evidence: string } | null> {
+  const terms = postSpecificSearchTerms(postUrl);
+  if (!terms) return null;
+  const query = `site:linkedin.com/posts "${terms}" ("resume" OR "CV" OR "email")`;
+  const providers = sourceList(query)
+    .filter(item => SEARCH_PROVIDERS.has(item.id))
+    .filter(item => ["google-direct", "bing-direct", "qwant-direct"].includes(item.id))
+    .slice(0, 3);
+  const target = canonical(postUrl).toLowerCase();
+  for (const source of providers) {
+    if (signal.aborted) return null;
+    const text = await (input.fetchText ? input.fetchText(source.url, signal, source.headers) : fetchDefault(source.url, signal, source.headers));
+    if (!text) continue;
+    const decoded = decode(text);
+    const linkedInUrls = extractLinkedInUrls(decoded).map(canonical).map(value => value.toLowerCase());
+    if (!linkedInUrls.some(value => value === target || value.includes(new URL(postUrl).pathname.toLowerCase()))) continue;
+    const email = extractEmails(decoded).find(value => emailIsRecruiting(decoded, value));
+    if (email) return { email, evidence: evidenceAround(decoded, postUrl) };
+  }
+  return null;
+}
+
 export class LinkedInHiringPostEmailDiscovery {
   async discover(input: LinkedInHiringPostInput): Promise<LinkedInHiringPostResult> {
     const maxQueries = Math.max(1, Math.min(input.maxQueries ?? 4, 8));
@@ -304,7 +341,15 @@ export class LinkedInHiringPostEmailDiscovery {
             metrics.rejected++;
             continue;
           }
-          const email = extractEmails(combined).find(value => emailIsRecruiting(combined, value));
+          let email = extractEmails(combined).find(value => emailIsRecruiting(combined, value));
+          let emailEvidence = combined;
+          if (!email) {
+            const fallback = await findEmailFromPostSpecificSearch(url, input, signal);
+            if (fallback) {
+              email = fallback.email;
+              emailEvidence = `${combined} [POST_SPECIFIC_SEARCH] ${fallback.evidence}`;
+            }
+          }
           if (!email) { metrics.rejected++; continue; }
           const candidateKey = `${email.toLowerCase()}|${url.toLowerCase()}`;
           if (candidates.has(candidateKey)) continue;
@@ -323,7 +368,7 @@ export class LinkedInHiringPostEmailDiscovery {
             overallConfidence: Math.min(100, score.score + 20),
             discoverySource: "public-web",
             discoveryUrl: url,
-            discoveryEvidence: [combined.slice(0, 8000)],
+            discoveryEvidence: [emailEvidence.slice(0, 8000)],
             evidenceType: "job_hiring_evidence",
             evidenceDate: new Date().toISOString(),
             evidenceFreshness: /\b(?:today|1d|2d|3d|4d|5d|6d|1w)\b/i.test(combined) ? "current" : "recent",
