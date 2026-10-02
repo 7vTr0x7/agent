@@ -211,8 +211,20 @@ function emailIsRecruiting(text: string, email: string): boolean {
   const normalized = decode(text).toLowerCase();
   const index = normalized.indexOf(email.toLowerCase());
   if (index < 0) return false;
-  const context = normalized.slice(Math.max(0, index - 700), Math.min(normalized.length, index + 700));
-  return HIRING.test(context) || /(?:resume|cv|application|apply|hiring|recruiting|talent|job|role|opportunity)/i.test(context);
+  // LinkedIn post captions and comments can be long. A 700-character window
+  // can separate the hiring instruction from the actual mailbox even when both
+  // belong to the same post. Keep the wider window bounded, and apply stricter
+  // evidence for generic consumer mailboxes so commenter addresses are not
+  // mistaken for the employer contact.
+  const context = normalized.slice(Math.max(0, index - 1800), Math.min(normalized.length, index + 1800));
+  const domain = email.split("@")[1] ?? "";
+  const genericDomain = /^(?:gmail|googlemail|outlook|hotmail|live|yahoo|yahoo\.co\.in|icloud|proton\.me|protonmail)\./i.test(domain);
+  const recruitingLocal = /^(?:hr|careers?|jobs?|recruit(?:er|ing)?|talent|hiring|join(?:us)?|workwithus|people|ta)(?:[._-]|$)/i.test(email.split("@")[0] ?? "");
+  const directApplication = /(?:send|share|email|mail|contact|reach\s+out|forward).{0,180}(?:resume|cv|profile|application|details).{0,180}/i.test(context)
+    || /(?:resume|cv|profile|application|details).{0,180}(?:send|share|email|mail|contact|reach\s+out).{0,180}/i.test(context);
+  const roleEvidence = /(?:hiring|recruiting|talent|job|role|opportunity|frontend|front-end|react|next\.js|software|developer|engineer)/i.test(context);
+  if (!genericDomain) return directApplication || HIRING.test(context) || roleEvidence;
+  return recruitingLocal || directApplication;
 }
 
 function extractEmployer(text: string, email: string): { name: string; domain: string } {
