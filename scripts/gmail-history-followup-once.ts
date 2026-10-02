@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   const ids = await mailbox.listMessages(query, 100);
   const now = Date.now();
   const minAgeMs = minAgeDays * 86400000; const maxAgeMs = maxAgeDays * 86400000;
-  const candidates: Array<{ id: string; threadId: string; to: string; subject: string; sentAt: Date }> = [];
+  const candidates: Array<{ id: string; threadId: string; to: string; subject: string; sentAt: Date; inReplyTo: string; references: string }> = [];
 
   for (const id of ids) {
     const message = await mailbox.getMessage(id);
@@ -63,7 +63,7 @@ async function main(): Promise<void> {
     const sorted = [...threadMessages].sort((a,b) => Number(a.internalDate ?? 0) - Number(b.internalDate ?? 0));
     const latest = sorted[sorted.length - 1];
     if (!latest || !fromIsUser(latest, userEmail)) continue;
-    candidates.push({ id, threadId: message.gmailThreadId, to: message.recipientEmail, subject: message.subject, sentAt: message.receivedAt });
+    candidates.push({ id, threadId: message.gmailThreadId, to: message.recipientEmail, subject: message.subject, sentAt: message.receivedAt, inReplyTo: header(latest, "Message-ID"), references: header(latest, "References") });
     if (candidates.length >= maxMessages) break;
   }
 
@@ -87,7 +87,7 @@ async function main(): Promise<void> {
       const domain = candidate.to.split("@")[1]?.toLowerCase() ?? "";
       const suppression = await db.query<{ email_suppressed: boolean; domain_suppressed: boolean }>("SELECT EXISTS (SELECT 1 FROM recruiter_suppressions WHERE LOWER(email)=LOWER($1)) AS email_suppressed, EXISTS (SELECT 1 FROM recruiter_suppressions WHERE LOWER(company_domain)=LOWER($2)) AS domain_suppressed",[candidate.to,domain]);
       if (suppression.rows[0]?.email_suppressed || suppression.rows[0]?.domain_suppressed) { skipped += 1; continue; }
-      await mailbox.sendMessage({ to:candidate.to, subject:candidate.subject, bodyText:candidate.body, threadId:candidate.threadId, inReplyTo:"", references:"", attachments:[attachment] });
+      await mailbox.sendMessage({ to:candidate.to, subject:candidate.subject, bodyText:candidate.body, threadId:candidate.threadId, inReplyTo:candidate.inReplyTo, references:candidate.references, attachments:[attachment] });
       sent += 1;
     }
   } finally { await db.close(); }
