@@ -61,8 +61,8 @@ describe("ProactiveRecruiterRepository hiring-post persistence", () => {
     expect(result).toBe("contact-post-1");
     const insertCall = database.query.mock.calls.find((call: unknown[]) => String(call[0]).includes("INSERT INTO recruiter_contacts"));
     const insertParams = insertCall?.[1] as unknown[];
-    expect(insertParams?.[15]).toBeNull();
-    expect(String(insertParams?.[16])).toContain("profile:");
+    expect(insertParams?.[14]).toBeNull();
+    expect(String(insertParams?.[15])).toContain("profile:");
     const sourceCall = database.query.mock.calls.find((call: unknown[]) => String(call[0]).includes("INSERT INTO recruiter_contact_sources"));
     const sourceParams = sourceCall?.[1] as unknown[];
     expect(sourceParams?.[2]).toBe("job_hiring_evidence");
