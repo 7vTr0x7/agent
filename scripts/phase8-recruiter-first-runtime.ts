@@ -91,7 +91,8 @@ async function main(): Promise<void> {
     }
     if (!verifiedWithoutEvidenceBlocked) throw new Error("verified=true without mailbox evidence was not blocked");
 
-    const wrongDomain = await db.query<{ id: string }>(`INSERT INTO recruiter_contacts (company_name,company_domain,email,full_name,title,confidence,verified,verification_status,provider,email_status,domain_status,mx_status,mailbox_evidence,verification_evidence,relevance_status,last_seen_at,updated_at) VALUES ('Phase Eight Corp',$1,'wrong@other.test','Wrong Domain','Technical Recruiter',99,false,'INVALID','phase8-negative','INVALID','INVALID','MISSING',false,'[]','CURRENT',NOW(),NOW()) RETURNING id`, [companyDomain]);
+    const wrongContact=await db.query<{id:string}>(`INSERT INTO contacts (company_name,name,email,role,source,created_at,updated_at) VALUES ('Phase Eight Corp','Wrong Domain','wrong@other.test','Technical Recruiter','phase8-negative',NOW(),NOW()) ON CONFLICT (email) DO UPDATE SET updated_at=NOW() RETURNING id`, []);
+    const wrongDomain = await db.query<{ id: string }>(`INSERT INTO recruiter_contacts (company_name,company_domain,contact_id,email,full_name,title,confidence,verified,verification_status,provider,email_status,domain_status,mx_status,mailbox_evidence,verification_evidence,relevance_status,last_seen_at,updated_at) VALUES ('Phase Eight Corp',$1,$2,NULL,'Wrong Domain','Technical Recruiter',99,false,'INVALID','phase8-negative','INVALID','INVALID','MISSING',false,'[]','CURRENT',NOW(),NOW()) RETURNING id`, [companyDomain,wrongContact.rows[0]?.id]);
     const wrongDomainPrepared = await repository.createProactiveCampaign({ recruiterContactId: wrongDomain.rows[0]!.id, candidateProfileId: `${candidateProfile.id}-wrong-domain`, targetRoles: candidateProfile.targetRoles, subject, body });
     if (wrongDomainPrepared) throw new Error("Wrong-domain recruiter became send-eligible.");
 
