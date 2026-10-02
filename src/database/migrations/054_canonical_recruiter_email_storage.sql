@@ -9,6 +9,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_recruiter_contacts_company_contact
 CREATE INDEX IF NOT EXISTS idx_recruiter_contacts_contact_id
   ON recruiter_contacts(contact_id);
 
+-- The legacy mailbox constraint requires email when verified. Canonical storage moves
+-- email to contacts, so remove that legacy constraint before nulling recruiter_contacts.email.
+ALTER TABLE recruiter_contacts
+  DROP CONSTRAINT IF EXISTS recruiter_contacts_verified_mailbox_domain_check,
+  DROP CONSTRAINT IF EXISTS recruiter_contacts_mailbox_verification_check,
+  DROP CONSTRAINT IF EXISTS recruiter_contacts_email_must_be_null;
+
 -- Move every existing recruiter email into the canonical contacts table.
 INSERT INTO contacts (company_name, name, email, role, source, verified_at, created_at, updated_at)
 SELECT
