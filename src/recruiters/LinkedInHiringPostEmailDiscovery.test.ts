@@ -99,6 +99,31 @@ describe("LinkedInHiringPostEmailDiscovery", () => {
     }
   });
 
+  it("uses a reader fallback when the direct LinkedIn post is an authwall", async () => {
+    const postUrl = "https://www.linkedin.com/posts/example-recruiter_hiring-react-activity-555666777";
+    const readerUrl = `https://r.jina.ai/${postUrl}`;
+    const calls: string[] = [];
+    const search = `${postUrl} Example Recruiter hiring React Bengaluru`;
+    const post = "Example Recruiter | Technical Recruiter at Acme Corp | We're hiring React developers in Bengaluru. Send your resume to hiring@acme-example.com.";
+    const provider = new LinkedInHiringPostEmailDiscovery();
+    const result = await provider.discover({
+      targetRoles: ["React Developer"],
+      skills: ["React", "TypeScript"],
+      yearsExperience: 3,
+      preferredLocations: ["Bengaluru", "India"],
+      maxQueries: 1,
+      fetchText: async (url) => {
+        calls.push(url);
+        if (url === postUrl) return "Sign Up | LinkedIn Agree & Join LinkedIn";
+        if (url === readerUrl) return post;
+        return search;
+      }
+    });
+    expect(calls).toContain(readerUrl);
+    expect(result.metrics.directEmails).toBe(1);
+    expect(result.candidates[0]?.email).toBe("hiring@acme-example.com");
+  });
+
   it("extracts an employer-domain email when the hiring instruction is far from the mailbox", async () => {
     const postUrl = "https://www.linkedin.com/posts/example-recruiter_hiring-react-activity-222333444";
     const longCaption = [
