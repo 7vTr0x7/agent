@@ -52,6 +52,12 @@ ALTER TABLE recruiter_contacts
   DROP CONSTRAINT IF EXISTS recruiter_contacts_mailbox_verification_check,
   DROP CONSTRAINT IF EXISTS recruiter_contacts_verified_mailbox_domain_check;
 
+-- Remove legacy mailbox constraints that require email on recruiter_contacts.
+-- Email is canonical in contacts after this migration.
+ALTER TABLE recruiter_contacts
+  DROP CONSTRAINT IF EXISTS recruiter_contacts_mailbox_verification_check,
+  DROP CONSTRAINT IF EXISTS recruiter_contacts_verified_mailbox_domain_check;
+
 -- Email must no longer be persisted on recruiter_contacts. Keep the legacy
 -- nullable column temporarily for migration compatibility, but make duplicate
 -- storage impossible.
