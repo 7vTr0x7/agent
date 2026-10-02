@@ -102,6 +102,7 @@ async function main(): Promise<void> {
 
     console.log(JSON.stringify({
       status: "ok",
+      operationalStatus: "SUCCESS",
       feature: "LINKEDIN_HIRING_POST_EMAIL_FIRST",
       live,
       sendEnabled: config.proactiveRecruiter.sendEnabled,
