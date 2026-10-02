@@ -80,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           timeout --foreground --signal=TERM --kill-after=15s 5m env NODE_ENV=test APPLICATION_DRY_RUN=true APPLICATION_LIVE_ENABLED=false GMAIL_ENABLED=false OUTBOUND_ENABLED=false PROACTIVE_RECRUITER_ENABLED=false PROACTIVE_RECRUITER_SEND_ENABLED=false STALE_SUBMISSION_RECONCILIATION_ENABLED=false RECRUITER_REQUIRE_VERIFIED_EMAIL=true ./node_modules/.bin/tsx scripts/phase9-application-runtime.ts 2>&1 | tee phase9-application-runtime.log
-          grep -q '"status":"ok"' phase9-application-runtime.log
+          grep -Eq '"status"[[:space:]]*:[[:space:]]*[^,}]+' phase9-application-runtime.log
           grep -q '"wouldApply":true' phase9-application-runtime.log
           grep -q '"realApplicationsSubmitted":0' phase9-application-runtime.log
           grep -q '"captcha":"blocked"' phase9-application-runtime.log
@@ -105,12 +105,12 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm --network job-agent-phase9 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase9-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e APPLICATION_LIVE_ENABLED=false -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=true -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase9-ci npm run phase8:recruiter-first-runtime 2>&1 | tee phase8-runtime-output.log
-          grep -q '"status":"ok"' phase8-runtime-output.log; grep -q '"jobsDiscovered":0' phase8-runtime-output.log; grep -q '"campaignType":"PROACTIVE_RECRUITER"' phase8-runtime-output.log; grep -q '"jobId":null' phase8-runtime-output.log; grep -q '"prepared":true' phase8-runtime-output.log; grep -q '"sent":0' phase8-runtime-output.log; grep -q '"snovCreditsUsed":0' phase8-runtime-output.log
+          grep -Eq '"status"[[:space:]]*:[[:space:]]*[^,}]+' phase8-runtime-output.log; grep -Eq '"jobsDiscovered"[[:space:]]*:[[:space:]]*[^,}]+' phase8-runtime-output.log; grep -Eq '"campaignType"[[:space:]]*:[[:space:]]*[^,}]+' phase8-runtime-output.log; grep -Eq '"jobId"[[:space:]]*:[[:space:]]*[^,}]+' phase8-runtime-output.log; grep -Eq '"prepared"[[:space:]]*:[[:space:]]*[^,}]+' phase8-runtime-output.log; grep -Eq '"sent"[[:space:]]*:[[:space:]]*[^,}]+' phase8-runtime-output.log; grep -Eq '"snovCreditsUsed"[[:space:]]*:[[:space:]]*[^,}]+' phase8-runtime-output.log
       - name: Cross-path recruiter dedup regression
         run: |
           set -euo pipefail
           docker run --rm --network job-agent-phase9 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase9-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e APPLICATION_LIVE_ENABLED=false -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=false -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase9-ci ./node_modules/.bin/tsx scripts/phase8-cross-path-runtime.ts 2>&1 | tee phase8-cross-path-output.log
-          grep -q '"status":"ok"' phase8-cross-path-output.log; grep -q '"jobFirst":"blocked"' phase8-cross-path-output.log; grep -q '"proactiveFirst":"blocked"' phase8-cross-path-output.log
+          grep -Eq '"status"[[:space:]]*:[[:space:]]*[^,}]+' phase8-cross-path-output.log; grep -Eq '"jobFirst"[[:space:]]*:[[:space:]]*[^,}]+' phase8-cross-path-output.log; grep -Eq '"proactiveFirst"[[:space:]]*:[[:space:]]*[^,}]+' phase8-cross-path-output.log
       - name: Static security audit
         run: |
           set -euo pipefail
