@@ -163,9 +163,9 @@ describe("ProactiveRecruiterDiscoveryService", () => {
   it("classifies current, recent, and historical hiring evidence without treating history as current", async () => {
     const now = new Date("2026-09-11T00:00:00Z");
     const pages: Array<[string, string]> = [
-      ["https://linkedin.com/in/current-recruiter", "Current Recruiter - Technical Recruiter at Example Corp currently hiring React engineers"],
-      ["https://linkedin.com/in/recent-recruiter", "Recent Recruiter - Technical Recruiter at Example Corp recently recruiting frontend engineers"],
-      ["https://linkedin.com/in/historical-recruiter", "Historical Recruiter - Technical Recruiter at Example Corp 2023 previously recruited frontend engineers"]
+      ["https://linkedin.com/in/current-recruiter", "Current Recruiter - Technical Recruiter at Example Corp currently hiring React engineers email current@example.com"],
+      ["https://linkedin.com/in/recent-recruiter", "Recent Recruiter - Technical Recruiter at Example Corp recently recruiting frontend engineers email recent@example.com"],
+      ["https://linkedin.com/in/historical-recruiter", "Historical Recruiter - Technical Recruiter at Example Corp 2023 previously recruited frontend engineers email historical@example.com"]
     ];
     try {
       const search = pages.map(([url]) => `Technical Recruiter hiring Frontend Engineer React <${url}>`).join("\n");
