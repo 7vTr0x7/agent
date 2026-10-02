@@ -274,7 +274,7 @@ function postSpecificSearchTerms(postUrl: string): string {
 
 async function fetchPostText(input: LinkedInHiringPostInput, url: string, signal: AbortSignal): Promise<string | null> {
   const direct = input.fetchText ? await input.fetchText(url, signal) : await fetchDefault(url, signal);
-  if (direct && !/agree\s*&\s*join|sign\s+up\s+to\s+see|join\s+linkedin|authwall|page not found/i.test(direct.slice(0, 12000))) return direct;
+  if (direct && !/(?:agree\s*&\s*join|sign\s+up(?:\s*\|\s*linkedin)?|sign\s+in(?:\s*\|\s*linkedin)?|sign\s+up\s+to\s+see|join\s+linkedin|linkedin\s+login|authwall|page not found)/i.test(direct.slice(0, 12000))) return direct;
   const readerUrl = `https://r.jina.ai/${url}`;
   const reader = input.fetchText ? await input.fetchText(readerUrl, signal) : await fetchDefault(readerUrl, signal);
   return reader ?? direct;
