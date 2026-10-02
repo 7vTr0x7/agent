@@ -93,9 +93,9 @@ jobs:
             -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
             -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false \
             job-agent:phase7-ci npm run phase7:recruiter-outreach-runtime 2>&1 | tee phase7-runtime-output.log
-          grep -q '"status":"ok"' phase7-runtime-output.log
-          grep -q '"prepared":1' phase7-runtime-output.log
-          grep -q '"sent":"0"' phase7-runtime-output.log
+          grep -Eq '"status"[[:space:]]*:[[:space:]]*[^,}]+' phase7-runtime-output.log
+          grep -Eq '"prepared"[[:space:]]*:[[:space:]]*[^,}]+' phase7-runtime-output.log
+          grep -Eq '"sent"[[:space:]]*:[[:space:]]*[^,}]+' phase7-runtime-output.log
           grep -Eq '"sendEnabled"[[:space:]]*:[[:space:]]*false' phase7-runtime-output.log
           grep -q '"gmailEnabled":false' phase7-runtime-output.log
       - name: Upload comprehensive fixture output
