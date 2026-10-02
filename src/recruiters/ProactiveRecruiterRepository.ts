@@ -7,9 +7,18 @@ import { isBlockedEmployerDomain, resolveEmployerDomainFromPublicSearch } from "
 export interface ProactiveCampaignRecord { sequenceId: string; messageId: string; }
 export class ProactiveRecruiterRepository {
   constructor(private readonly database: Database) {}
+
+  private async query<T extends Record<string, unknown> = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<{ rows: T[] }> {
+    try {
+      return await this.query<T>(sql, params);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`ProactiveRecruiterRepository query failed: ${detail}; sql=${sql.slice(0, 220)}`);
+    }
+  }
   private async query<T extends QueryResultRow = QueryResultRow>(sql: string, params: unknown[]): Promise<QueryResult<T>> {
     try {
-      return await this.database.query<T>(sql, params);
+      return await this.query<T>(sql, params);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`ProactiveRecruiterRepository query failed: ${detail}; sql=${sql.slice(0, 220)}`);
