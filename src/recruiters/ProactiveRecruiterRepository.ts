@@ -1,4 +1,5 @@
 import { Database } from "../database/Database";
+import { QueryResult, QueryResultRow } from "pg";
 import { PERMANENTLY_EXCLUDED_COMPANIES } from "../applications/ApplicationPolicy";
 import { ProactiveRecruiterDiscoveryCandidate, hasRequiredRecruiterEvidence } from "./ProactiveRecruiterDiscoveryService";
 import { hasExplicitMailboxEvidence, isMailboxVerifiedForRealSend, recruiterRealSendEligibilitySql } from "./RecruiterMailboxVerification";
@@ -6,7 +7,7 @@ import { isBlockedEmployerDomain, resolveEmployerDomainFromPublicSearch } from "
 export interface ProactiveCampaignRecord { sequenceId: string; messageId: string; }
 export class ProactiveRecruiterRepository {
   constructor(private readonly database: Database) {}
-  private async query<T>(sql: string, params: unknown[]): Promise<{ rows: T[] }> {
+  private async query<T extends QueryResultRow = QueryResultRow>(sql: string, params: unknown[]): Promise<QueryResult<T>> {
     try {
       return await this.database.query<T>(sql, params);
     } catch (error) {
