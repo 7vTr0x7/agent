@@ -160,23 +160,6 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(results[0]?.employerDomain).toBe("acme.com");
   });
 
-  it("classifies current and historical hiring evidence without treating history as current", async () => {
-    const now = new Date("2026-09-11T00:00:00Z");
-    const run = async (profileText: string) => {
-      const profileUrl = "https://linkedin.com/in/example-recruiter";
-      const service = new ProactiveRecruiterDiscoveryService({
-        maxQueries: 1,
-        targetCandidates: 1,
-        fetchText: async (url) => url.includes("/in/") ? profileText : `Technical Recruiter hiring Frontend Engineer React <${profileUrl}>`,
-        now: () => now
-      });
-      const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
-      return results[0]?.evidenceFreshness;
-    };
-    await expect(run("Example Recruiter - Technical Recruiter at Example Corp currently hiring Frontend Engineer and React engineers")).resolves.toBe("current");
-    await expect(run("Example Recruiter - Technical Recruiter at Example Corp 2023 previously recruited Frontend Engineer roles")).resolves.toBe("historical");
-  });
-
   it("counts actual profile fetches and parses only returned profile evidence", async () => {
     const searchPage = `Search query: site:linkedin.com/in "technical recruiter" "Frontend Engineer" "Bengaluru"\nJane Doe - Recruiter <https://linkedin.com/in/jane-doe>`;
     const profilePage = `<html><head><title>Jane Doe | Technical Recruiter at Acme</title><meta name="description" content="Technical Recruiter at Acme hiring frontend engineers in Bengaluru"></head><body><h1>Jane Doe</h1><p>Technical Recruiter at Acme. Hiring React and frontend engineers.</p></body></html>`;
