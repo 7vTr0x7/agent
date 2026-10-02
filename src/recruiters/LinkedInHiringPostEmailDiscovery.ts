@@ -265,8 +265,8 @@ function postSpecificSearchTerms(postUrl: string): string {
   try {
     const pathname = new URL(postUrl).pathname;
     const raw = pathname.match(/\/posts\/([^/]+)/i)?.[1] ?? pathname.split("/").filter(Boolean).pop() ?? "";
-    const withoutActivity = raw.replace(/-activity-\\d+(?:-[A-Za-z0-9_-]+)?$/i, "").replace(/[_-]+/g, " ");
-    return withoutActivity.replace(/\\b(?:hiring|jobs?|careers?|activity|post)\\b/gi, " ").replace(/\\s+/g, " ").trim().split(" ").slice(0, 7).join(" ");
+    const withoutActivity = raw.replace(/-activity-\d+(?:-[A-Za-z0-9_-]+)?$/i, "").replace(/[_-]+/g, " ");
+    return withoutActivity.replace(/\b(?:hiring|jobs?|careers?|activity|post)\b/gi, " ").replace(/\s+/g, " ").trim().split(" ").slice(0, 7).join(" ");
   } catch {
     return "";
   }
