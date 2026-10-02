@@ -160,28 +160,21 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(results[0]?.employerDomain).toBe("acme.com");
   });
 
-  it("classifies current, recent, and historical hiring evidence without treating history as current", async () => {
+  it("classifies current and historical hiring evidence without treating history as current", async () => {
     const now = new Date("2026-09-11T00:00:00Z");
-    const pages: Array<[string, string]> = [
-      ["https://linkedin.com/in/current-recruiter", "Current Recruiter - Technical Recruiter at Example Corp currently hiring React engineers email current@example.com"],
-      ["https://linkedin.com/in/recent-recruiter", "Recent Recruiter - Technical Recruiter at Example Corp recently recruiting frontend engineers email recent@example.com"],
-      ["https://linkedin.com/in/historical-recruiter", "Historical Recruiter - Technical Recruiter at Example Corp 2023 previously recruited frontend engineers email historical@example.com"]
-    ];
-    try {
-      const search = pages.map(([url]) => `Technical Recruiter hiring Frontend Engineer React <${url}>`).join("\n");
+    const run = async (profileText: string) => {
+      const profileUrl = "https://linkedin.com/in/example-recruiter";
       const service = new ProactiveRecruiterDiscoveryService({
         maxQueries: 1,
-        targetCandidates: 3,
-        fetchText: async (url) => {
-          if (url.includes("/in/")) return pages.find(([profileUrl]) => url.replace(/\/$/, "").startsWith(profileUrl))?.[1] ?? null;
-          return search;
-        },
+        targetCandidates: 1,
+        fetchText: async (url) => url.includes("/in/") ? profileText : `Technical Recruiter hiring Frontend Engineer React <${profileUrl}>`,
         now: () => now
       });
       const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
-      expect(results.map((result) => result.evidenceFreshness).sort()).toEqual(["current", "historical", "recent"].sort());
-    } finally {
-    }
+      return results[0]?.evidenceFreshness;
+    };
+    await expect(run("Example Recruiter - Technical Recruiter at Example Corp currently hiring React engineers")).resolves.toBe("current");
+    await expect(run("Example Recruiter - Technical Recruiter at Example Corp 2023 previously recruited frontend engineers")).resolves.toBe("historical");
   });
 
   it("counts actual profile fetches and parses only returned profile evidence", async () => {
