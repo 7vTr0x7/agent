@@ -10,7 +10,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(new Set(queries).size).toBe(queries.length);
   });
 
-  it("uses the public Jina search endpoint when no Jina API key is configured", async () => {
+  it("uses an available direct search provider without requiring Jina credentials", async () => {
     const target = "https://www.linkedin.com/in/anita-recruiter";
     const profile = `<html><head><title>Anita Rao | Technical Recruiter | Acme Corp</title></head><body><h1>Anita Rao</h1><p>Technical Recruiter at Acme Corp. Hiring React engineers in Bengaluru.</p></body></html>`;
     const search = `Anita Rao — Technical Recruiter at Acme Corp <${target}>`;
@@ -18,19 +18,19 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     const previousProviders = process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS;
     const previousJinaKey = process.env.JINA_API_KEY;
     delete process.env.JINA_API_KEY;
-    process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS = "jina-search";
+    process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS = "qwant-direct";
     try {
       const service = new ProactiveRecruiterDiscoveryService({
         maxQueries: 1,
         fetchText: async (url) => {
           calls.push(url);
-          if (url.startsWith("https://s.jina.ai/")) return search;
+          if (url.startsWith("https://www.qwant.com/")) return search;
           if (url === target) return profile;
           return "";
         }
       });
       const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
-      expect(calls.some((url) => url.startsWith("https://s.jina.ai/"))).toBe(true);
+      expect(calls.some((url) => url.startsWith("https://www.qwant.com/"))).toBe(true);
       expect(results[0]?.recruiterName).toBe("Anita Rao");
       expect(results[0]?.discoveryUrl).toBe(target);
       expect(service.getLastRunMetrics().linkedinUrlsExtracted).toBeGreaterThan(0);
