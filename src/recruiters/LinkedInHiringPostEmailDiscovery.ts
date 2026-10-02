@@ -350,21 +350,24 @@ export class LinkedInHiringPostEmailDiscovery {
           if (isLinkedInPost(url)) discoveredPostUrls.add(url);
           const evidence = evidenceAround(text, url);
           const page = await fetchPostText(input, url, signal);
-          const combined = decode(`${evidence} ${page ?? ""}`);
+          let combined = decode(`${evidence} ${page ?? ""}`);
+          let email = extractEmails(combined).find(value => emailIsRecruiting(combined, value));
+          let emailEvidence = combined;
+          // If LinkedIn returns an authwall, run the post-specific search before
+          // rejecting the URL so public search evidence can supply the hiring text.
+          if (!HIRING.test(combined) || !email) {
+            const fallback = await findEmailFromPostSpecificSearch(url, input, signal);
+            if (fallback) {
+              email = fallback.email;
+              emailEvidence = `${combined} [POST_SPECIFIC_SEARCH] ${fallback.evidence}`;
+              combined = decode(emailEvidence);
+            }
+          }
           if (!HIRING.test(combined)) continue;
           const score = roleScore(combined, input.targetRoles, input.skills);
           if (score.score < 65 || !experienceCompatible(combined, input.yearsExperience) || !locationCompatible(combined, input.preferredLocations)) {
             metrics.rejected++;
             continue;
-          }
-          let email = extractEmails(combined).find(value => emailIsRecruiting(combined, value));
-          let emailEvidence = combined;
-          if (!email) {
-            const fallback = await findEmailFromPostSpecificSearch(url, input, signal);
-            if (fallback) {
-              email = fallback.email;
-              emailEvidence = `${combined} [POST_SPECIFIC_SEARCH] ${fallback.evidence}`;
-            }
           }
           if (!email) { metrics.rejected++; continue; }
           const candidateKey = `${email.toLowerCase()}|${url.toLowerCase()}`;
