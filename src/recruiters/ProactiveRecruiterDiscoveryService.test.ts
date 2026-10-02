@@ -173,8 +173,8 @@ describe("ProactiveRecruiterDiscoveryService", () => {
       const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
       return results[0]?.evidenceFreshness;
     };
-    await expect(run("Example Recruiter - Technical Recruiter at Example Corp currently hiring React engineers")).resolves.toBe("current");
-    await expect(run("Example Recruiter - Technical Recruiter at Example Corp 2023 previously recruited frontend engineers")).resolves.toBe("historical");
+    await expect(run("Example Recruiter - Technical Recruiter at Example Corp currently hiring Frontend Engineer and React engineers")).resolves.toBe("current");
+    await expect(run("Example Recruiter - Technical Recruiter at Example Corp 2023 previously recruited Frontend Engineer roles")).resolves.toBe("historical");
   });
 
   it("counts actual profile fetches and parses only returned profile evidence", async () => {
