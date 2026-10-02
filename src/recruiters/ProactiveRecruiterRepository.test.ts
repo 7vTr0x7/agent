@@ -59,7 +59,7 @@ describe("ProactiveRecruiterRepository hiring-post persistence", () => {
     const result = await repository.persistCandidate("candidate-1", hiringPostCandidate());
 
     expect(result).toBe("contact-post-1");
-    const insertParams = database.query.mock.calls[2]?.[1] as unknown[];
+    const insertParams = database.query.mock.calls[1]?.[1] as unknown[];
     expect(insertParams?.[15]).toBeNull();
     expect(String(insertParams?.[16])).toContain("profile:");
     const sourceParams = database.query.mock.calls[2]?.[1] as unknown[];
@@ -84,7 +84,7 @@ describe("ProactiveRecruiterRepository hiring-post persistence", () => {
 
     expect(result).toBe("contact-generic-mailbox");
     expect(database.query).toHaveBeenCalledTimes(6);
-    const insertParams = database.query.mock.calls[1]?.[1] as unknown[];
+    const insertParams = database.query.mock.calls[2]?.[1] as unknown[];
     expect(insertParams?.[2]).toBe("jane.recruiter@gmail.com");
     expect(insertParams?.[6]).toBe(false);
     expect(insertParams?.[7]).toBe("public-web-unverified");
