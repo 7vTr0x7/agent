@@ -100,7 +100,7 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm --network job-agent-phase9 -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:ci@job-agent-phase9-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e APPLICATION_LIVE_ENABLED=false -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=false -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e STALE_SUBMISSION_RECONCILIATION_ENABLED=false job-agent:phase9-ci npm run phase7:recruiter-outreach-runtime 2>&1 | tee phase7-regression-output.log
-          grep -q '"status":"ok"' phase7-regression-output.log; grep -q '"prepared":1' phase7-regression-output.log; grep -q '"sent":"0"' phase7-regression-output.log
+          grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' phase7-regression-output.log; grep -Eq '"prepared"[[:space:]]*:[[:space:]]*1' phase7-regression-output.log; grep -Eq '"sent"[[:space:]]*:[[:space:]]*"0"' phase7-regression-output.log
       - name: Phase 8 recruiter-first regression
         run: |
           set -euo pipefail
