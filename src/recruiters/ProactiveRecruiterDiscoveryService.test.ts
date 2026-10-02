@@ -165,16 +165,27 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     const previousProviders = process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS;
     process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS = "qwant-direct";
     const pages = [
-      "Current Recruiter - Technical Recruiter at Example Corp currently hiring React engineers <https://linkedin.com/in/current-recruiter>",
-      "Recent Recruiter - Technical Recruiter at Example Corp recently recruiting frontend engineers <https://linkedin.com/in/recent-recruiter>",
-      "Historical Recruiter - Technical Recruiter at Example Corp 2023 previously recruited frontend engineers <https://linkedin.com/in/historical-recruiter>"
+      ["https://linkedin.com/in/current-recruiter", "Current Recruiter - Technical Recruiter at Example Corp currently hiring React engineers"],
+      ["https://linkedin.com/in/recent-recruiter", "Recent Recruiter - Technical Recruiter at Example Corp recently recruiting frontend engineers"],
+      ["https://linkedin.com/in/historical-recruiter", "Historical Recruiter - Technical Recruiter at Example Corp 2023 previously recruited frontend engineers"]
     ];
-    let index = 0;
-    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => pages[index++ % pages.length] ?? null, now: () => now });
-    const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
-    expect(results.map((result) => result.evidenceFreshness).sort()).toEqual(["current", "historical", "recent"].sort());
-    if (previousProviders === undefined) delete process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS;
-    else process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS = previousProviders;
+    try {
+      const search = pages.map(([url, text]) => `${text} <${url}>`).join("\n");
+      const service = new ProactiveRecruiterDiscoveryService({
+        maxQueries: 1,
+        targetCandidates: 3,
+        fetchText: async (url) => {
+          if (url.startsWith("https://www.qwant.com/")) return search;
+          return pages.find(([profileUrl]) => url === profileUrl)?.[1] ?? null;
+        },
+        now: () => now
+      });
+      const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
+      expect(results.map((result) => result.evidenceFreshness).sort()).toEqual(["current", "historical", "recent"].sort());
+    } finally {
+      if (previousProviders === undefined) delete process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS;
+      else process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS = previousProviders;
+    }
   });
 
   it("counts actual profile fetches and parses only returned profile evidence", async () => {
