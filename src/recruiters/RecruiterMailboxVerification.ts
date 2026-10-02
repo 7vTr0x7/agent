@@ -37,7 +37,7 @@ export function isPublicCompanyDomainEmailForRealSend(record: RecruiterMailboxVe
   if(!isPlausibleMailboxAddress(email)||!companyDomain||emailDomain!==companyDomain)return false;
   if(emailStatus!=="UNVERIFIED"&&emailStatus!=="LIKELY")return false;
   if(isAutomatedMailbox(email))return false;
-  if(record.provider!==undefined&&record.provider!==null&&String(record.provider).trim().length===0)return false;
+  if(String(record.provider??"").trim()!=="proactive-public-web")return false;
   return true;
 }
 export function isRecruiterRelevantForRealSend(_record: RecruiterMailboxVerificationRecord): boolean { return true; }
@@ -70,6 +70,7 @@ export function recruiterRealSendEligibilitySql(alias="c"):string{const emailSql
       AND ${emailSql} ~* '^[A-Za-z0-9!#$&''*+/=?^_\\x60{|}~.-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
       AND SPLIT_PART(${emailSql},'@',1) !~* '(^\\.|\\.$|\\.\\.|%|^(noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot)$)'
       AND SPLIT_PART(${emailSql},'@',2) !~* '(^\\.|\\.$|\\.\\.)'
+      AND COALESCE(${alias}.provider,'')='proactive-public-web'
       AND LOWER(SPLIT_PART(${emailSql},'@',2))=LOWER(${alias}.company_domain)
     )
     AND COALESCE(${alias}.suppressed,FALSE)=FALSE
