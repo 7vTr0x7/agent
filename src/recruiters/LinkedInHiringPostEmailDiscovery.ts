@@ -287,21 +287,29 @@ async function findEmailFromPostSpecificSearch(
 ): Promise<{ email: string; evidence: string } | null> {
   const terms = postSpecificSearchTerms(postUrl);
   if (!terms) return null;
-  const query = `site:linkedin.com/posts "${terms}" ("resume" OR "CV" OR "email")`;
-  const providers = sourceList(query)
-    .filter(item => SEARCH_PROVIDERS.has(item.id))
-    .filter(item => ["google-direct", "bing-direct", "qwant-direct"].includes(item.id))
-    .slice(0, 3);
+  const queries = [
+    `site:linkedin.com/posts "${terms}" ("resume" OR "CV" OR "email")`,
+    `site:linkedin.com/posts "${postUrl}" ("resume" OR "CV" OR "@")`,
+    `site:linkedin.com/posts "${terms}" hiring email`
+  ];
   const target = canonical(postUrl).toLowerCase();
-  for (const source of providers) {
-    if (signal.aborted) return null;
-    const text = await (input.fetchText ? input.fetchText(source.url, signal, source.headers) : fetchDefault(source.url, signal, source.headers));
-    if (!text) continue;
-    const decoded = decode(text);
-    const linkedInUrls = extractLinkedInUrls(decoded).map(canonical).map(value => value.toLowerCase());
-    if (!linkedInUrls.some(value => value === target || value.includes(new URL(postUrl).pathname.toLowerCase()))) continue;
-    const email = extractEmails(decoded).find(value => emailIsRecruiting(decoded, value));
-    if (email) return { email, evidence: evidenceAround(decoded, postUrl) };
+  for (const query of queries) {
+    const providers = sourceList(query)
+      .filter(item => SEARCH_PROVIDERS.has(item.id))
+      .filter(item => ["google-direct", "bing-direct", "qwant-direct"].includes(item.id))
+      .slice(0, 3);
+    for (const source of providers) {
+      if (signal.aborted) return null;
+      const text = await (input.fetchText ? input.fetchText(source.url, signal, source.headers) : fetchDefault(source.url, signal, source.headers));
+      if (!text) continue;
+      const decoded = decode(text);
+      const linkedInUrls = extractLinkedInUrls(decoded).map(canonical).map(value => value.toLowerCase());
+      const targetMatched = linkedInUrls.some(value => value === target || value.includes(new URL(postUrl).pathname.toLowerCase()));
+      const termMatched = terms && decoded.toLowerCase().includes(terms.toLowerCase());
+      if (!targetMatched && !termMatched) continue;
+      const email = extractEmails(decoded).find(value => emailIsRecruiting(decoded, value));
+      if (email) return { email, evidence: evidenceAround(decoded, postUrl) };
+    }
   }
   return null;
 }
