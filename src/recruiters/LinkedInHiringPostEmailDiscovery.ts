@@ -272,6 +272,14 @@ function postSpecificSearchTerms(postUrl: string): string {
   }
 }
 
+async function fetchPostText(input: LinkedInHiringPostInput, url: string, signal: AbortSignal): Promise<string | null> {
+  const direct = input.fetchText ? await input.fetchText(url, signal) : await fetchDefault(url, signal);
+  if (direct && !/agree\s*&\s*join|sign\s+up\s+to\s+see|join\s+linkedin|authwall|page not found/i.test(direct.slice(0, 12000))) return direct;
+  const readerUrl = `https://r.jina.ai/${url}`;
+  const reader = input.fetchText ? await input.fetchText(readerUrl, signal) : await fetchDefault(readerUrl, signal);
+  return reader ?? direct;
+}
+
 async function findEmailFromPostSpecificSearch(
   postUrl: string,
   input: LinkedInHiringPostInput,
@@ -333,7 +341,7 @@ export class LinkedInHiringPostEmailDiscovery {
         for (const url of urls) {
           if (isLinkedInPost(url)) discoveredPostUrls.add(url);
           const evidence = evidenceAround(text, url);
-          const page = await (input.fetchText ? input.fetchText(url, signal) : fetchDefault(url, signal));
+          const page = await fetchPostText(input, url, signal);
           const combined = decode(`${evidence} ${page ?? ""}`);
           if (!HIRING.test(combined)) continue;
           const score = roleScore(combined, input.targetRoles, input.skills);
