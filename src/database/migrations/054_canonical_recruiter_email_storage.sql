@@ -45,6 +45,13 @@ WHERE rc.contact_id IS NULL
   AND rc.email IS NOT NULL
   AND LOWER(TRIM(rc.email)) = LOWER(TRIM(c.email));
 
+-- The legacy mailbox/domain CHECK constraints reference recruiter_contacts.email.
+-- After canonical storage moves to contacts, that column is intentionally NULL,
+-- so those historical constraints must not reject a verified canonical contact.
+ALTER TABLE recruiter_contacts
+  DROP CONSTRAINT IF EXISTS recruiter_contacts_mailbox_verification_check,
+  DROP CONSTRAINT IF EXISTS recruiter_contacts_verified_mailbox_domain_check;
+
 -- Email must no longer be persisted on recruiter_contacts. Keep the legacy
 -- nullable column temporarily for migration compatibility, but make duplicate
 -- storage impossible.
