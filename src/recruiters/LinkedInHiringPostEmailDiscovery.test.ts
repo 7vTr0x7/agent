@@ -70,6 +70,32 @@ describe("LinkedInHiringPostEmailDiscovery", () => {
     });
   });
 
+  it("extracts an employer-domain email when the hiring instruction is far from the mailbox", async () => {
+    const postUrl = "https://www.linkedin.com/posts/example-recruiter_hiring-react-activity-222333444";
+    const longCaption = [
+      postUrl,
+      "Example Recruiter",
+      "We are hiring a Frontend Engineer in Bengaluru.",
+      "Experience: 3+ Years",
+      "Location: Bengaluru, India",
+      "React Next.js TypeScript JavaScript Redux REST APIs",
+      "Please review the role details below."
+    ].concat(Array.from({ length: 12 }, () => "Responsibilities include building React interfaces, collaborating with product and engineering, and improving frontend quality.")).concat([
+      "Interested candidates: please send your resume to recruiter@company-example.com."
+    ]).join("\n");
+    const provider = new LinkedInHiringPostEmailDiscovery();
+    const result = await provider.discover({
+      targetRoles: ["Frontend Developer", "React Developer"],
+      skills: ["React", "Next.js", "TypeScript"],
+      yearsExperience: 3,
+      preferredLocations: ["Bengaluru", "India", "Remote"],
+      maxQueries: 1,
+      fetchText: async () => longCaption
+    });
+    expect(result.metrics.directEmails).toBe(1);
+    expect(result.candidates[0]?.email).toBe("recruiter@company-example.com");
+  });
+
   it("rejects a post outside the candidate experience range", async () => {
     const postUrl = "https://www.linkedin.com/posts/example-recruiter_frontend-activity-987654321";
     const page = [
