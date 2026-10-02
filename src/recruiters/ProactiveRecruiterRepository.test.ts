@@ -59,10 +59,12 @@ describe("ProactiveRecruiterRepository hiring-post persistence", () => {
     const result = await repository.persistCandidate("candidate-1", hiringPostCandidate());
 
     expect(result).toBe("contact-post-1");
-    const insertParams = database.query.mock.calls[1]?.[1] as unknown[];
+    const insertCall = database.query.mock.calls.find((call: unknown[]) => String(call[0]).includes("INSERT INTO recruiter_contacts"));
+    const insertParams = insertCall?.[1] as unknown[];
     expect(insertParams?.[15]).toBeNull();
     expect(String(insertParams?.[16])).toContain("profile:");
-    const sourceParams = database.query.mock.calls[2]?.[1] as unknown[];
+    const sourceCall = database.query.mock.calls.find((call: unknown[]) => String(call[0]).includes("INSERT INTO recruiter_contact_sources"));
+    const sourceParams = sourceCall?.[1] as unknown[];
     expect(sourceParams?.[2]).toBe("job_hiring_evidence");
   });
 
@@ -84,7 +86,8 @@ describe("ProactiveRecruiterRepository hiring-post persistence", () => {
 
     expect(result).toBe("contact-generic-mailbox");
     expect(database.query).toHaveBeenCalledTimes(6);
-    const insertParams = database.query.mock.calls[2]?.[1] as unknown[];
+    const insertCall = database.query.mock.calls.find((call: unknown[]) => String(call[0]).includes("INSERT INTO contacts"));
+    const insertParams = insertCall?.[1] as unknown[];
     expect(insertParams?.[2]).toBe("jane.recruiter@gmail.com");
     expect(insertParams?.[6]).toBe(false);
     expect(insertParams?.[7]).toBe("public-web-unverified");
