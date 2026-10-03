@@ -35,7 +35,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run -d --name job-agent-proactive-app --network job-agent-proactive -e NODE_ENV=test -e LOG_LEVEL=info -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-proactive-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e JOB_DISCOVERY_ENABLED=false -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e APPLICATION_DRY_RUN=true -e RECRUITER_OUTREACH_ENABLED=false -e RECRUITER_OUTREACH_DRY_RUN=true -e RECRUITER_OUTREACH_ACTIVATION=disabled -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false -e PROACTIVE_RECRUITER_ENABLED=false -e PROACTIVE_RECRUITER_FIXTURE=false job-agent:proactive-recruiter-real
+          IMAGE="job-agent:proactive-recruiter-real-${{ github.sha }}"
+          docker image inspect "$IMAGE" >/dev/null
+          docker run -d --name job-agent-proactive-app --network job-agent-proactive -e NODE_ENV=test -e LOG_LEVEL=info -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-proactive-postgres:5432/job_agent -e AUTOMATION_ENABLED=false -e JOB_DISCOVERY_ENABLED=false -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e APPLICATION_DRY_RUN=true -e RECRUITER_OUTREACH_ENABLED=false -e RECRUITER_OUTREACH_DRY_RUN=true -e RECRUITER_OUTREACH_ACTIVATION=disabled -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false -e PROACTIVE_RECRUITER_ENABLED=false -e PROACTIVE_RECRUITER_FIXTURE=false "$IMAGE"
           for i in $(seq 1 90); do ready="$(docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc "SELECT to_regclass('public.schema_migrations') IS NOT NULL AND EXISTS (SELECT 1 FROM schema_migrations);" 2>/dev/null | tr -d '[:space:]' || true)"; [ "$ready" = t ] && break; docker inspect -f '{{.State.Running}}' job-agent-proactive-app | grep -q true || { docker logs job-agent-proactive-app; exit 1; }; sleep 1; done
           test "$(docker exec job-agent-proactive-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM schema_migrations;' | tr -d '[:space:]')" -gt 0
       - name: Run real public proactive recruiter discovery
