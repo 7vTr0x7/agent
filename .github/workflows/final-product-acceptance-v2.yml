@@ -116,7 +116,7 @@ jobs:
           test "$(docker exec job-agent-local-app printenv GMAIL_ENABLED)" = false
           test "$(docker exec job-agent-local-app printenv OUTBOUND_ENABLED)" = false
           test "$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM application_attempts WHERE submitted=TRUE;'|tr -d '[:space:]')" = 0
-          test "$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc \"SELECT COUNT(*) FROM recruiter_outreach_messages WHERE UPPER(status)='SENT';\"|tr -d '[:space:]')" = 0
+          test "$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_outreach_messages WHERE UPPER(status)='SENT';" | tr -d '[:space:]')" = 0
       - name: Verify recovery
         shell: bash
         run: |
@@ -144,7 +144,7 @@ jobs:
           mkdir -p /tmp/job-agent-final-runtime
           for file in /tmp/*.json /tmp/*.txt /tmp/dashboard.html; do test ! -e "$file" || cp -f "$file" /tmp/job-agent-final-runtime/; done
           for c in app recruiter contacts content; do docker logs job-agent-local-$c 2>&1 > /tmp/job-agent-final-runtime/$c.log || true; done
-          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM job_opportunities; SELECT COUNT(*) FROM match_decisions; SELECT COUNT(*) FROM applications; SELECT COUNT(*) FROM recruiter_contacts; SELECT COUNT(*) FROM public_contact_resource_contacts; SELECT COUNT(*) FROM recruiter_contact_sources WHERE LOWER(COALESCE(source_type,\'\')) IN (\'job_posting\',\'current_job_posting\',\'current_role\',\'recent_job_posting\',\'recent_role\',\'job_hiring_evidence\'); SELECT COUNT(*) FROM public_contact_resources; SELECT COUNT(*) FROM public_contact_resource_contacts;' > /tmp/job-agent-final-runtime/db-counts.txt || true
+          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities; SELECT COUNT(*) FROM match_decisions; SELECT COUNT(*) FROM applications; SELECT COUNT(*) FROM recruiter_contacts; SELECT COUNT(*) FROM public_contact_resource_contacts; SELECT COUNT(*) FROM recruiter_contact_sources WHERE LOWER(COALESCE(source_type,'')) IN ('job_posting','current_job_posting','current_role','recent_job_posting','recent_role','job_hiring_evidence'); SELECT COUNT(*) FROM public_contact_resources; SELECT COUNT(*) FROM public_contact_resource_contacts;" > /tmp/job-agent-final-runtime/db-counts.txt || true
       - name: Upload final evidence
         if: always()
         uses: actions/upload-artifact@v4
