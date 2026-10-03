@@ -20,8 +20,11 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Build Docker image
-        run: docker build --tag job-agent:fast-outcome-${{ github.sha }} .
-          docker run --rm job-agent:fast-outcome-${{ github.sha }} sh -c 'grep -q "JSON.stringify(relevanceEvidence)" src/recruiters/ProactiveRecruiterRepository.ts || { echo "Built fast-outcome image does not contain recruiter JSONB serialization fix." >&2; exit 1; }'
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --tag "job-agent:fast-outcome-${{ github.sha }}" .
+          docker run --rm "job-agent:fast-outcome-${{ github.sha }}" sh -c 'grep -q "JSON.stringify(relevanceEvidence)" src/recruiters/ProactiveRecruiterRepository.ts || { echo "Built fast-outcome image does not contain recruiter JSONB serialization fix." >&2; exit 1; }'
           echo "Fast outcome image contains the current recruiter JSONB serialization fix."
 
       - name: Start isolated PostgreSQL
