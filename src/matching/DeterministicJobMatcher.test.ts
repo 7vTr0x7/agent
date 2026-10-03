@@ -112,6 +112,30 @@ describe("DeterministicJobMatcher", () => {
     expect(result.evidence).toEqual(expect.arrayContaining([expect.objectContaining({ type: "HARD_BLOCKER" })]));
   });
 
+  it("rejects a QA Engineer role even when frontend technologies are mentioned", () => {
+    const result = matcher.evaluate(
+      job(
+        "Own QA testing, test plans and quality assurance. React and TypeScript knowledge is helpful for testing frontend applications.",
+        "QA Engineer",
+      ),
+      profile,
+    );
+    expect(result.decision).toBe("REJECT");
+    expect(result.reason).toContain("outside the candidate's frontend/full-stack target");
+  });
+
+  it("rejects a Data Strategist role even when web technologies are mentioned", () => {
+    const result = matcher.evaluate(
+      job(
+        "Analyze business data, build dashboards and define data strategy. Familiarity with React, TypeScript and JavaScript is helpful.",
+        "Data Strategist",
+      ),
+      profile,
+    );
+    expect(result.decision).toBe("REJECT");
+    expect(result.reason).toContain("not meaningfully aligned with the candidate's frontend/full-stack React target");
+  });
+
   it("rejects AI/ML engineering when frontend work is not part of the role", () => {
     const result = matcher.evaluate(job("Build machine learning models, training pipelines and inference systems with Python and PyTorch. React dashboards are owned by another team.", "AI Engineer"), profile);
     expect(result.decision).toBe("REJECT");

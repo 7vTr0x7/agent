@@ -42,7 +42,7 @@ export class DeterministicJobMatcher {
   const roleSignal=roleResponsibilitySignal(title,text,technicalOrientation);
   if(roleSignal>0)evidence.push({type:"ROLE_FIT",detail:`Role responsibilities/technical stack provide ${roleSignal} strong frontend/full-stack signals even when the title is not a configured target title.`});
   const reject=(reason:string):DeterministicMatchResult=>({matchScore:0,decision:"REJECT",matchedSkills,missingSkills,evidence:[...evidence,{type:"HARD_BLOCKER",detail:reason}],reason,geography,freshness,seniority,technicalOrientation});
-  if(EXCLUDED_TITLE.test(title)&&roleSignal<3)return reject("Role title is outside the candidate's frontend/full-stack target.");
+  if(EXCLUDED_TITLE.test(title))return reject("Role title is outside the candidate's frontend/full-stack target.");
   if(PERMANENTLY_EXCLUDED_COMPANIES.some(c=>c.trim().toLowerCase()===job.companyName.trim().toLowerCase()))return reject("Company is permanently excluded by application policy.");
   if(geography==="FOREIGN_ONSITE"||geography==="FOREIGN_HYBRID")return reject("Foreign onsite/hybrid role is outside the candidate's geography target.");
   if(geography==="REMOTE_RESTRICTED"||(RESTRICTED_REMOTE.test(title)||(/\bremote\b/i.test(title)&&FOREIGN_LOCATION.test(title))))return reject("Remote posting explicitly restricts eligibility outside India.");
@@ -54,7 +54,7 @@ export class DeterministicJobMatcher {
   if(experienceRange&&experienceRange.min>=7)return reject("Explicit 7+ year experience range is incompatible with the candidate profile.");
   if(technicalOrientation==="REACT_NATIVE")return reject("React Native/mobile is the primary technical orientation and is not equivalent to React web experience.");
   if(technicalOrientation==="BACKEND_FOCUSED")return reject("Backend-focused role is outside the candidate's frontend/full-stack React target.");
-  if(technicalOrientation==="UNRELATED"&&roleSignal<3)return reject("Posting is not meaningfully aligned with the candidate's frontend/full-stack React target.");
+  if(technicalOrientation==="UNRELATED")return reject("Posting is not meaningfully aligned with the candidate's frontend/full-stack React target.");
   if(competingFrameworkIsPrimary(text))return reject("A competing frontend framework is explicit/primary without sufficient React or Next.js core requirements.");
   const eligibility=classifyMandatoryEligibility(text,profile);if(eligibility.hardBlocker)return reject(eligibility.hardBlocker);if(eligibility.reviewReason)evidence.push({type:"HARD_BLOCKER",detail:`Eligibility requires review: ${eligibility.reviewReason}`});
   if(requiredYears!==null||experienceRange)evidence.push({type:"EXPERIENCE",detail:`Detected experience requirement: ${experienceRange?`${experienceRange.min}-${experienceRange.max}`:`${requiredYears}+`} years.`});
