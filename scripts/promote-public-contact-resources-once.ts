@@ -87,13 +87,13 @@ async function main():Promise<void>{
           `UPDATE recruiter_contacts
               SET company_name=$1, company_domain=$2, email=$3, contact_id=$4,
                   title=COALESCE(NULLIF(title,''),'Hiring contact'),
-                  confidence=GREATEST(COALESCE(confidence,0),$4),
+                  confidence=GREATEST(COALESCE(confidence,0),$5),
                   verified=FALSE, verification_status='public-web-likely',
                   provider='public-contact-resource', discovery_source='public-contact-resource',
-                  email_status=$5, domain_status='VALID',
-                  mx_status=$6, mailbox_evidence=FALSE,
-                  verification_evidence=$7::jsonb, relevance_status='UNKNOWN',
-                  identity_key=$8, email_discovery_status='FOUND',
+                  email_status=$6, domain_status='VALID',
+                  mx_status=$7, mailbox_evidence=FALSE,
+                  verification_evidence=$8::jsonb, relevance_status='UNKNOWN',
+                  identity_key=$9, email_discovery_status='FOUND',
                   last_seen_at=NOW(), updated_at=NOW()
             WHERE id=$10`,
           [promotion.companyName,domain,promotion.email,contactId,Math.round(promotion.relevanceScore),promotion.validationStatus,promotion.validationStatus==="LIKELY"?"EXISTS":"UNKNOWN",recruiterEvidence,identityKey,existingRecruiter.rows[0].id]
@@ -105,8 +105,8 @@ async function main():Promise<void>{
              provider,discovery_source,email_status,domain_status,mx_status,mailbox_evidence,
              verification_evidence,relevance_status,identity_key,email_discovery_status,last_seen_at,updated_at)
            VALUES($1,$2,$3,$4,NULL,'Hiring contact',$5,FALSE,'public-web-likely',
-             'public-contact-resource','public-contact-resource',$5,'VALID',$6,FALSE,
-             $7::jsonb,'UNKNOWN',$8,'FOUND',NOW(),NOW())`,
+             'public-contact-resource','public-contact-resource',$6,'VALID',$7,FALSE,
+             $8::jsonb,'UNKNOWN',$9,'FOUND',NOW(),NOW())`,
           [promotion.companyName,domain,promotion.email,contactId,Math.round(promotion.relevanceScore),promotion.validationStatus,promotion.validationStatus==="LIKELY"?"EXISTS":"UNKNOWN",recruiterEvidence,identityKey]
         );
         recruiterIdentityCreated+=1;
