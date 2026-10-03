@@ -7,7 +7,14 @@ INTERVAL_MS="${ENRICHMENT_INTERVAL_MS:-900000}"
 # longer than recruiter/content enrichment because it validates multiple public
 # source pages. Keep the per-cycle cap finite while avoiding false TIMED_OUT
 # states during the real-data acceptance run.
-COMMAND_TIMEOUT_SECONDS="${ENRICHMENT_COMMAND_TIMEOUT_SECONDS:-300}"
+case "$MODE" in
+  contacts)
+    COMMAND_TIMEOUT_SECONDS="${ENRICHMENT_CONTACT_COMMAND_TIMEOUT_SECONDS:-900}"
+    ;;
+  *)
+    COMMAND_TIMEOUT_SECONDS="${ENRICHMENT_COMMAND_TIMEOUT_SECONDS:-300}"
+    ;;
+esac
 STATE_DIR="${ENRICHMENT_STATE_DIR:-/tmp/job-agent-enrichment}"
 
 if ! [[ "$INTERVAL_MS" =~ ^[0-9]+$ ]] || (( INTERVAL_MS < 1000 )); then
