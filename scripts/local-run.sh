@@ -9,7 +9,7 @@ APP="${JOB_AGENT_LOCAL_APP:-job-agent-local-app}"
 RECRUITER="${JOB_AGENT_LOCAL_RECRUITER:-job-agent-local-recruiter}"
 CONTACTS="${JOB_AGENT_LOCAL_CONTACTS:-job-agent-local-contacts}"
 CONTENT="${JOB_AGENT_LOCAL_CONTENT:-job-agent-local-content}"
-IMAGE="${JOB_AGENT_LOCAL_IMAGE:-job-agent:local}"
+IMAGE="${JOB_AGENT_LOCAL_IMAGE:-job-agent:local-$(git rev-parse --short HEAD 2>/dev/null || echo current)}"
 DB_NAME="${JOB_AGENT_LOCAL_DB:-job_agent}"
 DB_USER="${JOB_AGENT_LOCAL_DB_USER:-job_agent}"
 DB_PASSWORD="${JOB_AGENT_LOCAL_DB_PASSWORD:-local_runtime_password}"
@@ -111,6 +111,11 @@ if [[ "$pg_ready" != "true" ]]; then
 fi
 
 docker build --tag "$IMAGE" .
+# Guard against a stale Docker image ever masking source changes during runtime acceptance.
+if ! docker run --rm "$IMAGE" sh -c 'grep -q "JSON.stringify(relevanceEvidence)" src/recruiters/ProactiveRecruiterRepository.ts'; then
+  echo "Built local image does not contain the current recruiter JSONB serialization fix." >&2
+  exit 1
+fi
 remove_container "$APP"
 while IFS= read -r container_id; do
   [[ -z "$container_id" ]] && continue
@@ -195,6 +200,7 @@ COMMON_ENV=(
   -e CANDIDATE_REMOTE_ELIGIBLE=true
   -e "ENRICHMENT_INTERVAL_MS=$ENRICHMENT_INTERVAL_MS"
   -e "ENRICHMENT_COMMAND_TIMEOUT_SECONDS=${ENRICHMENT_COMMAND_TIMEOUT_SECONDS:-300}"
+  -e "ENRICHMENT_CONTACT_COMMAND_TIMEOUT_SECONDS=${ENRICHMENT_CONTACT_COMMAND_TIMEOUT_SECONDS:-900}"
   -e "PROACTIVE_RECRUITER_MAX_QUERIES=${PROACTIVE_RECRUITER_MAX_QUERIES:-8}"
   -e "PROACTIVE_RECRUITER_TARGET_CANDIDATES=${PROACTIVE_RECRUITER_TARGET_CANDIDATES:-8}"
   -e "PROACTIVE_RECRUITER_SEARCH_PROVIDERS=${PROACTIVE_RECRUITER_SEARCH_PROVIDERS:-bing-direct,google-direct,qwant-direct}"
