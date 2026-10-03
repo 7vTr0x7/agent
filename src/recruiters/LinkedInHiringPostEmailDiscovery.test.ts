@@ -70,6 +70,77 @@ describe("LinkedInHiringPostEmailDiscovery", () => {
     });
   });
 
+
+
+  it("normalizes Markdown-wrapped LinkedIn post URLs", async () => {
+    const postUrl = "https://www.linkedin.com/posts/example-recruiter_hiring-react-activity-333444555";
+    const markdown = `[${postUrl}](${postUrl})`;
+    const page = [
+      markdown,
+      "Hiring: React Developer | Bengaluru",
+      "Experience: 3+ Years",
+      "Location: Bengaluru, India",
+      "React Next.js TypeScript",
+      "Send your resume to hiring@company-example.com"
+    ].join("\n");
+
+    const provider = new LinkedInHiringPostEmailDiscovery();
+    const result = await provider.discover({
+      targetRoles: ["React Developer"],
+      skills: ["React", "Next.js", "TypeScript"],
+      yearsExperience: 3,
+      preferredLocations: ["Bengaluru", "India"],
+      maxQueries: 1,
+      fetchText: async () => page
+    });
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]?.discoveryUrl).toBe(postUrl);
+    expect(result.candidates[0]?.employer).toBe("Company Example");
+  });
+
+  it("continues when a public search provider throws", async () => {
+    const provider = new LinkedInHiringPostEmailDiscovery();
+    const result = await provider.discover({
+      targetRoles: ["React Developer"],
+      skills: ["React"],
+      yearsExperience: 3,
+      preferredLocations: ["Bengaluru", "India"],
+      maxQueries: 1,
+      fetchText: async () => {
+        throw new Error("simulated provider failure");
+      }
+    });
+
+    expect(result.candidates).toHaveLength(0);
+    expect(result.metrics.rejected).toBeGreaterThan(0);
+  });
+
+  it("does not treat generic mailbox domains as employer identities", async () => {
+    const postUrl = "https://www.linkedin.com/posts/example-recruiter_hiring-react-activity-444555666";
+    const page = [
+      postUrl,
+      "Hiring: React Developer | Bengaluru",
+      "Experience: 3+ Years",
+      "Location: Bengaluru, India",
+      "React Next.js TypeScript",
+      "Send your resume to example.recruiter@gmail.com"
+    ].join("\n");
+
+    const provider = new LinkedInHiringPostEmailDiscovery();
+    const result = await provider.discover({
+      targetRoles: ["React Developer"],
+      skills: ["React", "Next.js", "TypeScript"],
+      yearsExperience: 3,
+      preferredLocations: ["Bengaluru", "India"],
+      maxQueries: 1,
+      fetchText: async () => page
+    });
+
+    expect(result.candidates).toHaveLength(0);
+    expect(result.metrics.rejected).toBeGreaterThan(0);
+  });
+
   it("falls back to a post-specific search when the post URL is found without its email in the first result", async () => {
     const postUrl = "https://www.linkedin.com/posts/example-recruiter_hiring-react-developer-activity-222333444";
     const previousProviders = process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS;
