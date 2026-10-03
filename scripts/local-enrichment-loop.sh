@@ -27,7 +27,7 @@ case "$MODE" in
     LOG="/tmp/job-agent-proactive-recruiter.log"
     ;;
   contacts)
-    COMMAND="npm run public-contact-resources:once && ./node_modules/.bin/tsx scripts/reconcile-public-contact-resources-once.ts"
+    COMMAND="npm run public-contact-files:once && npm run public-contact-resources:once && ./node_modules/.bin/tsx scripts/reconcile-public-contact-resources-once.ts"
     LOG="/tmp/job-agent-contact-resources.log"
     ;;
   content)
