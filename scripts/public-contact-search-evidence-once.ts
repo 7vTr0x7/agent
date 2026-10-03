@@ -88,7 +88,7 @@ async function main(): Promise<void> {
         `INSERT INTO public_contact_resources(
            source_url, source_type, title, processed_at, status, records_seen,
            emails_extracted, emails_normalized, invalid_emails, duplicate_emails, qualified_contacts
-         ) VALUES($1,'HTML',$2,NOW(),'PROCESSED',$3,$3,$3,0,$4)
+         ) VALUES($1,'HTML',$2,NOW(),'PROCESSED',$3,$3,$3,0,0,$4)
          ON CONFLICT(source_url) DO UPDATE SET
            processed_at=EXCLUDED.processed_at,
            status='PROCESSED',
