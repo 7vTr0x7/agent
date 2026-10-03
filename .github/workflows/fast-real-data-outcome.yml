@@ -20,7 +20,9 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Build Docker image
-        run: docker build --tag job-agent:fast-outcome .
+        run: docker build --tag job-agent:fast-outcome-${{ github.sha }} .
+          docker run --rm job-agent:fast-outcome-${{ github.sha }} sh -c 'grep -q "JSON.stringify(relevanceEvidence)" src/recruiters/ProactiveRecruiterRepository.ts || { echo "Built fast-outcome image does not contain recruiter JSONB serialization fix." >&2; exit 1; }'
+          echo "Fast outcome image contains the current recruiter JSONB serialization fix."
 
       - name: Start isolated PostgreSQL
         shell: bash
@@ -64,7 +66,7 @@ jobs:
             -e RECRUITER_DISPATCH_DIAGNOSTICS=true -e RECRUITER_OUTREACH_DRY_RUN=true \
             -e RECRUITER_OUTREACH_ACTIVATION=disabled -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
             -e FAST_MATCHING_LIMIT=150 -e FAST_RECRUITER_TASK_LIMIT=2 -e OLLAMA_TIMEOUT_MS=250 \
-            job-agent:fast-outcome npm run outcome:fast-jobs | tee fast-job-outcome.log
+            job-agent:fast-outcome-${{ github.sha }} npm run outcome:fast-jobs | tee fast-job-outcome.log
           ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-job-outcome.log
           grep -q '"status": "ok"' fast-job-outcome.log
           grep -q '"countsAgreeWithDatabase": true' fast-job-outcome.log
@@ -183,7 +185,7 @@ jobs:
             -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-fast-outcome-postgres:5432/job_agent \
             -e API_HOST=0.0.0.0 -e API_PORT=3000 -e CANDIDATE_PROFILE_ID=fast-runtime-candidate \
             -e AUTOMATION_ENABLED=false -e JOB_DISCOVERY_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=false \
-            job-agent:fast-outcome node dist/api/bootstrap.js
+            job-agent:fast-outcome-${{ github.sha }} node dist/api/bootstrap.js
           for i in $(seq 1 30); do
             docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome node -e "fetch('http://job-agent-fast-outcome-api:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" && break
             sleep 1
