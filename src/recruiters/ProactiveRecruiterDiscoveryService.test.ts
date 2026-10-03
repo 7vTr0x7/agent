@@ -192,7 +192,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     const service = new ProactiveRecruiterDiscoveryService({
       maxQueries: 1,
       targetCandidates: 1,
-      fetchText: async () => profile
+      fetchText: async (url) => url.includes("linkedin.com/in/") ? profile : `Maya Singh | Technical Recruiter | Acme Corp <https://linkedin.com/in/maya-singh>`
     });
     const results = await service.discover({
       targetRoles: ["React Developer"],
