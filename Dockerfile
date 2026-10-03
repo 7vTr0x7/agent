@@ -1,5 +1,10 @@
 FROM mcr.microsoft.com/playwright:v1.63.0-noble
 
+# Contact-resource ingestion supports PDF, legacy Word, and legacy Excel locally/in CI.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends poppler-utils antiword catdoc python3-xlrd \
+  && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY package.json package-lock.json ./
