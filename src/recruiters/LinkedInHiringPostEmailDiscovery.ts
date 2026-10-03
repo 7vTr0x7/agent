@@ -87,13 +87,19 @@ function decode(value: string): string {
 }
 
 function canonical(value: string): string {
-  const decoded = decode(value).replace(/[),.;]+$/, "");
+  const decoded = decode(value).trim();
+  const markdownBoundary = decoded.indexOf("](");
+  const cleaned = (markdownBoundary >= 0 ? decoded.slice(0, markdownBoundary) : decoded)
+    .replace(/^\[+/, "")
+    .replace(/[),.;\]]+$/, "");
+  const urlMatch = cleaned.match(/https?:\/\/[^\s<>"'\]]+/i);
+  const candidate = urlMatch?.[0] ?? cleaned;
   try {
-    const url = new URL(decoded);
+    const url = new URL(candidate);
     url.hash = "";
     return url.toString().replace(/\/$/, "");
   } catch {
-    return decoded.replace(/\/$/, "");
+    return candidate.replace(/\/$/, "");
   }
 }
 
@@ -227,8 +233,11 @@ function emailIsRecruiting(text: string, email: string): boolean {
   return recruitingLocal || directApplication;
 }
 
-function extractEmployer(text: string, email: string): { name: string; domain: string } {
+function extractEmployer(text: string, email: string): { name: string; domain?: string } {
   const domain = email.split("@")[1]!.toLowerCase();
+  if (/^(?:gmail|googlemail|outlook|hotmail|live|yahoo|icloud|proton\.me|protonmail)\./i.test(domain)) {
+    return { name: "Unknown employer" };
+  }
   const name = domain
     .split(".")[0]!
     .replace(/[-_]+/g, " ")
