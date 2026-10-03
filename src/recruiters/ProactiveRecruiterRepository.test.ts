@@ -59,15 +59,18 @@ describe("ProactiveRecruiterRepository hiring-post persistence", () => {
     const result = await repository.persistCandidate("candidate-1", hiringPostCandidate());
 
     expect(result).toBe("contact-post-1");
-    const insertParams = database.query.mock.calls[1]?.[1] as unknown[];
-    expect(insertParams?.[15]).toBeNull();
-    expect(String(insertParams?.[16])).toContain("profile:");
-    const sourceParams = database.query.mock.calls[2]?.[1] as unknown[];
+    const insertCall = database.query.mock.calls.find((call: unknown[]) => String(call[0]).includes("INSERT INTO recruiter_contacts"));
+    const insertParams = insertCall?.[1] as unknown[];
+    expect(insertParams?.[14]).toBeNull();
+    expect(String(insertParams?.[15])).toContain("profile:");
+    const sourceCall = database.query.mock.calls.find((call: unknown[]) => String(call[0]).includes("INSERT INTO recruiter_contact_sources"));
+    const sourceParams = sourceCall?.[1] as unknown[];
     expect(sourceParams?.[2]).toBe("job_hiring_evidence");
   });
 
   it("persists a legitimate recruiter using a generic mailbox without treating the mailbox provider as an employer-domain mismatch", async () => {
     const database = { query: jest.fn()
+      .mockResolvedValueOnce({ rows: [{ id: "canonical-contact-generic-mailbox" }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: "contact-generic-mailbox" }] })
       .mockResolvedValueOnce({ rows: [] })
@@ -82,11 +85,14 @@ describe("ProactiveRecruiterRepository hiring-post persistence", () => {
     }));
 
     expect(result).toBe("contact-generic-mailbox");
-    expect(database.query).toHaveBeenCalledTimes(5);
-    const insertParams = database.query.mock.calls[1]?.[1] as unknown[];
-    expect(insertParams?.[2]).toBe("jane.recruiter@gmail.com");
-    expect(insertParams?.[6]).toBe(false);
-    expect(insertParams?.[7]).toBe("public-web-unverified");
+    expect(database.query).toHaveBeenCalledTimes(6);
+    const contactInsertCall = database.query.mock.calls.find((call: unknown[]) => String(call[0]).includes("INSERT INTO contacts "));
+    const contactInsertParams = contactInsertCall?.[1] as unknown[];
+    expect(contactInsertParams?.[2]).toBe("jane.recruiter@gmail.com");
+    const insertCall = database.query.mock.calls.find((call: unknown[]) => String(call[0]).includes("INSERT INTO recruiter_contacts"));
+    const insertParams = insertCall?.[1] as unknown[];
+    expect(insertParams?.[5]).toBe(false);
+    expect(insertParams?.[6]).toBe("public-web-unverified");
   });
 
   it("accepts generic mailbox providers but rejects a non-generic employer-domain contradiction", () => {

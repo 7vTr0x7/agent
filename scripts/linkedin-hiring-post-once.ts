@@ -6,7 +6,7 @@ import { ProactiveRecruiterRepository } from "../src/recruiters/ProactiveRecruit
 import { RecruiterOutreachSendTaskDispatcher } from "../src/recruiters/RecruiterOutreachSendTask";
 import { LinkedInHiringPostEmailDiscovery } from "../src/recruiters/LinkedInHiringPostEmailDiscovery";
 
-function buildMessage(profile: { fullName?: string | null; firstName?: string | null; lastName?: string | null; yearsExperience: number; skills: string[]; targetTitles: string[]; location?: string | null }, candidate: { employer: string }): { subject: string; body: string } {
+function buildMessage(profile: { fullName?: string | null; firstName?: string | null; lastName?: string | null; yearsExperience: number; skills: readonly string[]; targetTitles: readonly string[]; location?: string | null }, candidate: { employer: string }): { subject: string; body: string } {
   const name = profile.fullName?.trim() || [profile.firstName, profile.lastName].filter(Boolean).join(" ") || "Salman";
   const roles = profile.targetTitles.slice(0, 3).join(" / ") || "Frontend / React / Next.js";
   const skills = profile.skills.slice(0, 7).join(", ");
@@ -102,6 +102,7 @@ async function main(): Promise<void> {
 
     console.log(JSON.stringify({
       status: "ok",
+      operationalStatus: "SUCCESS",
       feature: "LINKEDIN_HIRING_POST_EMAIL_FIRST",
       live,
       sendEnabled: config.proactiveRecruiter.sendEnabled,

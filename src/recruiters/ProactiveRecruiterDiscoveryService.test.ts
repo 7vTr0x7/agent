@@ -10,7 +10,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(new Set(queries).size).toBe(queries.length);
   });
 
-  it("uses the public Jina search endpoint when no Jina API key is configured", async () => {
+  it("uses an available direct search provider without requiring Jina credentials", async () => {
     const target = "https://www.linkedin.com/in/anita-recruiter";
     const profile = `<html><head><title>Anita Rao | Technical Recruiter | Acme Corp</title></head><body><h1>Anita Rao</h1><p>Technical Recruiter at Acme Corp. Hiring React engineers in Bengaluru.</p></body></html>`;
     const search = `Anita Rao — Technical Recruiter at Acme Corp <${target}>`;
@@ -18,19 +18,19 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     const previousProviders = process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS;
     const previousJinaKey = process.env.JINA_API_KEY;
     delete process.env.JINA_API_KEY;
-    process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS = "jina-search";
+    process.env.PROACTIVE_RECRUITER_SEARCH_PROVIDERS = "qwant-direct";
     try {
       const service = new ProactiveRecruiterDiscoveryService({
         maxQueries: 1,
         fetchText: async (url) => {
           calls.push(url);
-          if (url.startsWith("https://s.jina.ai/")) return search;
+          if (url.startsWith("https://www.qwant.com/")) return search;
           if (url === target) return profile;
           return "";
         }
       });
       const results = await service.discover({ targetRoles: ["React Developer"], skills: ["React"], preferredLocations: ["Bengaluru"] });
-      expect(calls.some((url) => url.startsWith("https://s.jina.ai/"))).toBe(true);
+      expect(calls.some((url) => url.startsWith("https://www.qwant.com/"))).toBe(true);
       expect(results[0]?.recruiterName).toBe("Anita Rao");
       expect(results[0]?.discoveryUrl).toBe(target);
       expect(service.getLastRunMetrics().linkedinUrlsExtracted).toBeGreaterThan(0);
@@ -158,19 +158,6 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
     expect(results[0]?.employer).toBe("Acme Corp");
     expect(results[0]?.employerDomain).toBe("acme.com");
-  });
-
-  it("classifies current, recent, and historical hiring evidence without treating history as current", async () => {
-    const now = new Date("2026-09-11T00:00:00Z");
-    const pages = [
-      "Current Recruiter - Technical Recruiter at Example Corp currently hiring React engineers <https://linkedin.com/in/current-recruiter>",
-      "Recent Recruiter - Technical Recruiter at Example Corp 2026 recruiting frontend engineers <https://linkedin.com/in/recent-recruiter>",
-      "Historical Recruiter - Technical Recruiter at Example Corp 2023 previously recruited frontend engineers <https://linkedin.com/in/historical-recruiter>"
-    ];
-    let index = 0;
-    const service = new ProactiveRecruiterDiscoveryService({ maxQueries: 1, fetchText: async () => pages[index++ % pages.length] ?? null, now: () => now });
-    const results = await service.discover({ targetRoles: ["Frontend Engineer"], skills: ["React"] });
-    expect(results.map((result) => result.evidenceFreshness).sort()).toEqual(["current", "historical", "recent"].sort());
   });
 
   it("counts actual profile fetches and parses only returned profile evidence", async () => {

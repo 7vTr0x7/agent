@@ -29,18 +29,30 @@ export interface LinkedInHiringPostResult {
 }
 
 const SEARCH_PROVIDERS = new Set<SourceId>([
-  "google-jina",
+  // Google/Jina is frequently challenge/429 limited in the local runtime.
+  // Keep reader providers when available, but also use direct providers
+  // already registered by the application so one blocked proxy cannot
+  // make the whole discovery pass empty.
+  "google-direct",
+  "google-regional-direct",
+  "google-news",
+  "google-api",
+  "bing-direct",
+  "qwant-direct",
   "bing-jina",
   "duckduckgo-jina",
   "startpage-jina",
   "ecosia-jina",
-  "jina-search"
+  "jina-search",
+  "brave-direct",
+  "mojeek-direct",
+  "yahoo-direct"
 ]);
 
-const POST_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"]+|feed\/update\/urn:li:activity:\d+)/gi;
-const PROFILE_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
+const POST_URL = /(?:https?:)?\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"]+|feed\/update\/urn:li:activity:\d+)/gi;
+const PROFILE_URL = /(?:https?:)?\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/in\/[a-z0-9-_%]+/gi;
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const SEARCH_HOST = /^(?:www\.)?(?:google|bing|qwant|startpage|duckduckgo|search\.yahoo|search\.brave|mojeek)\.com$/i;
+const SEARCH_HOST = /^(?:(?:www\.)?(?:google|bing|qwant|startpage|duckduckgo|mojeek)\.com|(?:www\.)?google\.(?:co\.in|co\.uk)|news\.google\.com|search\.yahoo\.com|search\.brave\.com)$/i;
 const AUTOMATED_LOCAL = /^(?:noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot)$/i;
 const INDIAN_LOCATION = /\b(?:pune|bengaluru|bangalore|mumbai|navi mumbai|hyderabad|chennai|delhi|new delhi|noida|greater noida|gurgaon|gurugram|jaipur|indore|chandigarh|ahmedabad|kolkata|kochi|thiruvananthapuram|nagpur|surat|bhubaneswar|mysore|mysuru)\b/i;
 
@@ -55,6 +67,10 @@ function decode(value: string): string {
   let current = value
     .replace(/&amp;/gi, "&")
     .replace(/&quot;/gi, '"')
+    .replace(/&#x2f;/gi, "/")
+    .replace(/&#47;/gi, "/")
+    .replace(/&#x3a;/gi, ":")
+    .replace(/&#58;/gi, ":")
     .replace(/\\u003A/gi, ":")
     .replace(/\\u002F/gi, "/")
     .replace(/\\u0026/gi, "&")
@@ -96,11 +112,56 @@ function isLinkedInProfile(value: string): boolean {
 }
 function extractLinkedInUrls(text: string): string[] {
   const decoded = decode(text);
-  const matches = [
-    ...(decoded.match(POST_URL) ?? []),
-    ...(decoded.match(PROFILE_URL) ?? [])
-  ];
-  return [...new Set(matches.map(canonical).filter(url => isLinkedInPost(url) || isLinkedInProfile(url)))];
+  const candidates = new Set<string>();
+
+  // Search engines expose result links in several forms: plain URLs,
+  // protocol-relative URLs, HTML hrefs, JSON fields, and redirect URLs.
+  // Decode first so escaped JSON/HTML URLs become visible to the same parser.
+  for (const pattern of [POST_URL, PROFILE_URL]) {
+    for (const match of decoded.matchAll(pattern)) {
+      candidates.add(match[0]);
+    }
+  }
+
+  const absoluteUrls = decoded.match(/https?:\/\/[^\s<>"]+/gi) ?? [];
+  for (const value of absoluteUrls) candidates.add(value);
+
+  const protocolRelativeUrls = decoded.match(/\/\/[^\s<>"']+/g) ?? [];
+  for (const value of protocolRelativeUrls) candidates.add(value);
+
+  const hrefs = [...decoded.matchAll(/(?:href|url|link|uddg|target|dest(?:ination)?)\s*=\s*["']([^"']+)["']/gi)];
+  for (const match of hrefs) candidates.add(match[1]!);
+
+  const linkedInUrls = new Set<string>();
+  for (const raw of candidates) {
+    let value = canonical(raw);
+    if (value.startsWith("//")) value = canonical(`https:${value}`);
+    if (isLinkedInPost(value) || isLinkedInProfile(value)) {
+      linkedInUrls.add(value);
+      continue;
+    }
+
+    // Unwrap common search-engine redirect parameters without trusting the
+    // redirect host itself. This keeps Google/Bing/Qwant/Yahoo/etc. useful
+    // when they return tracking URLs around the actual LinkedIn destination.
+    try {
+      const url = new URL(value);
+      if (!SEARCH_HOST.test(url.hostname)) continue;
+      for (const key of ["q", "url", "uddg", "u", "target", "dest", "destination"]) {
+        const nested = url.searchParams.get(key);
+        if (!nested) continue;
+        const decodedNested = canonical(decode(nested));
+        if (isLinkedInPost(decodedNested) || isLinkedInProfile(decodedNested)) {
+          linkedInUrls.add(decodedNested);
+          break;
+        }
+      }
+    } catch {
+      // Ignore malformed search-result fragments.
+    }
+  }
+
+  return [...linkedInUrls];
 }
 
 function extractEmails(text: string): string[] {
@@ -150,8 +211,20 @@ function emailIsRecruiting(text: string, email: string): boolean {
   const normalized = decode(text).toLowerCase();
   const index = normalized.indexOf(email.toLowerCase());
   if (index < 0) return false;
-  const context = normalized.slice(Math.max(0, index - 700), Math.min(normalized.length, index + 700));
-  return HIRING.test(context) || /(?:resume|cv|application|apply|hiring|recruiting|talent|job|role|opportunity)/i.test(context);
+  // LinkedIn post captions and comments can be long. A 700-character window
+  // can separate the hiring instruction from the actual mailbox even when both
+  // belong to the same post. Keep the wider window bounded, and apply stricter
+  // evidence for generic consumer mailboxes so commenter addresses are not
+  // mistaken for the employer contact.
+  const context = normalized.slice(Math.max(0, index - 1800), Math.min(normalized.length, index + 1800));
+  const domain = email.split("@")[1] ?? "";
+  const genericDomain = /^(?:gmail|googlemail|outlook|hotmail|live|yahoo|yahoo\.co\.in|icloud|proton\.me|protonmail)\./i.test(domain);
+  const recruitingLocal = /^(?:hr|careers?|jobs?|recruit(?:er|ing)?|talent|hiring|join(?:us)?|workwithus|people|ta)(?:[._-]|$)/i.test(email.split("@")[0] ?? "");
+  const directApplication = /(?:send|share|email|mail|contact|reach\s+out|forward).{0,180}(?:resume|cv|profile|application|details).{0,180}/i.test(context)
+    || /(?:resume|cv|profile|application|details).{0,180}(?:send|share|email|mail|contact|reach\s+out).{0,180}/i.test(context);
+  const roleEvidence = /(?:hiring|recruiting|talent|job|role|opportunity|frontend|front-end|react|next\.js|software|developer|engineer)/i.test(context);
+  if (!genericDomain) return directApplication || HIRING.test(context) || roleEvidence;
+  return recruitingLocal || directApplication;
 }
 
 function extractEmployer(text: string, email: string): { name: string; domain: string } {
@@ -188,20 +261,80 @@ async function fetchDefault(url: string, signal?: AbortSignal, headers?: Record<
   finally { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); }
 }
 
+function postSpecificSearchTerms(postUrl: string): string {
+  try {
+    const pathname = new URL(postUrl).pathname;
+    const raw = pathname.match(/\/posts\/([^/]+)/i)?.[1] ?? pathname.split("/").filter(Boolean).pop() ?? "";
+    const withoutActivity = raw.replace(/-activity-\d+(?:-[A-Za-z0-9_-]+)?$/i, "").replace(/[_-]+/g, " ");
+    return withoutActivity.replace(/\b(?:hiring|jobs?|careers?|activity|post)\b/gi, " ").replace(/\s+/g, " ").trim().split(" ").slice(0, 7).join(" ");
+  } catch {
+    return "";
+  }
+}
+
+async function fetchPostText(input: LinkedInHiringPostInput, url: string, signal: AbortSignal): Promise<string | null> {
+  const direct = input.fetchText ? await input.fetchText(url, signal) : await fetchDefault(url, signal);
+  if (direct && !/(?:agree\s*&\s*join|sign\s+up(?:\s*\|\s*linkedin)?|sign\s+in(?:\s*\|\s*linkedin)?|sign\s+up\s+to\s+see|join\s+linkedin|linkedin\s+login|authwall|page not found)/i.test(direct.slice(0, 12000))) return direct;
+  const readerUrl = `https://r.jina.ai/${url}`;
+  const reader = input.fetchText ? await input.fetchText(readerUrl, signal) : await fetchDefault(readerUrl, signal);
+  return reader ?? direct;
+}
+
+async function findEmailFromPostSpecificSearch(
+  postUrl: string,
+  input: LinkedInHiringPostInput,
+  signal: AbortSignal
+): Promise<{ email: string; evidence: string } | null> {
+  const terms = postSpecificSearchTerms(postUrl);
+  if (!terms) return null;
+  const queries = [
+    `site:linkedin.com/posts "${terms}" ("resume" OR "CV" OR "email")`,
+    `site:linkedin.com/posts "${postUrl}" ("resume" OR "CV" OR "@")`,
+    `site:linkedin.com/posts "${terms}" hiring email`
+  ];
+  const target = canonical(postUrl).toLowerCase();
+  for (const query of queries) {
+    const providers = sourceList(query)
+      .filter(item => SEARCH_PROVIDERS.has(item.id))
+      .filter(item => ["google-direct", "bing-direct", "qwant-direct"].includes(item.id))
+      .slice(0, 3);
+    for (const source of providers) {
+      if (signal.aborted) return null;
+      const text = await (input.fetchText ? input.fetchText(source.url, signal, source.headers) : fetchDefault(source.url, signal, source.headers));
+      if (!text) continue;
+      const decoded = decode(text);
+      const linkedInUrls = extractLinkedInUrls(decoded).map(canonical).map(value => value.toLowerCase());
+      const targetMatched = linkedInUrls.some(value => value === target || value.includes(new URL(postUrl).pathname.toLowerCase()));
+      const termMatched = terms && decoded.toLowerCase().includes(terms.toLowerCase());
+      if (!targetMatched && !termMatched) continue;
+      const email = extractEmails(decoded).find(value => emailIsRecruiting(decoded, value));
+      if (email) return { email, evidence: evidenceAround(decoded, postUrl) };
+    }
+  }
+  return null;
+}
+
 export class LinkedInHiringPostEmailDiscovery {
   async discover(input: LinkedInHiringPostInput): Promise<LinkedInHiringPostResult> {
     const maxQueries = Math.max(1, Math.min(input.maxQueries ?? 4, 8));
     const role = input.targetRoles.slice(0, 3).join('" OR "') || "Frontend Developer";
     const skillQuery = input.skills.filter(Boolean).slice(0, 4).join('" OR "');
     const locations = input.preferredLocations.filter(Boolean).slice(0, 4).join('" OR "');
+    const location = locations || "India";
+    const primaryRole = role.replace(/"/g, "").split('" OR "')[0] || "Frontend Developer";
     const queries = [
-      `site:linkedin.com/posts ("we're hiring" OR "we are hiring" OR "looking for") ("${role}") ("${skillQuery}") ("${locations}")`,
-      `site:linkedin.com/posts hiring ("${role}") ("${skillQuery}") ("${locations}")`,
-      `site:linkedin.com/posts ("send your resume" OR "share your CV" OR "drop your resume") (React OR Next.js OR MERN) ("${locations}")`,
-      `site:linkedin.com/posts ("Frontend Developer" OR "React Developer" OR "MERN Stack") (hiring OR opportunity) India`
+      `site:linkedin.com/posts "we're hiring" React ${location}`,
+      `site:linkedin.com/posts "send your resume" "${primaryRole}" ${location}`,
+      `site:linkedin.com/posts "Frontend Developer" hiring ${location}`,
+      `site:linkedin.com/posts "Next.js" hiring India`,
+      `site:linkedin.com/feed/update/ "React Developer" hiring India`,
+      `site:linkedin.com/posts "share your CV" React India`,
+      `site:linkedin.com/posts "React Developer" "hiring" Bengaluru`,
+      `site:linkedin.com/posts "Frontend Engineer" "hiring" Pune`
     ].slice(0, maxQueries);
     const metrics: LinkedInHiringPostMetrics = { queriesGenerated: queries.length, queriesExecuted: 0, searchPagesFetched: 0, postUrlsFound: 0, relevantPosts: 0, directEmails: 0, candidates: 0, rejected: 0 };
     const candidates = new Map<string, ProactiveRecruiterDiscoveryCandidate>();
+    const discoveredPostUrls = new Set<string>();
     const signal = input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000);
 
     for (const query of queries) {
@@ -214,16 +347,28 @@ export class LinkedInHiringPostEmailDiscovery {
         metrics.searchPagesFetched++;
         const urls = extractLinkedInUrls(text);
         for (const url of urls) {
+          if (isLinkedInPost(url)) discoveredPostUrls.add(url);
           const evidence = evidenceAround(text, url);
-          const page = await (input.fetchText ? input.fetchText(url, signal) : fetchDefault(url, signal));
-          const combined = decode(`${evidence} ${page ?? ""}`);
+          const page = await fetchPostText(input, url, signal);
+          let combined = decode(`${evidence} ${page ?? ""}`);
+          let email = extractEmails(combined).find(value => emailIsRecruiting(combined, value));
+          let emailEvidence = combined;
+          // If LinkedIn returns an authwall, run the post-specific search before
+          // rejecting the URL so public search evidence can supply the hiring text.
+          if (!HIRING.test(combined) || !email) {
+            const fallback = await findEmailFromPostSpecificSearch(url, input, signal);
+            if (fallback) {
+              email = fallback.email;
+              emailEvidence = `${combined} [POST_SPECIFIC_SEARCH] ${fallback.evidence}`;
+              combined = decode(emailEvidence);
+            }
+          }
           if (!HIRING.test(combined)) continue;
           const score = roleScore(combined, input.targetRoles, input.skills);
           if (score.score < 65 || !experienceCompatible(combined, input.yearsExperience) || !locationCompatible(combined, input.preferredLocations)) {
             metrics.rejected++;
             continue;
           }
-          const email = extractEmails(combined).find(value => emailIsRecruiting(combined, value));
           if (!email) { metrics.rejected++; continue; }
           const candidateKey = `${email.toLowerCase()}|${url.toLowerCase()}`;
           if (candidates.has(candidateKey)) continue;
@@ -242,7 +387,7 @@ export class LinkedInHiringPostEmailDiscovery {
             overallConfidence: Math.min(100, score.score + 20),
             discoverySource: "public-web",
             discoveryUrl: url,
-            discoveryEvidence: [combined.slice(0, 8000)],
+            discoveryEvidence: [emailEvidence.slice(0, 8000)],
             evidenceType: "job_hiring_evidence",
             evidenceDate: new Date().toISOString(),
             evidenceFreshness: /\b(?:today|1d|2d|3d|4d|5d|6d|1w)\b/i.test(combined) ? "current" : "recent",
@@ -260,7 +405,7 @@ export class LinkedInHiringPostEmailDiscovery {
         }
       }
     }
-    metrics.postUrlsFound = candidates.size;
+    metrics.postUrlsFound = discoveredPostUrls.size;
     metrics.candidates = candidates.size;
     return { candidates: [...candidates.values()], metrics };
   }

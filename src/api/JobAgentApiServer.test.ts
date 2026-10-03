@@ -5,7 +5,7 @@ describe("JobAgentApiServer", () => {
   it("serves health and summary endpoints with real result records", async () => {
     const database = {
       query: jest.fn(async (sql: string) => {
-        if (sql.includes("SELECT 1")) return { rows: [{ "?column?": 1 }] };
+        if (sql.trim() === "SELECT 1") return { rows: [{ "?column?": 1 }] };
         if (sql.includes('SELECT s.id,c.full_name AS recruiter') && sql.includes("FROM recruiter_contact_sources s")) {
           return {
             rows: [{

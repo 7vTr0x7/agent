@@ -144,7 +144,7 @@ jobs:
             job-agent:fast-outcome npm run proactive-recruiter:once | tee fast-recruiter-outcome.log
           ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-recruiter-outcome.log
           grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' fast-recruiter-outcome.log
-          grep -q '"sendEnabled":false' fast-recruiter-outcome.log
+          grep -Eq '"sendEnabled"[[:space:]]*:[[:space:]]*false' fast-recruiter-outcome.log
 
       - name: Run real contact-resource discovery
         shell: bash
