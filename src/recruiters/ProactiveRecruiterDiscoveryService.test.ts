@@ -187,6 +187,25 @@ describe("ProactiveRecruiterDiscoveryService", () => {
   });
 
 
+  it("accepts a recruiter profile without any hiring language", async () => {
+    const profile = `<html><head><title>Maya Singh | Technical Recruiter | Acme Corp</title></head><body><h1>Maya Singh</h1><p>Technical Recruiter at Acme Corp. Bengaluru. Contact maya@acme.com.</p></body></html>`;
+    const service = new ProactiveRecruiterDiscoveryService({
+      maxQueries: 1,
+      targetCandidates: 1,
+      fetchText: async () => profile
+    });
+    const results = await service.discover({
+      targetRoles: ["React Developer"],
+      skills: ["React"],
+      yearsExperience: 3,
+      preferredLocations: ["Bengaluru", "India"]
+    });
+    expect(results).toHaveLength(1);
+    expect(results[0]?.recruiterName).toBe("Maya Singh");
+    expect(results[0]?.hiringEvidenceScore).toBe(0);
+    expect(results[0]?.evidenceType).toBe("public_profile");
+  });
+
   it("keeps a fetched recruiter profile as a candidate when public hiring evidence is missing", async () => {
     const search = `site:linkedin.com/in "technical recruiter" "Frontend Engineer" "Bengaluru" Jane Doe <https://linkedin.com/in/jane-doe>`;
     const profile = `<html><head><title>Jane Doe | Technical Recruiter | Acme Corp</title></head><body><h1>Jane Doe</h1><p>Technical Recruiter at Acme Corp.</p></body></html>`;
