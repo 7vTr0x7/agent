@@ -7,7 +7,7 @@ async function main(): Promise<void> {
   if (!databaseUrl) throw new Error("DATABASE_URL is required for the Phase 8 cross-path fixture");
 
   const db = new Database(databaseUrl);
-  const contact = await db.query<{ id: string }>(`SELECT id FROM recruiter_contacts WHERE LOWER(email)=LOWER('alex.recruiter@phase7.test') LIMIT 1`);
+  const contact = await db.query<{ id: string }>(`SELECT recruiter_contacts.id FROM recruiter_contacts JOIN contacts ON contacts.id=recruiter_contacts.contact_id WHERE LOWER(contacts.email)=LOWER('alex.recruiter@phase7.test') LIMIT 1`);
   const contactId = contact.rows[0]?.id;
   if (!contactId) throw new Error("Phase 7 recruiter contact not found");
 
