@@ -83,11 +83,7 @@ async function main(): Promise<void> {
       emailsExtracted += emails.length;
       if (!emails.length) return;
 
-      const pageLooksHiring = /we['’]?re\s+hiring|we\s+are\s+hiring|hiring|looking\s+for|send\s+(?:your|me\s+your)\s+(?:resume|cv)|talent\s+acquisition|recruit(?:er|ing)/i.test(page)
-        && /frontend|front-end|react(?:\.js|js)?|next(?:\.js|js)?|typescript|javascript|software\s+engineer|developer|engineering/i.test(page);
-      if (!pageLooksHiring) return;
-
-      const resource = await db.query<{ id: string }>(
+      // Public contact pages do not need hiring language. Role/recruiter relevance is enough.\n\n      const resource = await db.query<{ id: string }>(
         `INSERT INTO public_contact_resources(
            source_url, source_type, title, processed_at, status, records_seen,
            emails_extracted, emails_normalized, invalid_emails, duplicate_emails, qualified_contacts
