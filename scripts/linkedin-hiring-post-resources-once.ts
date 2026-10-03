@@ -67,6 +67,20 @@ async function search(query: string, signal: AbortSignal): Promise<string[]> {
   return texts;
 }
 
+async function fetchLinkedInPost(url: string, signal: AbortSignal): Promise<{ text: string | null; direct: boolean }> {
+  const direct = await fetchSearch(url, signal, {
+    accept: "text/html,text/plain,*/*;q=0.8",
+    "user-agent": "Mozilla/5.0 (compatible; job-agent-linkedin-public-hiring-resources/1.0)"
+  });
+  if (direct && !/(?:authwall|join linkedin|sign in|sign up|page not found|agree & join)/i.test(direct.slice(0, 12000))) {
+    return { text: direct, direct: true };
+  }
+  const reader = await fetchSearch(`https://r.jina.ai/${url}`, signal, {
+    accept: "text/plain,*/*;q=0.8"
+  });
+  return { text: reader ?? direct, direct: Boolean(direct) };
+}
+
 async function main(): Promise<void> {
   const resolver = ConfiguredCandidateProfileResolver.fromEnvironment();
   const profile = await resolver.getById(process.env.CANDIDATE_PROFILE_ID ?? "");
@@ -93,7 +107,7 @@ async function main(): Promise<void> {
   const signal = AbortSignal.timeout(Number(process.env.LINKEDIN_HIRING_POST_RESOURCE_TIMEOUT_MS ?? 90000));
   const db = new Database(process.env.DATABASE_URL ?? "");
   const seen = new Set<string>();
-  let discovered = 0; let relevantPosts = 0; let persisted = 0; let emailsExtracted = 0; let contactRowsPersisted = 0;
+  let discovered = 0; let relevantPosts = 0; let persisted = 0; let emailsExtracted = 0; let contactRowsPersisted = 0; let directLinkedInFetches = 0; let postFetchFailures = 0;
   try {
     for (const query of queries) {
       if (signal.aborted) break;
@@ -101,7 +115,11 @@ async function main(): Promise<void> {
         for (const postUrl of extractPosts(page)) {
           if (seen.has(postUrl)) continue;
           seen.add(postUrl); discovered++;
-          const content = evidenceFor(page, postUrl);
+          const searchEvidence = evidenceFor(page, postUrl);
+          const fetched = await fetchLinkedInPost(postUrl, signal);
+          if (fetched.direct) directLinkedInFetches++;
+          if (!fetched.text) postFetchFailures++;
+          const content = clean(`${searchEvidence} ${fetched.text ?? ""}`);
           if (!relevant(content, skills)) continue;
           relevantPosts++;
           const emails = recruitingEmails(content); emailsExtracted += emails.length;
@@ -133,7 +151,7 @@ async function main(): Promise<void> {
         }
       }
     }
-    console.log(JSON.stringify({ queries: queries.length, discovered, relevantPosts, persisted, emailsExtracted, contactRowsPersisted, sourceType: "LINKEDIN_POST", directLinkedInFetches: 0 }, null, 2));
+    console.log(JSON.stringify({ queries: queries.length, discovered, relevantPosts, persisted, emailsExtracted, contactRowsPersisted, sourceType: "LINKEDIN_POST", directLinkedInFetches, postFetchFailures }, null, 2));
   } finally { await db.close(); }
 }
 
