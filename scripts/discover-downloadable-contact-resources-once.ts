@@ -149,11 +149,12 @@ async function mx(email: string): Promise<"LIKELY" | "UNVERIFIED" | "INVALID"> {
 }
 
 function relevance(row: ContactRow): number {
+  // A downloadable recruiter/contact file is itself the contact-list context.
+  // Do not require a title keyword before accepting a valid professional address.
   const title = row.title ?? "";
   const local = (row.email?.split("@")[0] ?? "").toLowerCase();
-  let score = 45;
-  if (HR_ROLE.test(title)) score += 35;
-  if (/technical|engineering|developer|talent acquisition|recruitment head/i.test(title)) score += 10;
+  let score = 80;
+  if (HR_ROLE.test(title)) score += 10;
   if (/^(hr|career|careers|recruit|recruiting|talent|jobs|hiring)([._-]|$)/i.test(local)) score += 10;
   return Math.min(100, score);
 }
