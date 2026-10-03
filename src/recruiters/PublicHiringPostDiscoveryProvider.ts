@@ -427,7 +427,7 @@ function buildEvidence(text: string, postUrl: string): string {
     }
   }
   if (index < 0) return "";
-  const window = decodedText.slice(Math.max(0, index - 1800), Math.min(decodedText.length, index + Math.max(2600, matchedLength)));
+  // Search feeds often place the original query immediately before a result URL.\n  // That query can contain hiring terms even when the destination is a generic\n  // article/resource page (for example, Google News returning SitePoint). Keep\n  // only a small amount of pre-URL context so query boilerplate cannot become\n  // the hiring evidence for an unrelated destination.\n  const window = decodedText.slice(Math.max(0, index - 450), Math.min(decodedText.length, index + Math.max(3200, matchedLength)));
   const sanitized = window.replace(/https?:\/\/[^\s<>"')\]]+/gi, url => isLegitimatePublicResultUrl(url, infrastructureHosts) ? url : "");
   return sanitized.replace(/\s+/g, " ").trim().slice(0, 4400);
 }
