@@ -84,7 +84,7 @@ jobs:
             -e CANDIDATE_LOCATION=India \
             -e CANDIDATE_SKILLS='React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,HTML,CSS,Tailwind' \
             -e CANDIDATE_TARGET_TITLES='Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer' \
-            job-agent:fast-outcome npm run diagnostics:fast-jobs | tee fast-job-diagnostics.log
+            job-agent:fast-outcome-${{ github.sha }} npm run diagnostics:fast-jobs | tee fast-job-diagnostics.log
           ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-job-diagnostics.log
           grep -q '"status": "ok"' fast-job-diagnostics.log
 
@@ -100,7 +100,7 @@ jobs:
             -e JOB_EXCLUDED_COMPANIES='Octopus Technologies,Sketch Brahma Technologies' \
             -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e APPLICATION_LIVE_ENABLED=false \
             -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e EMAIL_ENABLED=false -e RECRUITER_OUTREACH_ENABLED=false \
-            job-agent:fast-outcome npm run application-email:once | tee fast-application-email-outcome.log
+            job-agent:fast-outcome-${{ github.sha }} npm run application-email:once | tee fast-application-email-outcome.log
           ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-application-email-outcome.log
           node <<'NODE'
           const fs = require('fs');
@@ -126,7 +126,7 @@ jobs:
             -e CANDIDATE_SKILLS='React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS' \
             -e CANDIDATE_TARGET_TITLES='Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer' \
             -e PUBLIC_HIRING_POST_MAX_QUERIES=11 -e PUBLIC_HIRING_POST_DIAGNOSTICS=true \
-            job-agent:fast-outcome npm run content-first:once | tee fast-content-outcome.log
+            job-agent:fast-outcome-${{ github.sha }} npm run content-first:once | tee fast-content-outcome.log
           ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-content-outcome.log
           grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' fast-content-outcome.log
           grep -Eq '"feature"[[:space:]]*:[[:space:]]*"CONTENT_FIRST"' fast-content-outcome.log
@@ -146,7 +146,7 @@ jobs:
             -e RECRUITER_OUTREACH_ENABLED=false -e RECRUITER_OUTREACH_DRY_RUN=true -e RECRUITER_OUTREACH_ACTIVATION=disabled \
             -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true \
             -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true \
-            job-agent:fast-outcome npm run proactive-recruiter:once | tee fast-recruiter-outcome.log
+            job-agent:fast-outcome-${{ github.sha }} npm run proactive-recruiter:once | tee fast-recruiter-outcome.log
           ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-recruiter-outcome.log
           grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' fast-recruiter-outcome.log
           grep -Eq '"sendEnabled"[[:space:]]*:[[:space:]]*false' fast-recruiter-outcome.log
@@ -162,7 +162,7 @@ jobs:
             -e CANDIDATE_SKILLS='React,Next.js,TypeScript,JavaScript,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,Tailwind,HTML,CSS' \
             -e CANDIDATE_TARGET_TITLES='Frontend Engineer,Frontend Developer,React Developer,React/Next.js Developer,Full Stack Developer,Full Stack Engineer' \
             -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true -e APPLICATION_LIVE_ENABLED=false \
-            -e RECRUITER_OUTREACH_ENABLED=false job-agent:fast-outcome npm run public-contact-resources:once | tee fast-contact-resource-outcome.log
+            -e RECRUITER_OUTREACH_ENABLED=false job-agent:fast-outcome-${{ github.sha }} npm run public-contact-resources:once | tee fast-contact-resource-outcome.log
           ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' fast-contact-resource-outcome.log
           grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' fast-contact-resource-outcome.log
           grep -Eq '"feature"[[:space:]]*:[[:space:]]*"PUBLIC_CONTACT_RESOURCE"' fast-contact-resource-outcome.log
@@ -190,10 +190,10 @@ jobs:
             -e AUTOMATION_ENABLED=false -e JOB_DISCOVERY_ENABLED=false -e PROACTIVE_RECRUITER_ENABLED=false \
             job-agent:fast-outcome-${{ github.sha }} node dist/api/bootstrap.js
           for i in $(seq 1 30); do
-            docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome node -e "fetch('http://job-agent-fast-outcome-api:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" && break
+            docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome-${{ github.sha }} node -e "fetch('http://job-agent-fast-outcome-api:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" && break
             sleep 1
           done
-          docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome node <<'NODE'
+          docker run --rm --network job-agent-fast-outcome job-agent:fast-outcome-${{ github.sha }} node <<'NODE'
           (async () => {
             const r = await fetch('http://job-agent-fast-outcome-api:3000/api/summary');
             const body = await r.text();
