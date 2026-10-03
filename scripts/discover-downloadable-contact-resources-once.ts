@@ -135,7 +135,7 @@ function extractFile(file: string): Promise<ContactRow[]> {
   });
 }
 
-const mxCache = new Map<string, "LIKELY" | "UNVERIFIED" | "INVALID">>();
+const mxCache = new Map<string, "LIKELY" | "UNVERIFIED" | "INVALID">();
 
 async function mx(email: string): Promise<"LIKELY" | "UNVERIFIED" | "INVALID"> {
   const domain = email.split("@")[1]?.toLowerCase();
