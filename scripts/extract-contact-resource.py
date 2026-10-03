@@ -11,6 +11,19 @@ def xml_text(data):
     return " ".join((x.text or "").strip() for x in root.iter() if x.text and (x.tag.endswith("}t") or x.tag=="t"))
 def read_docx(path):
     with zipfile.ZipFile(path) as z: return xml_text(z.read("word/document.xml"))
+def read_xls(path):
+    try:
+        import xlrd
+    except ImportError:
+        raise RuntimeError("XLS extraction requires python3-xlrd.")
+    book=xlrd.open_workbook(str(path), on_demand=True)
+    out=[]
+    for sheet in book.sheets():
+        for row in sheet.get_rows():
+            cells=[str(cell.value).strip() for cell in row]
+            if any(cells): out.append(cells)
+    return out
+
 def read_xlsx(path):
     with zipfile.ZipFile(path) as z:
         shared=[]
@@ -42,6 +55,7 @@ def read_file(path):
     ext=path.suffix.lower()
     if ext==".docx": return read_docx(path)
     if ext in (".xlsx",".xlsm"): return "\n".join(" | ".join(r) for r in read_xlsx(path))
+    if ext==".xls": return "\n".join(" | ".join(r) for r in read_xls(path))
     if ext==".pdf":
         text=run(["pdftotext","-layout",str(path),"-"])
         if not text: raise RuntimeError("PDF extraction requires local pdftotext; scanned PDFs need OCR.")

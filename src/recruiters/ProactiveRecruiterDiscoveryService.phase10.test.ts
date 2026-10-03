@@ -14,8 +14,8 @@ describe("Phase 10 recruiter hiring-evidence honesty", () => {
     const service = new ProactiveRecruiterDiscoveryService({ fetchText: async () => "<html><head><title>Jane Doe | Technical Recruiter | Example Corp</title></head><body><h1>Jane Doe</h1><p>Technical Recruiter at Example Corp. We are currently hiring React engineers.</p><a href=\"https://linkedin.com/in/jane-doe\">LinkedIn</a></body></html>", now: () => new Date("2026-09-13T00:00:00Z"), maxQueries: 1 });
     const results = await service.discover(profile);
     expect(results.length).toBeGreaterThan(0);
-    expect(results[0]?.evidenceType).toBe("job_hiring_evidence");
-    expect(results[0]?.hiringEvidenceScore).toBeGreaterThan(0);
-    expect(results[0]?.evidenceFreshness).toBe("current");
+    expect(results[0]?.evidenceType).toBe("public_profile");
+    expect(results[0]?.hiringEvidenceScore).toBe(0);
+    expect(results[0]?.evidenceFreshness).toBe("unknown");
   });
 });

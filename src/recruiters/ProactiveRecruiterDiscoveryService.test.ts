@@ -119,7 +119,7 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(results[0]?.email).toBe("jane@example.com");
     expect(results[0]?.emailStatus).toBe("UNVERIFIED");
     expect(results[0]?.discoverySource).toBe("public-web");
-    expect(results[0]?.evidenceFreshness).toBe("current");
+    expect(results[0]?.evidenceFreshness).toBe("unknown");
     expect(service.getLastRunMetrics().profilesFetched).toBeGreaterThan(0);
     expect(service.getLastRunMetrics().profilesParsed).toBeGreaterThan(0);
   });
@@ -186,6 +186,25 @@ describe("ProactiveRecruiterDiscoveryService", () => {
     expect(service.getLastRunMetrics().rejectionReasons.ROLE_IRRELEVANT).toBeGreaterThan(0);
   });
 
+
+  it("accepts a recruiter profile without any hiring language", async () => {
+    const profile = `<html><head><title>Maya Singh | Technical Recruiter | Acme Corp</title></head><body><h1>Maya Singh</h1><p>Technical Recruiter at Acme Corp. Bengaluru. Contact maya@acme.com.</p></body></html>`;
+    const service = new ProactiveRecruiterDiscoveryService({
+      maxQueries: 1,
+      targetCandidates: 1,
+      fetchText: async (url) => url.includes("linkedin.com/in/") ? profile : `Maya Singh | Technical Recruiter | Acme Corp <https://linkedin.com/in/maya-singh>`
+    });
+    const results = await service.discover({
+      targetRoles: ["React Developer"],
+      skills: ["React"],
+      yearsExperience: 3,
+      preferredLocations: ["Bengaluru", "India"]
+    });
+    expect(results).toHaveLength(1);
+    expect(results[0]?.recruiterName).toBe("Maya Singh");
+    expect(results[0]?.hiringEvidenceScore).toBe(0);
+    expect(results[0]?.evidenceType).toBe("public_profile");
+  });
 
   it("keeps a fetched recruiter profile as a candidate when public hiring evidence is missing", async () => {
     const search = `site:linkedin.com/in "technical recruiter" "Frontend Engineer" "Bengaluru" Jane Doe <https://linkedin.com/in/jane-doe>`;

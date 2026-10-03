@@ -11,6 +11,10 @@ describe("public contact resource extraction", () => {
     expect(relevance("person@example.com","privacy policy and newsletter subscription",["React","Next.js"])).toBeLessThan(60);
   });
 
+  it("qualifies a role-relevant professional contact without hiring language", () => {
+    expect(relevance("recruiter@acme.com", "Technical Recruiter, React and frontend engineering talent, Bengaluru", ["React", "Next.js"])).toBeGreaterThanOrEqual(60);
+  });
+
   it("does not qualify a plain company directory without hiring evidence", () => {
     expect(relevance("person@example.com", "Company directory and generic contact information", ["React", "Next.js"])).toBeLessThan(60);
     expect(relevance("person@example.com", "Contact this address for questions", ["React", "Next.js"], "Join our team. We are hiring a React developer.")).toBeGreaterThanOrEqual(60);

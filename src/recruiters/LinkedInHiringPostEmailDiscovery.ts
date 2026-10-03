@@ -87,13 +87,19 @@ function decode(value: string): string {
 }
 
 function canonical(value: string): string {
-  const decoded = decode(value).replace(/[),.;]+$/, "");
+  const decoded = decode(value).trim();
+  const markdownBoundary = decoded.indexOf("](");
+  const cleaned = (markdownBoundary >= 0 ? decoded.slice(0, markdownBoundary) : decoded)
+    .replace(/^\[+/, "")
+    .replace(/[),.;\]]+$/, "");
+  const urlMatch = cleaned.match(/https?:\/\/[^\s<>"'\]]+/i);
+  const candidate = urlMatch?.[0] ?? cleaned;
   try {
-    const url = new URL(decoded);
+    const url = new URL(candidate);
     url.hash = "";
     return url.toString().replace(/\/$/, "");
   } catch {
-    return decoded.replace(/\/$/, "");
+    return candidate.replace(/\/$/, "");
   }
 }
 
@@ -227,8 +233,11 @@ function emailIsRecruiting(text: string, email: string): boolean {
   return recruitingLocal || directApplication;
 }
 
-function extractEmployer(text: string, email: string): { name: string; domain: string } {
+function extractEmployer(text: string, email: string): { name: string; domain?: string } {
   const domain = email.split("@")[1]!.toLowerCase();
+  if (/^(?:gmail|googlemail|outlook|hotmail|live|yahoo|icloud|proton\.me|protonmail)\./i.test(domain)) {
+    return { name: "Unknown employer" };
+  }
   const name = domain
     .split(".")[0]!
     .replace(/[-_]+/g, " ")
@@ -342,14 +351,34 @@ export class LinkedInHiringPostEmailDiscovery {
       metrics.queriesExecuted++;
       for (const source of sourceList(query).filter(item => SEARCH_PROVIDERS.has(item.id))) {
         if (signal.aborted) break;
-        const text = await (input.fetchText ? input.fetchText(source.url, signal, source.headers) : fetchDefault(source.url, signal, source.headers));
+        let text: string | null;
+        try {
+          text = await (input.fetchText ? input.fetchText(source.url, signal, source.headers) : fetchDefault(source.url, signal, source.headers));
+        } catch {
+          // One public search provider being blocked/rate-limited must not abort the
+          // entire recruiter cycle. The worker can continue with the remaining
+          // providers and preserve any candidates already discovered.
+          if (signal.aborted) break;
+          metrics.rejected++;
+          continue;
+        }
         if (!text) continue;
         metrics.searchPagesFetched++;
         const urls = extractLinkedInUrls(text);
         for (const url of urls) {
           if (isLinkedInPost(url)) discoveredPostUrls.add(url);
           const evidence = evidenceAround(text, url);
-          const page = await fetchPostText(input, url, signal);
+          let page: string | null = null;
+          try {
+            page = await fetchPostText(input, url, signal);
+          } catch {
+            // LinkedIn guest/authwall/fetch failures are expected for some public
+            // posts. Do not turn one inaccessible post into a failed worker cycle;
+            // search-result evidence can still be sufficient when available.
+            if (signal.aborted) break;
+            metrics.rejected++;
+            continue;
+          }
           let combined = decode(`${evidence} ${page ?? ""}`);
           let email = extractEmails(combined).find(value => emailIsRecruiting(combined, value));
           let emailEvidence = combined;
@@ -375,6 +404,10 @@ export class LinkedInHiringPostEmailDiscovery {
           metrics.relevantPosts++;
           metrics.directEmails++;
           const employer = extractEmployer(combined, email);
+          if (employer.name === "Unknown employer") {
+            metrics.rejected++;
+            continue;
+          }
           const candidate: ProactiveRecruiterDiscoveryCandidate = {
             contactType: "EMPLOYER",
             recruiterName: "LinkedIn hiring contact",
