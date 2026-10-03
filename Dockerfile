@@ -18,6 +18,9 @@ COPY scripts ./scripts
 
 RUN npm run build
 
+# Fail the image build if compiled runtime code is stale relative to the recruiter JSONB fix.
+RUN grep -Fq 'JSON.stringify(relevanceEvidence)' /app/dist/recruiters/ProactiveRecruiterRepository.js
+
 RUN mkdir -p /app/data/resumes /app/data/browser
 
 CMD ["node", "-e", "require('./dist/api/bootstrap'); require('./dist/index')"]
