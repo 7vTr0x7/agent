@@ -22,6 +22,11 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Build Docker image
         run: docker build --tag "job-agent:proactive-recruiter-real-${{ github.sha }}" .
+      - name: Verify Docker image contains current recruiter persistence fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm "job-agent:proactive-recruiter-real-${{ github.sha }}" sh -c 'grep -q "JSON.stringify(relevanceEvidence)" src/recruiters/ProactiveRecruiterRepository.ts'
       - name: Start isolated PostgreSQL
         shell: bash
         run: |
