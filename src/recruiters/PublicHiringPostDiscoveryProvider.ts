@@ -427,8 +427,13 @@ function buildEvidence(text: string, postUrl: string): string {
     }
   }
   if (index < 0) return "";
-  // Search feeds often place the original query immediately before a result URL.\n  // That query can contain hiring terms even when the destination is a generic\n  // article/resource page (for example, Google News returning SitePoint). Keep\n  // only a small amount of pre-URL context so query boilerplate cannot become\n  // the hiring evidence for an unrelated destination.\n  const window = decodedText.slice(Math.max(0, index - 450), Math.min(decodedText.length, index + Math.max(3200, matchedLength)));
-  const sanitized = window.replace(/https?:\/\/[^\s<>"')\]]+/gi, url => isLegitimatePublicResultUrl(url, infrastructureHosts) ? url : "");
+  // Search feeds often place the original query immediately before a result URL.
+  // That query can contain hiring terms even when the destination is a generic
+  // article/resource page (for example, Google News returning SitePoint). Keep
+  // only a small amount of pre-URL context so query boilerplate cannot become
+  // the hiring evidence for an unrelated destination.
+  const evidenceWindow = decodedText.slice(Math.max(0, index - 450), Math.min(decodedText.length, index + Math.max(3200, matchedLength)));
+  const sanitized = evidenceWindow.replace(/https?:\/\/[^\s<>"')\]]+/gi, (url: string) => isLegitimatePublicResultUrl(url, infrastructureHosts) ? url : "");
   return sanitized.replace(/\s+/g, " ").trim().slice(0, 4400);
 }
 function freshness(evidence: string): ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"] { if (/\b(?:today|1d|2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo)\b/i.test(evidence)) return "current"; if (/\b(?:5mo|6mo|7mo|8mo|9mo|10mo|11mo|12mo)\b/i.test(evidence)) return "recent"; const years = [...evidence.matchAll(/\b(20\d{2})\b/g)].map(match => Number(match[1])).filter(Number.isFinite); const currentYear = new Date().getFullYear(); if (years.some(year => year === currentYear)) return "current"; if (years.some(year => year === currentYear - 1)) return "recent"; if (years.some(year => year < currentYear - 1)) return "historical"; return "unknown"; }
