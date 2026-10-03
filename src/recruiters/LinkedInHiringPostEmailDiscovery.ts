@@ -384,6 +384,10 @@ export class LinkedInHiringPostEmailDiscovery {
           metrics.relevantPosts++;
           metrics.directEmails++;
           const employer = extractEmployer(combined, email);
+          if (employer.name === "Unknown employer") {
+            metrics.rejected++;
+            continue;
+          }
           const candidate: ProactiveRecruiterDiscoveryCandidate = {
             contactType: "EMPLOYER",
             recruiterName: "LinkedIn hiring contact",
