@@ -21,7 +21,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Build Docker image
-        run: docker build --tag job-agent:proactive-recruiter-real .
+        run: docker build --tag job-agent:proactive-recruiter-real-${{ github.sha }} .
       - name: Start isolated PostgreSQL
         shell: bash
         run: |
@@ -42,7 +42,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run --rm --network job-agent-proactive -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-proactive-postgres:5432/job_agent -e CANDIDATE_PROFILE_ID=runtime-proactive-candidate -e CANDIDATE_YEARS_EXPERIENCE=3 -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,HTML,CSS,Tailwind,Bootstrap' -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Frontend Developer,React Developer,UI Developer,Full Stack Developer,Full Stack Engineer' -e CANDIDATE_PREFERRED_LOCATIONS='Bengaluru,Bangalore,India,Remote' -e CANDIDATE_REMOTE_ELIGIBLE=true -e PROACTIVE_RECRUITER_ENABLED=true -e PROACTIVE_RECRUITER_FIXTURE=false -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e PROACTIVE_RECRUITER_MAX_QUERIES=18 -e PROACTIVE_RECRUITER_TARGET_CANDIDATES=8 -e RECRUITER_OUTREACH_ENABLED=false -e RECRUITER_OUTREACH_DRY_RUN=true -e RECRUITER_OUTREACH_ACTIVATION=disabled -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true job-agent:proactive-recruiter-real npm run proactive-recruiter:once 2>&1 | tee real-public-proactive-recruiter.log
+          docker run --rm --network job-agent-proactive -e NODE_ENV=test -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-proactive-postgres:5432/job_agent -e CANDIDATE_PROFILE_ID=runtime-proactive-candidate -e CANDIDATE_YEARS_EXPERIENCE=3 -e 'CANDIDATE_SKILLS=React,Next.js,TypeScript,JavaScript,Redux,Redux Toolkit,Node.js,Express,REST APIs,MongoDB,GraphQL,HTML,CSS,Tailwind,Bootstrap' -e 'CANDIDATE_TARGET_TITLES=Frontend Engineer,Frontend Developer,React Developer,UI Developer,Full Stack Developer,Full Stack Engineer' -e CANDIDATE_PREFERRED_LOCATIONS='Bengaluru,Bangalore,India,Remote' -e CANDIDATE_REMOTE_ELIGIBLE=true -e PROACTIVE_RECRUITER_ENABLED=true -e PROACTIVE_RECRUITER_FIXTURE=false -e PROACTIVE_RECRUITER_SEND_ENABLED=false -e PROACTIVE_RECRUITER_MAX_QUERIES=18 -e PROACTIVE_RECRUITER_TARGET_CANDIDATES=8 -e RECRUITER_OUTREACH_ENABLED=false -e RECRUITER_OUTREACH_DRY_RUN=true -e RECRUITER_OUTREACH_ACTIVATION=disabled -e RECRUITER_LIVE_ACTIVATION_CONFIRMED=false -e RECRUITER_REQUIRE_VERIFIED_EMAIL=true -e GMAIL_ENABLED=false -e OUTBOUND_ENABLED=false -e AUTOMATION_ENABLED=false -e APPLICATION_DRY_RUN=true job-agent:proactive-recruiter-real-${{ github.sha }} npm run proactive-recruiter:once 2>&1 | tee real-public-proactive-recruiter.log
           ! grep -Eiq 'refreshToken|access_token|client_secret|api[_-]?key|password=' real-public-proactive-recruiter.log
           grep -q '"status": "ok"' real-public-proactive-recruiter.log
           grep -q '"operationalStatus": "SUCCESS"' real-public-proactive-recruiter.log
@@ -50,7 +50,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run -d --name job-agent-proactive-api --network job-agent-proactive -e NODE_ENV=test -e API_HOST=0.0.0.0 -e API_PORT=3000 -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-proactive-postgres:5432/job_agent job-agent:proactive-recruiter-real node -e "require('./dist/api/bootstrap')"
+          docker run -d --name job-agent-proactive-api --network job-agent-proactive -e NODE_ENV=test -e API_HOST=0.0.0.0 -e API_PORT=3000 -e DATABASE_URL=postgres://job_agent:runtime_test_password@job-agent-proactive-postgres:5432/job_agent job-agent:proactive-recruiter-real-${{ github.sha }} node -e "require('./dist/api/bootstrap')"
           for i in $(seq 1 30); do docker run --rm --network job-agent-proactive curlimages/curl:8.12.1 -fsS http://job-agent-proactive-api:3000/healthz >/dev/null 2>&1 && break; sleep 1; done
           health="$(docker run --rm --network job-agent-proactive curlimages/curl:8.12.1 -fsS http://job-agent-proactive-api:3000/healthz)"
           summary="$(docker run --rm --network job-agent-proactive curlimages/curl:8.12.1 -fsS http://job-agent-proactive-api:3000/api/summary)"
