@@ -351,14 +351,34 @@ export class LinkedInHiringPostEmailDiscovery {
       metrics.queriesExecuted++;
       for (const source of sourceList(query).filter(item => SEARCH_PROVIDERS.has(item.id))) {
         if (signal.aborted) break;
-        const text = await (input.fetchText ? input.fetchText(source.url, signal, source.headers) : fetchDefault(source.url, signal, source.headers));
+        let text: string | null;
+        try {
+          text = await (input.fetchText ? input.fetchText(source.url, signal, source.headers) : fetchDefault(source.url, signal, source.headers));
+        } catch {
+          // One public search provider being blocked/rate-limited must not abort the
+          // entire recruiter cycle. The worker can continue with the remaining
+          // providers and preserve any candidates already discovered.
+          if (signal.aborted) break;
+          metrics.rejected++;
+          continue;
+        }
         if (!text) continue;
         metrics.searchPagesFetched++;
         const urls = extractLinkedInUrls(text);
         for (const url of urls) {
           if (isLinkedInPost(url)) discoveredPostUrls.add(url);
           const evidence = evidenceAround(text, url);
-          const page = await fetchPostText(input, url, signal);
+          let page: string | null = null;
+          try {
+            page = await fetchPostText(input, url, signal);
+          } catch {
+            // LinkedIn guest/authwall/fetch failures are expected for some public
+            // posts. Do not turn one inaccessible post into a failed worker cycle;
+            // search-result evidence can still be sufficient when available.
+            if (signal.aborted) break;
+            metrics.rejected++;
+            continue;
+          }
           let combined = decode(`${evidence} ${page ?? ""}`);
           let email = extractEmails(combined).find(value => emailIsRecruiting(combined, value));
           let emailEvidence = combined;
