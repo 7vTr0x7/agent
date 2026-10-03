@@ -87,6 +87,36 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(candidate.discoveryEvidence.join(" ")).toContain("hr@synergytalententerprise.com");
   });
 
+  it("does not promote search-query boilerplate into hiring evidence for generic news destinations", async () => {
+    const newsFeed = [
+      'NFE/5.0 "Frontend Engineer" hiring React - Google News',
+      'Sat, 03 Oct 2026 08:59:13 GMT',
+      'https://lh3.googleusercontent.com/image=w256',
+      '<a href="">The Death of the Pure Frontend Developer: Why Modern Frontend Is Becoming Full-Stack DevOps</a>',
+      '<font color="#6f6f6f">SitePoint</font>',
+      'https://www.sitepoint.com',
+      'Is frontend development dying? An honest 2026 verdict - Netguru',
+      'https://www.netguru.com'
+    ].join(' ');
+
+    global.fetch = jest.fn(async () => new Response(newsFeed, {
+      status: 200,
+      headers: { "content-type": "application/rss+xml" }
+    })) as typeof fetch;
+
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({
+      targetRoles: ["Frontend Engineer"],
+      skills: ["React", "TypeScript"],
+      maxQueries: 1
+    });
+
+    expect(result.candidates).toHaveLength(0);
+    expect(result.metrics.hiringIntentPosts).toBe(0);
+    expect(result.metrics.validatedContacts).toBe(0);
+    expect(result.candidates.every(candidate => !/sitepoint|netguru/i.test(candidate.discoveryUrl))).toBe(true);
+  });
+
   it("considers every configured search provider without an arbitrary provider-count ceiling", async () => {
     const observed = new Set<string>();
     const provider = new PublicHiringPostDiscoveryProvider();
