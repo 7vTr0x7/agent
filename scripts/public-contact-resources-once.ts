@@ -439,11 +439,10 @@ export function relevance(email: string, context: string, skills: string[], page
   if (GENERIC.test(email.split("@")[0] ?? "")) return 0;
   const haystack = (email + " " + context).toLowerCase();
   const pageHaystack = pageContext.toLowerCase();
-  const pageCanSupplyHiringEvidence = Boolean(pageContext) && HIRING_INTENT.test(pageHaystack) && ROLE_OR_SKILL.test(pageHaystack);
-  if (!HIRING_INTENT.test(haystack) && !pageCanSupplyHiringEvidence) return 0;
+  // Contact resources are useful even when they do not contain hiring language.
+  // Hiring intent is discovery context only, never an eligibility/evidence gate.
   let score = 0;
-  if (HIRING_INTENT.test(haystack)) score += 40;
-  if (ROLE_OR_SKILL.test(haystack)) score += 25;
+  if (ROLE_OR_SKILL.test(haystack) || ROLE_OR_SKILL.test(pageHaystack)) score += 40;
   if (skills.some((skill) => haystack.includes(skill.toLowerCase()))) score += 20;
   if (!/support|privacy|legal|press|newsletter|unsubscribe/i.test(haystack)) score += 15;
   return Math.min(100, score);
