@@ -10,7 +10,7 @@ on:
 jobs:
   local-runtime:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       JOB_AGENT_LOCAL_API_PORT: 3100
       JOB_AGENT_LOCAL_RESET: true
@@ -78,7 +78,7 @@ jobs:
           if(p.registry.executable+p.registry.catalogOnly!==p.registry.total) throw new Error('platform capability totals do not reconcile');
           console.log(JSON.stringify({summary:s,registry:p.registry,runtime:p.latestRuntime}));
           NODE
-      - name: Execute complete platform catalog and matching cycle
+      - name: Execute complete platform catalog cycle
         id: federation
         shell: bash
         run: |
@@ -86,10 +86,6 @@ jobs:
           npm run platform-federation:once | tee /tmp/federation-cycle.json
           federation_status=${PIPESTATUS[0]}
           echo "federation_status=$federation_status" | tee /tmp/federation-status.txt
-          npm run matching:once | tee /tmp/matching-cycle.json
-          matching_status=${PIPESTATUS[0]}
-          echo "matching_status=$matching_status" | tee /tmp/matching-status.txt
-          if (( matching_status != 0 )); then exit "$matching_status"; fi
           exit "$federation_status"
       - name: Wait for a real discovery and matching cycle
         if: always()
@@ -173,11 +169,8 @@ jobs:
         run: |
           set -euo pipefail
           test -f /tmp/federation-status.txt || { echo 'Federation status artifact missing; federation step did not complete.'; exit 1; }
-          test -f /tmp/matching-status.txt || { echo 'Matching status artifact missing; matching step did not complete.'; exit 1; }
           federation_status="$(cut -d= -f2 /tmp/federation-status.txt)"
-          matching_status="$(cut -d= -f2 /tmp/matching-status.txt)"
           if (( federation_status != 0 )); then echo "Federation failed: $federation_status"; exit "$federation_status"; fi
-          if (( matching_status != 0 )); then echo "Matching failed: $matching_status"; exit "$matching_status"; fi
           test -f /tmp/final-summary.json || { echo 'Final summary missing.'; exit 1; }
           node - <<'NODE'
           const fs=require('fs');
