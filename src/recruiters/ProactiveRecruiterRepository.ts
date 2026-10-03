@@ -18,7 +18,9 @@ export class ProactiveRecruiterRepository {
   }
   async persistCandidate(candidateProfileId: string, candidate: ProactiveRecruiterDiscoveryCandidate): Promise<string | null> {
     if (PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === candidate.employer.trim().toLowerCase())) return null;
-    // Recruiter discovery is allowed from public professional identity/contact evidence;\n    // hiring-post evidence is not a prerequisite for persistence. Hiring context, when\n    // present, is informational provenance only and must never gate recruiter discovery.
+    // Public professional identity/contact evidence is required for PERSON contacts.
+    // Hiring-post evidence is optional context and never a persistence prerequisite.
+    if (candidate.contactType !== "EMPLOYER" && !hasRequiredRecruiterEvidence(candidate)) return null;
     const email = candidate.email?.trim().toLowerCase() || null;
     const emailDomain = email?.split("@")[1]?.toLowerCase() ?? "";
     const observedEmailDomain = emailDomain && !isGenericEmailDomain(emailDomain) ? normalizeDomain(emailDomain) : "";
