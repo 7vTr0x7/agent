@@ -442,7 +442,7 @@ export function relevance(email: string, context: string, skills: string[], page
   // Contact resources are useful even when they do not contain hiring language.
   // Hiring intent is discovery context only, never an eligibility/evidence gate.
   let score = 0;
-  if (ROLE_OR_SKILL.test(haystack) || ROLE_OR_SKILL.test(pageHaystack)) score += 40;
+  if (ROLE_OR_SKILL.test(haystack) || ROLE_OR_SKILL.test(pageHaystack)) score += 45;
   if (skills.some((skill) => haystack.includes(skill.toLowerCase()))) score += 20;
   if (!/support|privacy|legal|press|newsletter|unsubscribe/i.test(haystack)) score += 15;
   return Math.min(100, score);
