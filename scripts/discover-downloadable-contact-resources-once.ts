@@ -135,10 +135,17 @@ function extractFile(file: string): Promise<ContactRow[]> {
   });
 }
 
+const mxCache = new Map<string, "LIKELY" | "UNVERIFIED" | "INVALID">>();
+
 async function mx(email: string): Promise<"LIKELY" | "UNVERIFIED" | "INVALID"> {
   const domain = email.split("@")[1]?.toLowerCase();
   if (!domain) return "INVALID";
-  try { return (await dns.resolveMx(domain)).length ? "LIKELY" : "INVALID"; } catch { return "UNVERIFIED"; }
+  const cached = mxCache.get(domain);
+  if (cached) return cached;
+  let status: "LIKELY" | "UNVERIFIED" | "INVALID";
+  try { status = (await dns.resolveMx(domain)).length ? "LIKELY" : "INVALID"; } catch { status = "UNVERIFIED"; }
+  mxCache.set(domain, status);
+  return status;
 }
 
 function relevance(row: ContactRow): number {
