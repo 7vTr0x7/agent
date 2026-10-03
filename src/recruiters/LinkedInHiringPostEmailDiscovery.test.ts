@@ -99,6 +99,23 @@ describe("LinkedInHiringPostEmailDiscovery", () => {
     expect(result.candidates[0]?.employer).toBe("Company Example");
   });
 
+  it("continues when a public search provider throws", async () => {
+    const provider = new LinkedInHiringPostEmailDiscovery();
+    const result = await provider.discover({
+      targetRoles: ["React Developer"],
+      skills: ["React"],
+      yearsExperience: 3,
+      preferredLocations: ["Bengaluru", "India"],
+      maxQueries: 1,
+      fetchText: async () => {
+        throw new Error("simulated provider failure");
+      }
+    });
+
+    expect(result.candidates).toHaveLength(0);
+    expect(result.metrics.rejected).toBeGreaterThan(0);
+  });
+
   it("does not treat generic mailbox domains as employer identities", async () => {
     const postUrl = "https://www.linkedin.com/posts/example-recruiter_hiring-react-activity-444555666";
     const page = [
