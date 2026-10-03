@@ -9,7 +9,7 @@ APP="${JOB_AGENT_LOCAL_APP:-job-agent-local-app}"
 RECRUITER="${JOB_AGENT_LOCAL_RECRUITER:-job-agent-local-recruiter}"
 CONTACTS="${JOB_AGENT_LOCAL_CONTACTS:-job-agent-local-contacts}"
 CONTENT="${JOB_AGENT_LOCAL_CONTENT:-job-agent-local-content}"
-IMAGE="${JOB_AGENT_LOCAL_IMAGE:-job-agent:local}"
+IMAGE="${JOB_AGENT_LOCAL_IMAGE:-job-agent:local-$(git rev-parse --short HEAD 2>/dev/null || echo current)}"
 DB_NAME="${JOB_AGENT_LOCAL_DB:-job_agent}"
 DB_USER="${JOB_AGENT_LOCAL_DB_USER:-job_agent}"
 DB_PASSWORD="${JOB_AGENT_LOCAL_DB_PASSWORD:-local_runtime_password}"
@@ -111,6 +111,13 @@ if [[ "$pg_ready" != "true" ]]; then
 fi
 
 docker build --tag "$IMAGE" .
+
+# Never run a stale local image: the recruiter repository serializes JSONB evidence
+# explicitly, and the runtime must contain that exact compiled code.
+if ! docker run --rm "$IMAGE" sh -c 'grep -q "JSON.stringify(relevanceEvidence)" dist/recruiters/ProactiveRecruiterRepository.js'; then
+  echo "Built local image does not contain the current recruiter JSONB serialization fix." >&2
+  exit 1
+fi
 remove_container "$APP"
 while IFS= read -r container_id; do
   [[ -z "$container_id" ]] && continue
