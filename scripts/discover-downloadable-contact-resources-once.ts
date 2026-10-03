@@ -60,12 +60,36 @@ async function publicHost(hostname: string): Promise<boolean> {
   } catch { return false; }
 }
 
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (true) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      out[index] = await fn(items[index] as T);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return out;
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 10000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function download(url: string): Promise<{ bytes: Uint8Array; contentType: string; finalUrl: string } | null> {
   let current = url;
   for (let hop = 0; hop <= 3; hop += 1) {
     const parsed = new URL(current);
     if (!legitimateResourceUrl(current) || !(await publicHost(parsed.hostname))) return null;
-    const response = await fetch(current, {
+    const response = await fetchWithTimeout(current, {
       redirect: "manual",
       headers: {
         accept: "application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,*/*;q=0.2",
@@ -137,12 +161,12 @@ async function main(): Promise<void> {
     '"HR contact" India recruiter filetype:doc'
   ];
   const requests = queries.flatMap((query) => sourceList(query).map((source) => ({ query, url: source.url })));
-  const pages = await Promise.all(requests.slice(0, Number(process.env.PUBLIC_CONTACT_FILE_MAX_SEARCHES ?? 30)).map(async (item) => {
+  const pages = await mapLimit(requests.slice(0, Number(process.env.PUBLIC_CONTACT_FILE_MAX_SEARCHES ?? 30)), 4, async (item) => {
     try {
-      const r = await fetch(item.url, { headers: { accept: "text/html,text/plain,*/*;q=0.2", "user-agent": "job-agent-public-contact-file-discovery/1.0" } });
+      const r = await fetchWithTimeout(item.url, { headers: { accept: "text/html,text/plain,*/*;q=0.2", "user-agent": "job-agent-public-contact-file-discovery/1.0" } }, 10000);
       return { query: item.query, text: r.ok ? await r.text() : "" };
     } catch { return { query: item.query, text: "" }; }
-  }));
+  });
   const candidates = new Map<string, string>();
   for (const page of pages) for (const url of extractUrls(page.text)) candidates.set(url, page.query);
   for (const seed of (process.env.PUBLIC_CONTACT_RESOURCE_SEED_URLS ?? "").split(/\s*,\s*/).map((v) => v.trim()).filter(Boolean)) {
@@ -156,7 +180,8 @@ async function main(): Promise<void> {
 
   try {
     for (const [url, query] of [...candidates.entries()].slice(0, Number(process.env.PUBLIC_CONTACT_FILE_MAX_FILES ?? 20))) {
-      const file = await download(url);
+      let file: { bytes: Uint8Array; contentType: string; finalUrl: string } | null = null;
+    try { file = await download(url); } catch { file = null; }
       if (!file) continue;
       downloaded += 1;
       const parsed = new URL(file.finalUrl);
