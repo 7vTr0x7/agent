@@ -95,41 +95,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker exec job-agent-local-postgres psql -v ON_ERROR_STOP=1 -U job_agent -d job_agent <<'SQL' | tee /tmp/db-acceptance.txt
-          SELECT 'jobs' AS metric, COUNT(*)::text AS value FROM job_opportunities;
-          SELECT 'matches' AS metric, COUNT(*)::text AS value FROM match_decisions;
-          SELECT 'recruiters' AS metric, COUNT(*)::text AS value FROM recruiter_contacts;
-          SELECT 'contacts' AS metric, COUNT(*)::text AS value FROM contacts;
-          SELECT 'content' AS metric, COUNT(*)::text AS value FROM hiring_posts;
-          SELECT 'public_contact_resources' AS metric, COUNT(*)::text AS value FROM public_contact_resources;
-          SELECT 'public_contact_resource_contacts' AS metric, COUNT(*)::text AS value FROM public_contact_resource_contacts;
-          SELECT 'recruiters_without_sources' AS metric, COUNT(*)::text AS value
-            FROM recruiter_contacts c
-           WHERE COALESCE(c.relevance_status,'UNKNOWN') IN ('CURRENT','RECENT')
-             AND NOT EXISTS (SELECT 1 FROM recruiter_contact_sources s WHERE s.recruiter_contact_id=c.id AND NULLIF(TRIM(s.source_url),'') IS NOT NULL);
-          SELECT 'contacts_without_public_provenance' AS metric, COUNT(*)::text AS value
-            FROM contacts c
-           WHERE NOT EXISTS (
-             SELECT 1 FROM public_contact_resource_contacts pc
-             JOIN public_contact_resources pr ON pr.id=pc.resource_id
-             WHERE LOWER(pc.normalized_email)=LOWER(c.email) AND NULLIF(TRIM(pr.source_url),'') IS NOT NULL
-           )
-             AND NOT EXISTS (
-             SELECT 1 FROM recruiter_contacts rc
-             JOIN recruiter_contact_sources rs ON rs.recruiter_contact_id=rc.id
-             WHERE LOWER(rc.email)=LOWER(c.email) AND NULLIF(TRIM(rs.source_url),'') IS NOT NULL
-           );
-          SQL
+          docker exec job-agent-local-postgres psql -v ON_ERROR_STOP=1 -U job_agent -d job_agent -c "SELECT 'jobs',COUNT(*) FROM job_opportunities; SELECT 'matches',COUNT(*) FROM match_decisions; SELECT 'recruiters',COUNT(*) FROM recruiter_contacts WHERE relevance_status IN ('CURRENT','RECENT'); SELECT 'contacts',COUNT(*) FROM public_contact_resource_contacts WHERE validation_status <> 'INVALID' AND relevance_score > 0; SELECT 'content',COUNT(*) FROM recruiter_contact_sources WHERE LOWER(COALESCE(source_type,'')) IN ('job_posting','current_job_posting','current_role','recent_job_posting','recent_role','job_hiring_evidence'); SELECT 'public_resources',COUNT(*) FROM public_contact_resources; SELECT 'public_resource_contacts',COUNT(*) FROM public_contact_resource_contacts;"
           jobs=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM job_opportunities;' | tr -d '[:space:]')
           matches=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM match_decisions;' | tr -d '[:space:]')
-          contacts=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM contacts;' | tr -d '[:space:]')
+          contacts=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM public_contact_resource_contacts WHERE validation_status <> 'INVALID' AND relevance_score > 0;" | tr -d '[:space:]')
           test "$jobs" -gt 0
           test "$matches" -gt 0
-          if [ "$contacts" -gt 0 ]; then test "$contacts" -gt 0; fi
-          bad_recruiters=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts c WHERE COALESCE(c.relevance_status,'UNKNOWN') IN ('CURRENT','RECENT') AND NOT EXISTS (SELECT 1 FROM recruiter_contact_sources s WHERE s.recruiter_contact_id=c.id AND NULLIF(TRIM(s.source_url),'') IS NOT NULL);" | tr -d '[:space:]')
-          bad_contacts=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM contacts c WHERE NOT EXISTS (SELECT 1 FROM public_contact_resource_contacts pc JOIN public_contact_resources pr ON pr.id=pc.resource_id WHERE LOWER(pc.normalized_email)=LOWER(c.email) AND NULLIF(TRIM(pr.source_url),'') IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM recruiter_contacts rc JOIN recruiter_contact_sources rs ON rs.recruiter_contact_id=rc.id WHERE LOWER(rc.email)=LOWER(c.email) AND NULLIF(TRIM(rs.source_url),'') IS NOT NULL);" | tr -d '[:space:]')
+          bad_recruiters=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM recruiter_contacts c WHERE COALESCE(c.relevance_status,'UNKNOWN') IN ('CURRENT','RECENT') AND (NULLIF(TRIM(c.company_name),'') IS NULL OR NOT EXISTS (SELECT 1 FROM recruiter_contact_sources s WHERE s.recruiter_contact_id=c.id AND NULLIF(TRIM(s.source_url),'') IS NOT NULL));" | tr -d '[:space:]')
+          bad_contacts=$(docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM public_contact_resource_contacts c WHERE c.validation_status <> 'INVALID' AND c.relevance_score > 0 AND NOT EXISTS (SELECT 1 FROM public_contact_resources r WHERE r.id=c.resource_id AND NULLIF(TRIM(r.source_url),'') IS NOT NULL);" | tr -d '[:space:]')
           test "$bad_recruiters" = 0
           test "$bad_contacts" = 0
+
       - name: Verify matching distribution and explainable decisions
         shell: bash
         run: |
@@ -200,7 +176,7 @@ jobs:
           docker logs job-agent-local-recruiter 2>&1 > /tmp/job-agent-final-runtime/recruiter.log || true
           docker logs job-agent-local-contacts 2>&1 > /tmp/job-agent-final-runtime/contacts.log || true
           docker logs job-agent-local-content 2>&1 > /tmp/job-agent-final-runtime/content.log || true
-          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc 'SELECT COUNT(*) FROM job_opportunities; SELECT COUNT(*) FROM match_decisions; SELECT COUNT(*) FROM applications; SELECT COUNT(*) FROM recruiter_contacts; SELECT COUNT(*) FROM contacts; SELECT COUNT(*) FROM hiring_posts; SELECT COUNT(*) FROM public_contact_resources; SELECT COUNT(*) FROM public_contact_resource_contacts;' > /tmp/job-agent-final-runtime/db-counts.txt || true
+          docker exec job-agent-local-postgres psql -U job_agent -d job_agent -tAc "SELECT COUNT(*) FROM job_opportunities; SELECT COUNT(*) FROM match_decisions; SELECT COUNT(*) FROM applications; SELECT COUNT(*) FROM recruiter_contacts; SELECT COUNT(*) FROM contacts; SELECT COUNT(*) FROM recruiter_contact_sources WHERE LOWER(COALESCE(source_type,'')) IN ('job_posting','current_job_posting','current_role','recent_job_posting','recent_role','job_hiring_evidence'); SELECT COUNT(*) FROM public_contact_resources; SELECT COUNT(*) FROM public_contact_resource_contacts;" > /tmp/job-agent-final-runtime/db-counts.txt || true
       - name: Upload final evidence
         if: always()
         uses: actions/upload-artifact@v4
