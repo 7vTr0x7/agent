@@ -96,7 +96,7 @@ describe("LinkedInHiringPostEmailDiscovery", () => {
 
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]?.discoveryUrl).toBe(postUrl);
-    expect(result.candidates[0]?.employer).toBe("Company");
+    expect(result.candidates[0]?.employer).toBe("Company Example");
   });
 
   it("does not treat generic mailbox domains as employer identities", async () => {
