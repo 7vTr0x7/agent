@@ -59,11 +59,12 @@ async function mx(email: string): Promise<"LIKELY" | "UNVERIFIED" | "INVALID"> {
 }
 
 function relevance(row: ContactRow): number {
+  // A structured recruiter/contact document is already the source context.
+  // Do not require HR wording in the extracted row before accepting a valid address.
   const title = row.title?.trim() ?? "";
   const emailLocal = (row.email?.split("@")[0] ?? "").toLowerCase();
-  let score = 45;
-  if (HR_ROLE.test(title)) score += 30;
-  if (/technical|engineering|developer|it recruiter|talent acquisition|recruitment head/i.test(title)) score += 15;
+  let score = 80;
+  if (HR_ROLE.test(title)) score += 10;
   if (/^(hr|career|careers|recruit|recruiting|talent|jobs|hiring)([._-]|$)/i.test(emailLocal)) score += 10;
   return Math.min(100, score);
 }
@@ -146,7 +147,6 @@ async function main(): Promise<void> {
         }
 
         const score = relevance(row);
-        if (score < 60) continue;
         resourceQualified += 1;
 
         const evidence = [
@@ -205,7 +205,7 @@ async function main(): Promise<void> {
       recruiterIdentityCreated: 0,
       hiringEvidenceClaimed: false,
       mailboxVerificationClaimed: false,
-      nextStep: "run promote-public-contact-resources-once.ts; recruiter promotion still requires independent hiring/identity evidence"
+      nextStep: "run promote-public-contact-resources-once.ts; valid document contacts are promoted directly without hiring evidence"
     }, null, 2));
   } finally {
     await database.close();

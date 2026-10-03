@@ -7,7 +7,7 @@ export interface ContactPromotionInput {
   companyName: string;
   sourceUrl: string;
   sourceType: string;
-  validationStatus: "LIKELY" | "VERIFIED";
+  validationStatus: "LIKELY" | "VERIFIED" | "UNVERIFIED";
   relevanceScore: number;
   evidenceContext: string;
   observedAt: string;
@@ -51,23 +51,69 @@ async function main():Promise<void>{
     );
 
     const result=await database.query<{resource_id:string;email:string;title:string;source_url:string;source_type:string;validation_status:"LIKELY"|"VERIFIED"|"UNVERIFIED"|"INVALID";relevance_score:number;evidence_context:string;observed_at:string}>(
-      `SELECT DISTINCT ON (c.normalized_email) c.resource_id,c.normalized_email AS email,r.title,r.source_url,r.source_type,c.validation_status,c.relevance_score,c.evidence_context,c.observed_at FROM public_contact_resource_contacts c JOIN public_contact_resources r ON r.id=c.resource_id WHERE c.relevance_score>=60 AND c.validation_status IN ('LIKELY','VERIFIED') AND NULLIF(TRIM(c.normalized_email),'') IS NOT NULL AND c.normalized_email ~ $1 ORDER BY c.normalized_email,c.relevance_score DESC,c.observed_at DESC`,
+      `SELECT DISTINCT ON (c.normalized_email) c.resource_id,c.normalized_email AS email,r.title,r.source_url,r.source_type,c.validation_status,c.relevance_score,c.evidence_context,c.observed_at FROM public_contact_resource_contacts c JOIN public_contact_resources r ON r.id=c.resource_id WHERE c.relevance_score>=60 AND c.validation_status IN ('LIKELY','VERIFIED','UNVERIFIED') AND NULLIF(TRIM(c.normalized_email),'') IS NOT NULL AND c.normalized_email ~ $1 ORDER BY c.normalized_email,c.relevance_score DESC,c.observed_at DESC`,
       [emailSql]
     );
 
-    let inserted=0;let existing=0;let suppressed=0;
+    let inserted=0;let existing=0;let suppressed=0;let recruiterIdentityCreated=0;
     for(const row of result.rows){
       if(!isSafePublicEmail(row.email)){suppressed+=1;continue;}
-      let companyName:string;try{companyName=row.title.trim()||new URL(row.source_url).hostname;}catch{companyName=row.title.trim();}
-      const promotion=buildContactPromotion({resourceId:row.resource_id,email:row.email,companyName,sourceUrl:row.source_url,sourceType:row.source_type,validationStatus:row.validation_status==="VERIFIED"?"VERIFIED":"LIKELY",relevanceScore:row.relevance_score,evidenceContext:row.evidence_context,observedAt:row.observed_at});
-      const upsert=await database.query<{inserted:boolean}>(
-        `INSERT INTO contacts (company_name,email,source,source_url,source_type,provenance,validation_status,relevance_score,suppressed,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,NOW(),NOW()) ON CONFLICT (email) DO UPDATE SET company_name=CASE WHEN contacts.company_name IS NULL OR contacts.company_name='' THEN EXCLUDED.company_name ELSE contacts.company_name END,source=EXCLUDED.source,source_url=EXCLUDED.source_url,source_type=EXCLUDED.source_type,provenance=EXCLUDED.provenance,validation_status=EXCLUDED.validation_status,relevance_score=GREATEST(contacts.relevance_score,EXCLUDED.relevance_score),suppressed=FALSE,updated_at=NOW() RETURNING (xmax=0) AS inserted`,
+      let companyName:string;
+      const companyMatch=row.evidence_context.match(/(?:^|\|\s*)Company:\s*([^|]+)/i);
+      try{companyName=companyMatch?.[1]?.trim()||row.email.split("@")[1]?.split(".")[0]?.replace(/[-_]+/g," ")||new URL(row.source_url).hostname;}catch{companyName=companyMatch?.[1]?.trim()||row.email.split("@")[1]?.split(".")[0]?.replace(/[-_]+/g," ")||"";}
+      const promotion=buildContactPromotion({resourceId:row.resource_id,email:row.email,companyName,sourceUrl:row.source_url,sourceType:row.source_type,validationStatus:row.validation_status==="VERIFIED"?"VERIFIED":row.validation_status==="LIKELY"?"LIKELY":"UNVERIFIED",relevanceScore:row.relevance_score,evidenceContext:row.evidence_context,observedAt:row.observed_at});
+      const upsert=await database.query<{id:string;inserted:boolean}>(
+        `INSERT INTO contacts (company_name,email,source,source_url,source_type,provenance,validation_status,relevance_score,suppressed,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,NOW(),NOW()) ON CONFLICT (email) DO UPDATE SET company_name=CASE WHEN contacts.company_name IS NULL OR contacts.company_name='' THEN EXCLUDED.company_name ELSE contacts.company_name END,source=EXCLUDED.source,source_url=EXCLUDED.source_url,source_type=EXCLUDED.source_type,provenance=EXCLUDED.provenance,validation_status=EXCLUDED.validation_status,relevance_score=GREATEST(contacts.relevance_score,EXCLUDED.relevance_score),suppressed=FALSE,updated_at=NOW() RETURNING id,(xmax=0) AS inserted`,
         [promotion.companyName,promotion.email,"public_contact_resource",promotion.sourceUrl,promotion.sourceType,JSON.stringify(promotion.provenance),promotion.validationStatus,promotion.relevanceScore,promotion.suppressed]
       );
+      const contactId=upsert.rows[0]?.id;
       if(upsert.rows[0]?.inserted)inserted+=1;else existing+=1;
+      if(!contactId)continue;
+
+      const domain=promotion.email.split("@")[1]?.toLowerCase()??"";
+      const recruiterEvidence=JSON.stringify([{
+        provider:"public-contact-resource",
+        status:promotion.validationStatus,
+        mailboxLevel:false,
+        source:promotion.sourceUrl
+      }]);
+      const identityKey=`email:${promotion.email}`;
+      const existingRecruiter=await database.query<{id:string}>(
+        `SELECT id FROM recruiter_contacts WHERE contact_id=$1 OR identity_key=$2 LIMIT 1`,
+        [contactId,identityKey]
+      );
+      if(existingRecruiter.rows[0]?.id){
+        await database.query(
+          `UPDATE recruiter_contacts
+              SET company_name=$1, company_domain=$2, contact_id=$3,
+                  title=COALESCE(NULLIF(title,''),'Hiring contact'),
+                  confidence=GREATEST(COALESCE(confidence,0),$4),
+                  verified=FALSE, verification_status='public-web-likely',
+                  provider='public-contact-resource', discovery_source='public-contact-resource',
+                  email_status=$5, domain_status='VALID',
+                  mx_status=$6, mailbox_evidence=FALSE,
+                  verification_evidence=$7::jsonb, relevance_status='UNKNOWN',
+                  identity_key=$8, email_discovery_status='FOUND',
+                  last_seen_at=NOW(), updated_at=NOW()
+            WHERE id=$9`,
+          [promotion.companyName,domain,contactId,Math.round(promotion.relevanceScore),promotion.validationStatus,promotion.validationStatus==="LIKELY"?"EXISTS":"UNKNOWN",recruiterEvidence,identityKey,existingRecruiter.rows[0].id]
+        );
+      }else{
+        await database.query(
+          `INSERT INTO recruiter_contacts
+            (company_name,company_domain,contact_id,full_name,title,confidence,verified,verification_status,
+             provider,discovery_source,email_status,domain_status,mx_status,mailbox_evidence,
+             verification_evidence,relevance_status,identity_key,email_discovery_status,last_seen_at,updated_at)
+           VALUES($1,$2,$3,NULL,'Hiring contact',$4,FALSE,'public-web-likely',
+             'public-contact-resource','public-contact-resource',$5,'VALID',$6,FALSE,
+             $7::jsonb,'UNKNOWN',$8,'FOUND',NOW(),NOW())`,
+          [promotion.companyName,domain,contactId,Math.round(promotion.relevanceScore),promotion.validationStatus,promotion.validationStatus==="LIKELY"?"EXISTS":"UNKNOWN",recruiterEvidence,identityKey]
+        );
+        recruiterIdentityCreated+=1;
+      }
     }
     const contactCount=await database.query<{count:string}>(`SELECT COUNT(*)::text AS count FROM contacts WHERE suppressed=FALSE AND validation_status IN ('LIKELY','VERIFIED') AND relevance_score>=60 AND source_url IS NOT NULL AND provenance->>'publicEvidence'='true'`);
-    console.log(JSON.stringify({status:"ok",feature:"PUBLIC_CONTACT_RESOURCE",independent:true,resourcesBackedByPublicEvidence:result.rows.length,contactsPromoted:inserted,existingContacts:existing,malformedSuppressed:suppressed,contactsPersisted:Number(contactCount.rows[0]?.count??0),applicationsSent:0,outreachSent:0,source:"public_contact_resource_contacts",mailboxVerificationClaimed:false},null,2));
+    console.log(JSON.stringify({status:"ok",feature:"PUBLIC_CONTACT_RESOURCE",independent:true,resourcesBackedByPublicEvidence:result.rows.length,contactsPromoted:inserted,existingContacts:existing,malformedSuppressed:suppressed,contactsPersisted:Number(contactCount.rows[0]?.count??0),recruiterIdentityCreated,applicationsSent:0,outreachSent:0,source:"public_contact_resource_contacts",mailboxVerificationClaimed:false},null,2));
   } finally { await database.close(); }
 }
 
