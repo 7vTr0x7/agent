@@ -101,6 +101,27 @@ describe("ProactiveRecruiterRepository hiring-post persistence", () => {
     expect(isEmployerEmailDomainConsistent("recruiter@othercorp.example", "acme.example")).toBe(false);
   });
 
+  it("persists a legitimate public recruiter profile without requiring hiring evidence", async () => {
+    const database = { query: jest.fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: "contact-profile-1" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] }) };
+    const repository = new ProactiveRecruiterRepository(database as never);
+
+    const result = await repository.persistCandidate("candidate-profile", hiringPostCandidate({
+      discoveryUrl: "https://www.linkedin.com/in/jane-doe",
+      discoveryEvidence: ["Jane Doe - Technical Recruiter at Acme"],
+      evidenceType: "public_profile",
+      hiringEvidenceScore: 0,
+      evidenceFreshness: "unknown"
+    }));
+
+    expect(result).toBe("contact-profile-1");
+    expect(database.query).toHaveBeenCalledTimes(5);
+  });
+
   it("rejects a search-engine result without genuine identity evidence", async () => {
     const database = { query: jest.fn() };
     const repository = new ProactiveRecruiterRepository(database as never);
