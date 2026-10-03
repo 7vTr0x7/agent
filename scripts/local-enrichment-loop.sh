@@ -7,7 +7,20 @@ INTERVAL_MS="${ENRICHMENT_INTERVAL_MS:-900000}"
 # longer than recruiter/content enrichment because it validates multiple public
 # source pages. Keep the per-cycle cap finite while avoiding false TIMED_OUT
 # states during the real-data acceptance run.
-COMMAND_TIMEOUT_SECONDS="${ENRICHMENT_COMMAND_TIMEOUT_SECONDS:-300}"
+#
+# Contacts execute several independent public-resource passes (downloadable
+# files, LinkedIn hiring-post resources, resource promotion, recruiter contact
+# promotion, job-linked supplements, and reconciliation). Give that pipeline a
+# separate default budget so real-data latency does not get mistaken for a
+# worker failure. The generic override remains available for local/CI tuning.
+case "$MODE" in
+  contacts)
+    COMMAND_TIMEOUT_SECONDS="${ENRICHMENT_CONTACT_COMMAND_TIMEOUT_SECONDS:-900}"
+    ;;
+  *)
+    COMMAND_TIMEOUT_SECONDS="${ENRICHMENT_COMMAND_TIMEOUT_SECONDS:-300}"
+    ;;
+esac
 STATE_DIR="${ENRICHMENT_STATE_DIR:-/tmp/job-agent-enrichment}"
 
 if ! [[ "$INTERVAL_MS" =~ ^[0-9]+$ ]] || (( INTERVAL_MS < 1000 )); then
@@ -15,7 +28,7 @@ if ! [[ "$INTERVAL_MS" =~ ^[0-9]+$ ]] || (( INTERVAL_MS < 1000 )); then
   exit 1
 fi
 if ! [[ "$COMMAND_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || (( COMMAND_TIMEOUT_SECONDS < 10 )); then
-  echo "ENRICHMENT_COMMAND_TIMEOUT_SECONDS must be an integer >= 10 seconds." >&2
+  echo "Enrichment command timeout must be an integer >= 10 seconds." >&2
   exit 1
 fi
 
