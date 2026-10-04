@@ -37,6 +37,7 @@ export class RecruiterAwareJobAgentApiServer {
   async stop(): Promise<void> {
     const server = this.server;
     this.server = null;
+    this.delegate.closeRealtimeEvents();
     if (!server) return;
     await new Promise<void>(resolve => server.close(() => resolve()));
   }
@@ -49,6 +50,10 @@ export class RecruiterAwareJobAgentApiServer {
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", "http://job-agent.local");
+    if (request.method === "GET" && url.pathname === "/api/events") {
+      await this.delegate.handleRealtimeEvents(response);
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/summary") {
       await this.handleSummary(response);
       return;

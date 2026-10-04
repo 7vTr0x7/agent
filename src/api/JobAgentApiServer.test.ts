@@ -107,6 +107,17 @@ describe("JobAgentApiServer", () => {
       const summaryQuery = queryMock.mock.calls.find(([sql]: [unknown]) => String(sql).includes("match_decisions"))?.[0];
       expect(String(summaryQuery)).toContain('x."relevanceScore"');
 
+      const events = await fetch(`${baseUrl}/api/events`);
+      expect(events.status).toBe(200);
+      expect(events.headers.get("content-type")).toContain("text/event-stream");
+      const reader = events.body?.getReader();
+      expect(reader).toBeDefined();
+      const initial = await reader!.read();
+      expect(new TextDecoder().decode(initial.value)).toContain("retry: 2000");
+      const refreshEvent = await reader!.read();
+      expect(new TextDecoder().decode(refreshEvent.value)).toContain("event: refresh");
+      await reader!.cancel();
+
       const content = await fetch(`${baseUrl}/api/content?limit=10`);
       expect(content.status).toBe(200);
       const contentBody = await content.json();
