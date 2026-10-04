@@ -1,8 +1,8 @@
 import { Database } from "../database/Database";
 import { QueryResult, QueryResultRow } from "pg";
 import { PERMANENTLY_EXCLUDED_COMPANIES } from "../applications/ApplicationPolicy";
-import { ProactiveRecruiterDiscoveryCandidate } from "./ProactiveRecruiterDiscoveryService";
-import { hasExplicitMailboxEvidence, isMailboxVerifiedForRealSend, recruiterRealSendEligibilitySql } from "./RecruiterMailboxVerification";
+import { ProactiveRecruiterDiscoveryCandidate, hasRequiredRecruiterEvidence } from "./ProactiveRecruiterDiscoveryService";
+import { hasExplicitMailboxEvidence, isMailboxVerifiedForRealSend, recruiterRealSendEligibilitySql, recruiterSimplePublicContactEligibilitySql } from "./RecruiterMailboxVerification";
 import { isBlockedEmployerDomain, resolveEmployerDomainFromPublicSearch } from "./RecruiterCompanyDomainResolver";
 export interface ProactiveCampaignRecord { sequenceId: string; messageId: string; }
 export class ProactiveRecruiterRepository {
@@ -18,6 +18,7 @@ export class ProactiveRecruiterRepository {
   }
   async persistCandidate(candidateProfileId: string, candidate: ProactiveRecruiterDiscoveryCandidate): Promise<string | null> {
     if (PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === candidate.employer.trim().toLowerCase())) return null;
+    if (candidate.contactType !== "EMPLOYER" && !hasRequiredRecruiterEvidence(candidate)) return null;
     const email = candidate.email?.trim().toLowerCase() || null;
     const emailDomain = email?.split("@")[1]?.toLowerCase() ?? "";
     const observedEmailDomain = emailDomain && !isGenericEmailDomain(emailDomain) ? normalizeDomain(emailDomain) : "";
@@ -76,10 +77,10 @@ export class ProactiveRecruiterRepository {
     if (!email) return null;
     const priorContact = await this.query<{ exists: boolean }>(`SELECT EXISTS (SELECT 1 FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id WHERE s.candidate_profile_id=$1 AND LOWER(m.recipient_email)=LOWER($2) AND m.status IN ('PREPARED','SENDING','SENT')) AS exists`, [input.candidateProfileId, email]);
     if (priorContact.rows[0]?.exists) return null;
-    const sequence = await this.query<{ id: string }>(`INSERT INTO recruiter_outreach_sequences (recruiter_contact_id,job_opportunity_id,application_id,candidate_profile_id,status,campaign_type,target_roles) SELECT $1,NULL,NULL,$2,'READY','PROACTIVE_RECRUITER',$3::jsonb WHERE EXISTS (SELECT 1 FROM recruiter_contacts c WHERE c.id=$1 AND ${recruiterRealSendEligibilitySql("c")}) ON CONFLICT DO NOTHING RETURNING id`, [input.recruiterContactId, input.candidateProfileId, JSON.stringify(input.targetRoles)]);
+    const sequence = await this.query<{ id: string }>(`INSERT INTO recruiter_outreach_sequences (recruiter_contact_id,job_opportunity_id,application_id,candidate_profile_id,status,campaign_type,target_roles) SELECT $1,NULL,NULL,$2,'READY','PROACTIVE_RECRUITER',$3::jsonb WHERE EXISTS (SELECT 1 FROM recruiter_contacts c WHERE c.id=$1 AND ${recruiterSimplePublicContactEligibilitySql("c")}) ON CONFLICT DO NOTHING RETURNING id`, [input.recruiterContactId, input.candidateProfileId, JSON.stringify(input.targetRoles)]);
     const sequenceId = sequence.rows[0]?.id;
     if (!sequenceId) return null;
-    const message = await this.query<{ id: string }>(`INSERT INTO recruiter_outreach_messages (sequence_id,message_type,sequence_step,recipient_email,subject,body,status) SELECT $1,'INITIAL',0,canonical_contact.email,$2::text,$3::text,'PREPARED' FROM recruiter_contacts c JOIN contacts canonical_contact ON canonical_contact.id=c.contact_id WHERE c.id=$4 AND ${recruiterRealSendEligibilitySql("c")} RETURNING id`, [sequenceId, input.subject, input.body, input.recruiterContactId]);
+    const message = await this.query<{ id: string }>(`INSERT INTO recruiter_outreach_messages (sequence_id,message_type,sequence_step,recipient_email,subject,body,status) SELECT $1,'INITIAL',0,canonical_contact.email,$2::text,$3::text,'PREPARED' FROM recruiter_contacts c JOIN contacts canonical_contact ON canonical_contact.id=c.contact_id WHERE c.id=$4 AND ${recruiterSimplePublicContactEligibilitySql("c")} RETURNING id`, [sequenceId, input.subject, input.body, input.recruiterContactId]);
     const messageId = message.rows[0]?.id;
     if (!messageId) return null;
     return { sequenceId, messageId };

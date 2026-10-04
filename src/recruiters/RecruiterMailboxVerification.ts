@@ -28,17 +28,24 @@ export function isPubliclyLikelyForRealSend(record: RecruiterMailboxVerification
  * destinations. Gmail is never used to prove that the recipient mailbox exists.
  */
 export function isPublicCompanyDomainEmailForRealSend(record: RecruiterMailboxVerificationRecord): boolean {
-  const email = record.email?.trim().toLowerCase() ?? "";
-  const emailStatus = String(record.emailStatus ?? "").trim().toUpperCase();
-  if (record.suppressed === true) return false;
-  if (!isPlausibleMailboxAddress(email) || emailStatus === "INVALID" || isAutomatedMailbox(email)) return false;
-  return emailStatus === "UNVERIFIED" || emailStatus === "LIKELY" || emailStatus === "VERIFIED";
+  const email=record.email?.trim().toLowerCase()??"";
+  const companyDomain=record.companyDomain?.trim().toLowerCase().replace(/^www\./,"")??"";
+  const emailDomain=email.split("@")[1]??"";
+  const relevance=String(record.relevanceStatus??"UNKNOWN").trim().toUpperCase();
+  const emailStatus=String(record.emailStatus??"").trim().toUpperCase();
+  if(record.suppressed===true||record.verified===true||record.mailboxEvidence===true)return false;
+  if(!isPlausibleMailboxAddress(email)||!companyDomain||emailDomain!==companyDomain)return false;
+  if(emailStatus!=="UNVERIFIED"&&emailStatus!=="LIKELY")return false;
+  if(isAutomatedMailbox(email))return false;
+  return true;
 }
 export function isSimplePublicRecruiterContactForRealSend(record: RecruiterMailboxVerificationRecord): boolean {
-  return isPublicCompanyDomainEmailForRealSend(record) || isMailboxVerifiedForRealSend(record) || isPubliclyLikelyForRealSend(record);
+  const email=record.email?.trim().toLowerCase()??"";
+  const emailStatus=String(record.emailStatus??"").trim().toUpperCase();
+  if(record.suppressed===true) return false;
+  if(!isPlausibleMailboxAddress(email)||emailStatus==="INVALID"||isAutomatedMailbox(email)) return false;
+  return emailStatus==="UNVERIFIED"||emailStatus==="LIKELY"||emailStatus==="VERIFIED";
 }
-export function isRecruiterRelevantForRealSend(_record: RecruiterMailboxVerificationRecord): boolean { return true; }
-export function isEligibleForRealRecruiterSend(record: RecruiterMailboxVerificationRecord): boolean { return isMailboxVerifiedForRealSend(record)||isPubliclyLikelyForRealSend(record)||isPublicCompanyDomainEmailForRealSend(record); }
 export function recruiterRealSendEligibilitySql(alias="c"):string{
   const emailSql=`(SELECT canonical_contact.email FROM contacts canonical_contact WHERE canonical_contact.id=${alias}.contact_id)`;
   return `(
@@ -53,6 +60,21 @@ export function recruiterRealSendEligibilitySql(alias="c"):string{
          OR LOWER(COALESCE(suppression.company_domain,''))=LOWER(COALESCE(${alias}.company_domain,''))
     )
   )`;
+}export function recruiterSimplePublicContactEligibilitySql(alias="c"):string{
+  const emailSql=`(SELECT canonical_contact.email FROM contacts canonical_contact WHERE canonical_contact.id=${alias}.contact_id)`;
+  return `(
+    COALESCE(${alias}.suppressed,FALSE)=FALSE
+    AND ${emailSql} IS NOT NULL
+    AND ${emailSql} ~* '^[A-Za-z0-9!#$&''*+/=?^_\\x60{|}~.-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
+    AND SPLIT_PART(${emailSql},'@',1) !~* '(^\\.|\\.$|\\.\\.|%|^(noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot)$)'
+    AND UPPER(COALESCE(${alias}.email_status,'')) IN ('UNVERIFIED','LIKELY','VERIFIED')
+    AND NOT EXISTS (
+      SELECT 1 FROM recruiter_suppressions suppression
+      WHERE LOWER(COALESCE(suppression.email,''))=LOWER(${emailSql})
+         OR LOWER(COALESCE(suppression.company_domain,''))=LOWER(COALESCE(${alias}.company_domain,''))
+    )
+  )`;
 }
+
 export const CANONICAL_MAILBOX_VERIFICATION_STATUS=VERIFIED_STATUS;
 export const PUBLIC_LIKELY_MAILBOX_STATUS=PUBLIC_LIKELY_STATUS;
