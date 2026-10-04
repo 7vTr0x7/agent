@@ -18,3 +18,11 @@ describe("Phase 6 eligibility listing contract", () => {
     expect(source).not.toMatch(/email_status\s*=\s*['\"]VERIFIED['\"]/i);
   });
 });
+
+
+  it("keeps proactive recruiter sequences eligible when no job opportunity is attached", () => {
+    const scriptPath = path.resolve(__dirname, "list-phase6-eligible-outreach.ts");
+    const source = fs.readFileSync(scriptPath, "utf8");
+    expect(source).toContain("LEFT JOIN job_opportunities j ON j.id=s.job_opportunity_id");
+    expect(source).not.toContain("JOIN job_opportunities j ON j.id=s.job_opportunity_id");
+  });
