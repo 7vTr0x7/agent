@@ -91,7 +91,8 @@ async function main(): Promise<void> {
         candidateProfileId: profile.id,
         targetRoles: [...profile.targetTitles],
         subject: message.subject,
-        body: message.body
+        body: message.body,
+        reusePrepared: true
       });
 
       if (!campaign) {
