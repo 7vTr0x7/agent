@@ -75,7 +75,7 @@ export class RecruiterAwareJobAgentApiServer {
         (SELECT COUNT(*)::text FROM applications) AS applications,
         (SELECT COUNT(*)::text FROM recruiter_contacts) AS recruiters,
         (SELECT COUNT(*)::text FROM public_contact_resource_contacts WHERE validation_status <> 'INVALID' AND relevance_score > 0) AS contacts,
-        (SELECT COUNT(*)::text FROM recruiter_contact_sources WHERE LOWER(COALESCE(source_type,'')) IN ('job_posting','current_job_posting','current_role','recent_job_posting','recent_role','job_hiring_evidence')) AS content,
+        (SELECT COUNT(*)::text FROM recruiter_contact_sources WHERE LOWER(COALESCE(source_type,'')) IN ('public_profile','public_contact_resource','public_recruiter_profile')) AS content,
         (SELECT COUNT(*)::text FROM recruiter_outreach_messages WHERE status='SENT') AS "outreachSent",
         (SELECT COUNT(*)::text FROM tasks WHERE status IN ('PENDING','RUNNING')) AS "pendingTasks",
         (SELECT COUNT(*)::text FROM latest_matches WHERE decision='APPLY') AS "matchApply",
@@ -92,12 +92,26 @@ export class RecruiterAwareJobAgentApiServer {
         ) x) AS "topMatches",
         (SELECT COALESCE(jsonb_agg(x ORDER BY x."relevanceScore" DESC NULLS LAST,x.confidence DESC NULLS LAST,x.updated_at DESC),'[]'::jsonb) FROM (
           SELECT c.full_name AS name,c.company_name AS company,c.title AS role,c.relevance_status AS relevance,c.relevance_score AS "relevanceScore",
-                 c.relevance_evidence AS "hiringEvidence",
-                 (SELECT s.source_url FROM recruiter_contact_sources s WHERE s.recruiter_contact_id=c.id ORDER BY s.observed_at DESC LIMIT 1) AS "profileUrl",
+                 (SELECT s.source_url FROM recruiter_contact_sources s WHERE s.recruiter_contact_id=c.id AND NULLIF(TRIM(s.source_url),'') IS NOT NULL ORDER BY s.observed_at DESC LIMIT 1) AS "profileUrl",
+                 (SELECT s.source_type FROM recruiter_contact_sources s WHERE s.recruiter_contact_id=c.id AND NULLIF(TRIM(s.source_url),'') IS NOT NULL ORDER BY s.observed_at DESC LIMIT 1) AS "sourceType",
                  c.email,c.email_status AS "emailStatus",c.verified,c.mailbox_evidence AS "mailboxEvidence",c.confidence,
                  (${eligibility}) AS "eligibleForOutreach",c.updated_at
           FROM recruiter_contacts c
-          WHERE c.relevance_status IN ('CURRENT','RECENT')
+          WHERE COALESCE(c.suppressed,FALSE)=FALSE
+            AND (
+              c.relevance_status IN ('CURRENT','RECENT','UNKNOWN')
+              OR c.email IS NOT NULL
+              OR EXISTS (
+                SELECT 1 FROM contacts canonical_contact
+                WHERE canonical_contact.id=c.contact_id AND NULLIF(TRIM(canonical_contact.email),'') IS NOT NULL
+              )
+            )
+            AND EXISTS (
+              SELECT 1 FROM recruiter_contact_sources s
+              WHERE s.recruiter_contact_id=c.id
+                AND NULLIF(TRIM(s.source_url),'') IS NOT NULL
+                AND LOWER(COALESCE(s.source_type,'')) NOT IN ('job_hiring_evidence','current_job_posting','recent_job_posting','current_role','recent_role')
+            )
           ORDER BY c.relevance_score DESC NULLS LAST,c.confidence DESC NULLS LAST,c.updated_at DESC LIMIT 10
         ) x) AS "recruiterLeads"
     `);
