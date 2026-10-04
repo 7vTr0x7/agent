@@ -48,6 +48,7 @@ export function isSimplePublicRecruiterContactForRealSend(record: RecruiterMailb
   if(!isPlausibleMailboxAddress(email)||emailStatus==="INVALID"||isAutomatedMailbox(email)) return false;
   return emailStatus==="UNVERIFIED"||emailStatus==="LIKELY"||emailStatus==="VERIFIED";
 }
+
 export function recruiterRealSendEligibilitySql(alias="c"):string{const emailSql=`(SELECT canonical_contact.email FROM contacts canonical_contact WHERE canonical_contact.id=${alias}.contact_id)`;return `(
     (
       COALESCE(${alias}.verified,FALSE)=TRUE
@@ -87,9 +88,7 @@ export function recruiterSimplePublicContactEligibilitySql(alias="c"):string{
   return `(
     COALESCE(${alias}.suppressed,FALSE)=FALSE
     AND ${emailSql} IS NOT NULL
-    AND ${emailSql} ~* '^[A-Za-z0-9!#export const CANONICAL_MAILBOX_VERIFICATION_STATUS''*+/=?^_\\x60{|}~.-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+=VERIFIED_STATUS;
-export const PUBLIC_LIKELY_MAILBOX_STATUS=PUBLIC_LIKELY_STATUS;
-
+    AND ${emailSql} ~* '^[A-Za-z0-9!#$&''*+/=?^_\\x60{|}~.-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
     AND SPLIT_PART(${emailSql},'@',1) !~* '(^\\.|\\.$|\\.\\.|%|^(noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot)$)'
     AND UPPER(COALESCE(${alias}.email_status,'')) IN ('UNVERIFIED','LIKELY','VERIFIED')
     AND NOT EXISTS (
@@ -99,5 +98,6 @@ export const PUBLIC_LIKELY_MAILBOX_STATUS=PUBLIC_LIKELY_STATUS;
     )
   )`;
 }
+
 export const CANONICAL_MAILBOX_VERIFICATION_STATUS=VERIFIED_STATUS;
 export const PUBLIC_LIKELY_MAILBOX_STATUS=PUBLIC_LIKELY_STATUS;

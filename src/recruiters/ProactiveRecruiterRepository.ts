@@ -70,7 +70,7 @@ export class ProactiveRecruiterRepository {
     const contact = await this.query<{ company_name: string; company_domain: string; email: string | null }>(`SELECT rc.company_name,rc.company_domain,canonical_contact.email FROM recruiter_contacts rc JOIN contacts canonical_contact ON canonical_contact.id=rc.contact_id WHERE rc.id=$1`, [input.recruiterContactId]);
     const contactRow = contact.rows[0];
     if (!contactRow || PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === contactRow.company_name.trim().toLowerCase()) || isBlockedEmployerDomain(contactRow.company_domain)) return null;
-    const eligible = await this.query<{ id: string }>(`SELECT c.id FROM recruiter_contacts c WHERE c.id=$1 AND ${recruiterRealSendEligibilitySql("c")}`, [input.recruiterContactId]);
+    const eligible = await this.query<{ id: string }>(`SELECT c.id FROM recruiter_contacts c WHERE c.id=$1 AND ${recruiterSimplePublicContactEligibilitySql("c")}`, [input.recruiterContactId]);
     if (!eligible.rows[0]) return null;
     const existingContact = await this.query<{ email: string | null }>(`SELECT canonical_contact.email FROM recruiter_contacts rc JOIN contacts canonical_contact ON canonical_contact.id=rc.contact_id WHERE rc.id=$1`, [input.recruiterContactId]);
     const email = existingContact.rows[0]?.email;
