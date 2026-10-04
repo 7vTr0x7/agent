@@ -75,8 +75,20 @@ export class ProactiveRecruiterRepository {
     const existingContact = await this.query<{ email: string | null }>(`SELECT canonical_contact.email FROM recruiter_contacts rc JOIN contacts canonical_contact ON canonical_contact.id=rc.contact_id WHERE rc.id=$1`, [input.recruiterContactId]);
     const email = existingContact.rows[0]?.email;
     if (!email) return null;
-    const priorContact = await this.query<{ exists: boolean }>(`SELECT EXISTS (SELECT 1 FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id WHERE s.candidate_profile_id=$1 AND LOWER(m.recipient_email)=LOWER($2) AND m.status IN ('PREPARED','SENDING','SENT')) AS exists`, [input.candidateProfileId, email]);
-    if (priorContact.rows[0]?.exists) return null;
+    const priorContact = await this.query<{ id: string; sequence_id: string; status: string }>(`SELECT m.id,m.sequence_id,m.status
+      FROM recruiter_outreach_messages m
+      JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id
+      WHERE s.candidate_profile_id=$1
+        AND LOWER(m.recipient_email)=LOWER($2)
+        AND m.status IN ('PREPARED','SENDING','SENT')
+      ORDER BY CASE m.status WHEN 'PREPARED' THEN 0 WHEN 'SENDING' THEN 1 ELSE 2 END, m.created_at DESC
+      LIMIT 1`, [input.candidateProfileId, email]);
+    if (priorContact.rows[0]) {
+      if (priorContact.rows[0].status === 'PREPARED') {
+        return { sequenceId: priorContact.rows[0].sequence_id, messageId: priorContact.rows[0].id };
+      }
+      return null;
+    }
     const sequence = await this.query<{ id: string }>(`INSERT INTO recruiter_outreach_sequences (recruiter_contact_id,job_opportunity_id,application_id,candidate_profile_id,status,campaign_type,target_roles) SELECT $1,NULL,NULL,$2,'READY','PROACTIVE_RECRUITER',$3::jsonb WHERE EXISTS (SELECT 1 FROM recruiter_contacts c WHERE c.id=$1 AND ${recruiterSimplePublicContactEligibilitySql("c")}) ON CONFLICT DO NOTHING RETURNING id`, [input.recruiterContactId, input.candidateProfileId, JSON.stringify(input.targetRoles)]);
     const sequenceId = sequence.rows[0]?.id;
     if (!sequenceId) return null;

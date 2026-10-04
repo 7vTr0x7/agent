@@ -71,6 +71,7 @@ async function main(): Promise<void> {
     let candidates = 0;
     let rejected = 0;
     let prepared = 0;
+    let reusedPrepared = 0;
     let skippedExisting = 0;
     const persisted: Array<{ recruiterContactId: string; email: string; company: string; sourceUrl: string | null }> = [];
     const queued: string[] = [];
@@ -100,6 +101,7 @@ async function main(): Promise<void> {
       }
 
       prepared += 1;
+      reusedPrepared += 1;
       persisted.push({ recruiterContactId: contact.id, email, company: contact.company_name, sourceUrl: contact.source_url });
       if (process.env.PROACTIVE_RECRUITER_SEND_ENABLED === "true") queued.push(campaign.messageId);
     }
@@ -111,7 +113,7 @@ async function main(): Promise<void> {
       live: process.env.RECRUITER_OUTREACH_ACTIVATION === "live" && process.env.RECRUITER_LIVE_ACTIVATION_CONFIRMED === "true",
       sendEnabled: process.env.PROACTIVE_RECRUITER_SEND_ENABLED === "true",
       activation: process.env.RECRUITER_OUTREACH_ACTIVATION ?? "disabled",
-      metrics: { publicContactsConsidered: rows.rows.length, candidates, rejected, skippedExisting, prepared, queued: queued.length },
+      metrics: { publicContactsConsidered: rows.rows.length, candidates, rejected, reusedPrepared, skippedExisting, prepared, queued: queued.length },
       persisted,
       preparedMessages: persisted.map((item) => ({ email: item.email, company: item.company, sourceUrl: item.sourceUrl })),
       queued
