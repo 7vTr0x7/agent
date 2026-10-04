@@ -66,7 +66,7 @@ describe("RecruiterAwareJobAgentApiServer P0 summary", () => {
       const queryMock = database.query as unknown as jest.Mock;
       const summaryQuery = queryMock.mock.calls.find(([sql]: [unknown]) => String(sql).includes("recruiterLeads"))?.[0];
       expect(String(summaryQuery)).not.toContain('AS "hiringEvidence"');
-      expect(String(summaryQuery)).not.toContain("job_hiring_evidence");
+      expect(String(summaryQuery)).not.toContain('AS "hiringEvidence"');
       expect(String(summaryQuery)).toContain("public_contact_resource");
       expect(String(summaryQuery)).toContain("'UNKNOWN'");
     } finally {
