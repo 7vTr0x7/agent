@@ -36,11 +36,9 @@ function run(script: string): void {
 }
 
 function main(): void {
-  // Focus this one-shot on the actual user workflow: public LinkedIn hiring posts ->
-  // relevant role/experience/location match -> email extracted from the post ->
-  // prepared application message, with live send only when explicit activation flags
-  // are enabled in the environment.
-  run("scripts/linkedin-hiring-post-once.ts");
+  // Contact-first proactive outreach: public source -> usable email -> company safety
+  // -> prepare outreach. Recruiter identity, job matching, and hiring evidence are optional.
+  run("scripts/proactive-recruiter-contact-first-once.ts");
 }
 
 if (require.main === module) {

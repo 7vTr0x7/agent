@@ -1,7 +1,7 @@
 import { Database } from "../database/Database";
 import { QueryResult, QueryResultRow } from "pg";
 import { PERMANENTLY_EXCLUDED_COMPANIES } from "../applications/ApplicationPolicy";
-import { ProactiveRecruiterDiscoveryCandidate, hasRequiredRecruiterEvidence } from "./ProactiveRecruiterDiscoveryService";
+import { ProactiveRecruiterDiscoveryCandidate } from "./ProactiveRecruiterDiscoveryService";
 import { hasExplicitMailboxEvidence, isMailboxVerifiedForRealSend, recruiterRealSendEligibilitySql } from "./RecruiterMailboxVerification";
 import { isBlockedEmployerDomain, resolveEmployerDomainFromPublicSearch } from "./RecruiterCompanyDomainResolver";
 export interface ProactiveCampaignRecord { sequenceId: string; messageId: string; }
@@ -18,7 +18,6 @@ export class ProactiveRecruiterRepository {
   }
   async persistCandidate(candidateProfileId: string, candidate: ProactiveRecruiterDiscoveryCandidate): Promise<string | null> {
     if (PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === candidate.employer.trim().toLowerCase())) return null;
-    if (candidate.contactType !== "EMPLOYER" && !hasRequiredRecruiterEvidence(candidate)) return null;
     const email = candidate.email?.trim().toLowerCase() || null;
     const emailDomain = email?.split("@")[1]?.toLowerCase() ?? "";
     const observedEmailDomain = emailDomain && !isGenericEmailDomain(emailDomain) ? normalizeDomain(emailDomain) : "";
