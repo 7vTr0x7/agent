@@ -150,13 +150,28 @@ export class ApplicationQueueService {
            AND jr.candidate_profile_id = md.candidate_profile_id
           LEFT JOIN applications a
             ON a.job_opportunity_id = md.job_opportunity_id
-           AND a.status NOT IN ('READY', 'DRAFTED')
+          LEFT JOIN LATERAL (
+            SELECT aa.failure_code, aa.attempted_at
+            FROM application_attempts aa
+            WHERE aa.application_id = a.id
+            ORDER BY aa.attempted_at DESC, aa.id DESC
+            LIMIT 1
+          ) latest_attempt ON TRUE
           LEFT JOIN company_submission_counts csc
             ON csc.company_key = LOWER(TRIM(jo.company_name))
           WHERE md.candidate_profile_id = $1
             AND md.decision = 'APPLY'
             AND jo.status = 'ACTIVE'
-            AND a.id IS NULL
+            AND (
+              a.id IS NULL
+              OR (
+                a.status IN ('READY', 'DRAFTED')
+                AND NOT (
+                  latest_attempt.failure_code = 'MANUAL_REVIEW'
+                  AND latest_attempt.attempted_at >= COALESCE(jo.updated_at, jo.created_at)
+                )
+              )
+            )
             AND LOWER(TRIM(jo.company_name)) NOT IN (${excludedCompanyPlaceholders})
         )
         SELECT job_opportunity_id, candidate_profile_id, tier, rank_score
