@@ -15,7 +15,7 @@ async function main(): Promise<void> {
         FROM recruiter_outreach_messages m
         JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id
         JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id
-        JOIN job_opportunities j ON j.id=s.job_opportunity_id
+        LEFT JOIN job_opportunities j ON j.id=s.job_opportunity_id
        WHERE m.status='PREPARED'
          AND COALESCE(m.send_state,'READY')='READY'
          AND s.status IN ('READY','ACTIVE')
