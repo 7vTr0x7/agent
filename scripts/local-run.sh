@@ -112,6 +112,13 @@ fi
 
 docker build --tag "$IMAGE" .
 
+# Mount the host resume directory into every local runtime process that may need to
+# attach the candidate resume. CANDIDATE_RESUME_PATH is intentionally relative to /app.
+if [[ ! -d "./resumes" ]]; then
+  echo "Local runtime requires ./resumes so CANDIDATE_RESUME_PATH can be mounted into the containers." >&2
+  exit 1
+fi
+
 # Never run a stale local image: the recruiter repository serializes JSONB evidence
 # explicitly, and the runtime must contain that exact compiled code.
 if ! docker run --rm "$IMAGE" sh -c 'grep -q "JSON.stringify(relevanceEvidence)" dist/recruiters/ProactiveRecruiterRepository.js'; then
@@ -136,6 +143,7 @@ done < <(docker ps -q --filter "publish=${API_PORT}")
 # The explicit DATABASE_URL below remains authoritative for the container-local DB.
 docker run -d --restart unless-stopped --name "$APP" --network "$NETWORK" -p "${API_PORT}:3000" \
   --env-file .env \
+  -v "$(pwd)/resumes:/app/resumes:ro" \
   -e NODE_ENV=production \
   -e LOG_LEVEL="${LOG_LEVEL:-info}" \
   -e DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$POSTGRES:5432/$DB_NAME" \
@@ -215,6 +223,7 @@ start_enrichment_worker() {
   local mode="$2"
   docker run -d --restart unless-stopped --name "$name" --network "$NETWORK" \
     "${COMMON_ENV[@]}" \
+    -v "$(pwd)/resumes:/app/resumes:ro" \
     "$IMAGE" bash scripts/local-enrichment-loop.sh "$mode" >/dev/null
 }
 
