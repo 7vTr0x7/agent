@@ -66,7 +66,7 @@ export class ProactiveRecruiterRepository {
     await this.query(`INSERT INTO recruiter_proactive_evidence (recruiter_contact_id,candidate_profile_id,target_roles,role_match_score,hiring_evidence_score,overall_confidence,evidence_type,evidence_freshness,evidence_date,discovery_source,discovery_url,discovery_evidence) VALUES ($1,$2::text,$3::jsonb,$4::numeric,$5::numeric,$6::numeric,$7::text,$8::text,$9::timestamptz,$10::text,$11::text,$12::jsonb) ON CONFLICT (recruiter_contact_id,candidate_profile_id,discovery_url) DO UPDATE SET target_roles=EXCLUDED.target_roles, role_match_score=GREATEST(recruiter_proactive_evidence.role_match_score,EXCLUDED.role_match_score), hiring_evidence_score=GREATEST(recruiter_proactive_evidence.hiring_evidence_score,EXCLUDED.hiring_evidence_score), overall_confidence=GREATEST(recruiter_proactive_evidence.overall_confidence,EXCLUDED.overall_confidence), evidence_freshness=EXCLUDED.evidence_freshness,evidence_date=EXCLUDED.evidence_date,discovery_evidence=EXCLUDED.discovery_evidence,updated_at=NOW()`, [id, candidateProfileId, JSON.stringify(candidate.targetRoles), Math.round(candidate.roleMatchScore), Math.round(candidate.hiringEvidenceScore), Math.round(candidate.overallConfidence), candidate.evidenceType, candidate.evidenceFreshness, new Date(candidate.evidenceDate), candidate.discoverySource, candidate.discoveryUrl, JSON.stringify(candidate.discoveryEvidence)]);
     return id;
   }
-  async createProactiveCampaign(input: { recruiterContactId: string; candidateProfileId: string; targetRoles: string[]; subject: string; body: string; }): Promise<ProactiveCampaignRecord | null> {
+  async createProactiveCampaign(input: { recruiterContactId: string; candidateProfileId: string; targetRoles: string[]; subject: string; body: string; reusePrepared?: boolean; }): Promise<ProactiveCampaignRecord | null> {
     const contact = await this.query<{ company_name: string; company_domain: string; email: string | null }>(`SELECT rc.company_name,rc.company_domain,canonical_contact.email FROM recruiter_contacts rc JOIN contacts canonical_contact ON canonical_contact.id=rc.contact_id WHERE rc.id=$1`, [input.recruiterContactId]);
     const contactRow = contact.rows[0];
     if (!contactRow || PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === contactRow.company_name.trim().toLowerCase()) || isBlockedEmployerDomain(contactRow.company_domain)) return null;
@@ -75,8 +75,20 @@ export class ProactiveRecruiterRepository {
     const existingContact = await this.query<{ email: string | null }>(`SELECT canonical_contact.email FROM recruiter_contacts rc JOIN contacts canonical_contact ON canonical_contact.id=rc.contact_id WHERE rc.id=$1`, [input.recruiterContactId]);
     const email = existingContact.rows[0]?.email;
     if (!email) return null;
-    const priorContact = await this.query<{ exists: boolean }>(`SELECT EXISTS (SELECT 1 FROM recruiter_outreach_messages m JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id WHERE s.candidate_profile_id=$1 AND LOWER(m.recipient_email)=LOWER($2) AND m.status IN ('PREPARED','SENDING','SENT')) AS exists`, [input.candidateProfileId, email]);
-    if (priorContact.rows[0]?.exists) return null;
+    const priorContact = await this.query<{ id: string; sequence_id: string; status: string }>(`SELECT m.id,m.sequence_id,m.status
+      FROM recruiter_outreach_messages m
+      JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id
+      WHERE s.candidate_profile_id=$1
+        AND LOWER(m.recipient_email)=LOWER($2)
+        AND m.status IN ('PREPARED','SENDING','SENT')
+      ORDER BY CASE m.status WHEN 'PREPARED' THEN 0 WHEN 'SENDING' THEN 1 ELSE 2 END, m.created_at DESC
+      LIMIT 1`, [input.candidateProfileId, email]);
+    if (priorContact.rows[0]) {
+      if (input.reusePrepared && priorContact.rows[0].status === 'PREPARED') {
+        return { sequenceId: priorContact.rows[0].sequence_id, messageId: priorContact.rows[0].id };
+      }
+      return null;
+    }
     const sequence = await this.query<{ id: string }>(`INSERT INTO recruiter_outreach_sequences (recruiter_contact_id,job_opportunity_id,application_id,candidate_profile_id,status,campaign_type,target_roles) SELECT $1,NULL,NULL,$2,'READY','PROACTIVE_RECRUITER',$3::jsonb WHERE EXISTS (SELECT 1 FROM recruiter_contacts c WHERE c.id=$1 AND ${recruiterSimplePublicContactEligibilitySql("c")}) ON CONFLICT DO NOTHING RETURNING id`, [input.recruiterContactId, input.candidateProfileId, JSON.stringify(input.targetRoles)]);
     const sequenceId = sequence.rows[0]?.id;
     if (!sequenceId) return null;
