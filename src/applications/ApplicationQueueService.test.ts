@@ -66,7 +66,12 @@ describe("ApplicationQueueService", () => {
 
     expect(query).toHaveBeenNthCalledWith(
       2,
-      expect.stringContaining("a.status NOT IN ('READY', 'DRAFTED')"),
+      expect.stringContaining("a.status IN ('READY', 'DRAFTED')"),
+      expect.any(Array)
+    );
+    expect(query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("latest_attempt.failure_code = 'MANUAL_REVIEW'"),
       expect.any(Array)
     );
   });
