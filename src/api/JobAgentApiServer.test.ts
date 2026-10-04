@@ -49,7 +49,6 @@ describe("JobAgentApiServer", () => {
               role: "Technical Recruiter",
               relevance: "CURRENT",
               relevanceScore: 100,
-              hiringEvidence: [],
               profileUrl: "https://example.com/talent/jane-doe",
               email: "jane@example.com",
               emailStatus: "VERIFIED",
@@ -101,6 +100,9 @@ describe("JobAgentApiServer", () => {
         emailStatus: "VERIFIED",
         eligibleForOutreach: true
       })]);
+      expect(JSON.stringify(body)).not.toContain("hiringEvidence");
+      expect(JSON.stringify(body)).not.toContain("hiringPostEvidence");
+      expect(JSON.stringify(body)).not.toContain("job_hiring_evidence");
       expect(JSON.stringify(body)).not.toContain("client_secret");
       expect(JSON.stringify(body)).not.toContain("refreshToken");
       const queryMock = database.query as unknown as jest.Mock;
