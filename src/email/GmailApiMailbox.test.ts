@@ -35,7 +35,7 @@ describe("GmailApiMailbox", () => {
     const mailbox = new GmailApiMailbox({ oauth, userEmail: "candidate@example.com", fetchImpl });
     await expect(mailbox.sendMessage({ to: "recruiter@example.com", subject: "Frontend Engineer", bodyText: "Please find my resume attached.", attachments: [{ filename: "Salman_Shaikh_FE.pdf", contentType: "application/pdf", content: Buffer.from("pdf-bytes") }] })).resolves.toEqual({ gmailMessageId: "gmail-1", gmailThreadId: "thread-1" });
     const request = fetchImpl.mock.calls[0]?.[1] as RequestInit; const body = JSON.parse(String(request.body)) as { raw: string }; const decoded = Buffer.from(body.raw.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
-    expect(decoded).toContain("multipart/mixed"); expect(decoded).toContain("filename=\"Salman_Shaikh_FE.pdf\""); expect(decoded).toContain(Buffer.from("pdf-bytes").toString("base64"));
+    expect(decoded).toContain("multipart/mixed"); expect(decoded).toContain("Content-Type: text/plain; charset=UTF-8\\r\\nContent-Transfer-Encoding: 8bit\\r\\n\\r\\nPlease find my resume attached."); expect(decoded).toContain("filename=\"Salman_Shaikh_FE.pdf\""); expect(decoded).toContain(Buffer.from("pdf-bytes").toString("base64"));
   });
 
   it("does not retry sendMessage after a transient failure", async () => {
@@ -65,6 +65,6 @@ describe("GmailApiMailbox", () => {
 
   it("builds a plain text message without multipart when no attachment exists", () => {
     const mime = buildMimeMessage({ to: "recruiter@example.com", subject: "Hello", bodyText: "Body" }, "candidate@example.com");
-    expect(mime).toContain("Content-Type: text/plain; charset=UTF-8"); expect(mime).not.toContain("multipart/mixed");
+    expect(mime).toContain("Content-Type: text/plain; charset=UTF-8"); expect(mime).toContain("\\r\\n\\r\\nBody"); expect(mime).not.toContain("multipart/mixed");
   });
 });
