@@ -5,7 +5,7 @@ export interface RecruiterMailboxVerificationRecord { verified?: boolean | null;
 const VERIFIED_STATUS = "mailbox_verified";
 const PUBLIC_LIKELY_STATUS = "public-web-likely";
 const LEGACY_UNSAFE_STATUSES = new Set(["verified_public_source","domain_mx_verified","domain_mx_verified_doh","unverified_public_source","verified_mailbox","verified","valid"]);
-const AUTOMATED_MAILBOX_LOCAL_PARTS = new Set(["noreply","no-reply","donotreply","do-not-reply","mailer-daemon","mailer","notifications","notification","automated","bot"]);
+const AUTOMATED_MAILBOX_LOCAL_PARTS = new Set(["noreply","no-reply","donotreply","do-not-reply","mailer-daemon","mailer","notifications","notification","automated","bot"]);\nconst GENERIC_EMAIL_DOMAINS = new Set(["gmail.com","googlemail.com","outlook.com","hotmail.com","live.com","yahoo.com","yahoo.co.in","icloud.com","proton.me","protonmail.com"]);
 
 export function isPlausibleMailboxAddress(email: string | null | undefined): boolean { const normalized=email?.trim().toLowerCase()??""; if(!normalized||normalized.length>254||normalized.includes("%")||/[\s"'<>()[\],;:]/.test(normalized))return false; const parts=normalized.split("@"); if(parts.length!==2)return false; const local=parts[0]??""; const domain=parts[1]??""; if(["example.com","example.org","example.net"].includes(domain))return false; if(!local||!domain||local.length>64||local.startsWith(".")||local.endsWith(".")||local.includes(".."))return false; if(domain.startsWith(".")||domain.endsWith(".")||domain.includes(".."))return false; if(!/^[a-z0-9!#$&'*+/=?^_`{|}~.-]+$/i.test(local))return false; if(!/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(domain))return false; return true; }
 export function normalizeMailboxVerificationStatus(status: string | null | undefined): CanonicalMailboxVerificationStatus { const normalized=status?.trim().toLowerCase()??""; if(normalized===VERIFIED_STATUS)return"VERIFIED"; if(normalized===PUBLIC_LIKELY_STATUS||normalized==="likely"||normalized==="domain_mx_verified"||normalized==="domain_mx_verified_doh")return"LIKELY"; if(normalized==="invalid"||normalized==="invalid_email_format"||normalized==="no_mx_record"||normalized==="missing_email_domain"||normalized==="not_valid")return"INVALID"; return"UNVERIFIED"; }
@@ -43,8 +43,11 @@ export function isRecruiterRelevantForRealSend(_record: RecruiterMailboxVerifica
 export function isEligibleForRealRecruiterSend(record: RecruiterMailboxVerificationRecord): boolean {
   const email = record.email?.trim().toLowerCase() ?? "";
   const emailStatus = String(record.emailStatus ?? "").trim().toUpperCase();
+  const companyDomain = record.companyDomain?.trim().toLowerCase().replace(/^www\\./, "") ?? "";
+  const emailDomain = email.split("@")[1] ?? "";
   if (record.suppressed === true) return false;
   if (!isPlausibleMailboxAddress(email) || isAutomatedMailbox(email)) return false;
+  if (companyDomain && !GENERIC_EMAIL_DOMAINS.has(emailDomain) && emailDomain !== companyDomain) return false;
   return emailStatus === "UNVERIFIED" || emailStatus === "LIKELY" || emailStatus === "VERIFIED";
 }
 export function isSimplePublicRecruiterContactForRealSend(record: RecruiterMailboxVerificationRecord): boolean {
@@ -63,6 +66,11 @@ export function recruiterRealSendEligibilitySql(alias="c"):string {
     AND ${emailSql} ~* '^[A-Za-z0-9!#$&''*+/=?^_\\x60{|}~.-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
     AND SPLIT_PART(${emailSql},'@',1) !~* '(^\\.|\\.$|\\.\\.|%|^(noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot)$)'
     AND UPPER(COALESCE(${alias}.email_status,'')) IN ('UNVERIFIED','LIKELY','VERIFIED')
+    AND (
+      LOWER(SPLIT_PART(${emailSql},'@',2))=LOWER(COALESCE(${alias}.company_domain,''))
+      OR LOWER(SPLIT_PART(${emailSql},'@',2)) IN ('gmail.com','googlemail.com','outlook.com','hotmail.com','live.com','yahoo.com','yahoo.co.in','icloud.com','proton.me','protonmail.com')
+      OR NULLIF(BTRIM(COALESCE(${alias}.company_domain,'')),'') IS NULL
+    )
     AND NOT EXISTS (
       SELECT 1 FROM recruiter_suppressions suppression
       WHERE LOWER(COALESCE(suppression.email,''))=LOWER(${emailSql})
