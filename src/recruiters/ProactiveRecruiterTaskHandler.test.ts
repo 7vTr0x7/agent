@@ -65,7 +65,7 @@ describe("ProactiveRecruiterTaskHandler", () => {
     expect(discovery.discover).toHaveBeenCalledWith(expect.objectContaining({ targetRoles: ["Frontend Engineer", "React Developer"] }));
     expect(repository.persistCandidate).toHaveBeenCalledTimes(1);
     expect(repository.createProactiveCampaign).toHaveBeenCalledTimes(1);
-    expect(sendDispatcher.enqueue).toHaveBeenCalledWith({ messageId: expect.any(String), companyDomain: "acme.example" });
+    expect(sendDispatcher.enqueue).not.toHaveBeenCalled();
   });
 
   it("uses a current contact without requiring mailbox-level verification evidence", async () => {
@@ -91,7 +91,7 @@ describe("ProactiveRecruiterTaskHandler", () => {
     await handler.handleDiscovery({ candidateProfileId: "candidate-1", yearsExperience: 3, skills: ["React", "Next.js"], targetRoles: ["Frontend Engineer"], maxCandidates: 10 });
 
     expect(repository.createProactiveCampaign).toHaveBeenCalledWith(expect.objectContaining({ candidateProfileId: "candidate-1", targetRoles: ["Frontend Engineer"] }));
-    expect(sendDispatcher.enqueue).toHaveBeenCalledWith({ messageId: "message-1", companyDomain: "acme.example" });
+    expect(sendDispatcher.enqueue).not.toHaveBeenCalled();
   });
   it("uses public contact resources before web discovery and does not require hiring evidence", async () => {
     const discovery = { discover: jest.fn() };
@@ -143,10 +143,7 @@ describe("ProactiveRecruiterTaskHandler", () => {
     expect(repository.createProactiveCampaign).toHaveBeenCalledWith(expect.objectContaining({
       body: expect.stringContaining("Hi Jane,")
     }));
-    expect(sendDispatcher.enqueue).toHaveBeenCalledWith({
-      messageId: "message-public-1",
-      companyDomain: "acme.example"
-    });
+    expect(sendDispatcher.enqueue).not.toHaveBeenCalled();
   });
 
 });
