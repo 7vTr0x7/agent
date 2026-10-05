@@ -165,20 +165,7 @@ async function main(): Promise<void> {
         }
       }
 
-      if (candidate.email) {
-        try {
-          const verification = await verifier.verify(candidate.email);
-          candidate.emailStatus = verification.status === "domain_mx_verified" || verification.status === "domain_mx_verified_doh" ? "LIKELY"
-            : verification.status === "invalid" || verification.status === "no_mx_record" ? "INVALID"
-            : verification.status === "mailbox_verified" && verification.verificationEvidence?.some(item => item.mailboxLevel === true) ? "VERIFIED"
-            : "UNVERIFIED";
-          candidate.verificationEvidence = verification.verificationEvidence ?? [];
-        } catch (error) {
-          logger.error({ error: error instanceof Error ? error.message : String(error), email: candidate.email }, "Hiring-post email validation failed");
-          candidate.emailStatus = "UNVERIFIED";
-          candidate.verificationEvidence = [];
-        }
-      }
+      if (candidate.email && candidate.emailStatus === "INVALID") continue;
 
       const id = await hiringPostRepository.persistCandidate(profile.id, candidate);
       if (id) hiringPostPersisted.push(id);
