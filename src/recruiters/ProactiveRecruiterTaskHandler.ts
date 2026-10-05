@@ -146,7 +146,6 @@ export class ProactiveRecruiterTaskHandler {
       });
       if (!campaign) continue;
       prepared += 1;
-      if (this.options.sendEnabled) await this.sendDispatcher.enqueue({ messageId: campaign.messageId, companyDomain: candidate.employerDomain });
     }
     this.logger.info({ discovered: discovered.length, persisted, prepared, sendEnabled: this.options.sendEnabled, ...(metrics !== undefined ? { metrics } : {}) }, "Proactive recruiter discovery completed");
   }
@@ -187,7 +186,6 @@ export class ProactiveRecruiterTaskHandler {
       });
       if (!campaign) continue;
       prepared += 1;
-      if (this.options.sendEnabled) await this.sendDispatcher.enqueue({ messageId: campaign.messageId, companyDomain: domain });
     }
     return prepared;
   }
