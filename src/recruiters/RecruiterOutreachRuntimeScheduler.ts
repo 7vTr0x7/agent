@@ -57,7 +57,7 @@ export class RecruiterOutreachRuntimeScheduler {
 
     if (this.sendDispatcher) {
       try {
-        const messages = await this.repository.listPreparedOutreachMessagesForSend(10, this.maxMessagesPerDay, this.maxMessagesPerHour);
+        const messages = await this.repository.listPreparedOutreachMessagesForSend(this.maxMessagesPerDay, this.maxMessagesPerDay, this.maxMessagesPerHour);
         preparedSend.inspected = messages.length;
         for (const message of messages) {
           try {
