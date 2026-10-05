@@ -589,7 +589,9 @@ async function main(): Promise<void> {
         }
 
         const score = relevance(item.email, `${resource.url} ${item.context}`, [...profile.skills], text);
-        if (score < 60) continue;
+        // Persist every valid extracted contact address. Relevance is a downstream
+        // usage/promotion signal, not a storage gate, so low-signal addresses remain
+        // available for later classification or reuse without reparsing the source.
 
         const domain = item.email.split("@")[1]?.toLowerCase();
         if (!domain) continue;
