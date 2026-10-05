@@ -192,9 +192,27 @@ export class ProactiveRecruiterTaskHandler {
         "Thank you for your time,",
         "",
         candidateName
-      ].join("\n");
-}
+      ].join("\\n");
+      const campaign = await this.repository.createProactiveCampaign({
+        recruiterContactId: contact.recruiterContactId,
+        candidateProfileId: payload.candidateProfileId,
+        targetRoles: [...payload.targetRoles],
+        subject: `Full-Stack Developer — React, Next.js & Node.js — ${candidateName}`,
+        body,
+        reusePrepared: true
+      });
+      if (!campaign) continue;
+      prepared += 1;
+      if (this.options.sendEnabled) await this.sendDispatcher.enqueue({ messageId: campaign.messageId, companyDomain: domain });
+    }
+    return prepared;
+  }
 
+  async handleOutreach(payload: ProactiveRecruiterOutreachPayload): Promise<void> {
+    if (!this.options.sendEnabled) return;
+    await this.sendDispatcher.enqueue({ messageId: payload.messageId, companyDomain: payload.companyDomain });
+  }
+}
 function freshnessScore(value: string): number { return value === "current" ? 100 : value === "recent" ? 75 : value === "historical" ? 40 : 10; }
 function emailScore(value: string): number { return value === "VERIFIED" ? 100 : value === "LIKELY" ? 60 : value === "UNVERIFIED" ? 20 : 0; }
 function employerRelevance(employer: string, preferredLocations: string[], remoteEligible: boolean): number { if (employer === "Unknown employer") return 20; return preferredLocations.length || remoteEligible ? 60 : 50; }
