@@ -68,7 +68,7 @@ export class RecruiterOutreachRuntimeScheduler {
             this.logger.error({ messageId: message.id, error: error instanceof Error ? error.message : String(error) }, "Failed to queue prepared recruiter outreach");
           }
         }
-        if (messages.length > 0) this.logger.info(preparedSend, "Recruiter prepared-outreach queue pump completed");
+        this.logger.info(preparedSend, "Recruiter prepared-outreach queue pump completed");
       } catch (error) {
         this.logger.error({ error: error instanceof Error ? error.message : String(error) }, "Recruiter prepared-outreach queue pump failed");
       }
