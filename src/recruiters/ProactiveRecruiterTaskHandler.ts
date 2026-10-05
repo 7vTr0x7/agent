@@ -177,25 +177,27 @@ export class ProactiveRecruiterTaskHandler {
       if (PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === contact.companyName.trim().toLowerCase())) continue;
 
       const candidateName = payload.candidateName?.trim() || "Candidate";
-      const roles = payload.targetRoles.slice(0, 3).join(" / ") || "Frontend / React / Next.js";
-      const skills = payload.skills.slice(0, 5).join(", ");
       const greeting = contact.fullName?.trim() ? `Hi ${contact.fullName.trim().split(/\\s+/)[0]},` : "Hi there,";
       const body = [
         greeting,
         "",
-        `I’m ${candidateName}, and I’m exploring ${roles} opportunities.`,
-        `I have ${payload.yearsExperience} years of experience with ${skills}.`,
+        `My name is ${candidateName}, and I’m a Frontend Engineer with ${payload.yearsExperience} years of experience building web applications with React, Next.js, TypeScript, JavaScript, Redux Toolkit, and Node.js/Express.`,
         "",
-        "I’m reaching out proactively rather than assuming there is a specific opening. If you recruit for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.",
+        "I’m currently exploring Frontend Engineer, React/Next.js Developer, and Full-Stack Developer opportunities.",
         "",
-        "Thank you,",
+        "I’m reaching out proactively to introduce myself rather than assume that you or your team are currently hiring. If you work with roles that align with my background, I’d appreciate it if you could keep my profile in mind or point me toward the appropriate opportunity.",
+        "",
+        "I’ve attached my resume for reference and would be happy to provide any additional information.",
+        "",
+        "Thank you for your time and consideration.",
+        "",
         candidateName
-      ].join("\\n");
+      ].join("\n");
       const campaign = await this.repository.createProactiveCampaign({
         recruiterContactId: contact.recruiterContactId,
         candidateProfileId: payload.candidateProfileId,
         targetRoles: [...payload.targetRoles],
-        subject: `${roles} opportunities — ${candidateName}`,
+        subject: `Frontend / Full-Stack Engineer — React & Next.js — ${candidateName}`,
         body,
         reusePrepared: true
       });
