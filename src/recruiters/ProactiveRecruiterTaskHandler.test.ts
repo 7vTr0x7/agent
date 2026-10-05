@@ -24,6 +24,7 @@ describe("ProactiveRecruiterTaskHandler", () => {
       }])
     };
     const repository = {
+      listPublicContactFirstCandidates: jest.fn().mockResolvedValue([]),
       persistCandidate: jest.fn().mockResolvedValue("contact-1"),
       createProactiveCampaign: jest.fn().mockResolvedValue(null)
     };
@@ -76,6 +77,7 @@ describe("ProactiveRecruiterTaskHandler", () => {
       email: "jane@acme.example", emailStatus: "VERIFIED"
     }]) };
     const repository = {
+      listPublicContactFirstCandidates: jest.fn().mockResolvedValue([]),
       persistCandidate: jest.fn().mockResolvedValue("contact-1"),
       createProactiveCampaign: jest.fn().mockResolvedValue({ sequenceId: "sequence-1", messageId: "message-1" })
     };
@@ -98,4 +100,49 @@ describe("ProactiveRecruiterTaskHandler", () => {
     expect(repository.createProactiveCampaign).toHaveBeenCalledWith(expect.objectContaining({ candidateProfileId: "candidate-1", targetRoles: ["Frontend Engineer"] }));
     expect(sendDispatcher.enqueue).toHaveBeenCalledWith({ messageId: "message-1", companyDomain: "acme.example" });
   });
+  it("uses public contact resources before web discovery and does not require hiring evidence", async () => {
+    const discovery = { discover: jest.fn() };
+    const repository = {
+      listPublicContactFirstCandidates: jest.fn().mockResolvedValue([{
+        recruiterContactId: "contact-public-1",
+        companyName: "Acme",
+        companyDomain: "acme.example",
+        email: "recruiter@acme.example",
+        sourceUrl: "https://example.com/public-contact",
+        fullName: "Jane Doe"
+      }]),
+      persistCandidate: jest.fn(),
+      createProactiveCampaign: jest.fn().mockResolvedValue({ sequenceId: "sequence-public-1", messageId: "message-public-1" })
+    };
+    const sendDispatcher = { enqueue: jest.fn().mockResolvedValue("task-public-1") };
+    const handler = new ProactiveRecruiterTaskHandler(
+      discovery as never,
+      repository as never,
+      sendDispatcher as never,
+      { enabled: true, sendEnabled: true, maxCandidatesPerRun: 10, requireVerifiedEmail: true },
+      { info: jest.fn(), error: jest.fn() }
+    );
+
+    await handler.handleDiscovery({
+      candidateProfileId: "candidate-1",
+      candidateName: "Candidate",
+      yearsExperience: 3,
+      skills: ["React", "Next.js"],
+      targetRoles: ["Frontend Engineer"],
+      maxCandidates: 10
+    });
+
+    expect(repository.listPublicContactFirstCandidates).toHaveBeenCalledWith(10);
+    expect(discovery.discover).not.toHaveBeenCalled();
+    expect(repository.createProactiveCampaign).toHaveBeenCalledWith(expect.objectContaining({
+      recruiterContactId: "contact-public-1",
+      candidateProfileId: "candidate-1",
+      reusePrepared: true
+    }));
+    expect(sendDispatcher.enqueue).toHaveBeenCalledWith({
+      messageId: "message-public-1",
+      companyDomain: "acme.example"
+    });
+  });
+
 });
