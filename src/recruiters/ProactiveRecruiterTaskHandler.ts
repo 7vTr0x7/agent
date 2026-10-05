@@ -151,6 +151,7 @@ export class ProactiveRecruiterTaskHandler {
   }
 
   private async handleContactFirst(payload: ProactiveRecruiterDiscoveryPayload): Promise<number> {
+    const candidateName = payload.candidateName?.trim() || "Candidate";
     const contacts = await this.repository.listPublicContactFirstCandidates(Math.max(1, Math.min(payload.maxCandidates, this.options.maxCandidatesPerRun)));
     let prepared = 0;
     for (const contact of contacts) {
