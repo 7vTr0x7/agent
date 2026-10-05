@@ -1,6 +1,7 @@
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { ClaimedTask } from "../queue/TaskQueue";
 import { isEligibleForRealRecruiterSend, isPlausibleMailboxAddress } from "./RecruiterMailboxVerification";
+import type { RecruiterVerificationEvidence } from "./RecruiterDiscovery";
 import { RecruiterOutreachSendTaskDispatcher } from "./RecruiterOutreachSendTask";
 import { ProactiveRecruiterDiscoveryService } from "./ProactiveRecruiterDiscoveryService";
 import { rankProactiveRecruiters } from "./ProactiveRecruiterRanking";
