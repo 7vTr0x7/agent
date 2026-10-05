@@ -1,7 +1,6 @@
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { ClaimedTask } from "../queue/TaskQueue";
-import { hasExplicitMailboxEvidence, isEligibleForRealRecruiterSend, isPlausibleMailboxAddress } from "./RecruiterMailboxVerification";
-import { RecruiterVerificationEvidence } from "./RecruiterDiscovery";
+import { isEligibleForRealRecruiterSend, isPlausibleMailboxAddress } from "./RecruiterMailboxVerification";
 import { RecruiterOutreachSendTaskDispatcher } from "./RecruiterOutreachSendTask";
 import { ProactiveRecruiterDiscoveryService } from "./ProactiveRecruiterDiscoveryService";
 import { rankProactiveRecruiters } from "./ProactiveRecruiterRanking";
@@ -126,16 +125,10 @@ export class ProactiveRecruiterTaskHandler {
       }
       persisted += 1;
 
-      const mailboxEvidence = hasExplicitMailboxEvidence(candidate.verificationEvidence ?? []);
       const canonicalEligible = isEligibleForRealRecruiterSend({
         email: candidate.email,
         companyDomain: candidate.employerDomain,
-        verified: mailboxEvidence,
-        mailboxEvidence,
-        verificationEvidence: candidate.verificationEvidence ?? [],
-        emailStatus: mailboxEvidence ? "VERIFIED" : candidate.emailStatus,
-        verificationStatus: mailboxEvidence ? "mailbox_verified" : "unverified",
-        relevanceStatus: "UNKNOWN",
+        emailStatus: candidate.emailStatus,
         suppressed: false
       });
       if (!canonicalEligible) continue;
@@ -221,25 +214,6 @@ function assertDiscoveryPayload(payload: Record<string, unknown>): ProactiveRecr
 function assertOutreachPayload(payload: Record<string, unknown>): ProactiveRecruiterOutreachPayload {
   if (typeof payload.messageId !== "string" || typeof payload.companyDomain !== "string" || typeof payload.candidateProfileId !== "string") throw new Error("Invalid proactive recruiter outreach task payload");
   return { messageId: payload.messageId, companyDomain: payload.companyDomain, candidateProfileId: payload.candidateProfileId };
-}
-
-function normalizeEmailStatus(value: string, evidence: RecruiterVerificationEvidence[] = []): "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID" {
-  const normalized = value.trim().toLowerCase();
-  const hasMailboxEvidence = evidence.some((item) => item.mailboxLevel === true && item.provider.trim().length > 0 && item.status.trim().length > 0);
-  if ((normalized === "mailbox_verified" || normalized === "valid") && hasMailboxEvidence) return "VERIFIED";
-  switch (normalized) {
-    case "verified": return "VERIFIED";
-    case "likely":
-    case "domain_mx_verified":
-    case "domain_mx_verified_doh": return "LIKELY";
-    case "invalid":
-    case "invalid_email_format":
-    case "no_mx_record":
-    case "missing_email_domain":
-    case "not_valid": return "INVALID";
-    case "unverified": return "UNVERIFIED";
-    default: return "UNVERIFIED";
-  }
 }
 
 function buildProactiveMessage(profile: CandidateProfile, candidate: { contactType?: "PERSON"|"EMPLOYER"; recruiterName: string }): string {
