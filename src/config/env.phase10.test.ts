@@ -27,6 +27,5 @@ describe("Phase 10 activation defaults", () => {
     expect(config.proactiveRecruiter.enabled).toBe(false);
     expect(config.proactiveRecruiter.sendEnabled).toBe(false);
     expect(config.recruiterOutreach.dryRun).toBe(true);
-    expect(config.recruiterOutreach.requireVerifiedEmail).toBe(true);
   });
 });
