@@ -23,7 +23,7 @@ describe("RecruiterOutreachSendService Gmail kill switch", () => {
 
   it("blocks Gmail-enabled delivery when the database-backed live-send claim is unavailable", async () => {
     const mail = { sendMessage: jest.fn() };
-    const service = new RecruiterOutreachSendService({ repository: repository(), mailbox: mail as never, dryRun: false, outboundEnabled: true, gmailEnabled: true, activation: "canary", ...controlled, maxMessagesPerDay: 1, maxMessagesPerHour: 1 });
+    const service = new RecruiterOutreachSendService({ repository: repository(), mailbox: mail as never, dryRun: false, outboundEnabled: true, gmailEnabled: true, activation: "canary", controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION, ...controlled, maxMessagesPerDay: 1, maxMessagesPerHour: 1 });
     await expect(service.send(message, "acme.dev")).resolves.toEqual({ status: "SKIPPED", messageId: message.id, reason: "Live Gmail sending requires database-backed atomic claim and reconciliation." });
     expect(mail.sendMessage).not.toHaveBeenCalled();
   });

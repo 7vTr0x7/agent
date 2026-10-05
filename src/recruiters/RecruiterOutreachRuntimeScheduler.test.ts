@@ -66,11 +66,11 @@ describe("RecruiterOutreachRuntimeScheduler", () => {
       { id: "m2", companyDomain: "example.org" },
     ]) };
     const dispatcher = { enqueue: jest.fn().mockResolvedValue("task") };
-    const scheduler = new RecruiterOutreachRuntimeScheduler(repository as never, undefined, undefined, logger, dispatcher as never, 2, 2);
+    const scheduler = new RecruiterOutreachRuntimeScheduler(repository as never, undefined, undefined, logger, dispatcher as never, 2, 0);
 
     const result = await scheduler.runOnce();
 
-    expect(repository.listPreparedOutreachMessagesForSend).toHaveBeenCalledWith(10, 2, 2);
+    expect(repository.listPreparedOutreachMessagesForSend).toHaveBeenCalledWith(2, 2, 0);
     expect(dispatcher.enqueue).toHaveBeenCalledTimes(2);
     expect(result.preparedSend).toEqual({ inspected: 2, queued: 2, failed: 0 });
   });
