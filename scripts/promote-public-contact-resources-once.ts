@@ -16,12 +16,25 @@ export interface ContactPromotionInput {
 const STRICT_EMAIL = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
 const MALFORMED_EMAIL_SUFFIX = /(?:%[0-9a-f]{2}|\\|\.\.\.|[\"'()<>\[\],;:])/i;
 const GENERIC_LOCAL_PART = /^(?:noreply|no-reply|postmaster|webmaster|admin|support|privacy|legal|press|media|marketing|sales|security|billing|helpdesk)$/i;
+const ASSET_DOMAIN = /(?:^|\\.)(?:png|jpe?g|gif|svg|webp|ico|bmp|avif)$/i;
+const ASSET_DOMAIN_NAME = /^(?:\\d+x(?:-[a-f0-9]{8,})?|logo(?:[-_].*)?)\\.(?:png|jpe?g|gif|svg|webp|ico|bmp|avif)$/i;
+const PLACEHOLDER_EMAILS = new Set([
+  "john.doe@acme.com",
+  "jane.doe@acme.com",
+  "john.smith@acme.com",
+  "jane.smith@acme.com"
+]);
+const PLACEHOLDER_DOMAINS = new Set(["example.com", "example.org", "example.net"]);
 
 export function isSafePublicEmail(value: string): boolean {
   const email = value.trim().toLowerCase();
   if (!STRICT_EMAIL.test(email)) return false;
   if (MALFORMED_EMAIL_SUFFIX.test(email)) return false;
-  if (GENERIC_LOCAL_PART.test(email.split("@")[0] ?? "")) return false;
+  const [localPart = "", domain = ""] = email.split("@");
+  if (GENERIC_LOCAL_PART.test(localPart)) return false;
+  if (PLACEHOLDER_EMAILS.has(email)) return false;
+  if (PLACEHOLDER_DOMAINS.has(domain)) return false;
+  if (ASSET_DOMAIN.test(domain) || ASSET_DOMAIN_NAME.test(domain)) return false;
   return true;
 }
 
