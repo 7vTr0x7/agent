@@ -10,6 +10,9 @@ import { GlobalExternalSideEffectGate } from "../shared/safety/GlobalExternalSid
 export interface RecruiterOutreachSendOptions { repository: RecruiterDiscoveryRepository; database?: Database; mailbox?: GmailMailbox; dryRun?: boolean; outboundEnabled?: boolean; gmailEnabled?: boolean; automationEnabled?: boolean; activation?: RecruiterOutreachActivation; liveActivationConfirmed?: boolean; controlledSendConfirmation?: string; controlledMessageId?: string | null; controlledRecipient?: string | null; maxMessagesPerDay?: number; maxMessagesPerHour?: number; resumePath?: string | null; attachResume?: boolean; maxAttachmentBytes?: number; externalSideEffectGate?: GlobalExternalSideEffectGate; }
 export type RecruiterOutreachSendResult = { status: "DRY_RUN"; messageId: string } | { status: "SENT"; messageId: string; gmailMessageId: string; gmailThreadId: string } | { status: "SKIPPED"; messageId: string; reason: string };
 function deterministicMessageId(messageId: string): string { return `<recruiter-outreach-${messageId}@job-agent.local>`; }
+export function normalizePersistedRecruiterBody(body: string): string {
+  return body.replace(/\\r\\n/g, "\r\n").replace(/\\n/g, "\n").replace(/\\r/g, "\r");
+}
 const DEFAULT_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const RESUME_DIRECTORIES = ["/app/data/resumes", "./data/resumes", "./resumes"];
 function attachmentContentType(filePath: string): string { return path.extname(filePath).toLowerCase() === ".pdf" ? "application/pdf" : "application/octet-stream"; }
@@ -52,7 +55,7 @@ export class RecruiterOutreachSendService {
     if (!stillEligible) { await this.markClaimFailed(claimed.id, "Recruiter stopped satisfying the canonical real-send eligibility predicate immediately before Gmail submission."); return { status: "SKIPPED", messageId: message.id, reason: "Recruiter is no longer eligible for real sending." }; }
     if (this.options.externalSideEffectGate) { const gate = await this.options.externalSideEffectGate.evaluate(); if (!gate.allowed) { await this.markClaimFailed(claimed.id, gate.reason); return { status: "SKIPPED", messageId: message.id, reason: gate.reason }; } }
     try {
-      const sent = await this.options.mailbox.sendMessage({ to: claimed.recipientEmail, subject: claimed.subject, bodyText: claimed.body, messageId: claimed.clientMessageId, attachments: resumeAttachment ? [resumeAttachment] : undefined });
+      const sent = await this.options.mailbox.sendMessage({ to: claimed.recipientEmail, subject: claimed.subject, bodyText: normalizePersistedRecruiterBody(claimed.body), messageId: claimed.clientMessageId, attachments: resumeAttachment ? [resumeAttachment] : undefined });
       await this.options.repository.markOutreachMessageSent(claimed.id, { provider: "gmail", providerMessageId: sent.gmailMessageId, providerThreadId: sent.gmailThreadId });
       return { status: "SENT", messageId: claimed.id, gmailMessageId: sent.gmailMessageId, gmailThreadId: sent.gmailThreadId };
     } catch (error) {
