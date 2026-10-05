@@ -44,6 +44,7 @@ export interface PublicHiringPostDiscoveryInput {
   location?: string;
   preferredLocations?: string[];
   maxQueries?: number;
+  queryOffset?: number;
   signal?: AbortSignal;
   fetchText?: (url: string, signal?: AbortSignal, headers?: Record<string,string>) => Promise<string | null>;
 }
@@ -444,8 +445,11 @@ export class PublicHiringPostDiscoveryProvider {
     const runtimeSignal = input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(PUBLIC_HIRING_RUNTIME_TIMEOUT_MS)]) : AbortSignal.timeout(PUBLIC_HIRING_RUNTIME_TIMEOUT_MS);
     const maxQueries = Math.max(1, Math.min(input.maxQueries ?? 8, 12));
     const roleTerms = input.targetRoles.length ? input.targetRoles.slice(0, 8) : ["Frontend Engineer","Frontend Developer","React Developer"];
-    const queries = [...roleTerms.slice(0, 4).map(role => `"${role}" hiring React`), `"we're hiring" "frontend" React`, `"we are hiring" "frontend" React`, `"my team is hiring" frontend React`, `"send your resume" "frontend" React`, `"looking for" "React Developer" Bangalore`, `"Frontend Developer" "TypeScript" Bangalore`].slice(0, maxQueries);
-    const profileQueries = ['site:linkedin.com/in "we\'re hiring" "frontend developer" Bangalore','site:linkedin.com/in "we are hiring" React Bangalore','site:linkedin.com/in "my team is hiring" React India','site:linkedin.com/in "share your resume" React Bengaluru'];
+    const queryPool = [...roleTerms.slice(0, 4).map(role => `"${role}" hiring React`), `"we're hiring" "frontend" React`, `"we are hiring" "frontend" React`, `"my team is hiring" frontend React`, `"send your resume" "frontend" React`, `"looking for" "React Developer" Bangalore`, `"Frontend Developer" "TypeScript" Bangalore`];
+    const normalizedOffset = Number.isInteger(input.queryOffset) && (input.queryOffset ?? 0) >= 0 ? Math.floor(input.queryOffset ?? 0) : 0;
+    const queries = Array.from({ length: Math.min(maxQueries, queryPool.length) }, (_, index) => queryPool[(normalizedOffset + index) % queryPool.length]!);
+    const profileQueryPool = ['site:linkedin.com/in "we\'re hiring" "frontend developer" Bangalore','site:linkedin.com/in "we are hiring" React Bangalore','site:linkedin.com/in "my team is hiring" React India','site:linkedin.com/in "share your resume" React Bengaluru'];
+    const profileQueries = Array.from({ length: profileQueryPool.length }, (_, index) => profileQueryPool[(normalizedOffset + index) % profileQueryPool.length]!);
     const metrics: PublicHiringPostDiscoveryMetrics = { queriesGenerated: queries.length + profileQueries.length, queriesExecuted: 0, sourcePagesFetched: 0, publicPostUrls: 0, configuredProviders: 0, eligibleProviders: 0, executedProviders: 0, skippedProviders: 0, providerFailures: 0, providerRateLimited: 0, providerBlocked: 0, providerTimeouts: 0, rawSearchResults: 0, normalizedResults: 0, deduplicatedResults: 0, hiringIntentPosts: 0, relevantRolePosts: 0, employersExtracted: 0, authorsExtracted: 0, validatedIdentities: 0, validatedContacts: 0, directEmails: 0, publiclyDiscoveredEmails: 0, rejectedPosts: 0, duplicatePosts: 0, sourceStats: {} };
     const candidates = new Map<string, ProactiveRecruiterDiscoveryCandidate>();
     const configuredProviderIds = new Set<string>();
