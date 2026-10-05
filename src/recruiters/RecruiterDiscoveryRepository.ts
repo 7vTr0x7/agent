@@ -54,7 +54,7 @@ export class RecruiterDiscoveryRepository {
  async listPreparedOutreachMessagesForSend(limit:number,maxMessagesPerDay:number,maxMessagesPerHour:number):Promise<PreparedRecruiterFollowUpMessage[]>{
   if(!Number.isInteger(limit)||limit<1)throw new Error("Recruiter send queue limit must be a positive integer.");
   if(!Number.isInteger(maxMessagesPerDay)||maxMessagesPerDay<1)throw new Error("Recruiter daily send limit must be a positive integer.");
-  if(!Number.isInteger(maxMessagesPerHour)||maxMessagesPerHour<1)throw new Error("Recruiter hourly send limit must be a positive integer.");
+  if(!Number.isInteger(maxMessagesPerHour)||maxMessagesPerHour<0)throw new Error("Recruiter hourly send limit must be a non-negative integer.");
   const result=await this.database.query<any>(`WITH sent AS (SELECT COUNT(*) FILTER (WHERE send_state IN ('SENT','SENDING','AMBIGUOUS') AND COALESCE(sent_at,send_started_at,send_claimed_at,updated_at)>=NOW()-INTERVAL '24 hours')::int AS day_count,COUNT(*) FILTER (WHERE send_state IN ('SENT','SENDING','AMBIGUOUS') AND COALESCE(sent_at,send_started_at,send_claimed_at,updated_at)>=NOW()-INTERVAL '1 hour')::int AS hour_count FROM recruiter_outreach_messages)
 SELECT m.id,m.sequence_id AS "sequenceId",m.message_type AS "messageType",m.sequence_step AS "sequenceStep",m.recipient_email AS "recipientEmail",m.subject,m.body,m.status,c.company_domain AS "companyDomain",sent.day_count,sent.hour_count
 FROM recruiter_outreach_messages m
