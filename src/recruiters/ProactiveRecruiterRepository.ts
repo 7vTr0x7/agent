@@ -66,6 +66,27 @@ export class ProactiveRecruiterRepository {
     await this.query(`INSERT INTO recruiter_proactive_evidence (recruiter_contact_id,candidate_profile_id,target_roles,role_match_score,hiring_evidence_score,overall_confidence,evidence_type,evidence_freshness,evidence_date,discovery_source,discovery_url,discovery_evidence) VALUES ($1,$2::text,$3::jsonb,$4::numeric,$5::numeric,$6::numeric,$7::text,$8::text,$9::timestamptz,$10::text,$11::text,$12::jsonb) ON CONFLICT (recruiter_contact_id,candidate_profile_id,discovery_url) DO UPDATE SET target_roles=EXCLUDED.target_roles, role_match_score=GREATEST(recruiter_proactive_evidence.role_match_score,EXCLUDED.role_match_score), hiring_evidence_score=GREATEST(recruiter_proactive_evidence.hiring_evidence_score,EXCLUDED.hiring_evidence_score), overall_confidence=GREATEST(recruiter_proactive_evidence.overall_confidence,EXCLUDED.overall_confidence), evidence_freshness=EXCLUDED.evidence_freshness,evidence_date=EXCLUDED.evidence_date,discovery_evidence=EXCLUDED.discovery_evidence,updated_at=NOW()`, [id, candidateProfileId, JSON.stringify(candidate.targetRoles), Math.round(candidate.roleMatchScore), Math.round(candidate.hiringEvidenceScore), Math.round(candidate.overallConfidence), candidate.evidenceType, candidate.evidenceFreshness, new Date(candidate.evidenceDate), candidate.discoverySource, candidate.discoveryUrl, JSON.stringify(candidate.discoveryEvidence)]);
     return id;
   }
+  async listPublicContactFirstCandidates(limit: number): Promise<Array<{ recruiterContactId: string; companyName: string; companyDomain: string; email: string; sourceUrl: string | null; fullName: string | null }>> {
+    const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 100));
+    const result = await this.query<{ recruiterContactId: string; companyName: string; companyDomain: string; email: string; sourceUrl: string | null; fullName: string | null }>(`SELECT
+        rc.id AS "recruiterContactId",
+        rc.company_name AS "companyName",
+        COALESCE(NULLIF(rc.company_domain,''), split_part(canonical_contact.email,'@',2)) AS "companyDomain",
+        LOWER(canonical_contact.email) AS email,
+        canonical_contact.source_url AS "sourceUrl",
+        rc.full_name AS "fullName"
+      FROM recruiter_contacts rc
+      JOIN contacts canonical_contact ON canonical_contact.id=rc.contact_id
+      WHERE COALESCE(rc.suppressed,FALSE)=FALSE
+        AND COALESCE(canonical_contact.suppressed,FALSE)=FALSE
+        AND rc.discovery_source='public-contact-resource'
+        AND canonical_contact.email IS NOT NULL
+        AND UPPER(COALESCE(rc.email_status,'')) IN ('UNVERIFIED','LIKELY','VERIFIED')
+      ORDER BY rc.last_seen_at DESC NULLS LAST, rc.updated_at DESC
+      LIMIT $1`, [boundedLimit]);
+    return result.rows;
+  }
+
   async createProactiveCampaign(input: { recruiterContactId: string; candidateProfileId: string; targetRoles: string[]; subject: string; body: string; reusePrepared?: boolean; }): Promise<ProactiveCampaignRecord | null> {
     const contact = await this.query<{ company_name: string; company_domain: string; email: string | null }>(`SELECT rc.company_name,rc.company_domain,canonical_contact.email FROM recruiter_contacts rc JOIN contacts canonical_contact ON canonical_contact.id=rc.contact_id WHERE rc.id=$1`, [input.recruiterContactId]);
     const contactRow = contact.rows[0];
