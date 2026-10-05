@@ -79,7 +79,6 @@ export class ProactiveRecruiterRepository {
       JOIN contacts canonical_contact ON canonical_contact.id=rc.contact_id
       WHERE COALESCE(rc.suppressed,FALSE)=FALSE
         AND COALESCE(canonical_contact.suppressed,FALSE)=FALSE
-        AND rc.discovery_source='public-contact-resource'
         AND canonical_contact.email IS NOT NULL
         AND UPPER(COALESCE(rc.email_status,'')) IN ('UNVERIFIED','LIKELY','VERIFIED')
       ORDER BY rc.last_seen_at DESC NULLS LAST, rc.updated_at DESC
