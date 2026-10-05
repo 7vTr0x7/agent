@@ -66,14 +66,30 @@ source "$(dirname "$0")/local-enrichment-cycle.sh"
 mkdir -p "$(dirname "$LOG")" "$STATE_DIR"
 write_enrichment_state "$MODE" "STARTED" "" 0 "$(date -u +%FT%TZ)" "" 0 0 "$COMMAND_TIMEOUT_SECONDS"
 
+QUERY_OFFSET_FILE="$STATE_DIR/recruiter-query-offset"
+if [[ "$MODE" == "recruiter" ]]; then
+  if [[ -f "$QUERY_OFFSET_FILE" ]] && [[ "$(cat "$QUERY_OFFSET_FILE" 2>/dev/null)" =~ ^[0-9]+$ ]]; then
+    RECRUITER_QUERY_OFFSET="$(cat "$QUERY_OFFSET_FILE")"
+  else
+    RECRUITER_QUERY_OFFSET=0
+  fi
+  export PROACTIVE_RECRUITER_QUERY_OFFSET="$RECRUITER_QUERY_OFFSET"
+fi
+
 echo "local enrichment worker started mode=$MODE intervalMs=$INTERVAL_MS sleepSeconds=$SLEEP_SECONDS commandTimeoutSeconds=$COMMAND_TIMEOUT_SECONDS"
 echo "enrichment command log=$LOG"
 echo "enrichment lifecycle state=$STATE_DIR/$MODE.json"
 echo "recruiter search providers=${PROACTIVE_RECRUITER_SEARCH_PROVIDERS:-default}"
+echo "recruiter query offset=${PROACTIVE_RECRUITER_QUERY_OFFSET:-0}"
 
 while true; do
   if ! run_enrichment_cycle "$MODE" "$COMMAND" "$LOG" "$COMMAND_TIMEOUT_SECONDS"; then
     echo "enrichment cycle failed mode=$MODE; continuing scheduled worker loop" >&2
+  fi
+  if [[ "$MODE" == "recruiter" ]]; then
+    RECRUITER_QUERY_OFFSET=$(( ${PROACTIVE_RECRUITER_QUERY_OFFSET:-0} + 1 ))
+    printf "%s\n" "$RECRUITER_QUERY_OFFSET" > "$QUERY_OFFSET_FILE"
+    export PROACTIVE_RECRUITER_QUERY_OFFSET="$RECRUITER_QUERY_OFFSET"
   fi
   sleep "$SLEEP_SECONDS"
 done
