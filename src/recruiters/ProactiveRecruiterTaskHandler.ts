@@ -181,23 +181,23 @@ export class ProactiveRecruiterTaskHandler {
       const body = [
         greeting,
         "",
-        `My name is ${candidateName}, and I’m a Frontend Engineer with ${payload.yearsExperience} years of experience building web applications with React, Next.js, TypeScript, JavaScript, Redux Toolkit, and Node.js/Express.`,
+        `My name is ${candidateName}. I’m a Software Developer with ${payload.yearsExperience} years of experience working primarily with React, Next.js, TypeScript, JavaScript, and Node.js/Express.`,
         "",
-        "I’m currently exploring Frontend Engineer, React/Next.js Developer, and Full-Stack Developer opportunities.",
+        "I’m currently exploring Full Stack Developer and Software Developer opportunities, particularly roles where I can contribute to both frontend development and backend/API work.",
         "",
-        "I’m reaching out proactively to introduce myself rather than assume that you or your team are currently hiring. If you work with roles that align with my background, I’d appreciate it if you could keep my profile in mind or point me toward the appropriate opportunity.",
+        "I wanted to reach out and introduce myself in case my background is relevant to any opportunities you come across.",
         "",
-        "I’ve attached my resume for reference and would be happy to provide any additional information.",
+        "I’ve attached my resume for your reference. Please feel free to reach out if you’d like any additional details about my experience.",
         "",
-        "Thank you for your time and consideration.",
+        "Thank you for your time.",
         "",
         candidateName
-      ].join("\n");
+      ].join("\\n");
       const campaign = await this.repository.createProactiveCampaign({
         recruiterContactId: contact.recruiterContactId,
         candidateProfileId: payload.candidateProfileId,
         targetRoles: [...payload.targetRoles],
-        subject: `Frontend / Full-Stack Engineer — React & Next.js — ${candidateName}`,
+        subject: `Full Stack Developer / Software Developer — ${candidateName}`,
         body,
         reusePrepared: true
       });
