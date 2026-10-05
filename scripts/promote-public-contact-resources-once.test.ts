@@ -53,6 +53,17 @@ describe("public contact promotion", () => {
 
   it("accepts a legitimate recruiter email", () => {
     expect(isSafePublicEmail("laura.korth@virtual7.de")).toBe(true);
+    expect(isSafePublicEmail("hr@perscitussln.com")).toBe(true);
+    expect(isSafePublicEmail("recruiter@company.ai")).toBe(true);
+  });
+
+  it.each([
+    "logo_nfl@3x.png",
+    "logov1@2x-0a9767ad0b720e9e8dbd3eec46aae833a7a5a7d0a7759e7acc6bae0ac5c4fad6.png",
+    "john.doe@acme.com",
+    "recruiter@example.com"
+  ])("rejects asset and placeholder addresses: %s", (value) => {
+    expect(isSafePublicEmail(value)).toBe(false);
   });
 
   it("does not promote generic machine mailboxes as qualified public contacts", () => {
