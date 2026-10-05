@@ -10,7 +10,7 @@ import { GlobalExternalSideEffectGate } from "../shared/safety/GlobalExternalSid
 export interface RecruiterOutreachSendOptions { repository: RecruiterDiscoveryRepository; database?: Database; mailbox?: GmailMailbox; dryRun?: boolean; outboundEnabled?: boolean; gmailEnabled?: boolean; automationEnabled?: boolean; activation?: RecruiterOutreachActivation; liveActivationConfirmed?: boolean; controlledSendConfirmation?: string; controlledMessageId?: string | null; controlledRecipient?: string | null; maxMessagesPerDay?: number; maxMessagesPerHour?: number; resumePath?: string | null; attachResume?: boolean; maxAttachmentBytes?: number; externalSideEffectGate?: GlobalExternalSideEffectGate; }
 export type RecruiterOutreachSendResult = { status: "DRY_RUN"; messageId: string } | { status: "SENT"; messageId: string; gmailMessageId: string; gmailThreadId: string } | { status: "SKIPPED"; messageId: string; reason: string };
 function deterministicMessageId(messageId: string): string { return `<recruiter-outreach-${messageId}@job-agent.local>`; }
-function normalizePersistedRecruiterBody(body: string): string {
+export function normalizePersistedRecruiterBody(body: string): string {
   return body.replace(/\\r\\n/g, "\r\n").replace(/\\n/g, "\n").replace(/\\r/g, "\r");
 }
 const DEFAULT_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
