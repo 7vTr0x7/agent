@@ -111,7 +111,7 @@ export class ProactiveRecruiterRepository {
               SET subject=$2::text, body=$3::text, updated_at=NOW()
             WHERE id=$1
               AND status='PREPARED'
-              AND send_state IN ('READY', NULL)`,
+              AND (send_state='READY' OR send_state IS NULL)`,
           [priorContact.rows[0].id, input.subject, input.body]
         );
         return { sequenceId: priorContact.rows[0].sequence_id, messageId: priorContact.rows[0].id };
