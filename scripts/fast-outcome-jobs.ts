@@ -89,8 +89,7 @@ async function main(): Promise<void> {
           new PersistentRecruiterDiscoveryService({
             provider: createRecruiterDiscoveryProvider({ provider: config.recruiterOutreach.discoveryProvider }),
             repository: recruiterRepository,
-            minConfidence: config.recruiterOutreach.minConfidence,
-            requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail
+            minConfidence: config.recruiterOutreach.minConfidence
           }),
           Math.max(1, config.recruiterOutreach.maxContactsPerApplication),
           undefined,
