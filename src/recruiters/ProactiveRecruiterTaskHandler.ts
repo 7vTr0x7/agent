@@ -1,6 +1,6 @@
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { ClaimedTask } from "../queue/TaskQueue";
-import { isEligibleForRealRecruiterSend, isPlausibleMailboxAddress } from "./RecruiterMailboxVerification";
+import { isEligibleForRealRecruiterSend, isPlausibleMailboxAddress, isRecruiterOutreachAddress } from "./RecruiterMailboxVerification";
 import type { RecruiterVerificationEvidence } from "./RecruiterDiscovery";
 import { RecruiterOutreachSendTaskDispatcher } from "./RecruiterOutreachSendTask";
 import { ProactiveRecruiterDiscoveryService } from "./ProactiveRecruiterDiscoveryService";
@@ -157,7 +157,7 @@ export class ProactiveRecruiterTaskHandler {
     for (const contact of contacts) {
       const email = contact.email.trim().toLowerCase();
       const domain = contact.companyDomain.trim().toLowerCase() || email.split("@")[1] || "";
-      if (!isPlausibleMailboxAddress(email) || !domain || isBlockedEmployerDomain(domain)) continue;
+      if (!isPlausibleMailboxAddress(email) || !isRecruiterOutreachAddress(email) || !domain || isBlockedEmployerDomain(domain)) continue;
       if (PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === contact.companyName.trim().toLowerCase())) continue;
 
       const candidateName = payload.candidateName?.trim() || "Candidate";
