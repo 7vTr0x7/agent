@@ -21,7 +21,6 @@ async function main(): Promise<void> {
   const proactiveSendEnabled = bool("PROACTIVE_RECRUITER_SEND_ENABLED", false);
   const recruiterEnabled = bool("RECRUITER_OUTREACH_ENABLED", false) || proactiveEnabled;
   const recruiterDryRun = bool("RECRUITER_OUTREACH_DRY_RUN", true);
-  const recruiterVerifiedRequired = bool("RECRUITER_REQUIRE_VERIFIED_EMAIL", true);
   const recruiterActivation = process.env.RECRUITER_OUTREACH_ACTIVATION ?? "disabled";
   const applicationDryRun = bool("APPLICATION_DRY_RUN", true);
   const applicationLive = bool("APPLICATION_LIVE_ENABLED", false);
@@ -33,7 +32,7 @@ async function main(): Promise<void> {
   add(checks, "Gmail Configuration", !gmailEnabled ? "DISABLED" : gmailConfigured ? "CONFIGURED" : "BLOCKED", !gmailEnabled ? "Gmail is disabled." : gmailConfigured ? "Gmail OAuth configuration is structurally complete." : "GMAIL_ENABLED=true but OAuth/user configuration is incomplete.");
   add(checks, "Gmail Authentication", !gmailEnabled ? "DISABLED" : "CONFIGURED", !gmailEnabled ? "Not applicable while Gmail is disabled; no live provider call was made." : "Run npm run gmail:verify before live activation; readiness never sends mail.");
   add(checks, "Sender Identity", !gmailEnabled ? "DISABLED" : has(process.env.GMAIL_USER_EMAIL) ? "CONFIGURED" : "BLOCKED", !gmailEnabled ? "Not applicable while Gmail is disabled." : has(process.env.GMAIL_USER_EMAIL) ? "Configured sender identity is present." : "GMAIL_USER_EMAIL is missing.");
-  add(checks, "Recruiter Verification", !recruiterEnabled ? "DISABLED" : recruiterVerifiedRequired ? "READY" : "BLOCKED", !recruiterEnabled ? "Recruiter subsystem is disabled." : recruiterVerifiedRequired ? "Strict mailbox-level verification is required." : "RECRUITER_REQUIRE_VERIFIED_EMAIL must remain true for live sending.");
+  add(checks, "Recruiter Contact Eligibility", !recruiterEnabled ? "DISABLED" : "READY", !recruiterEnabled ? "Recruiter subsystem is disabled." : "A usable recipient email is sufficient for contact-first outreach; public-source and mailbox-level verification are not prerequisites. Suppression, exclusion, deduplication, rate limits, and the final send safety gate remain enforced.");
   add(checks, "Suppression System", recruiterEnabled ? "READY" : "DISABLED", recruiterEnabled ? "Canonical recruiter suppression checks are enabled by the recruiter subsystem." : "Recruiter subsystem is disabled.");
   add(checks, "Outbound Configuration", !outboundEnabled ? "DISABLED" : "CONFIGURED", outboundEnabled ? "Global outbound flag is enabled; individual final gates still apply." : "Outbound side effects are disabled.");
   add(checks, "Recruiter-First Configuration", !proactiveEnabled ? "DISABLED" : "CONFIGURED", proactiveEnabled ? "Proactive recruiter discovery is independently configured." : "Proactive recruiter discovery is disabled.");

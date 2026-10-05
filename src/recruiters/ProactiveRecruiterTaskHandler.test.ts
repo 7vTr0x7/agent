@@ -2,7 +2,7 @@ import { ProactiveRecruiterTaskHandler } from "./ProactiveRecruiterTaskHandler";
 import { PROACTIVE_RECRUITER_DISCOVERY_TASK } from "./ProactiveRecruiterTask";
 
 describe("ProactiveRecruiterTaskHandler", () => {
-  it("discovers recruiters without a job and keeps unverified public email from being sent", async () => {
+  it("discovers recruiters without a job and allows a usable unverified email to be prepared", async () => {
     const discovery = {
       discover: jest.fn().mockResolvedValue([{
         recruiterName: "Jane Doe",
@@ -26,7 +26,7 @@ describe("ProactiveRecruiterTaskHandler", () => {
     const repository = {
       listPublicContactFirstCandidates: jest.fn().mockResolvedValue([]),
       persistCandidate: jest.fn().mockResolvedValue("contact-1"),
-      createProactiveCampaign: jest.fn().mockResolvedValue(null)
+      createProactiveCampaign: jest.fn().mockResolvedValue({ sequenceId: "sequence-1", messageId: "message-1" })
     };
     const sendDispatcher = { enqueue: jest.fn() };
     const logger = { info: jest.fn(), error: jest.fn() };
@@ -64,11 +64,11 @@ describe("ProactiveRecruiterTaskHandler", () => {
 
     expect(discovery.discover).toHaveBeenCalledWith(expect.objectContaining({ targetRoles: ["Frontend Engineer", "React Developer"] }));
     expect(repository.persistCandidate).toHaveBeenCalledTimes(1);
-    expect(repository.createProactiveCampaign).not.toHaveBeenCalled();
-    expect(sendDispatcher.enqueue).not.toHaveBeenCalled();
+    expect(repository.createProactiveCampaign).toHaveBeenCalledTimes(1);
+    expect(sendDispatcher.enqueue).toHaveBeenCalledWith({ messageId: expect.any(String), companyDomain: "acme.example" });
   });
 
-  it("uses a current contact only when mailbox-level verification evidence is present", async () => {
+  it("uses a current contact without requiring mailbox-level verification evidence", async () => {
     const discovery = { discover: jest.fn().mockResolvedValue([{
       recruiterName: "Jane Doe", recruiterRole: "Technical Recruiter", employer: "Acme", employerDomain: "acme.example",
       targetRoles: ["frontend engineer"], roleMatchScore: 90, hiringEvidenceScore: 90, overallConfidence: 95,
@@ -108,7 +108,7 @@ describe("ProactiveRecruiterTaskHandler", () => {
         companyName: "Acme",
         companyDomain: "acme.example",
         email: "recruiter@acme.example",
-        sourceUrl: "https://example.com/public-contact",
+        sourceUrl: null,
         fullName: "Jane Doe"
       }]),
       persistCandidate: jest.fn(),

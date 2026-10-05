@@ -73,7 +73,17 @@ export class RecruiterOutreachSendService {
       if (row.job_opportunity_id !== null && !row.job_opportunity_id) return null;
       if (row.sequence_status !== "READY" && row.sequence_status !== "ACTIVE") return null;
       if (String(row.recipient_email).toLowerCase() !== String(row.contact_email).toLowerCase()) return null;
-      if (this.requireVerifiedEmail && !isEligibleForRealRecruiterSend({ verified: Boolean(row.recruiter_verified), verificationStatus: row.recruiter_verification_status, emailStatus: row.recruiter_email_status, mailboxEvidence: Boolean(row.recruiter_mailbox_evidence), verificationEvidence: Array.isArray(row.recruiter_verification_evidence) ? row.recruiter_verification_evidence : [], relevanceStatus: row.recruiter_relevance_status, suppressed: Boolean(row.recruiter_suppressed) })) return null;
+      if (this.requireVerifiedEmail && !isEligibleForRealRecruiterSend({
+        email: row.recipient_email,
+        companyDomain: row.company_domain,
+        verified: Boolean(row.recruiter_verified),
+        verificationStatus: row.recruiter_verification_status,
+        emailStatus: row.recruiter_email_status,
+        mailboxEvidence: Boolean(row.recruiter_mailbox_evidence),
+        verificationEvidence: Array.isArray(row.recruiter_verification_evidence) ? row.recruiter_verification_evidence : [],
+        relevanceStatus: row.recruiter_relevance_status,
+        suppressed: Boolean(row.recruiter_suppressed)
+      })) return null;
       if (row.send_state === "SENT" || row.send_state === "AMBIGUOUS") return null;
       if (this.controlledRecipient && String(row.recipient_email).toLowerCase() !== this.controlledRecipient) return null;
       const suppression = await client.query<{ suppressed: boolean }>(`SELECT EXISTS (SELECT 1 FROM recruiter_suppressions x WHERE LOWER(COALESCE(x.email,''))=LOWER($1) OR LOWER(COALESCE(x.company_domain,''))=LOWER($2)) AS suppressed`, [row.recipient_email, row.company_domain]);

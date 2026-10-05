@@ -6,6 +6,7 @@ const VERIFIED_STATUS = "mailbox_verified";
 const PUBLIC_LIKELY_STATUS = "public-web-likely";
 const LEGACY_UNSAFE_STATUSES = new Set(["verified_public_source","domain_mx_verified","domain_mx_verified_doh","unverified_public_source","verified_mailbox","verified","valid"]);
 const AUTOMATED_MAILBOX_LOCAL_PARTS = new Set(["noreply","no-reply","donotreply","do-not-reply","mailer-daemon","mailer","notifications","notification","automated","bot"]);
+const GENERIC_EMAIL_DOMAINS = new Set(["gmail.com","googlemail.com","outlook.com","hotmail.com","live.com","yahoo.com","yahoo.co.in","icloud.com","proton.me","protonmail.com"]);
 
 export function isPlausibleMailboxAddress(email: string | null | undefined): boolean { const normalized=email?.trim().toLowerCase()??""; if(!normalized||normalized.length>254||normalized.includes("%")||/[\s"'<>()[\],;:]/.test(normalized))return false; const parts=normalized.split("@"); if(parts.length!==2)return false; const local=parts[0]??""; const domain=parts[1]??""; if(["example.com","example.org","example.net"].includes(domain))return false; if(!local||!domain||local.length>64||local.startsWith(".")||local.endsWith(".")||local.includes(".."))return false; if(domain.startsWith(".")||domain.endsWith(".")||domain.includes(".."))return false; if(!/^[a-z0-9!#$&'*+/=?^_`{|}~.-]+$/i.test(local))return false; if(!/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(domain))return false; return true; }
 export function normalizeMailboxVerificationStatus(status: string | null | undefined): CanonicalMailboxVerificationStatus { const normalized=status?.trim().toLowerCase()??""; if(normalized===VERIFIED_STATUS)return"VERIFIED"; if(normalized===PUBLIC_LIKELY_STATUS||normalized==="likely"||normalized==="domain_mx_verified"||normalized==="domain_mx_verified_doh")return"LIKELY"; if(normalized==="invalid"||normalized==="invalid_email_format"||normalized==="no_mx_record"||normalized==="missing_email_domain"||normalized==="not_valid")return"INVALID"; return"UNVERIFIED"; }
@@ -40,7 +41,16 @@ export function isPublicCompanyDomainEmailForRealSend(record: RecruiterMailboxVe
   return true;
 }
 export function isRecruiterRelevantForRealSend(_record: RecruiterMailboxVerificationRecord): boolean { return true; }
-export function isEligibleForRealRecruiterSend(record: RecruiterMailboxVerificationRecord): boolean { return isMailboxVerifiedForRealSend(record)||isPubliclyLikelyForRealSend(record)||isPublicCompanyDomainEmailForRealSend(record); }
+export function isEligibleForRealRecruiterSend(record: RecruiterMailboxVerificationRecord): boolean {
+  const email = record.email?.trim().toLowerCase() ?? "";
+  const emailStatus = String(record.emailStatus ?? "").trim().toUpperCase();
+  const companyDomain = record.companyDomain?.trim().toLowerCase().replace(/^www\\./, "") ?? "";
+  const emailDomain = email.split("@")[1] ?? "";
+  if (record.suppressed === true) return false;
+  if (!isPlausibleMailboxAddress(email) || isAutomatedMailbox(email)) return false;
+  if (companyDomain && !GENERIC_EMAIL_DOMAINS.has(emailDomain) && emailDomain !== companyDomain) return false;
+  return emailStatus === "UNVERIFIED" || emailStatus === "LIKELY" || emailStatus === "VERIFIED";
+}
 export function isSimplePublicRecruiterContactForRealSend(record: RecruiterMailboxVerificationRecord): boolean {
   const email=record.email?.trim().toLowerCase()??"";
   const emailStatus=String(record.emailStatus??"").trim().toUpperCase();
@@ -49,40 +59,27 @@ export function isSimplePublicRecruiterContactForRealSend(record: RecruiterMailb
   return emailStatus==="UNVERIFIED"||emailStatus==="LIKELY"||emailStatus==="VERIFIED";
 }
 
-export function recruiterRealSendEligibilitySql(alias="c"):string{const emailSql=`(SELECT canonical_contact.email FROM contacts canonical_contact WHERE canonical_contact.id=${alias}.contact_id)`;return `(
-    (
-      COALESCE(${alias}.verified,FALSE)=TRUE
-      AND COALESCE(${alias}.mailbox_evidence,FALSE)=TRUE
-      AND jsonb_typeof(COALESCE(${alias}.verification_evidence,'[]'::jsonb))='array'
-      AND EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(${alias}.verification_evidence,'[]'::jsonb))='array' THEN COALESCE(${alias}.verification_evidence,'[]'::jsonb) ELSE '[]'::jsonb END) AS evidence(item) WHERE COALESCE(evidence.item->>'mailboxLevel','false')='true' AND NULLIF(BTRIM(evidence.item->>'provider'),'') IS NOT NULL AND NULLIF(BTRIM(evidence.item->>'status'),'') IS NOT NULL)
-      AND UPPER(COALESCE(${alias}.email_status,''))='VERIFIED'
-      AND LOWER(COALESCE(${alias}.verification_status,''))='mailbox_verified'
-    )
-    OR
-    (
-      COALESCE(${alias}.provider,'')='proactive-public-web'
-      AND COALESCE(${alias}.verified,FALSE)=FALSE
-      AND COALESCE(${alias}.mailbox_evidence,FALSE)=FALSE
-      AND UPPER(COALESCE(${alias}.email_status,''))='LIKELY'
-      AND LOWER(COALESCE(${alias}.verification_status,''))='public-web-likely'
-      AND jsonb_typeof(COALESCE(${alias}.verification_evidence,'[]'::jsonb))='array'
-      AND EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(${alias}.verification_evidence,'[]'::jsonb))='array' THEN COALESCE(${alias}.verification_evidence,'[]'::jsonb) ELSE '[]'::jsonb END) AS evidence(item) WHERE COALESCE(evidence.item->>'mailboxLevel','true')='false' AND NULLIF(BTRIM(evidence.item->>'provider'),'') IS NOT NULL AND NULLIF(BTRIM(evidence.item->>'status'),'') IS NOT NULL AND NULLIF(BTRIM(evidence.item->>'source'),'') IS NOT NULL)
-    )
-    OR
-    (
-      COALESCE(${alias}.verified,FALSE)=FALSE
-      AND COALESCE(${alias}.mailbox_evidence,FALSE)=FALSE
-      AND UPPER(COALESCE(${alias}.email_status,'')) IN ('UNVERIFIED','LIKELY')
-      AND ${emailSql} IS NOT NULL
-      AND ${emailSql} ~* '^[A-Za-z0-9!#$&''*+/=?^_\\x60{|}~.-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
-      AND SPLIT_PART(${emailSql},'@',1) !~* '(^\\.|\\.$|\\.\\.|%|^(noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot)$)'
-      AND SPLIT_PART(${emailSql},'@',2) !~* '(^\\.|\\.$|\\.\\.)'
-      AND LOWER(SPLIT_PART(${emailSql},'@',2))=LOWER(${alias}.company_domain)
-    )
-    AND COALESCE(${alias}.suppressed,FALSE)=FALSE
+export function recruiterRealSendEligibilitySql(alias="c"):string {
+  const emailSql=`(SELECT canonical_contact.email FROM contacts canonical_contact WHERE canonical_contact.id=${alias}.contact_id)`;
+  return `(
+    COALESCE(${alias}.suppressed,FALSE)=FALSE
     AND ${emailSql} IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM recruiter_suppressions suppression WHERE LOWER(COALESCE(suppression.email,''))=LOWER(${emailSql}) OR LOWER(COALESCE(suppression.company_domain,''))=LOWER(${alias}.company_domain))
-  )`;}
+    AND ${emailSql} ~* '^[A-Za-z0-9!#$&''*+/=?^_\\x60{|}~.-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
+    AND SPLIT_PART(${emailSql},'@',1) !~* '(^\\.|\\.$|\\.\\.|%|^(noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot)$)'
+    AND UPPER(COALESCE(${alias}.email_status,'')) IN ('UNVERIFIED','LIKELY','VERIFIED')
+    AND (
+      LOWER(SPLIT_PART(${emailSql},'@',2))=LOWER(COALESCE(${alias}.company_domain,''))
+      OR LOWER(SPLIT_PART(${emailSql},'@',2)) IN ('gmail.com','googlemail.com','outlook.com','hotmail.com','live.com','yahoo.com','yahoo.co.in','icloud.com','proton.me','protonmail.com')
+      OR NULLIF(BTRIM(COALESCE(${alias}.company_domain,'')),'') IS NULL
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM recruiter_suppressions suppression
+      WHERE LOWER(COALESCE(suppression.email,''))=LOWER(${emailSql})
+         OR LOWER(COALESCE(suppression.company_domain,''))=LOWER(COALESCE(${alias}.company_domain,''))
+    )
+  )`;
+}
+
 export function recruiterSimplePublicContactEligibilitySql(alias="c"):string{
   const emailSql=`(SELECT canonical_contact.email FROM contacts canonical_contact WHERE canonical_contact.id=${alias}.contact_id)`;
   return `(
