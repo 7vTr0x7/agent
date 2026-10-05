@@ -13,6 +13,8 @@ type PublicContact = {
   email: string;
   email_status: string;
   source_url: string | null;
+  source_type: string | null;
+  relevance_score: number | null;
   full_name: string | null;
 };
 
@@ -26,6 +28,56 @@ function buildRecruiterGreeting(fullName?: string | null): string {
 function excludedCompany(name: string): boolean {
   const normalized = name.trim().toLowerCase();
   return PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === normalized);
+}
+
+const NON_CONTACT_SOURCE_HOSTS = new Set([
+  "jobicy.com", "weworkremotely.com", "remoteok.com", "remoteok.io",
+  "himalayas.app", "remotefirstjobs.com", "remoteyeah.com",
+  "indeed.com", "glassdoor.com"
+]);
+
+const NON_CONTACT_SOURCE_PATHS = [
+  /^\/submit-guest-post(?:\/|$)/i,
+  /^\/post-a-job(?:\/|$)/i,
+  /^\/post-job(?:\/|$)/i,
+  /^\/advertis(?:e|ing)(?:\/|$)/i,
+  /^\/sponsor(?:ship)?(?:\/|$)/i,
+  /^\/pricing(?:\/|$)/i,
+  /^\/(?:login|signup|sign-in|register)(?:\/|$)/i
+];
+
+const CONTACT_SOURCE_SIGNALS = /(?:career|careers|job|jobs|hiring|hire|recruit|recruiting|recruiter|talent|people|team|contact|about|profile|directory|resume|cv|apply)/i;
+
+function registrableHost(value: string): string {
+  const labels = value.toLowerCase().replace(/^www\./, "").split(".").filter(Boolean);
+  if (labels.length <= 2) return labels.join(".");
+  const suffix = labels.slice(-2).join(".");
+  if (new Set(["co.uk", "org.uk", "ac.uk", "com.au", "co.in", "com.br"]).has(suffix)) return labels.slice(-3).join(".");
+  return labels.slice(-2).join(".");
+}
+
+export function isUsablePublicContactSource(sourceUrl: string | null, email: string, sourceType?: string | null): boolean {
+  const raw = sourceUrl?.trim() ?? "";
+  if (!raw) return false;
+  if (/^file:\/\//i.test(raw)) return true;
+
+  let parsed: URL;
+  try { parsed = new URL(raw); } catch { return false; }
+  if (!/^https?:$/i.test(parsed.protocol)) return false;
+
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  const emailDomain = email.split("@")[1]?.toLowerCase() ?? "";
+  if (!host || !emailDomain) return false;
+
+  const path = parsed.pathname.toLowerCase();
+  if (NON_CONTACT_SOURCE_PATHS.some((pattern) => pattern.test(path))) return false;
+
+  if (host === "linkedin.com" || host.endsWith(".linkedin.com")) return true;
+  if (sourceType && /^(PDF|DOC|DOCX|XLS|XLSX|CSV|TXT|MD|FILE)$/i.test(sourceType)) return true;
+
+  if (NON_CONTACT_SOURCE_HOSTS.has(host) || NON_CONTACT_SOURCE_HOSTS.has(registrableHost(host))) return false;
+
+  return registrableHost(host) === registrableHost(emailDomain) || CONTACT_SOURCE_SIGNALS.test(path);
 }
 
 function buildMessage(fullName: string | null, profile: Awaited<ReturnType<ConfiguredCandidateProfileResolver["getById"]>>): { subject: string; body: string } {
@@ -66,6 +118,8 @@ async function main(): Promise<void> {
               canonical_contact.email,
               rc.email_status,
               canonical_contact.source_url,
+              canonical_contact.source_type,
+              canonical_contact.relevance_score,
               rc.full_name
          FROM recruiter_contacts rc
          JOIN contacts canonical_contact ON canonical_contact.id=rc.contact_id
@@ -90,7 +144,12 @@ async function main(): Promise<void> {
       if (candidates >= maxCandidates) break;
       const email = contact.email.trim().toLowerCase();
       const domain = contact.company_domain.trim().toLowerCase();
-      if (excludedCompany(contact.company_name) || (domain && isBlockedEmployerDomain(domain)) || !isEligibleForRealRecruiterSend({ email, companyDomain: domain || null, emailStatus: contact.email_status, suppressed: false })) {
+      if (
+        excludedCompany(contact.company_name) ||
+        (domain && isBlockedEmployerDomain(domain)) ||
+        !isUsablePublicContactSource(contact.source_url, email, contact.source_type) ||
+        !isEligibleForRealRecruiterSend({ email, companyDomain: domain || null, emailStatus: contact.email_status, suppressed: false })
+      ) {
         rejected += 1;
         continue;
       }
