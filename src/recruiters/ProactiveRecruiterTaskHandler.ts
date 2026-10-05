@@ -177,25 +177,27 @@ export class ProactiveRecruiterTaskHandler {
       if (PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === contact.companyName.trim().toLowerCase())) continue;
 
       const candidateName = payload.candidateName?.trim() || "Candidate";
-      const roles = payload.targetRoles.slice(0, 3).join(" / ") || "Frontend / React / Next.js";
-      const skills = payload.skills.slice(0, 5).join(", ");
       const greeting = contact.fullName?.trim() ? `Hi ${contact.fullName.trim().split(/\\s+/)[0]},` : "Hi there,";
       const body = [
         greeting,
         "",
-        `I’m ${candidateName}, and I’m exploring ${roles} opportunities.`,
-        `I have ${payload.yearsExperience} years of experience with ${skills}.`,
+        `My name is ${candidateName}, and I’m a Full-Stack Developer with ${payload.yearsExperience} years of experience, with a strong focus on React, Next.js, TypeScript, JavaScript, and Node.js/Express.`,
         "",
-        "I’m reaching out proactively rather than assuming there is a specific opening. If you recruit for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.",
+        "I’m currently exploring Full-Stack Developer opportunities where I can contribute across frontend development and backend/API work.",
         "",
-        "Thank you,",
+        "I wanted to introduce myself and share my resume in case my background is relevant to any current or upcoming opportunities.",
+        "",
+        "I’ve attached my resume for reference. I’d be happy to share any additional information about my experience.",
+        "",
+        "Thank you for your time,",
+        "",
         candidateName
       ].join("\\n");
       const campaign = await this.repository.createProactiveCampaign({
         recruiterContactId: contact.recruiterContactId,
         candidateProfileId: payload.candidateProfileId,
         targetRoles: [...payload.targetRoles],
-        subject: `${roles} opportunities — ${candidateName}`,
+        subject: `Full-Stack Developer — React, Next.js & Node.js — ${candidateName}`,
         body,
         reusePrepared: true
       });
@@ -205,7 +207,6 @@ export class ProactiveRecruiterTaskHandler {
     }
     return prepared;
   }
-
   async handleOutreach(payload: ProactiveRecruiterOutreachPayload): Promise<void> {
     if (!this.options.sendEnabled) return;
     await this.sendDispatcher.enqueue({ messageId: payload.messageId, companyDomain: payload.companyDomain });

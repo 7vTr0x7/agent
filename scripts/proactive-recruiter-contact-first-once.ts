@@ -22,20 +22,22 @@ function excludedCompany(name: string): boolean {
 
 function buildMessage(fullName: string | null, profile: Awaited<ReturnType<ConfiguredCandidateProfileResolver["getById"]>>): { subject: string; body: string } {
   const candidateName = profile?.fullName?.trim() || [profile?.firstName, profile?.lastName].filter(Boolean).join(" ") || "Candidate";
-  const roles = profile?.targetTitles?.slice(0, 3).join(" / ") || "Frontend / React / Next.js";
-  const skills = profile?.skills?.slice(0, 5).join(", ") || "React, Next.js, TypeScript";
   const greeting = fullName?.trim() ? `Hi ${fullName.trim().split(/\\s+/)[0]},` : "Hi there,";
   return {
-    subject: `${roles} opportunities — ${candidateName}`,
+    subject: `Full-Stack Developer — React, Next.js & Node.js — ${candidateName}`,
     body: [
       greeting,
       "",
-      `I’m ${candidateName}, and I’m exploring ${roles} opportunities.`,
-      `I have ${profile?.yearsExperience ?? 0} years of experience with ${skills}.`,
+      `My name is ${candidateName}, and I’m a Full-Stack Developer with ${profile?.yearsExperience ?? 0} years of experience, with a strong focus on React, Next.js, TypeScript, JavaScript, and Node.js/Express.`,
       "",
-      "I’m reaching out proactively rather than assuming there is a specific opening. If you handle recruiting or hiring for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.",
+      "I’m currently exploring Full-Stack Developer opportunities where I can contribute across frontend development and backend/API work.",
       "",
-      "Thank you,",
+      "I wanted to introduce myself and share my resume in case my background is relevant to any current or upcoming opportunities.",
+      "",
+      "I’ve attached my resume for reference. I’d be happy to share any additional information about my experience.",
+      "",
+      "Thank you for your time,",
+      "",
       candidateName
     ].join("\\n")
   };
