@@ -144,7 +144,7 @@ describe("PersistentRecruiterDiscoveryService", () => {
       discoveredAt: new Date(),
       contacts: [candidate({ provider: "public-web", verified: false, confidence: 92 })]
     });
-    const service = new PersistentRecruiterDiscoveryService({ provider, repository, requireVerifiedEmail: true });
+    const service = new PersistentRecruiterDiscoveryService({ provider, repository });
     const result = await service.discoverAndPersist(input, 1);
     expect(provider.verify).toHaveBeenCalledWith("recruiter@example.com");
     expect(result.contacts).toHaveLength(1);
@@ -174,7 +174,7 @@ describe("PersistentRecruiterDiscoveryService", () => {
       finishDiscoveryRun: jest.fn().mockResolvedValue(undefined),
       isOutreachSequenceDuplicate: jest.fn()
     } as unknown as RecruiterDiscoveryRepository;
-    const service = new PersistentRecruiterDiscoveryService({ provider, repository, requireVerifiedEmail: true });
+    const service = new PersistentRecruiterDiscoveryService({ provider, repository });
     const result = await service.discoverAndPersist(input, 1);
     expect(provider.verify).toHaveBeenCalledWith("recruiter@example.com");
     expect(result.status).toBe("DISCOVERED");
