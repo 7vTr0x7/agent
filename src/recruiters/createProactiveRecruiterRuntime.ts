@@ -24,7 +24,6 @@ export function createProactiveRecruiterRuntime(database: Database, taskQueue: T
     controlledSendConfirmation: process.env.RECRUITER_CONTROLLED_SEND_CONFIRM,
     controlledMessageId: process.env.RECRUITER_CONTROLLED_MESSAGE_ID?.trim() || null,
     controlledRecipient: process.env.RECRUITER_CONTROLLED_RECIPIENT?.trim().toLowerCase() || null,
-    requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail,
     maxMessagesPerDay: config.recruiterOutreach.maxMessagesPerDay, maxMessagesPerHour: config.recruiterOutreach.maxMessagesPerHour,
     resumePath: process.env.CANDIDATE_RESUME_PATH?.trim() || null, attachResume: process.env.RECRUITER_ATTACH_RESUME !== "false",
     maxAttachmentBytes: Number(process.env.RECRUITER_MAX_ATTACHMENT_BYTES ?? 10 * 1024 * 1024),
@@ -35,8 +34,7 @@ export function createProactiveRecruiterRuntime(database: Database, taskQueue: T
   const handler = new ProactiveRecruiterTaskHandler(new ProactiveRecruiterDiscoveryService(), new ProactiveRecruiterRepository(database), sendDispatcher, {
     enabled: config.proactiveRecruiter.enabled,
     sendEnabled: config.proactiveRecruiter.sendEnabled && config.gmail.enabled && config.outboundEnabled,
-    maxCandidatesPerRun: config.proactiveRecruiter.maxCandidatesPerRun,
-    requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail
+    maxCandidatesPerRun: config.proactiveRecruiter.maxCandidatesPerRun
   }, logger);
   return { dispatcher, handler, sendHandler };
 }

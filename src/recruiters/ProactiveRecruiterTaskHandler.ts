@@ -15,7 +15,6 @@ export interface ProactiveRecruiterTaskHandlerOptions {
   enabled: boolean;
   sendEnabled: boolean;
   maxCandidatesPerRun: number;
-  requireVerifiedEmail: boolean;
   verifyEmail?: (email: string) => Promise<{ status: "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID" | string; confidence: number; verificationEvidence?: RecruiterVerificationEvidence[] }>;
 }
 

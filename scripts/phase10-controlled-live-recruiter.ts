@@ -53,7 +53,7 @@ async function main(): Promise<void> {
       repository, database, mailbox, dryRun: false, outboundEnabled: true, gmailEnabled: true, automationEnabled: false,
       activation: "canary", liveActivationConfirmed: false,
       controlledSendConfirmation: CONTROLLED_SEND_CONFIRMATION, controlledMessageId: messageId, controlledRecipient: recipient,
-      requireVerifiedEmail: true, maxMessagesPerDay: 1, maxMessagesPerHour: 1,
+      maxMessagesPerDay: 1, maxMessagesPerHour: 1,
       resumePath: process.env.CANDIDATE_RESUME_PATH?.trim() || null, attachResume: process.env.RECRUITER_ATTACH_RESUME !== "false",
       maxAttachmentBytes: Number(process.env.RECRUITER_MAX_ATTACHMENT_BYTES ?? 10 * 1024 * 1024), externalSideEffectGate: safety
     });

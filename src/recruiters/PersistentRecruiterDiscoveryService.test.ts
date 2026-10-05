@@ -125,13 +125,13 @@ describe("PersistentRecruiterDiscoveryService", () => {
     expect(result.contacts[0]?.email).toBe("recruiter@example.com");
     expect(repository.upsertContact).toHaveBeenCalledTimes(4);
     expect(repository.addSources).toHaveBeenCalledTimes(4);
-    expect(provider.verify).toHaveBeenCalledTimes(2);
+    expect(provider.verify).not.toHaveBeenCalled();
     expect(result.contacts.every((contact) => contact.verified === false)).toBe(true);
-    expect(result.contacts.every((contact) => contact.verificationStatus === "domain_mx_verified")).toBe(true);
+    expect(result.contacts.every((contact) => contact.verificationStatus === "valid")).toBe(true);
     expect(repository.finishDiscoveryRun).toHaveBeenCalledWith("run-1", "SUCCEEDED", 2);
   });
 
-  it("does not authorize an unverified public contact when the provider only proves the domain/MX", async () => {
+  it("preserves an unverified public contact without a mailbox verification gate", async () => {
     const { provider, repository } = setup();
     (provider.verify as jest.Mock).mockResolvedValue({
       email: "recruiter@example.com",
@@ -144,15 +144,15 @@ describe("PersistentRecruiterDiscoveryService", () => {
       discoveredAt: new Date(),
       contacts: [candidate({ provider: "public-web", verified: false, confidence: 92 })]
     });
-    const service = new PersistentRecruiterDiscoveryService({ provider, repository, requireVerifiedEmail: true });
+    const service = new PersistentRecruiterDiscoveryService({ provider, repository });
     const result = await service.discoverAndPersist(input, 1);
-    expect(provider.verify).toHaveBeenCalledWith("recruiter@example.com");
+    expect(provider.verify).not.toHaveBeenCalled();
     expect(result.contacts).toHaveLength(1);
     expect(result.contacts[0]?.verified).toBe(false);
-    expect(result.contacts[0]?.verificationStatus).toBe("domain_mx_verified");
+    expect(result.contacts[0]?.verificationStatus).toBe("valid");
   });
 
-  it("does not let a job-posting source bypass the canonical mailbox-verification gate", async () => {
+  it("accepts a job-posting contact without requiring mailbox verification", async () => {
     const provider: RecruiterDiscoveryProvider = {
       name: "job-posting",
       discover: jest.fn().mockResolvedValue({
@@ -174,9 +174,9 @@ describe("PersistentRecruiterDiscoveryService", () => {
       finishDiscoveryRun: jest.fn().mockResolvedValue(undefined),
       isOutreachSequenceDuplicate: jest.fn()
     } as unknown as RecruiterDiscoveryRepository;
-    const service = new PersistentRecruiterDiscoveryService({ provider, repository, requireVerifiedEmail: true });
+    const service = new PersistentRecruiterDiscoveryService({ provider, repository });
     const result = await service.discoverAndPersist(input, 1);
-    expect(provider.verify).toHaveBeenCalledWith("recruiter@example.com");
+    expect(provider.verify).not.toHaveBeenCalled();
     expect(result.status).toBe("DISCOVERED");
     expect(result.contacts).toHaveLength(1);
     expect(result.contacts[0]?.verified).toBe(false);
