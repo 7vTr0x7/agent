@@ -21,6 +21,7 @@ describe("RecruiterMailboxVerification", () => {
     expect(isPlausibleMailboxAddress("22employer%20recruiting%20contact%22%20%22w3schools%22%20%22roadmap.sh%22@roadmap.sh")).toBe(false);
     expect(isPlausibleMailboxAddress("name..surname@example.com")).toBe(false);
     expect(isPlausibleMailboxAddress("name@example")).toBe(false);
+    expect(isPlausibleMailboxAddress("life@moz-konstantina-papadea-600x330.png")).toBe(false);
   });
 
   it("accepts a usable unverified email without public-source or mailbox verification evidence", () => {
@@ -74,6 +75,7 @@ describe("RecruiterMailboxVerification", () => {
     expect(isRecruiterOutreachAddress("candidateprotection@company.com")).toBe(false);
     expect(isRecruiterOutreachAddress("u003ehiringaccommodation@mozilla.com")).toBe(false);
     expect(isRecruiterOutreachAddress("recruiter@company.com")).toBe(true);
+    expect(isRecruiterOutreachAddress("life@moz-konstantina-papadea-600x330.png")).toBe(false);
   });
 
   it("rejects automated no-reply addresses", () => {
@@ -115,6 +117,7 @@ describe("RecruiterMailboxVerification", () => {
     expect(sql).toContain("candidateprotection");
     expect(sql).toContain("hiring[-_]?accommodation");
     expect(sql).toContain("recruiter_suppressions");
+    expect(sql).toContain("png");
 
     const simpleSql = recruiterSimplePublicContactEligibilitySql("c");
     expect(simpleSql).not.toContain("c.mailbox_evidence");
