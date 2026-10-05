@@ -80,7 +80,6 @@ export class ProactiveRecruiterTaskHandler {
     })));
 
     const byId = new Map(discovered.map((candidate) => [candidate.discoveryUrl, candidate]));
-    const verifier = this.options.verifyEmail ?? ((email: string) => new PublicRecruiterSearchProvider().verify(email));
     let persisted = 0;
     let prepared = 0;
     for (const rankedCandidate of ranked.slice(0, Math.max(1, Math.min(payload.maxCandidates, this.options.maxCandidatesPerRun)))) {
@@ -110,17 +109,7 @@ export class ProactiveRecruiterTaskHandler {
         }
       }
 
-      if (candidate.email) {
-        try {
-          const verification = await verifier(candidate.email);
-          candidate.emailStatus = normalizeEmailStatus(verification.status, verification.verificationEvidence);
-          candidate.verificationEvidence = verification.verificationEvidence ?? [];
-        } catch (error) {
-          this.logger.error({ error: error instanceof Error ? error.message : String(error) }, "Proactive recruiter email verification failed");
-          candidate.emailStatus = "UNVERIFIED";
-          candidate.verificationEvidence = [];
-        }
-      }
+      if (candidate.email && candidate.emailStatus === "INVALID") continue;
       const recruiterContactId = await this.repository.persistCandidate(payload.candidateProfileId, candidate);
       if (!recruiterContactId) {
         this.logger.info({
@@ -139,12 +128,14 @@ export class ProactiveRecruiterTaskHandler {
 
       const mailboxEvidence = hasExplicitMailboxEvidence(candidate.verificationEvidence ?? []);
       const canonicalEligible = isEligibleForRealRecruiterSend({
+        email: candidate.email,
+        companyDomain: candidate.employerDomain,
         verified: mailboxEvidence,
         mailboxEvidence,
         verificationEvidence: candidate.verificationEvidence ?? [],
         emailStatus: mailboxEvidence ? "VERIFIED" : candidate.emailStatus,
-        verificationStatus: mailboxEvidence ? "mailbox_verified" : candidate.emailStatus === "LIKELY" ? "domain_mx_verified" : "public-web-unverified",
-        relevanceStatus: candidate.evidenceFreshness === "current" ? "CURRENT" : candidate.evidenceFreshness === "recent" ? "RECENT" : candidate.evidenceFreshness === "historical" ? "HISTORICAL" : "UNKNOWN",
+        verificationStatus: mailboxEvidence ? "mailbox_verified" : "unverified",
+        relevanceStatus: "UNKNOWN",
         suppressed: false
       });
       if (!canonicalEligible) continue;
