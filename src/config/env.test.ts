@@ -57,8 +57,19 @@ describe("loadConfig runtime loop intervals", () => {
     expect(config.applicationCompanyRateLimitPerDay).toBe(20);
     expect(config.recruiterOutreach.enabled).toBe(false);
     expect(config.recruiterOutreach.activation).toBe("disabled");
-    expect(config.recruiterOutreach.maxMessagesPerDay).toBe(400);
-    expect(config.recruiterOutreach.maxMessagesPerHour).toBe(17);
+    expect(config.recruiterOutreach.maxMessagesPerDay).toBe(480);
+    expect(config.recruiterOutreach.maxMessagesPerHour).toBe(0);
+  });
+
+  it("allows zero recruiter hourly limit while retaining the daily budget", async () => {
+    process.env.RECRUITER_OUTREACH_ENABLED = "true";
+    process.env.RECRUITER_OUTREACH_ACTIVATION = "live";
+    process.env.RECRUITER_MAX_MESSAGES_PER_DAY = "480";
+    process.env.RECRUITER_MAX_MESSAGES_PER_HOUR = "0";
+    const { loadConfig } = await import("./env");
+    const config = loadConfig();
+    expect(config.recruiterOutreach.maxMessagesPerDay).toBe(480);
+    expect(config.recruiterOutreach.maxMessagesPerHour).toBe(0);
   });
 
   it("accepts explicit automation enablement", async () => {
