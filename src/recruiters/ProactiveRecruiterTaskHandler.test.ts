@@ -138,11 +138,11 @@ describe("ProactiveRecruiterTaskHandler", () => {
       recruiterContactId: "contact-public-1",
       candidateProfileId: "candidate-1",
       reusePrepared: true,
-      subject: "Full Stack Developer / Software Developer — Candidate",
-      body: expect.stringContaining("I’m currently exploring Full Stack Developer and Software Developer opportunities, particularly roles where I can contribute to both frontend development and backend/API work.")
+      subject: "Full-Stack Developer — React, Next.js & Node.js — Candidate",
+      body: expect.stringContaining("I’m currently exploring Full-Stack Developer opportunities where I can contribute across frontend development and backend/API work.")
     }));
     expect(repository.createProactiveCampaign).toHaveBeenCalledWith(expect.objectContaining({
-      body: expect.stringContaining("I wanted to reach out and introduce myself in case my background is relevant to any opportunities you come across.")
+      body: expect.stringContaining("I wanted to introduce myself and share my resume in case my background is relevant to any current or upcoming opportunities.")
     }));
     expect(repository.createProactiveCampaign).toHaveBeenCalledWith(expect.objectContaining({
       body: expect.stringContaining("I’ve attached my resume for reference")
