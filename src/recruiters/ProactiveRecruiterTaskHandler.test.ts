@@ -34,7 +34,7 @@ describe("ProactiveRecruiterTaskHandler", () => {
       discovery as never,
       repository as never,
       sendDispatcher as never,
-      { enabled: true, sendEnabled: true, maxCandidatesPerRun: 10, requireVerifiedEmail: true, verifyEmail: async () => ({ status: "UNVERIFIED", confidence: 0 }) },
+      { enabled: true, sendEnabled: true, maxCandidatesPerRun: 10 },
       logger
     );
 
@@ -86,8 +86,7 @@ describe("ProactiveRecruiterTaskHandler", () => {
       {
         enabled: true,
         sendEnabled: true,
-        maxCandidatesPerRun: 10,
-        requireVerifiedEmail: true,
+        maxCandidatesPerRun: 10
         verifyEmail: async () => ({
           status: "mailbox_verified",
           confidence: 100,
@@ -119,7 +118,7 @@ describe("ProactiveRecruiterTaskHandler", () => {
       discovery as never,
       repository as never,
       sendDispatcher as never,
-      { enabled: true, sendEnabled: true, maxCandidatesPerRun: 10, requireVerifiedEmail: true },
+      { enabled: true, sendEnabled: true, maxCandidatesPerRun: 10 },
       { info: jest.fn(), error: jest.fn() }
     );
 
@@ -179,7 +178,7 @@ describe("recruiter greeting fallback", () => {
       discovery as never,
       repository as never,
       sendDispatcher as never,
-      { enabled: true, sendEnabled: false, maxCandidatesPerRun: 10, requireVerifiedEmail: true },
+      { enabled: true, sendEnabled: false, maxCandidatesPerRun: 10 },
       { info: jest.fn(), error: jest.fn() }
     );
 
