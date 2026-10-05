@@ -1,6 +1,6 @@
 import { CandidateProfile } from "../candidates/CandidateProfile";
 import { ClaimedTask } from "../queue/TaskQueue";
-import { hasExplicitMailboxEvidence, isEligibleForRealRecruiterSend } from "./RecruiterMailboxVerification";
+import { hasExplicitMailboxEvidence, isEligibleForRealRecruiterSend, isPlausibleMailboxAddress } from "./RecruiterMailboxVerification";
 import { RecruiterVerificationEvidence } from "./RecruiterDiscovery";
 import { RecruiterOutreachSendTaskDispatcher } from "./RecruiterOutreachSendTask";
 import { ProactiveRecruiterDiscoveryService } from "./ProactiveRecruiterDiscoveryService";
@@ -8,6 +8,8 @@ import { rankProactiveRecruiters } from "./ProactiveRecruiterRanking";
 import { ProactiveRecruiterRepository, isEmployerEmailDomainConsistent } from "./ProactiveRecruiterRepository";
 import { PublicRecruiterSearchProvider } from "./PublicRecruiterSearchProvider";
 import { ProactiveRecruiterDiscoveryPayload, ProactiveRecruiterOutreachPayload, PROACTIVE_RECRUITER_DISCOVERY_TASK, PROACTIVE_RECRUITER_OUTREACH_TASK } from "./ProactiveRecruiterTask";
+import { PERMANENTLY_EXCLUDED_COMPANIES } from "../applications/ApplicationPolicy";
+import { isBlockedEmployerDomain } from "./RecruiterCompanyDomainResolver";
 
 export interface ProactiveRecruiterTaskHandlerOptions {
   enabled: boolean;
@@ -40,6 +42,12 @@ export class ProactiveRecruiterTaskHandler {
 
   async handleDiscovery(payload: ProactiveRecruiterDiscoveryPayload): Promise<void> {
     if (!this.options.enabled) return;
+    const contactFirstPrepared = await this.handleContactFirst(payload);
+    if (contactFirstPrepared > 0) {
+      this.logger.info({ prepared: contactFirstPrepared, sendEnabled: this.options.sendEnabled }, "Contact-first proactive recruiter runtime completed");
+      return;
+    }
+
     const preferredLocations = payload.preferredLocations?.length ? [...payload.preferredLocations] : ["Bengaluru", "Bangalore", "India", "Remote"];
     const profile: CandidateProfile = {
       id: payload.candidateProfileId,
@@ -159,6 +167,45 @@ export class ProactiveRecruiterTaskHandler {
     this.logger.info({ discovered: discovered.length, persisted, prepared, sendEnabled: this.options.sendEnabled, ...(metrics !== undefined ? { metrics } : {}) }, "Proactive recruiter discovery completed");
   }
 
+  private async handleContactFirst(payload: ProactiveRecruiterDiscoveryPayload): Promise<number> {
+    const contacts = await this.repository.listPublicContactFirstCandidates(Math.max(1, Math.min(payload.maxCandidates, this.options.maxCandidatesPerRun)));
+    let prepared = 0;
+    for (const contact of contacts) {
+      const email = contact.email.trim().toLowerCase();
+      const domain = contact.companyDomain.trim().toLowerCase() || email.split("@")[1] || "";
+      if (!isPlausibleMailboxAddress(email) || !domain || isBlockedEmployerDomain(domain)) continue;
+      if (PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === contact.companyName.trim().toLowerCase())) continue;
+
+      const candidateName = payload.candidateName?.trim() || "Candidate";
+      const roles = payload.targetRoles.slice(0, 3).join(" / ") || "Frontend / React / Next.js";
+      const skills = payload.skills.slice(0, 5).join(", ");
+      const greeting = contact.fullName?.trim() ? `Hi ${contact.fullName.trim().split(/\\s+/)[0]},` : "Hi there,";
+      const body = [
+        greeting,
+        "",
+        `I’m ${candidateName}, and I’m exploring ${roles} opportunities.`,
+        `I have ${payload.yearsExperience} years of experience with ${skills}.`,
+        "",
+        "I’m reaching out proactively rather than assuming there is a specific opening. If you recruit for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.",
+        "",
+        "Thank you,",
+        candidateName
+      ].join("\\n");
+      const campaign = await this.repository.createProactiveCampaign({
+        recruiterContactId: contact.recruiterContactId,
+        candidateProfileId: payload.candidateProfileId,
+        targetRoles: [...payload.targetRoles],
+        subject: `${roles} opportunities — ${candidateName}`,
+        body,
+        reusePrepared: true
+      });
+      if (!campaign) continue;
+      prepared += 1;
+      if (this.options.sendEnabled) await this.sendDispatcher.enqueue({ messageId: campaign.messageId, companyDomain: domain });
+    }
+    return prepared;
+  }
+
   async handleOutreach(payload: ProactiveRecruiterOutreachPayload): Promise<void> {
     if (!this.options.sendEnabled) return;
     await this.sendDispatcher.enqueue({ messageId: payload.messageId, companyDomain: payload.companyDomain });
@@ -203,14 +250,13 @@ function normalizeEmailStatus(value: string, evidence: RecruiterVerificationEvid
   }
 }
 
-function buildProactiveMessage(profile: CandidateProfile, candidate: { contactType?: "PERSON"|"EMPLOYER"; recruiterName: string; recruiterRole: string; employer: string; targetRoles: string[]; evidenceFreshness: string; discoveryEvidence: string[] }): string {
+function buildProactiveMessage(profile: CandidateProfile, candidate: { contactType?: "PERSON"|"EMPLOYER"; recruiterName: string }): string {
   const name = profile.fullName?.trim() || [profile.firstName, profile.lastName].filter(Boolean).join(" ") || "Candidate";
   const roles = profile.targetTitles.length ? profile.targetTitles.slice(0, 3).join(" / ") : "Frontend / React / Next.js";
   const skills = profile.skills.slice(0, 5).join(", ");
   const location = profile.location ? ` I’m currently based in ${profile.location}.` : "";
-  const evidenceLine = candidate.evidenceFreshness === "current" ? "Your public recruiting information appears relevant to these kinds of roles." : candidate.evidenceFreshness === "recent" ? "Your recent public recruiting information appears relevant to these kinds of roles." : "Your public recruiting background appears relevant to these kinds of roles.";
   const greeting = candidate.contactType === "EMPLOYER" ? "Hi there," : `Hi ${candidate.recruiterName.split(" ")[0] || "there"},`;
-  return [greeting, "", `I’m ${name}, and I’m exploring ${roles} opportunities.${location}`, `I have ${profile.yearsExperience} years of experience with ${skills}.`, evidenceLine, "", "I’m reaching out proactively rather than assuming there is a specific opening. If you recruit for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.", "", "Thank you,", name].join("\n");
+  return [greeting, "", `I’m ${name}, and I’m exploring ${roles} opportunities.${location}`, `I have ${profile.yearsExperience} years of experience with ${skills}.`, "", "I’m reaching out proactively rather than assuming there is a specific opening. If you recruit for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.", "", "Thank you,", name].join("\n");
 }
 
 function freshnessScore(value: string): number { return value === "current" ? 100 : value === "recent" ? 75 : value === "historical" ? 40 : 10; }
