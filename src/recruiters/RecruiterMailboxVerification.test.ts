@@ -1,4 +1,4 @@
-import { isEligibleForRealRecruiterSend, isMailboxVerifiedForRealSend, isPlausibleMailboxAddress, isRecruiterOutreachAddress, recruiterRealSendEligibilitySql, recruiterSimplePublicContactEligibilitySql } from "./RecruiterMailboxVerification";
+import { isEligibleForRealRecruiterSend, isMailboxVerifiedForRealSend, isPermanentlyExcludedRecruiterCompany, isPlausibleMailboxAddress, isRecruiterOutreachAddress, recruiterRealSendEligibilitySql, recruiterSimplePublicContactEligibilitySql } from "./RecruiterMailboxVerification";
 
 describe("RecruiterMailboxVerification", () => {
   const verified = {
@@ -90,6 +90,14 @@ describe("RecruiterMailboxVerification", () => {
     })).toBe(false);
   });
 
+  it("rejects permanently excluded employers", () => {
+    expect(isPermanentlyExcludedRecruiterCompany("Octopus Technologies")).toBe(true);
+    expect(isPermanentlyExcludedRecruiterCompany("Sketch Brahma Technologies")).toBe(true);
+    expect(isPermanentlyExcludedRecruiterCompany("Example Technologies")).toBe(false);
+    expect(isEligibleForRealRecruiterSend({ email: "recruiter@octopus.com", companyDomain: "octopus.com", companyName: "Octopus Technologies", emailStatus: "VERIFIED", suppressed: false })).toBe(false);
+    expect(isEligibleForRealRecruiterSend({ email: "recruiter@sketchbrahma.com", companyDomain: "sketchbrahma.com", companyName: "Sketch Brahma Technologies", emailStatus: "LIKELY", suppressed: false })).toBe(false);
+  });
+
   it("rejects suppressed recipients", () => {
     expect(isEligibleForRealRecruiterSend({
       email: "recruiter@company.com",
@@ -118,6 +126,8 @@ describe("RecruiterMailboxVerification", () => {
     expect(sql).toContain("hiring[-_]?accommodation");
     expect(sql).toContain("recruiter_suppressions");
     expect(sql).toContain("png");
+    expect(sql).toContain("octopus technologies");
+    expect(sql).toContain("sketch brahma technologies");
 
     const simpleSql = recruiterSimplePublicContactEligibilitySql("c");
     expect(simpleSql).not.toContain("c.mailbox_evidence");
@@ -129,5 +139,7 @@ describe("RecruiterMailboxVerification", () => {
     expect(simpleSql).toContain("candidateprotection");
     expect(simpleSql).toContain("hiring[-_]?accommodation");
     expect(simpleSql).toContain("recruiter_suppressions");
+    expect(simpleSql).toContain("octopus technologies");
+    expect(simpleSql).toContain("sketch brahma technologies");
   });
 });
