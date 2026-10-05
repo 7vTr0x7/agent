@@ -60,6 +60,12 @@ async function main(): Promise<void> {
     const thread = await fetchThread(oauth, message.gmailThreadId);
     const threadMessages = thread.messages ?? [];
     if (threadMessages.some((item) => messageBody(item).includes(MARKER))) continue;
+    const recipient = message.recipientEmail.toLowerCase();
+    const hasRecipientReply = threadMessages.some((item) => {
+      if (fromIsUser(item, userEmail)) return false;
+      return header(item, "From").toLowerCase().includes(recipient);
+    });
+    if (hasRecipientReply) continue;
     const sorted = [...threadMessages].sort((a,b) => Number(a.internalDate ?? 0) - Number(b.internalDate ?? 0));
     const latest = sorted[sorted.length - 1];
     if (!latest || !fromIsUser(latest, userEmail)) continue;
