@@ -1,3 +1,4 @@
+import { RecruiterDiscoveryRepository } from "./RecruiterDiscoveryRepository";
 import { RecruiterOutreachFollowUpScheduler } from "./RecruiterOutreachFollowUpScheduler";
 import { RecruiterOutreachSendReconciliationService } from "./RecruiterOutreachSendReconciliationService";
 import { RecruiterOutreachSendTaskDispatcher } from "./RecruiterOutreachSendTask";
@@ -16,6 +17,7 @@ export interface RecruiterOutreachRuntimeLogger {
 /** Runs recovery-oriented recruiter maintenance without allowing one maintenance task to stop the other. */
 export class RecruiterOutreachRuntimeScheduler {
   constructor(
+    private readonly repository: RecruiterDiscoveryRepository,
     private readonly followUpScheduler: RecruiterOutreachFollowUpScheduler | undefined,
     private readonly reconciliationService: RecruiterOutreachSendReconciliationService | undefined,
     private readonly logger: RecruiterOutreachRuntimeLogger,
