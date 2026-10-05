@@ -26,7 +26,7 @@ describe("ProactiveRecruiterTaskHandler", () => {
     const repository = {
       listPublicContactFirstCandidates: jest.fn().mockResolvedValue([]),
       persistCandidate: jest.fn().mockResolvedValue("contact-1"),
-      createProactiveCampaign: jest.fn().mockResolvedValue(null)
+      createProactiveCampaign: jest.fn().mockResolvedValue({ sequenceId: "sequence-1", messageId: "message-1" })
     };
     const sendDispatcher = { enqueue: jest.fn() };
     const logger = { info: jest.fn(), error: jest.fn() };
