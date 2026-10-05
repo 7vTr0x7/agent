@@ -108,7 +108,7 @@ describe("ProactiveRecruiterTaskHandler", () => {
         companyName: "Acme",
         companyDomain: "acme.example",
         email: "recruiter@acme.example",
-        sourceUrl: "https://example.com/public-contact",
+        sourceUrl: null,
         fullName: "Jane Doe"
       }]),
       persistCandidate: jest.fn(),
