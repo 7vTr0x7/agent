@@ -29,7 +29,7 @@ function excludedCompany(name: string): boolean {
 
 function buildMessage(fullName: string | null, profile: Awaited<ReturnType<ConfiguredCandidateProfileResolver["getById"]>>): { subject: string; body: string } {
   const candidateName = profile?.fullName?.trim() || [profile?.firstName, profile?.lastName].filter(Boolean).join(" ") || "Candidate";
-  const greeting = fullName?.trim() ? `Hi ${fullName.trim().split(/\\s+/)[0]},` : "Hi there,";
+  const greeting = buildRecruiterGreeting(fullName);
   return {
     subject: `Full-Stack Developer — React, Next.js & Node.js — ${candidateName}`,
     body: [
