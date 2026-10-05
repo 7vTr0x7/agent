@@ -38,7 +38,7 @@ async function main(): Promise<void> {
       discovery,
       new ProactiveRecruiterRepository(database),
       new RecruiterOutreachSendTaskDispatcher(taskQueue),
-      { enabled: true, sendEnabled: false, maxCandidatesPerRun: config.proactiveRecruiter.maxCandidatesPerRun, requireVerifiedEmail: config.recruiterOutreach.requireVerifiedEmail },
+      { enabled: true, sendEnabled: false, maxCandidatesPerRun: config.proactiveRecruiter.maxCandidatesPerRun },
       logger
     );
 
@@ -65,8 +65,7 @@ async function main(): Promise<void> {
       repository: new RecruiterDiscoveryRepository(database),
       identityRepository: new RecruiterIdentityRepository(database),
       cooldownHours: 12,
-      minConfidence: 80,
-      requireVerifiedEmail: false
+      minConfidence: 80
     });
     const jobLinkedLimitRaw = Number.parseInt(process.env.PROACTIVE_RECRUITER_JOB_LINKED_LIMIT ?? "3", 10);
     const jobLinkedLimit = Number.isInteger(jobLinkedLimitRaw) && jobLinkedLimitRaw > 0 ? Math.min(jobLinkedLimitRaw, 5) : 3;
