@@ -106,6 +106,14 @@ export class ProactiveRecruiterRepository {
       LIMIT 1`, [input.candidateProfileId, email]);
     if (priorContact.rows[0]) {
       if (input.reusePrepared && priorContact.rows[0].status === 'PREPARED') {
+        await this.query(
+          `UPDATE recruiter_outreach_messages
+              SET subject=$2::text, body=$3::text, updated_at=NOW()
+            WHERE id=$1
+              AND status='PREPARED'
+              AND send_state IN ('READY', NULL)`,
+          [priorContact.rows[0].id, input.subject, input.body]
+        );
         return { sequenceId: priorContact.rows[0].sequence_id, messageId: priorContact.rows[0].id };
       }
       return null;
