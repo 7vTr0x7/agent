@@ -1,4 +1,4 @@
-import { isCompatibleRecruiterEnrichmentEmail } from "./ProactiveRecruiterTaskHandler";
+import { buildContactFirstMessage, isCompatibleRecruiterEnrichmentEmail } from "./ProactiveRecruiterTaskHandler";
 
 describe("recruiter email enrichment domain safety", () => {
   it("accepts an employer-domain enrichment email", () => {
@@ -11,5 +11,15 @@ describe("recruiter email enrichment domain safety", () => {
 
   it("rejects a non-generic enrichment email that contradicts the employer domain", () => {
     expect(isCompatibleRecruiterEnrichmentEmail("jane@agency.example", "acme.example")).toBe(false);
+  });
+});
+
+
+describe("contact-first recruiter email formatting", () => {
+  it("uses real line breaks instead of literal escaped newline sequences", () => {
+    const body = buildContactFirstMessage("Salman Shaikh", 3, null);
+
+    expect(body).toContain("Hi Hiring Team,\n\nMy name is Salman Shaikh");
+    expect(body).not.toContain("\\n");
   });
 });
