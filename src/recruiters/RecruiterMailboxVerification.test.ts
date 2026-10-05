@@ -1,4 +1,4 @@
-import { isEligibleForRealRecruiterSend, isMailboxVerifiedForRealSend, isPlausibleMailboxAddress, recruiterRealSendEligibilitySql } from "./RecruiterMailboxVerification";
+import { isEligibleForRealRecruiterSend, isMailboxVerifiedForRealSend, isPlausibleMailboxAddress, isRecruiterOutreachAddress, recruiterRealSendEligibilitySql } from "./RecruiterMailboxVerification";
 
 describe("RecruiterMailboxVerification", () => {
   const verified = {
@@ -67,6 +67,15 @@ describe("RecruiterMailboxVerification", () => {
     expect(isEligibleForRealRecruiterSend({ ...base, emailStatus: "VERIFIED", verificationStatus: "anything" })).toBe(true);
   });
 
+  it("rejects obvious non-recruiting transactional destinations while retaining recruiter mailboxes", () => {
+    expect(isRecruiterOutreachAddress("srishti.shukla@innovationm.com")).toBe(true);
+    expect(isRecruiterOutreachAddress("talent@company.com")).toBe(true);
+    expect(isRecruiterOutreachAddress("pay@company.com")).toBe(false);
+    expect(isRecruiterOutreachAddress("candidateprotection@company.com")).toBe(false);
+    expect(isRecruiterOutreachAddress("u003ehiringaccommodation@mozilla.com")).toBe(false);
+    expect(isRecruiterOutreachAddress("recruiter@company.com")).toBe(true);
+  });
+
   it("rejects automated no-reply addresses", () => {
     expect(isEligibleForRealRecruiterSend({
       email: "noreply@company.com",
@@ -103,6 +112,8 @@ describe("RecruiterMailboxVerification", () => {
     expect(sql).toContain("c.suppressed");
     expect(sql).toContain("canonical_contact.email");
     expect(sql).toContain("noreply");
+    expect(sql).toContain("candidateprotection");
+    expect(sql).toContain("hiring[-_]?accommodation");
     expect(sql).toContain("recruiter_suppressions");
   });
 });
