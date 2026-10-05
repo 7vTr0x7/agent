@@ -68,7 +68,7 @@ WHERE m.status='PREPARED'
   AND sent.day_count < $2
   AND sent.hour_count < $3
 ORDER BY m.created_at ASC
-LIMIT LEAST($1,GREATEST(0,$2-sent.day_count),GREATEST(0,$3-sent.hour_count))`,[limit,maxMessagesPerDay,maxMessagesPerHour]);
+LIMIT (SELECT LEAST($1,GREATEST(0,$2-sent.day_count),GREATEST(0,$3-sent.hour_count)))`,[limit,maxMessagesPerDay,maxMessagesPerHour]);
   return result.rows.map((row)=>({id:row.id,sequenceId:row.sequenceId,messageType:row.messageType,sequenceStep:Number(row.sequenceStep),recipientEmail:row.recipientEmail,subject:row.subject,body:row.body,status:row.status,companyDomain:row.companyDomain}));
  }
  async countSentOutreachMessagesSince(since:Date):Promise<number>{const result=await this.database.query<{count:string}>(`SELECT COUNT(*)::text AS count FROM recruiter_outreach_messages WHERE status='SENT' AND sent_at >= $1`,[since]);return Number(result.rows[0]?.count??0);}
