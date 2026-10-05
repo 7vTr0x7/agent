@@ -147,10 +147,53 @@ describe("ProactiveRecruiterTaskHandler", () => {
     expect(repository.createProactiveCampaign).toHaveBeenCalledWith(expect.objectContaining({
       body: expect.stringContaining("I’ve attached my resume for reference")
     }));
+    expect(repository.createProactiveCampaign).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringContaining("Hi Jane,")
+    }));
     expect(sendDispatcher.enqueue).toHaveBeenCalledWith({
       messageId: "message-public-1",
       companyDomain: "acme.example"
     });
   });
 
+});
+
+
+describe("recruiter greeting fallback", () => {
+  it("uses Hiring Team when the public recruiter contact has no name", async () => {
+    const discovery = { discover: jest.fn() };
+    const repository = {
+      listPublicContactFirstCandidates: jest.fn().mockResolvedValue([{
+        recruiterContactId: "contact-public-2",
+        companyName: "Acme",
+        companyDomain: "acme.example",
+        email: "hiring@acme.example",
+        sourceUrl: "https://example.com/public-contact",
+        fullName: null
+      }]),
+      persistCandidate: jest.fn(),
+      createProactiveCampaign: jest.fn().mockResolvedValue({ sequenceId: "sequence-public-2", messageId: "message-public-2" })
+    };
+    const sendDispatcher = { enqueue: jest.fn() };
+    const handler = new ProactiveRecruiterTaskHandler(
+      discovery as never,
+      repository as never,
+      sendDispatcher as never,
+      { enabled: true, sendEnabled: false, maxCandidatesPerRun: 10, requireVerifiedEmail: true },
+      { info: jest.fn(), error: jest.fn() }
+    );
+
+    await handler.handleDiscovery({
+      candidateProfileId: "candidate-1",
+      candidateName: "Salman Shaikh",
+      yearsExperience: 3,
+      skills: ["React", "Next.js"],
+      targetRoles: ["Frontend Engineer"],
+      maxCandidates: 10
+    });
+
+    expect(repository.createProactiveCampaign).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringContaining("Hi Hiring Team,")
+    }));
+  });
 });

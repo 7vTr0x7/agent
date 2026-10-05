@@ -15,6 +15,13 @@ type PublicContact = {
   full_name: string | null;
 };
 
+function buildRecruiterGreeting(fullName?: string | null): string {
+  const normalizedName = fullName?.trim().replace(/\s+/g, " ");
+  if (!normalizedName) return "Hi Hiring Team,";
+  const firstName = normalizedName.split(" ")[0];
+  return firstName ? `Hi ${firstName},` : "Hi Hiring Team,";
+}
+
 function excludedCompany(name: string): boolean {
   const normalized = name.trim().toLowerCase();
   return PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === normalized);
@@ -22,7 +29,7 @@ function excludedCompany(name: string): boolean {
 
 function buildMessage(fullName: string | null, profile: Awaited<ReturnType<ConfiguredCandidateProfileResolver["getById"]>>): { subject: string; body: string } {
   const candidateName = profile?.fullName?.trim() || [profile?.firstName, profile?.lastName].filter(Boolean).join(" ") || "Candidate";
-  const greeting = fullName?.trim() ? `Hi ${fullName.trim().split(/\\s+/)[0]},` : "Hi there,";
+  const greeting = buildRecruiterGreeting(fullName);
   return {
     subject: `Full-Stack Developer — React, Next.js & Node.js — ${candidateName}`,
     body: [
