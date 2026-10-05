@@ -44,17 +44,8 @@ export class RecruiterOutreachPreparationTaskHandler {
         task.payload.contacts
       );
 
-      if (this.sendDispatcher) {
-        for (const item of prepared) {
-          await this.sendDispatcher.enqueue({
-            messageId: item.message.id,
-            companyDomain: task.payload.companyDomain
-          });
-        }
-      }
-
       this.logger?.info(
-        `[recruiter-outreach] ${task.payload.companyName}: prepared ${prepared.length} message(s); send tasks queued=${this.sendDispatcher ? prepared.length : 0}.`
+        `[recruiter-outreach] ${task.payload.companyName}: prepared ${prepared.length} message(s); dispatch is owned by the centralized rate-limited recruiter runtime.`
       );
     } catch (error) {
       this.logger?.error(
