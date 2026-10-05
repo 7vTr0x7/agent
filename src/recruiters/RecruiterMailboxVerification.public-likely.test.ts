@@ -37,11 +37,11 @@ describe("public recruiter email eligibility", () => {
     expect(isPlausibleMailboxAddress("22employer%20recruiting%20contact%22@indeed.com")).toBe(false);
   });
 
-  it("exposes the public-likely SQL gate", () => {
+  it("exposes the email-first SQL gate", () => {
     const sql = recruiterRealSendEligibilitySql("c");
-    expect(sql).toContain("public-web-likely");
-    expect(sql).toContain("c.verification_evidence");
-    expect(sql).not.toContain("c.relevance_status");
+    expect(sql).not.toContain("public-web-likely");
+    expect(sql).not.toContain("c.verification_evidence");
+    expect(sql).not.toContain("jsonb_array_elements");
+    expect(sql).toContain("c.email_status");
     expect(sql).toContain("recruiter_suppressions");
-  });
-});
+  });});
