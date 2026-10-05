@@ -3,7 +3,7 @@ import { Database } from "../src/database/Database";
 import { ConfiguredCandidateProfileResolver } from "../src/candidates/ConfiguredCandidateProfileResolver";
 import { PERMANENTLY_EXCLUDED_COMPANIES } from "../src/applications/ApplicationPolicy";
 import { ProactiveRecruiterRepository } from "../src/recruiters/ProactiveRecruiterRepository";
-import { isPlausibleMailboxAddress } from "../src/recruiters/RecruiterMailboxVerification";
+import { isEligibleForRealRecruiterSend } from "../src/recruiters/RecruiterMailboxVerification";
 import { isBlockedEmployerDomain } from "../src/recruiters/RecruiterCompanyDomainResolver";
 
 type PublicContact = {
@@ -11,6 +11,7 @@ type PublicContact = {
   company_name: string;
   company_domain: string;
   email: string;
+  email_status: string;
   source_url: string | null;
   full_name: string | null;
 };
@@ -61,8 +62,9 @@ async function main(): Promise<void> {
     const rows = await database.query<PublicContact>(
       `SELECT rc.id,
               rc.company_name,
-              COALESCE(NULLIF(rc.company_domain,''), split_part(canonical_contact.email,'@',2)) AS company_domain,
+              COALESCE(rc.company_domain,'') AS company_domain,
               canonical_contact.email,
+              rc.email_status,
               canonical_contact.source_url,
               rc.full_name
          FROM recruiter_contacts rc
@@ -88,7 +90,7 @@ async function main(): Promise<void> {
       if (candidates >= maxCandidates) break;
       const email = contact.email.trim().toLowerCase();
       const domain = contact.company_domain.trim().toLowerCase();
-      if (!isPlausibleMailboxAddress(email) || !domain || isBlockedEmployerDomain(domain) || excludedCompany(contact.company_name)) {
+      if (excludedCompany(contact.company_name) || (domain && isBlockedEmployerDomain(domain)) || !isEligibleForRealRecruiterSend({ email, companyDomain: domain || null, emailStatus: contact.email_status, suppressed: false })) {
         rejected += 1;
         continue;
       }
