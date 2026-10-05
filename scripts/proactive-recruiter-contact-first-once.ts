@@ -22,22 +22,24 @@ function excludedCompany(name: string): boolean {
 
 function buildMessage(fullName: string | null, profile: Awaited<ReturnType<ConfiguredCandidateProfileResolver["getById"]>>): { subject: string; body: string } {
   const candidateName = profile?.fullName?.trim() || [profile?.firstName, profile?.lastName].filter(Boolean).join(" ") || "Candidate";
-  const roles = profile?.targetTitles?.slice(0, 3).join(" / ") || "Frontend / React / Next.js";
-  const skills = profile?.skills?.slice(0, 5).join(", ") || "React, Next.js, TypeScript";
   const greeting = fullName?.trim() ? `Hi ${fullName.trim().split(/\\s+/)[0]},` : "Hi there,";
   return {
-    subject: `${roles} opportunities — ${candidateName}`,
+    subject: `Frontend / Full-Stack Engineer — React & Next.js — ${candidateName}`,
     body: [
       greeting,
       "",
-      `I’m ${candidateName}, and I’m exploring ${roles} opportunities.`,
-      `I have ${profile?.yearsExperience ?? 0} years of experience with ${skills}.`,
+      `My name is ${candidateName}, and I’m a Frontend Engineer with ${profile?.yearsExperience ?? 0} years of experience building web applications with React, Next.js, TypeScript, JavaScript, Redux Toolkit, and Node.js/Express.`,
       "",
-      "I’m reaching out proactively rather than assuming there is a specific opening. If you handle recruiting or hiring for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.",
+      "I’m currently exploring Frontend Engineer, React/Next.js Developer, and Full-Stack Developer opportunities.",
       "",
-      "Thank you,",
+      "I’m reaching out proactively to introduce myself rather than assume that you or your team are currently hiring. If you work with roles that align with my background, I’d appreciate it if you could keep my profile in mind or point me toward the appropriate opportunity.",
+      "",
+      "I’ve attached my resume for reference and would be happy to provide any additional information.",
+      "",
+      "Thank you for your time and consideration.",
+      "",
       candidateName
-    ].join("\\n")
+    ].join("\n")
   };
 }
 
