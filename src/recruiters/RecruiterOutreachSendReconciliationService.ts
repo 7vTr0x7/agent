@@ -71,6 +71,7 @@ export class RecruiterOutreachSendReconciliationService {
     );
 
     for (const thread of active.rows) {
+      if (!thread.sequenceId || !thread.recipientEmail || !thread.providerThreadId || !thread.providerMessageId || !thread.sentAt) continue;
       let ids: readonly string[];
       try {
         ids = await this.mailbox.listMessages("thread:" + thread.providerThreadId, 50);
