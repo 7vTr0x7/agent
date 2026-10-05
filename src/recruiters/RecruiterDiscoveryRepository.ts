@@ -56,7 +56,7 @@ export class RecruiterDiscoveryRepository {
   if(!Number.isInteger(maxMessagesPerDay)||maxMessagesPerDay<1)throw new Error("Recruiter daily send limit must be a positive integer.");
   if(!Number.isInteger(maxMessagesPerHour)||maxMessagesPerHour<1)throw new Error("Recruiter hourly send limit must be a positive integer.");
   const result=await this.database.query<any>(`WITH sent AS (SELECT COUNT(*) FILTER (WHERE sent_at>=NOW()-INTERVAL '24 hours')::int AS day_count,COUNT(*) FILTER (WHERE sent_at>=NOW()-INTERVAL '1 hour')::int AS hour_count FROM recruiter_outreach_messages)
-SELECT m.id,m.sequence_id AS "sequenceId",m.message_type AS "messageType",m.sequence_step AS "sequenceStep",m.recipient_email AS "recipientEmail",m.subject,m.body,m.status,c.company_domain AS "companyDomain"
+SELECT m.id,m.sequence_id AS "sequenceId",m.message_type AS "messageType",m.sequence_step AS "sequenceStep",m.recipient_email AS "recipientEmail",m.subject,m.body,m.status,c.company_domain AS "companyDomain",sent.day_count,sent.hour_count
 FROM recruiter_outreach_messages m
 JOIN recruiter_outreach_sequences s ON s.id=m.sequence_id
 JOIN recruiter_contacts c ON c.id=s.recruiter_contact_id
@@ -68,8 +68,12 @@ WHERE m.status='PREPARED'
   AND sent.day_count < $2
   AND sent.hour_count < $3
 ORDER BY m.created_at ASC
-LIMIT (SELECT LEAST($1,GREATEST(0,$2-sent.day_count),GREATEST(0,$3-sent.hour_count)))`,[limit,maxMessagesPerDay,maxMessagesPerHour]);
-  return result.rows.map((row)=>({id:row.id,sequenceId:row.sequenceId,messageType:row.messageType,sequenceStep:Number(row.sequenceStep),recipientEmail:row.recipientEmail,subject:row.subject,body:row.body,status:row.status,companyDomain:row.companyDomain}));
+LIMIT $1`,[limit,maxMessagesPerDay,maxMessagesPerHour]);
+  const first=result.rows[0];
+  if(!first)return [];
+  const available=Math.min(limit,maxMessagesPerDay-Number(first.day_count??0),maxMessagesPerHour-Number(first.hour_count??0));
+  if(available<=0)return [];
+  return result.rows.slice(0,available).map((row)=>({id:row.id,sequenceId:row.sequenceId,messageType:row.messageType,sequenceStep:Number(row.sequenceStep),recipientEmail:row.recipientEmail,subject:row.subject,body:row.body,status:row.status,companyDomain:row.companyDomain}));
  }
  async countSentOutreachMessagesSince(since:Date):Promise<number>{const result=await this.database.query<{count:string}>(`SELECT COUNT(*)::text AS count FROM recruiter_outreach_messages WHERE status='SENT' AND sent_at >= $1`,[since]);return Number(result.rows[0]?.count??0);}
  async markOutreachMessageSent(messageId:string,input:{provider:string;providerMessageId:string;providerThreadId:string}):Promise<void>{await this.database.transaction(async(client)=>{await client.query(`UPDATE recruiter_outreach_messages SET status='SENT',send_state='SENT',provider=$2,provider_message_id=$3,provider_thread_id=$4,sent_at=NOW(),send_claimed_at=NULL,send_started_at=NULL,failure_reason=NULL,updated_at=NOW() WHERE id=$1 AND status='SENDING'`,[messageId,input.provider,input.providerMessageId,input.providerThreadId]);await client.query(`UPDATE recruiter_outreach_sequences SET status='ACTIVE',last_contacted_at=NOW(),updated_at=NOW() WHERE id=(SELECT sequence_id FROM recruiter_outreach_messages WHERE id=$1) AND status IN ('READY','PAUSED')`,[messageId]);});}
