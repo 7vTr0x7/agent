@@ -207,12 +207,59 @@ export class ProactiveRecruiterTaskHandler {
     }
     return prepared;
   }
-
   async handleOutreach(payload: ProactiveRecruiterOutreachPayload): Promise<void> {
     if (!this.options.sendEnabled) return;
     await this.sendDispatcher.enqueue({ messageId: payload.messageId, companyDomain: payload.companyDomain });
   }
 }
+
+export function isCompatibleRecruiterEnrichmentEmail(email: string, employerDomain: string): boolean {
+  const emailDomain = email.trim().toLowerCase().split("@")[1] ?? "";
+  return Boolean(emailDomain) && isEmployerEmailDomainConsistent(emailDomain, employerDomain);
+}
+
+function assertDiscoveryPayload(payload: Record<string, unknown>): ProactiveRecruiterDiscoveryPayload {
+  if (typeof payload.candidateProfileId !== "string" || typeof payload.yearsExperience !== "number" || !Array.isArray(payload.skills) || !payload.skills.every((value): value is string => typeof value === "string") || !Array.isArray(payload.targetRoles) || !payload.targetRoles.every((value): value is string => typeof value === "string") || typeof payload.maxCandidates !== "number") throw new Error("Invalid proactive recruiter discovery task payload");
+  if (payload.candidateName !== undefined && typeof payload.candidateName !== "string") throw new Error("Invalid proactive recruiter candidate name");
+  if (payload.location !== undefined && typeof payload.location !== "string") throw new Error("Invalid proactive recruiter location");
+  if (payload.preferredLocations !== undefined && (!Array.isArray(payload.preferredLocations) || !payload.preferredLocations.every((value): value is string => typeof value === "string"))) throw new Error("Invalid proactive recruiter preferred locations");
+  if (payload.remoteEligible !== undefined && typeof payload.remoteEligible !== "boolean") throw new Error("Invalid proactive recruiter remote eligibility");
+  return { candidateProfileId: payload.candidateProfileId, candidateName: payload.candidateName, yearsExperience: payload.yearsExperience, skills: payload.skills, targetRoles: payload.targetRoles, location: payload.location, preferredLocations: payload.preferredLocations, remoteEligible: payload.remoteEligible, maxCandidates: payload.maxCandidates };
+}
+
+function assertOutreachPayload(payload: Record<string, unknown>): ProactiveRecruiterOutreachPayload {
+  if (typeof payload.messageId !== "string" || typeof payload.companyDomain !== "string" || typeof payload.candidateProfileId !== "string") throw new Error("Invalid proactive recruiter outreach task payload");
+  return { messageId: payload.messageId, companyDomain: payload.companyDomain, candidateProfileId: payload.candidateProfileId };
+}
+
+function normalizeEmailStatus(value: string, evidence: RecruiterVerificationEvidence[] = []): "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID" {
+  const normalized = value.trim().toLowerCase();
+  const hasMailboxEvidence = evidence.some((item) => item.mailboxLevel === true && item.provider.trim().length > 0 && item.status.trim().length > 0);
+  if ((normalized === "mailbox_verified" || normalized === "valid") && hasMailboxEvidence) return "VERIFIED";
+  switch (normalized) {
+    case "verified": return "VERIFIED";
+    case "likely":
+    case "domain_mx_verified":
+    case "domain_mx_verified_doh": return "LIKELY";
+    case "invalid":
+    case "invalid_email_format":
+    case "no_mx_record":
+    case "missing_email_domain":
+    case "not_valid": return "INVALID";
+    case "unverified": return "UNVERIFIED";
+    default: return "UNVERIFIED";
+  }
+}
+
+function buildProactiveMessage(profile: CandidateProfile, candidate: { contactType?: "PERSON"|"EMPLOYER"; recruiterName: string }): string {
+  const name = profile.fullName?.trim() || [profile.firstName, profile.lastName].filter(Boolean).join(" ") || "Candidate";
+  const roles = profile.targetTitles.length ? profile.targetTitles.slice(0, 3).join(" / ") : "Frontend / React / Next.js";
+  const skills = profile.skills.slice(0, 5).join(", ");
+  const location = profile.location ? ` I’m currently based in ${profile.location}.` : "";
+  const greeting = candidate.contactType === "EMPLOYER" ? "Hi there," : `Hi ${candidate.recruiterName.split(" ")[0] || "there"},`;
+  return [greeting, "", `I’m ${name}, and I’m exploring ${roles} opportunities.${location}`, `I have ${profile.yearsExperience} years of experience with ${skills}.`, "", "I’m reaching out proactively rather than assuming there is a specific opening. If you recruit for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.", "", "Thank you,", name].join("\n");
+}
+
 function freshnessScore(value: string): number { return value === "current" ? 100 : value === "recent" ? 75 : value === "historical" ? 40 : 10; }
 function emailScore(value: string): number { return value === "VERIFIED" ? 100 : value === "LIKELY" ? 60 : value === "UNVERIFIED" ? 20 : 0; }
 function employerRelevance(employer: string, preferredLocations: string[], remoteEligible: boolean): number { if (employer === "Unknown employer") return 20; return preferredLocations.length || remoteEligible ? 60 : 50; }
