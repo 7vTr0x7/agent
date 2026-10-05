@@ -39,8 +39,7 @@ async function main(): Promise<void> {
       repository: new RecruiterDiscoveryRepository(database),
       identityRepository: new RecruiterIdentityRepository(database),
       cooldownHours: 12,
-      minConfidence: 80,
-      requireVerifiedEmail: process.env.RECRUITER_REQUIRE_VERIFIED_EMAIL !== "false"
+      minConfidence: 80
     });
 
     const results: Array<Record<string, unknown>> = [];
