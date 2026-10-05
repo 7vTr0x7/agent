@@ -19,12 +19,12 @@ function buildMimeMessage(message:{to:string;subject:string;bodyText:string;inRe
   const attachments=message.attachments??[];
   const boundary=`job-agent-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`;
   const headers=[`To: ${encodeHeader(message.to)}`,`From: ${encodeHeader(from)}`,`Subject: ${encodeHeader(message.subject)}`,message.messageId?`Message-ID: ${message.messageId}`:"",message.inReplyTo?`In-Reply-To: ${message.inReplyTo}`:"",message.references?`References: ${message.references}`:"","MIME-Version: 1.0"];
-  if(attachments.length===0){headers.push("Content-Type: text/plain; charset=UTF-8","Content-Transfer-Encoding: 8bit","",message.bodyText);return headers.filter(Boolean).join("\r\n");}
+  if(attachments.length===0){headers.push("Content-Type: text/plain; charset=UTF-8","Content-Transfer-Encoding: 8bit");return headers.filter(Boolean).join("\r\n")+"\r\n\r\n"+message.bodyText;}
   headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`,"");
   const parts=[`--${boundary}`,"Content-Type: text/plain; charset=UTF-8","Content-Transfer-Encoding: 8bit","",message.bodyText];
   for(const attachment of attachments){const filename=attachment.filename.replace(/[\r\n\"\\]/g,"_");const contentType=attachment.contentType.replace(/[\r\n]/g,"")||"application/octet-stream";parts.push(`--${boundary}`,`Content-Type: ${contentType}; name="${filename}"`,`Content-Disposition: attachment; filename="${filename}"`,"Content-Transfer-Encoding: base64","",foldBase64(attachment.content.toString("base64")));}
   parts.push(`--${boundary}--`,"");
-  return headers.filter(Boolean).join("\r\n")+"\r\n"+parts.join("\r\n");
+  return headers.filter(Boolean).join("\r\n")+"\r\n\r\n"+parts.join("\r\n");
 }
 export class GmailApiMailbox implements GmailMailbox{
  private readonly fetchImpl:typeof fetch;private readonly maxRetries:number;private readonly retryDelayMs:number;private readonly requestTimeoutMs:number;private readonly sleepImpl:(ms:number)=>Promise<void>;
