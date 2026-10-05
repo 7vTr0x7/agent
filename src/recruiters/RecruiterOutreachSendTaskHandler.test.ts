@@ -2,6 +2,39 @@ import { RecruiterOutreachSendTaskHandler } from "./RecruiterOutreachSendTaskHan
 import { SEND_RECRUITER_EMAIL_TASK } from "./RecruiterOutreachSendTask";
 
 describe("RecruiterOutreachSendTaskHandler", () => {
+  it("serializes concurrent recruiter sends through one send path", async () => {
+    const message = {
+      id: "message-1",
+      sequenceId: "sequence-1",
+      messageType: "INITIAL",
+      sequenceStep: 0,
+      recipientEmail: "recruiter@company.com",
+      subject: "Application",
+      body: "Hello",
+      status: "PREPARED"
+    } as const;
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let calls = 0;
+    const repository = { getOutreachMessage: jest.fn().mockResolvedValue(message) };
+    const sendService = {
+      send: jest.fn().mockImplementation(async () => {
+        calls += 1;
+        if (calls === 1) await firstGate;
+        return { status: "SKIPPED", messageId: message.id, reason: "test" };
+      })
+    };
+    const handler = new RecruiterOutreachSendTaskHandler(sendService as never, repository as never);
+    const first = handler.handle({ taskType: SEND_RECRUITER_EMAIL_TASK, payload: { messageId: message.id, companyDomain: "company.com" } } as never);
+    await new Promise((resolve) => setImmediate(resolve));
+    const second = handler.handle({ taskType: SEND_RECRUITER_EMAIL_TASK, payload: { messageId: message.id, companyDomain: "company.com" } } as never);
+    await Promise.resolve();
+    expect(sendService.send).toHaveBeenCalledTimes(1);
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(sendService.send).toHaveBeenCalledTimes(2);
+  });
+
   it("does not fail a successful send when follow-up scheduling fails", async () => {
     const message = {
       id: "message-1",
