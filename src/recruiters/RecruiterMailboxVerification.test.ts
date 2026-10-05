@@ -1,4 +1,4 @@
-import { isEligibleForRealRecruiterSend, isMailboxVerifiedForRealSend, isPlausibleMailboxAddress, isRecruiterOutreachAddress, recruiterRealSendEligibilitySql } from "./RecruiterMailboxVerification";
+import { isEligibleForRealRecruiterSend, isMailboxVerifiedForRealSend, isPlausibleMailboxAddress, isRecruiterOutreachAddress, recruiterRealSendEligibilitySql, recruiterSimplePublicContactEligibilitySql } from "./RecruiterMailboxVerification";
 
 describe("RecruiterMailboxVerification", () => {
   const verified = {
@@ -115,5 +115,16 @@ describe("RecruiterMailboxVerification", () => {
     expect(sql).toContain("candidateprotection");
     expect(sql).toContain("hiring[-_]?accommodation");
     expect(sql).toContain("recruiter_suppressions");
+
+    const simpleSql = recruiterSimplePublicContactEligibilitySql("c");
+    expect(simpleSql).not.toContain("c.mailbox_evidence");
+    expect(simpleSql).not.toContain("c.verification_evidence");
+    expect(simpleSql).toContain("c.email_status");
+    expect(simpleSql).toContain("c.suppressed");
+    expect(simpleSql).toContain("canonical_contact.email");
+    expect(simpleSql).toContain("noreply");
+    expect(simpleSql).toContain("candidateprotection");
+    expect(simpleSql).toContain("hiring[-_]?accommodation");
+    expect(simpleSql).toContain("recruiter_suppressions");
   });
 });

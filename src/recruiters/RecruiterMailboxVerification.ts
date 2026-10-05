@@ -90,7 +90,7 @@ export function recruiterSimplePublicContactEligibilitySql(alias="c"):string{
     COALESCE(${alias}.suppressed,FALSE)=FALSE
     AND ${emailSql} IS NOT NULL
     AND ${emailSql} ~* '^[A-Za-z0-9!#$&''*+/=?^_\\x60{|}~.-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
-    AND SPLIT_PART(${emailSql},'@',1) !~* '(^\\.|\\.$|\\.\\.|%|^(noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot)$)'
+    AND SPLIT_PART(${emailSql},'@',1) !~* '(^\\.|\\.$|\\.\\.|%|^(noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot|pay|payments|payroll|billing|accounts-payable|accounts-receivable|candidateprotection|candidate-protection|accommodation|accommodations|accessibility|claims|benefits)$|(^|[-_])hiring[-_]?accommodation($|[-_]))'
     AND UPPER(COALESCE(${alias}.email_status,'')) IN ('UNVERIFIED','LIKELY','VERIFIED')
     AND NOT EXISTS (
       SELECT 1 FROM recruiter_suppressions suppression
