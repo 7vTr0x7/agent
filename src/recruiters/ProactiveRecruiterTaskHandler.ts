@@ -181,84 +181,18 @@ export class ProactiveRecruiterTaskHandler {
       const body = [
         greeting,
         "",
-        `My name is ${candidateName}. I’m a Software Developer with ${payload.yearsExperience} years of experience working primarily with React, Next.js, TypeScript, JavaScript, and Node.js/Express.`,
+        `My name is ${candidateName}, and I’m a Full-Stack Developer with ${payload.yearsExperience} years of experience, with a strong focus on React, Next.js, TypeScript, JavaScript, and Node.js/Express.`,
         "",
-        "I’m currently exploring Full Stack Developer and Software Developer opportunities, particularly roles where I can contribute to both frontend development and backend/API work.",
+        "I’m currently exploring Full-Stack Developer opportunities where I can contribute across frontend development and backend/API work.",
         "",
-        "I wanted to reach out and introduce myself in case my background is relevant to any opportunities you come across.",
+        "I wanted to introduce myself and share my resume in case my background is relevant to any current or upcoming opportunities.",
         "",
-        "I’ve attached my resume for your reference. Please feel free to reach out if you’d like any additional details about my experience.",
+        "I’ve attached my resume for reference. I’d be happy to share any additional information about my experience.",
         "",
-        "Thank you for your time.",
+        "Thank you for your time,",
         "",
         candidateName
-      ].join("\\n");
-      const campaign = await this.repository.createProactiveCampaign({
-        recruiterContactId: contact.recruiterContactId,
-        candidateProfileId: payload.candidateProfileId,
-        targetRoles: [...payload.targetRoles],
-        subject: `Full Stack Developer / Software Developer — ${candidateName}`,
-        body,
-        reusePrepared: true
-      });
-      if (!campaign) continue;
-      prepared += 1;
-      if (this.options.sendEnabled) await this.sendDispatcher.enqueue({ messageId: campaign.messageId, companyDomain: domain });
-    }
-    return prepared;
-  }
-
-  async handleOutreach(payload: ProactiveRecruiterOutreachPayload): Promise<void> {
-    if (!this.options.sendEnabled) return;
-    await this.sendDispatcher.enqueue({ messageId: payload.messageId, companyDomain: payload.companyDomain });
-  }
-}
-
-export function isCompatibleRecruiterEnrichmentEmail(email: string, employerDomain: string): boolean {
-  const emailDomain = email.trim().toLowerCase().split("@")[1] ?? "";
-  return Boolean(emailDomain) && isEmployerEmailDomainConsistent(emailDomain, employerDomain);
-}
-
-function assertDiscoveryPayload(payload: Record<string, unknown>): ProactiveRecruiterDiscoveryPayload {
-  if (typeof payload.candidateProfileId !== "string" || typeof payload.yearsExperience !== "number" || !Array.isArray(payload.skills) || !payload.skills.every((value): value is string => typeof value === "string") || !Array.isArray(payload.targetRoles) || !payload.targetRoles.every((value): value is string => typeof value === "string") || typeof payload.maxCandidates !== "number") throw new Error("Invalid proactive recruiter discovery task payload");
-  if (payload.candidateName !== undefined && typeof payload.candidateName !== "string") throw new Error("Invalid proactive recruiter candidate name");
-  if (payload.location !== undefined && typeof payload.location !== "string") throw new Error("Invalid proactive recruiter location");
-  if (payload.preferredLocations !== undefined && (!Array.isArray(payload.preferredLocations) || !payload.preferredLocations.every((value): value is string => typeof value === "string"))) throw new Error("Invalid proactive recruiter preferred locations");
-  if (payload.remoteEligible !== undefined && typeof payload.remoteEligible !== "boolean") throw new Error("Invalid proactive recruiter remote eligibility");
-  return { candidateProfileId: payload.candidateProfileId, candidateName: payload.candidateName, yearsExperience: payload.yearsExperience, skills: payload.skills, targetRoles: payload.targetRoles, location: payload.location, preferredLocations: payload.preferredLocations, remoteEligible: payload.remoteEligible, maxCandidates: payload.maxCandidates };
-}
-
-function assertOutreachPayload(payload: Record<string, unknown>): ProactiveRecruiterOutreachPayload {
-  if (typeof payload.messageId !== "string" || typeof payload.companyDomain !== "string" || typeof payload.candidateProfileId !== "string") throw new Error("Invalid proactive recruiter outreach task payload");
-  return { messageId: payload.messageId, companyDomain: payload.companyDomain, candidateProfileId: payload.candidateProfileId };
-}
-
-function normalizeEmailStatus(value: string, evidence: RecruiterVerificationEvidence[] = []): "VERIFIED" | "LIKELY" | "UNVERIFIED" | "INVALID" {
-  const normalized = value.trim().toLowerCase();
-  const hasMailboxEvidence = evidence.some((item) => item.mailboxLevel === true && item.provider.trim().length > 0 && item.status.trim().length > 0);
-  if ((normalized === "mailbox_verified" || normalized === "valid") && hasMailboxEvidence) return "VERIFIED";
-  switch (normalized) {
-    case "verified": return "VERIFIED";
-    case "likely":
-    case "domain_mx_verified":
-    case "domain_mx_verified_doh": return "LIKELY";
-    case "invalid":
-    case "invalid_email_format":
-    case "no_mx_record":
-    case "missing_email_domain":
-    case "not_valid": return "INVALID";
-    case "unverified": return "UNVERIFIED";
-    default: return "UNVERIFIED";
-  }
-}
-
-function buildProactiveMessage(profile: CandidateProfile, candidate: { contactType?: "PERSON"|"EMPLOYER"; recruiterName: string }): string {
-  const name = profile.fullName?.trim() || [profile.firstName, profile.lastName].filter(Boolean).join(" ") || "Candidate";
-  const roles = profile.targetTitles.length ? profile.targetTitles.slice(0, 3).join(" / ") : "Frontend / React / Next.js";
-  const skills = profile.skills.slice(0, 5).join(", ");
-  const location = profile.location ? ` I’m currently based in ${profile.location}.` : "";
-  const greeting = candidate.contactType === "EMPLOYER" ? "Hi there," : `Hi ${candidate.recruiterName.split(" ")[0] || "there"},`;
-  return [greeting, "", `I’m ${name}, and I’m exploring ${roles} opportunities.${location}`, `I have ${profile.yearsExperience} years of experience with ${skills}.`, "", "I’m reaching out proactively rather than assuming there is a specific opening. If you recruit for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.", "", "Thank you,", name].join("\n");
+      ].join("\n");
 }
 
 function freshnessScore(value: string): number { return value === "current" ? 100 : value === "recent" ? 75 : value === "historical" ? 40 : 10; }
