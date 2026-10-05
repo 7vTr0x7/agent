@@ -5,6 +5,8 @@ import { RecruiterOutreachSendService } from "./RecruiterOutreachSendService";
 import { SEND_RECRUITER_EMAIL_TASK, SendRecruiterEmailTaskPayload } from "./RecruiterOutreachSendTask";
 
 export class RecruiterOutreachSendTaskHandler {
+  private sendSerial: Promise<void> = Promise.resolve();
+
   constructor(
     private readonly sendService: RecruiterOutreachSendService,
     private readonly repository: RecruiterDiscoveryRepository,
@@ -17,6 +19,10 @@ export class RecruiterOutreachSendTaskHandler {
       throw new Error(`Unsupported recruiter email send task type: ${task.taskType}`);
     }
 
+    const previous = this.sendSerial;
+    let release!: () => void;
+    this.sendSerial = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
     try {
       const message = await loadMessage(this.repository, task.payload.messageId);
       if (!message) {
@@ -44,6 +50,8 @@ export class RecruiterOutreachSendTaskHandler {
     } catch (error) {
       this.logger?.error(`[recruiter-outreach] send failed: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
+    } finally {
+      release();
     }
   }
 }
