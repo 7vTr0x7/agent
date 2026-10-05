@@ -159,23 +159,7 @@ export class ProactiveRecruiterTaskHandler {
       if (!isPlausibleMailboxAddress(email) || !isRecruiterOutreachAddress(email) || !domain || isBlockedEmployerDomain(domain)) continue;
       if (PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === contact.companyName.trim().toLowerCase())) continue;
 
-      const candidateName = payload.candidateName?.trim() || "Candidate";
-      const greeting = buildRecruiterGreeting(contact.fullName);
-      const body = [
-        greeting,
-        "",
-        `My name is ${candidateName}, and I’m a Full-Stack Developer with ${payload.yearsExperience} years of experience, with a strong focus on React, Next.js, TypeScript, JavaScript, and Node.js/Express.`,
-        "",
-        "I’m currently exploring Full-Stack Developer opportunities where I can contribute across frontend development and backend/API work.",
-        "",
-        "I wanted to introduce myself and share my resume in case my background is relevant to any current or upcoming opportunities.",
-        "",
-        "I’ve attached my resume for reference. I’d be happy to share any additional information about my experience.",
-        "",
-        "Thank you for your time,",
-        "",
-        candidateName
-      ].join("\\n");
+      const body = buildContactFirstMessage(candidateName, payload.yearsExperience, contact.fullName);
       const campaign = await this.repository.createProactiveCampaign({
         recruiterContactId: contact.recruiterContactId,
         candidateProfileId: payload.candidateProfileId,
@@ -221,6 +205,25 @@ function buildProactiveMessage(profile: CandidateProfile, candidate: { contactTy
   const location = profile.location ? ` I’m currently based in ${profile.location}.` : "";
   const greeting = candidate.contactType === "EMPLOYER" ? "Hi Hiring Team," : buildRecruiterGreeting(candidate.recruiterName);
   return [greeting, "", `I’m ${name}, and I’m exploring ${roles} opportunities.${location}`, `I have ${profile.yearsExperience} years of experience with ${skills}.`, "", "I’m reaching out proactively rather than assuming there is a specific opening. If you recruit for roles that fit my background, I’d be happy to share my resume and discuss relevant opportunities.", "", "Thank you,", name].join("\n");
+}
+
+export function buildContactFirstMessage(candidateName: string, yearsExperience: number, fullName?: string | null): string {
+  const greeting = buildRecruiterGreeting(fullName);
+  return [
+    greeting,
+    "",
+    `My name is ${candidateName}, and I’m a Full-Stack Developer with ${yearsExperience} years of experience, with a strong focus on React, Next.js, TypeScript, JavaScript, and Node.js/Express.`,
+    "",
+    "I’m currently exploring Full-Stack Developer opportunities where I can contribute across frontend development and backend/API work.",
+    "",
+    "I wanted to introduce myself and share my resume in case my background is relevant to any current or upcoming opportunities.",
+    "",
+    "I’ve attached my resume for reference. I’d be happy to share any additional information about my experience.",
+    "",
+    "Thank you for your time,",
+    "",
+    candidateName
+  ].join("\n");
 }
 
 function buildRecruiterGreeting(fullName?: string | null): string {
