@@ -177,7 +177,7 @@ export class ProactiveRecruiterTaskHandler {
       if (PERMANENTLY_EXCLUDED_COMPANIES.some((company) => company.trim().toLowerCase() === contact.companyName.trim().toLowerCase())) continue;
 
       const candidateName = payload.candidateName?.trim() || "Candidate";
-      const greeting = contact.fullName?.trim() ? `Hi ${contact.fullName.trim().split(/\\s+/)[0]},` : "Hi there,";
+      const greeting = buildRecruiterGreeting(contact.fullName);
       const body = [
         greeting,
         "",
