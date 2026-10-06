@@ -136,6 +136,24 @@ async function main():Promise<void>{
         );
         recruiterIdentityCreated+=1;
       }
+
+      const recruiterIdentity = await database.query<{id:string}>(
+        `SELECT id FROM recruiter_contacts WHERE contact_id=$1 OR identity_key=$2 LIMIT 1`,
+        [contactId,identityKey]
+      );
+      const recruiterContactId = recruiterIdentity.rows[0]?.id;
+      if(recruiterContactId){
+        await database.query(
+          `INSERT INTO recruiter_contact_sources
+             (recruiter_contact_id,provider,source_url,source_type,confidence,observed_at,created_at)
+           VALUES($1,'public-contact-resource',$2,'LINKEDIN_POST',$3,NOW(),NOW())
+           ON CONFLICT(recruiter_contact_id,provider,source_url) DO UPDATE SET
+             source_type=EXCLUDED.source_type,
+             confidence=GREATEST(COALESCE(recruiter_contact_sources.confidence,0),EXCLUDED.confidence),
+             observed_at=NOW()`,
+          [recruiterContactId,promotion.sourceUrl,Math.round(promotion.relevanceScore)]
+        );
+      }
     }
     const contactCount=await database.query<{count:string}>(`SELECT COUNT(*)::text AS count FROM contacts WHERE suppressed=FALSE AND validation_status IN ('LIKELY','VERIFIED') AND relevance_score>=60 AND source_url IS NOT NULL AND provenance->>'publicEvidence'='true'`);
     console.log(JSON.stringify({status:"ok",feature:"PUBLIC_CONTACT_RESOURCE",independent:true,resourcesBackedByPublicEvidence:result.rows.length,contactsPromoted:inserted,existingContacts:existing,malformedSuppressed:suppressed,contactsPersisted:Number(contactCount.rows[0]?.count??0),recruiterIdentityCreated,applicationsSent:0,outreachSent:0,source:"public_contact_resource_contacts",mailboxVerificationClaimed:false},null,2));
