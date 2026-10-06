@@ -233,9 +233,18 @@ export function substantiveRoleEvidence(text: string): { role?: string; score: n
   const typescript = /\btypescript\b/i.test(text);
   const api = /\b(?:rest\s*api|restful\s*api|graphql|api\s+integration)\b/i.test(text);
   const node = /\b(?:node(?:\.js)?|express(?:\.js)|nest(?:\.js)|fastify)\b/i.test(text);
+  // Search-result snippets often contain a perfectly explicit role title
+  // ("Frontend Developer", "React Engineer", etc.) plus hiring intent, but
+  // omit the longer skills section present on the destination page. Do not
+  // discard those real hiring signals merely because they have fewer than
+  // three frontend evidence terms. hasHiringIntent() has already established
+  // that the surrounding text is hiring-related.
+  const explicitFrontendRole = /\b(?:frontend|front-end|front\s+end)\s+(?:developer|engineer)\b/i.test(text);
+  const explicitReactRole = /\breact(?:\.js)?\s+(?:developer|engineer)\b/i.test(text);
+  const explicitNextRole = /\bnext\.?js\s+(?:developer|engineer)\b/i.test(text);
 
-  if (react && (web || frontendHits >= 4)) { terms.push("React", "Frontend"); }
-  if (next && react) terms.push("Next.js");
+  if (react && (web || frontendHits >= 4) || explicitFrontendRole || explicitReactRole) { terms.push("React", "Frontend"); }
+  if (next && react || explicitNextRole) terms.push("Next.js");
   if (typescript) terms.push("TypeScript");
   if (javascript) terms.push("JavaScript");
   if (node && (react || backendHits >= 2)) terms.push("Node.js");
@@ -244,8 +253,8 @@ export function substantiveRoleEvidence(text: string): { role?: string; score: n
   let role: string | undefined;
   let score = 0;
   if (react && node && (api || backendHits >= 2)) { role = "Full Stack Developer — React"; score = 82 + Math.min(13, frontendHits + backendHits); }
-  else if (react && (web || frontendHits >= 4)) { role = "Frontend Developer"; score = 82 + Math.min(13, frontendHits); }
-  else if (next && web && (javascript || typescript)) { role = "Next.js Developer"; score = 80 + Math.min(15, frontendHits); }
+  else if (explicitFrontendRole || explicitReactRole || (react && (web || frontendHits >= 4))) { role = explicitReactRole ? "React Developer" : "Frontend Developer"; score = 80 + Math.min(15, frontendHits + backendHits); }
+  else if (explicitNextRole || (next && web && (javascript || typescript))) { role = "Next.js Developer"; score = 80 + Math.min(15, frontendHits); }
   else if (web && javascript && frontendHits >= 4) { role = "Web Developer"; score = 78 + Math.min(17, frontendHits); }
   if (!role) return { score: 0, terms: [] };
   return { role, score: Math.min(100, score), terms: [...new Set(terms)] };
