@@ -449,15 +449,20 @@ function buildEvidence(text: string, postUrl: string): string {
 function freshness(evidence: string): ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"] { if (/\b(?:today|1d|2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo)\b/i.test(evidence)) return "current"; if (/\b(?:5mo|6mo|7mo|8mo|9mo|10mo|11mo|12mo)\b/i.test(evidence)) return "recent"; const years = [...evidence.matchAll(/\b(20\d{2})\b/g)].map(match => Number(match[1])).filter(Number.isFinite); const currentYear = new Date().getFullYear(); if (years.some(year => year === currentYear)) return "current"; if (years.some(year => year === currentYear - 1)) return "recent"; if (years.some(year => year < currentYear - 1)) return "historical"; return "unknown"; }
 function postAgeDays(evidence: string, now = new Date()): number {
   const normalized = evidence.replace(/\s+/g, " ").trim();
-  if (/\b(?:just now|today|today's|hours? ago|\d+\s*(?:minutes?|mins?|m|hours?|h)\s*ago|\d+\s*[mh])\b/i.test(normalized)) return 0;
-  const relative = normalized.match(/\b(\d+)\s*(d|day|days|w|week|weeks|mo|month|months|y|year|years)\b(?:\s*ago)?/i);
-  if (relative) {
-    const value = Number(relative[1]);
-    const unit = relative[2]!.toLowerCase();
-    if (unit.startsWith("d")) return value;
-    if (unit.startsWith("w")) return value * 7;
-    if (unit.startsWith("mo")) return value * 30;
-    return value * 365;
+  if (/\b(?:just now|today|today's)\b/i.test(normalized)) return 0;
+  const relativeMatches = [...normalized.matchAll(/\b(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|week|weeks|mo|month|months|y|year|years)\b(?:\s*ago)?/gi)];
+  if (relativeMatches.length) {
+    const ages = relativeMatches.map(match => {
+      const value = Number(match[1]);
+      const unit = match[2]!.toLowerCase();
+      if (unit === "m" || unit.startsWith("min")) return value / 1440;
+      if (unit === "h" || unit.startsWith("hr") || unit.startsWith("hour")) return value / 24;
+      if (unit.startsWith("d")) return value;
+      if (unit.startsWith("w")) return value * 7;
+      if (unit.startsWith("mo")) return value * 30;
+      return value * 365;
+    });
+    return Math.min(...ages);
   }
   const explicit = normalized.match(/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:,\s*|\s+)20\d{2}\b/i)
     ?? normalized.match(/\b\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+20\d{2}\b/i);
