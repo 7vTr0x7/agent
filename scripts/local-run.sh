@@ -9,6 +9,7 @@ APP="${JOB_AGENT_LOCAL_APP:-job-agent-local-app}"
 RECRUITER="${JOB_AGENT_LOCAL_RECRUITER:-job-agent-local-recruiter}"
 CONTACTS="${JOB_AGENT_LOCAL_CONTACTS:-job-agent-local-contacts}"
 CONTENT="${JOB_AGENT_LOCAL_CONTENT:-job-agent-local-content}"
+LINKEDIN="${JOB_AGENT_LOCAL_LINKEDIN:-job-agent-local-linkedin}"
 IMAGE="${JOB_AGENT_LOCAL_IMAGE:-job-agent:local-$(git rev-parse --short HEAD 2>/dev/null || echo current)}"
 DB_NAME="${JOB_AGENT_LOCAL_DB:-job_agent}"
 DB_USER="${JOB_AGENT_LOCAL_DB_USER:-job_agent}"
@@ -209,7 +210,10 @@ COMMON_ENV=(
   -e "CANDIDATE_PREFERRED_LOCATIONS=${CANDIDATE_PREFERRED_LOCATIONS:-Bengaluru,Bangalore,India,Remote}"
   -e CANDIDATE_REMOTE_ELIGIBLE=true
   -e "ENRICHMENT_INTERVAL_MS=$ENRICHMENT_INTERVAL_MS"
-  -e "ENRICHMENT_COMMAND_TIMEOUT_SECONDS=${ENRICHMENT_COMMAND_TIMEOUT_SECONDS:-300}"
+  -e "ENRICHMENT_COMMAND_TIMEOUT_SECONDS=${ENRICHMENT_COMMAND_TIMEOUT_SECONDS:-900}"
+  -e "ENRICHMENT_LINKEDIN_COMMAND_TIMEOUT_SECONDS=${ENRICHMENT_LINKEDIN_COMMAND_TIMEOUT_SECONDS:-900}"
+  -e "LINKEDIN_HIRING_POST_RESOURCE_MAX_QUERIES=${LINKEDIN_HIRING_POST_RESOURCE_MAX_QUERIES:-64}"
+  -e "LINKEDIN_HIRING_POST_RESOURCE_TIMEOUT_MS=${LINKEDIN_HIRING_POST_RESOURCE_TIMEOUT_MS:-900000}"
   -e "PROACTIVE_RECRUITER_MAX_QUERIES=${PROACTIVE_RECRUITER_MAX_QUERIES:-8}"
   -e "PROACTIVE_RECRUITER_TARGET_CANDIDATES=${PROACTIVE_RECRUITER_TARGET_CANDIDATES:-8}"
   -e "PROACTIVE_RECRUITER_SEARCH_PROVIDERS=${PROACTIVE_RECRUITER_SEARCH_PROVIDERS:-bing-direct,google-direct,qwant-direct}"
@@ -228,6 +232,7 @@ start_enrichment_worker() {
 }
 
 start_enrichment_worker "$RECRUITER" recruiter
+start_enrichment_worker "$LINKEDIN" linkedin
 start_enrichment_worker "$CONTACTS" contacts
 start_enrichment_worker "$CONTENT" content
 
@@ -240,6 +245,7 @@ PostgreSQL container: $POSTGRES
 PostgreSQL host endpoint: 127.0.0.1:${DB_PORT}
 PostgreSQL volume: $POSTGRES_VOLUME
 Recruiter enrichment container: $RECRUITER
+LinkedIn discovery container: $LINKEDIN
 Contact enrichment container: $CONTACTS
 Content enrichment container: $CONTENT
 Enrichment interval: ${ENRICHMENT_INTERVAL_MS}ms
@@ -249,6 +255,7 @@ Ollama: ${OLLAMA_BASE_URL}/${OLLAMA_MODEL}
 Ollama timeout: ${OLLAMA_TIMEOUT_MS:-15000}ms
 Logs: docker logs -f $APP
 Recruiter enrichment log: docker logs -f $RECRUITER
+LinkedIn discovery log: docker logs -f $LINKEDIN
 Contact enrichment log: docker logs -f $CONTACTS
 Content enrichment log: docker logs -f $CONTENT
 Stop: npm run local:stop
