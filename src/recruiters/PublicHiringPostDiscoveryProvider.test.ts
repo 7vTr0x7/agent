@@ -549,19 +549,19 @@ describe("PublicHiringPostDiscoveryProvider", () => {
   });
 
   it("accepts an explicit frontend role in a short hiring-result snippet and can recover the employer mailbox", async () => {
-    const postUrl = "https://example.com/careers/frontend-developer";
+    const postUrl = "https://examplecorp.test/careers/frontend-developer";
     const searchPage = [
       postUrl,
       "We're hiring a Frontend Developer in Bengaluru.",
       "React Developer",
       "Posted 2d",
-      "Send your resume to hiring@example.com"
+      "Send your resume to hiring@examplecorp.test"
     ].join("\n");
     const postPage = [
       "<title>Frontend Developer — Example</title>",
       "We're hiring a Frontend Developer in Bengaluru.",
       "Posted 2d",
-      "Send your resume to hiring@example.com"
+      "Send your resume to hiring@examplecorp.test"
     ].join("\n");
 
     global.fetch = jest.fn(async (input: RequestInfo | URL) => {
@@ -583,7 +583,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       contactType: "EMPLOYER",
       employer: "Example",
       employerDomain: "example.com",
-      email: "hiring@example.com"
+      email: "hiring@examplecorp.test"
     });
   });
 
