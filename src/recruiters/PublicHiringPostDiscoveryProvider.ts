@@ -108,7 +108,7 @@ function isTalentVendorPage(text: string): boolean {
 const MAX_DESTINATION_URLS_PER_SEARCH = 12;
 const MAX_POST_EVIDENCE = 32;
 const MAX_PROFILE_URLS_PER_SEARCH = 4;
-const PUBLIC_HIRING_RUNTIME_TIMEOUT_MS = 45_000;
+const PUBLIC_HIRING_RUNTIME_TIMEOUT_MS = 120_000;
 
 function clean(value: string): string {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/\s+/g, " ").trim();
@@ -392,7 +392,7 @@ function extractPublicEvidenceUrls(text: string): string[] {
     .map(value => decodeSearchResultText(value).replace(/[),.;]+$/, ""))
     .map(value => canonicalUrl(value))
     .filter(value => isLegitimatePublicResultUrl(value, infrastructureHosts)))];
-  return urls;
+  return urls.sort((a, b) => linkedinPostPriority(a) - linkedinPostPriority(b));
 }
 function extractProfileUrlFromSearch(text: string, name: string): string | undefined { const urls = [...new Set((text.match(PROFILE_URL) ?? []).map(canonicalUrl))]; const tokens = name.toLowerCase().split(/\s+/).filter(Boolean); return urls.find(url => tokens.length >= 2 && tokens.every(token => url.toLowerCase().includes(token.replace(/[^a-z0-9-]/g, "")))); }
 function extractProfileUrls(text: string): string[] { return [...new Set((text.match(PROFILE_URL) ?? []).map(canonicalUrl))].filter(url => !/\/pub\/dir\//i.test(url)); }
