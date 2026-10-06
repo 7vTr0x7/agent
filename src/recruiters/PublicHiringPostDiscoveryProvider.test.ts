@@ -548,4 +548,34 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     });
   });
 
+  it("rotates the real public search query set across scheduled cycles", async () => {
+    const firstCycle: string[] = [];
+    const secondCycle: string[] = [];
+    const capture = (target: string[]) => async (url: string) => {
+      target.push(url);
+      return "no relevant results";
+    };
+
+    const provider = new PublicHiringPostDiscoveryProvider();
+    await provider.discover({
+      targetRoles: ["Frontend Developer"],
+      skills: ["React", "TypeScript"],
+      maxQueries: 2,
+      queryOffset: 0,
+      fetchText: capture(firstCycle)
+    });
+    await provider.discover({
+      targetRoles: ["Frontend Developer"],
+      skills: ["React", "TypeScript"],
+      maxQueries: 2,
+      queryOffset: 1,
+      fetchText: capture(secondCycle)
+    });
+
+    expect(firstCycle.length).toBeGreaterThan(0);
+    expect(secondCycle.length).toBe(firstCycle.length);
+    expect(new Set(firstCycle).size).toBeGreaterThan(0);
+    expect(firstCycle).not.toEqual(secondCycle);
+  });
+
 });

@@ -1,4 +1,4 @@
-import { boundedEnv, buildRuntimeEnv } from "./proactive-recruiter-final-once";
+import { boundedEnv, buildRuntimeEnv, FINAL_RUNTIME_SCRIPTS } from "./proactive-recruiter-final-once";
 
 describe("final proactive recruiter runtime bounds", () => {
   afterEach(() => {
@@ -8,6 +8,7 @@ describe("final proactive recruiter runtime bounds", () => {
     delete process.env.PROACTIVE_RECRUITER_SEND_ENABLED;
     delete process.env.OUTBOUND_ENABLED;
     delete process.env.GMAIL_ENABLED;
+    delete process.env.PROACTIVE_RECRUITER_QUERY_OFFSET;
   });
 
   it("clamps recruiter fan-out to the final runtime bounds", () => {
@@ -23,6 +24,27 @@ describe("final proactive recruiter runtime bounds", () => {
   it("falls back safely for invalid values", () => {
     process.env.PROACTIVE_RECRUITER_MAX_QUERIES = "not-a-number";
     expect(boundedEnv("PROACTIVE_RECRUITER_MAX_QUERIES", 4, 4)).toBe("4");
+  });
+
+  it("keeps fresh discovery in the final runtime before contact-first outreach", () => {
+    expect(FINAL_RUNTIME_SCRIPTS).toEqual([
+      "scripts/proactive-recruiter-once.ts",
+      "scripts/proactive-recruiter-contact-first-once.ts"
+    ]);
+  });
+
+  it("propagates the rotating discovery offset without enabling outbound sends", () => {
+    process.env.PROACTIVE_RECRUITER_QUERY_OFFSET = "7";
+    process.env.PROACTIVE_RECRUITER_SEND_ENABLED = "true";
+    process.env.OUTBOUND_ENABLED = "true";
+    process.env.GMAIL_ENABLED = "true";
+
+    const env = buildRuntimeEnv();
+
+    expect(env.PROACTIVE_RECRUITER_QUERY_OFFSET).toBe("7");
+    expect(env.PROACTIVE_RECRUITER_SEND_ENABLED).toBe("false");
+    expect(env.OUTBOUND_ENABLED).toBe("false");
+    expect(env.GMAIL_ENABLED).toBe("false");
   });
 
   it("enables discovery for the explicit once command while hard-disabling outbound side effects", () => {
