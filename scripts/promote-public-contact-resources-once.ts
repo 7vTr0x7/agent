@@ -46,6 +46,13 @@ export function buildContactPromotion(input: ContactPromotionInput): { companyNa
 
 function runScript(script:string):void { const result=spawnSync(process.execPath,["node_modules/tsx/dist/cli.mjs",script],{stdio:"inherit",env:process.env}); if(result.status!==0) throw new Error(`${script} failed with exit code ${result.status??"unknown"}.`); }
 
+const LINKEDIN_HIRING_POST = /https?:\\/\\/(?:www\\.|[a-z]{2}\\.)?linkedin\\.com\\/(?:posts\\/|feed\\/update\\/urn:li:activity:)/i;
+const HIRING_EVIDENCE = /we['’]?re hiring|we are hiring|my team is hiring|our team is hiring|hiring\\s*[:\\-–—]|looking for|send (?:your|me your) (?:resume|cv)|share (?:your|an updated) (?:resume|cv)|dm (?:me|us)|apply (?:here|now)|referrals? welcome/i;
+
+function recruiterRelevance(sourceUrl:string,evidenceContext:string):"CURRENT"|"RECENT"|"UNKNOWN" {
+  return LINKEDIN_HIRING_POST.test(sourceUrl) && HIRING_EVIDENCE.test(evidenceContext) ? "RECENT" : "UNKNOWN";
+}
+
 async function main():Promise<void>{
   runScript("scripts/public-contact-resources-once.ts");
   runScript("scripts/supplement-public-job-contact-resources-once.ts");
@@ -84,11 +91,14 @@ async function main():Promise<void>{
       if(!contactId)continue;
 
       const domain=promotion.email.split("@")[1]?.toLowerCase()??"";
+      const recruiterRelevanceStatus=recruiterRelevance(row.source_url,row.evidence_context);
       const recruiterEvidence=JSON.stringify([{
         provider:"public-contact-resource",
         status:promotion.validationStatus,
         mailboxLevel:false,
-        source:promotion.sourceUrl
+        source:promotion.sourceUrl,
+        relevanceStatus:recruiterRelevanceStatus,
+        evidenceType:recruiterRelevanceStatus === "UNKNOWN" ? "public_contact_resource" : "linkedin_hiring_post"
       }]);
       const identityKey=`email:${promotion.email}`;
       const existingRecruiter=await database.query<{id:string}>(
@@ -105,11 +115,13 @@ async function main():Promise<void>{
                   provider='public-contact-resource', discovery_source='public-contact-resource',
                   email_status=$5, domain_status='VALID',
                   mx_status=$6, mailbox_evidence=FALSE,
-                  verification_evidence=$7::jsonb, relevance_status='UNKNOWN',
+                  verification_evidence=$7::jsonb,
+                  relevance_status=CASE WHEN $10::text IN ('CURRENT','RECENT') THEN $10 ELSE COALESCE(recruiter_contacts.relevance_status,'UNKNOWN') END,
+                  relevance_score=CASE WHEN $10::text IN ('CURRENT','RECENT') THEN GREATEST(COALESCE(recruiter_contacts.relevance_score,0),$4) ELSE recruiter_contacts.relevance_score END,
                   identity_key=$8, email_discovery_status='FOUND',
                   last_seen_at=NOW(), updated_at=NOW()
             WHERE id=$9`,
-          [promotion.companyName,domain,contactId,Math.round(promotion.relevanceScore),promotion.validationStatus,promotion.validationStatus==="LIKELY"?"EXISTS":"UNKNOWN",recruiterEvidence,identityKey,existingRecruiter.rows[0].id]
+          [promotion.companyName,domain,contactId,Math.round(promotion.relevanceScore),promotion.validationStatus,promotion.validationStatus==="LIKELY"?"EXISTS":"UNKNOWN",recruiterEvidence,identityKey,existingRecruiter.rows[0].id,recruiterRelevanceStatus]
         );
       }else{
         await database.query(
@@ -119,8 +131,8 @@ async function main():Promise<void>{
              verification_evidence,relevance_status,identity_key,email_discovery_status,last_seen_at,updated_at)
            VALUES($1,$2,$3,NULL,'Hiring contact',$4,FALSE,'public-web-likely',
              'public-contact-resource','public-contact-resource',$5,'VALID',$6,FALSE,
-             $7::jsonb,'UNKNOWN',$8,'FOUND',NOW(),NOW())`,
-          [promotion.companyName,domain,contactId,Math.round(promotion.relevanceScore),promotion.validationStatus,promotion.validationStatus==="LIKELY"?"EXISTS":"UNKNOWN",recruiterEvidence,identityKey]
+             $7::jsonb,$8,$4,$9,'FOUND',NOW(),NOW())`,
+          [promotion.companyName,domain,contactId,Math.round(promotion.relevanceScore),promotion.validationStatus,promotion.validationStatus==="LIKELY"?"EXISTS":"UNKNOWN",recruiterEvidence,recruiterRelevanceStatus,identityKey]
         );
         recruiterIdentityCreated+=1;
       }
