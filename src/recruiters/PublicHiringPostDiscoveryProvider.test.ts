@@ -548,6 +548,45 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     });
   });
 
+  it("accepts an explicit frontend role in a short hiring-result snippet and can recover the employer mailbox", async () => {
+    const postUrl = "https://example.com/careers/frontend-developer";
+    const searchPage = [
+      postUrl,
+      "We're hiring a Frontend Developer in Bengaluru.",
+      "React Developer",
+      "Posted 2d",
+      "Send your resume to hiring@example.com"
+    ].join("\n");
+    const postPage = [
+      "<title>Frontend Developer — Example</title>",
+      "We're hiring a Frontend Developer in Bengaluru.",
+      "Posted 2d",
+      "Send your resume to hiring@example.com"
+    ].join("\n");
+
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return new Response(url === postUrl ? postPage : searchPage, { status: 200, headers: { "content-type": "text/plain" } });
+    }) as typeof fetch;
+
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({
+      targetRoles: ["Frontend Developer"],
+      skills: ["React"],
+      maxQueries: 1
+    });
+
+    expect(result.metrics.hiringIntentPosts).toBeGreaterThan(0);
+    expect(result.metrics.relevantRolePosts).toBeGreaterThan(0);
+    expect(result.metrics.validatedContacts).toBe(1);
+    expect(result.candidates[0]).toMatchObject({
+      contactType: "EMPLOYER",
+      employer: "Example",
+      employerDomain: "example.com",
+      email: "hiring@example.com"
+    });
+  });
+
   it("rotates the real public search query set across scheduled cycles", async () => {
     const firstCycle: string[] = [];
     const secondCycle: string[] = [];
