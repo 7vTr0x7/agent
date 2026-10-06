@@ -4,8 +4,9 @@ import { sourceList } from "../src/recruiters/PublicSearchProviderRegistry";
 
 const POST_URL = /(?:https?:\/\/)?(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"')&]+|feed\/update\/urn:li:activity:\d+)/gi;
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const HIRING = /we['’]?re hiring|we are hiring|my team is hiring|our team is hiring|hiring\s*[:\-–—]|looking for|send (?:your|me your) (?:resume|cv)|share (?:your|an updated) (?:resume|cv)|dm (?:me|us)|apply (?:here|now)|referrals? welcome/i;
-const TECH = /react(?:\.js)?|next(?:\.js)?|typescript|javascript|mern|frontend|front-end|full[ -]?stack|developer|engineer/i;
+const STRONG_HIRING = /we['’]?re\s+hiring|we\s+are\s+hiring|my\s+team\s+is\s+hiring|our\s+team\s+is\s+hiring|i['’]?m\s+hiring|i\s+am\s+hiring|hiring\s+(?:for|:)|opening\s+(?:for|:)|job\s+opening|vacancy|urgent\s+opening|actively\s+hiring|position\s+available|join\s+(?:our|my)\s+team|send\s+(?:your|me\s+your)\s+(?:resume|cv)\s+to|share\s+(?:your|an\s+updated)\s+(?:resume|cv)\s+to|dm\s+(?:me|us)\s+(?:for|about|your)|referrals?\s+welcome/i;
+const TECH = /react(?:\.js)?|next(?:\.js)?|typescript|javascript|mern|frontend|front-end|full[ -]?stack|node(?:\.js)?|express(?:\.js)?|web\s+developer|software\s+developer|software\s+engineer|frontend\s+engineer|full[ -]?stack\s+engineer|developer\s+engineer/i;
+const TECH_ROLE = /(?:frontend|front-end|front\s+end|react(?:\.js)?|next(?:\.js)?|typescript|javascript|mern|full[ -]?stack|node(?:\.js)?|express(?:\.js)?|web\s+developer|software\s+(?:developer|engineer)|(?:software|frontend|full[ -]?stack|web)\s+engineer)/i;
 const BLOCKED_LOCAL = /^(?:support|info|admin|press|media|legal|privacy|marketing|sales|hello|contact|help|feedback|abuse|postmaster|webmaster|noreply|no-reply|donotreply|automation|automated|bot|machine|system)$/i;
 const GENERIC_DOMAINS = new Set(["gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com", "proton.me", "protonmail.com"]);
 const NON_RECRUITING = /customer support|technical support|sales|billing|privacy|legal|security|press|media|partnerships?|helpdesk|procurement|accounting|finance|customer success|marketing/i;
@@ -31,15 +32,26 @@ function extractPosts(text: string): string[] {
     .replace(/%2F/gi, "/");
   return [...new Set((normalized.match(POST_URL) ?? []).map((value) => {
     const candidate = /^https?:\/\//i.test(value) ? value : `https://www.linkedin.com/${value.replace(/^\/+/, "")}`;
-    return canonical(candidate);
-  }))];
+    const cleaned = candidate.replace(/[\\]?(?:\\[)]|\\])?$/, "").replace(/[)\\]]+$/g, "");
+    try {
+      const parsed = new URL(cleaned);
+      if (!/^(?:www\\.|[a-z]{2}\\.)?linkedin\\.com$/i.test(parsed.hostname)) return null;
+      if (!/^\\/(?:posts\\/|feed\\/update\\/urn:li:activity:\\d+)/i.test(parsed.pathname)) return null;
+      return canonical(parsed.toString());
+    } catch {
+      return null;
+    }
+  }).filter((value): value is string => Boolean(value)))];
 }
 
 function relevant(text: string, skills: string[]): boolean {
-  const value = clean(text).toLowerCase();
-  if (!HIRING.test(value) || !TECH.test(value)) return false;
+  const value = clean(text);
+  // Do not classify generic resume/CV advice, job-search tips, or ordinary
+  // "looking for/apply" language as a live hiring post. Require an explicit
+  // hiring/opening signal plus an actual technical role/stack signal.
+  if (!STRONG_HIRING.test(value) || !TECH_ROLE.test(value) || !TECH.test(value)) return false;
   const normalizedSkills = skills.map((skill) => skill.toLowerCase()).filter(Boolean);
-  return !normalizedSkills.length || normalizedSkills.some((skill) => value.includes(skill));
+  return !normalizedSkills.length || normalizedSkills.some((skill) => value.toLowerCase().includes(skill));
 }
 
 function recruitingEmails(text: string): string[] {
