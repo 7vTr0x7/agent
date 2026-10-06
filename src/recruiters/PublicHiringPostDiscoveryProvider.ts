@@ -507,7 +507,7 @@ export class PublicHiringPostDiscoveryProvider {
       `after:${isoDay(30)}`
     ];
     const indiaLocations = ["India","Bengaluru","Bangalore","Pune","Hyderabad","Chennai","Mumbai","Delhi","Gurugram","Noida","Remote India"];
-    const linkedinQueries = roleTerms.flatMap(role => dateWindows.map(window => `site:linkedin.com/posts "${role}" ("we're hiring" OR "we are hiring" OR hiring) ${indiaLocations.slice(0, 4).join(" OR ")} ${window}`));
+    const linkedinQueries = roleTerms.flatMap(role => dateWindows.map(window => `site:linkedin.com/posts "${role}" ("we're hiring" OR "we are hiring" OR hiring) (${indiaLocations.join(" OR ")}) ${window}`));
     const linkedinRemoteQueries = roleTerms.slice(0, 4).map(role => `site:linkedin.com/posts "${role}" ("we're hiring" OR "we are hiring" OR hiring) ("Remote India" OR "remote") ${dateWindows[2]}`);
     const broadQueries = [
       ...roleTerms.slice(0, 4).map(role => `"${role}" hiring React India`),
