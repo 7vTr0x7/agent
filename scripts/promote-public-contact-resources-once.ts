@@ -46,8 +46,8 @@ export function buildContactPromotion(input: ContactPromotionInput): { companyNa
 
 function runScript(script:string):void { const result=spawnSync(process.execPath,["node_modules/tsx/dist/cli.mjs",script],{stdio:"inherit",env:process.env}); if(result.status!==0) throw new Error(`${script} failed with exit code ${result.status??"unknown"}.`); }
 
-const LINKEDIN_HIRING_POST = /https?:\\/\\/(?:www\\.|[a-z]{2}\\.)?linkedin\\.com\\/(?:posts\\/|feed\\/update\\/urn:li:activity:)/i;
-const HIRING_EVIDENCE = /we['’]?re hiring|we are hiring|my team is hiring|our team is hiring|hiring\\s*[:\\-–—]|looking for|send (?:your|me your) (?:resume|cv)|share (?:your|an updated) (?:resume|cv)|dm (?:me|us)|apply (?:here|now)|referrals? welcome/i;
+const LINKEDIN_HIRING_POST = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/|feed\/update\/urn:li:activity:)/i;
+const HIRING_EVIDENCE = /we['’]?re hiring|we are hiring|my team is hiring|our team is hiring|hiring\s*[:\-–—]|looking for|send (?:your|me your) (?:resume|cv)|share (?:your|an updated) (?:resume|cv)|dm (?:me|us)|apply (?:here|now)|referrals? welcome/i;
 
 function recruiterRelevance(sourceUrl:string,evidenceContext:string):"CURRENT"|"RECENT"|"UNKNOWN" {
   return LINKEDIN_HIRING_POST.test(sourceUrl) && HIRING_EVIDENCE.test(evidenceContext) ? "RECENT" : "UNKNOWN";
