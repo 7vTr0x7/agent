@@ -593,7 +593,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     const threeDayRemote = "https://www.linkedin.com/posts/three-day-remote_hiring-react-activity-9000000000000000003-test";
     const searchPage = [
       todayIndia,
-      "Today",
+      "1h ago",
       "We're hiring a Frontend Developer in Bengaluru, India.",
       "React TypeScript",
       "Send your resume to careers@todayindia.example",
@@ -609,7 +609,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
       "Send your resume to careers@threeindia.example"
     ].join("\n");
     const pages: Record<string, string> = {
-      [todayIndia]: "<title>Frontend Developer — Today India</title> Today We're hiring a Frontend Developer in Bengaluru, India. React TypeScript Send your resume to careers@todayindia.example",
+      [todayIndia]: "<title>Frontend Developer — Today India</title> 1h ago We're hiring a Frontend Developer in Bengaluru, India. React TypeScript Send your resume to careers@todayindia.example",
       [threeDayIndia]: "<title>React Developer — Three Day India</title> 3d We're hiring a React Developer in Pune, India. React TypeScript Send your resume to careers@threeindia.example",
       [threeDayRemote]: "<title>Frontend Developer — Three Day Remote</title> 3d We're hiring a Frontend Developer for a fully remote role. React TypeScript Send your resume to careers@remote.example"
     };
