@@ -131,7 +131,7 @@ async function main():Promise<void>{
              verification_evidence,relevance_status,identity_key,email_discovery_status,last_seen_at,updated_at)
            VALUES($1,$2,$3,NULL,'Hiring contact',$4,FALSE,'public-web-likely',
              'public-contact-resource','public-contact-resource',$5,'VALID',$6,FALSE,
-             $7::jsonb,$8,$4,$9,'FOUND',NOW(),NOW())`,
+             $7::jsonb,$8,$9,'FOUND',NOW(),NOW())`,
           [promotion.companyName,domain,contactId,Math.round(promotion.relevanceScore),promotion.validationStatus,promotion.validationStatus==="LIKELY"?"EXISTS":"UNKNOWN",recruiterEvidence,recruiterRelevanceStatus,identityKey]
         );
         recruiterIdentityCreated+=1;
