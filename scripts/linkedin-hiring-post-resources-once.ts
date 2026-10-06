@@ -35,8 +35,8 @@ function extractPosts(text: string): string[] {
     const cleaned = candidate.replace(/[\\]?(?:\\[)]|\\])?$/, "").replace(/[)\\]]+$/g, "");
     try {
       const parsed = new URL(cleaned);
-      if (!/^(?:www\\.|[a-z]{2}\\.)?linkedin\\.com$/i.test(parsed.hostname)) return null;
-      if (!/^\\/(?:posts\\/|feed\\/update\\/urn:li:activity:\\d+)/i.test(parsed.pathname)) return null;
+      if (!/^(?:www\.|[a-z]{2}\.)?linkedin\.com$/i.test(parsed.hostname)) return null;
+      if (!/^\/(?:posts\/|feed\/update\/urn:li:activity:\d+)/i.test(parsed.pathname)) return null;
       return canonical(parsed.toString());
     } catch {
       return null;
