@@ -19,7 +19,7 @@ function clean(value: string): string {
 
 function canonical(value: string): string | null {
   try {
-    const raw = value.trim().split("](")[0].split(")(")[0].replace(/[\\])},.;]+$/g, "");
+    const raw = value.trim().split("](")[0].split(")(")[0].replace(/[\\\]},.;)]+$/g, "");
     const candidate = /^https?:\/\//i.test(raw) ? raw : "https://www.linkedin.com/" + raw.replace(/^\/+/, "");
     const url = new URL(candidate);
     if (!/^https?:$/.test(url.protocol) || !LINKEDIN_HOST.test(url.hostname) || !LINKEDIN_PATH.test(url.pathname)) return null;
