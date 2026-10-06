@@ -442,7 +442,7 @@ function buildEvidence(text: string, postUrl: string): string {
   // article/resource page (for example, Google News returning SitePoint). Keep
   // only a small amount of pre-URL context so query boilerplate cannot become
   // the hiring evidence for an unrelated destination.
-  const evidenceWindow = decodedText.slice(Math.max(0, index - 450), Math.min(decodedText.length, index + Math.max(3200, matchedLength)));
+  const nextUrlMatch = decodedText.slice(index + matchedLength).match(/https?:\/\/[^\\s<>"')\\]]+/i);
   const sanitized = evidenceWindow.replace(/https?:\/\/[^\s<>"')\]]+/gi, (url: string) => isLegitimatePublicResultUrl(url, infrastructureHosts) ? url : "");
   return sanitized.replace(/\s+/g, " ").trim().slice(0, 4400);
 }
