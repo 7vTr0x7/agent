@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${1:?usage: local-enrichment-loop.sh <recruiter|contacts|content>}"
+MODE="${1:?usage: local-enrichment-loop.sh <recruiter|contacts|content|linkedin>}"
 INTERVAL_MS="${ENRICHMENT_INTERVAL_MS:-900000}"
 # Public contact discovery is intentionally bounded but can legitimately take
 # longer than recruiter/content enrichment because it validates multiple public
@@ -10,6 +10,9 @@ INTERVAL_MS="${ENRICHMENT_INTERVAL_MS:-900000}"
 case "$MODE" in
   contacts)
     COMMAND_TIMEOUT_SECONDS="${ENRICHMENT_CONTACT_COMMAND_TIMEOUT_SECONDS:-900}"
+    ;;
+  linkedin)
+    COMMAND_TIMEOUT_SECONDS="${ENRICHMENT_LINKEDIN_COMMAND_TIMEOUT_SECONDS:-900}"
     ;;
   *)
     COMMAND_TIMEOUT_SECONDS="${ENRICHMENT_COMMAND_TIMEOUT_SECONDS:-900}"
@@ -34,8 +37,12 @@ case "$MODE" in
     LOG="/tmp/job-agent-proactive-recruiter.log"
     ;;
   contacts)
-    COMMAND="npm run public-contact-files:once && npm run public-contact-resources:once && ./node_modules/.bin/tsx scripts/reconcile-public-contact-resources-once.ts"
+    COMMAND="npm run public-contact-files:once && ./node_modules/.bin/tsx scripts/reconcile-public-contact-resources-once.ts"
     LOG="/tmp/job-agent-contact-resources.log"
+    ;;
+  linkedin)
+    COMMAND="npm run public-contact-resources:once"
+    LOG="/tmp/job-agent-linkedin-discovery.log"
     ;;
   content)
     COMMAND="npm run content-first:once"
