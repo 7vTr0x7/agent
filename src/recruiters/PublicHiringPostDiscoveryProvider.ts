@@ -444,11 +444,12 @@ function buildEvidence(text: string, postUrl: string): string {
   // the hiring evidence for an unrelated destination.
   // Scope evidence to this destination. Search pages commonly contain multiple posts;
   // a fixed multi-kilobyte window can mix another post's timestamp or email into this one.
-  const nextUrlMatch = decodedText.slice(index + matchedLength).match(/https?:\/\/[^\s<>"')\]]+/i);
-  const nextUrlOffset = nextUrlMatch?.index;
-  const evidenceEnd = nextUrlOffset === undefined
+  const afterTarget = decodedText.slice(index + matchedLength);
+  const nextPostMatch = afterTarget.match(/https?:\/\/(?:www\\.|[a-z]{2}\\.)?linkedin\\.com\\/(?:posts\\/[^\\s<>"')\\]]+|feed\\/update\\/urn:li:activity:\\d+)/i);
+  const nextPostOffset = nextPostMatch?.index;
+  const evidenceEnd = nextPostOffset === undefined
     ? Math.min(decodedText.length, index + Math.max(4400, matchedLength))
-    : index + matchedLength + nextUrlOffset;
+    : index + matchedLength + nextPostOffset;
   const evidenceWindow = decodedText.slice(index, evidenceEnd);
   const sanitized = evidenceWindow.replace(/https?:\/\/[^\s<>"')\]]+/gi, (url: string) => isLegitimatePublicResultUrl(url, infrastructureHosts) ? url : "");
   return sanitized.replace(/\s+/g, " ").trim().slice(0, 4400);
