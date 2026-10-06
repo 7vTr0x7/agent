@@ -51,7 +51,7 @@ export function isRecruiterRelevantForRealSend(_record: RecruiterMailboxVerifica
 export function isEligibleForRealRecruiterSend(record: RecruiterMailboxVerificationRecord): boolean {
   const email = record.email?.trim().toLowerCase() ?? "";
   const emailStatus = String(record.emailStatus ?? "").trim().toUpperCase();
-  const companyDomain = record.companyDomain?.trim().toLowerCase().replace(/^www\\./, "") ?? "";
+  const companyDomain = record.companyDomain?.trim().toLowerCase().replace(/^www\./, "") ?? "";
   const emailDomain = email.split("@")[1] ?? "";
   if (record.suppressed === true) return false;
   if (isPermanentlyExcludedRecruiterCompany(record.companyName)) return false;
@@ -100,6 +100,11 @@ export function recruiterSimplePublicContactEligibilitySql(alias="c"):string{
     AND LOWER(SUBSTRING(SPLIT_PART(${emailSql},'@',2) FROM '[^.]+$')) NOT IN ('png','jpg','jpeg','gif','webp','svg','ico','bmp','tif','tiff','avif','heic','pdf','doc','docx','xls','xlsx','csv','txt','zip','rar','7z','tar','gz','json','xml','html','htm')
     AND SPLIT_PART(${emailSql},'@',1) !~* '(^\\.|\\.$|\\.\\.|%|^(noreply|no-reply|donotreply|do-not-reply|mailer-daemon|mailer|notifications?|automated|bot|pay|payments|payroll|billing|accounts-payable|accounts-receivable|candidateprotection|candidate-protection|accommodation|accommodations|accessibility|claims|benefits)$|(^|[-_])hiring[-_]?accommodation($|[-_]))'
     AND UPPER(COALESCE(${alias}.email_status,'')) IN ('UNVERIFIED','LIKELY','VERIFIED')
+    AND (
+      LOWER(SPLIT_PART(${emailSql},'@',2))=LOWER(COALESCE(${alias}.company_domain,''))
+      OR LOWER(SPLIT_PART(${emailSql},'@',2)) IN ('gmail.com','googlemail.com','outlook.com','hotmail.com','live.com','yahoo.com','yahoo.co.in','icloud.com','proton.me','protonmail.com')
+      OR NULLIF(BTRIM(COALESCE(${alias}.company_domain,'')),'') IS NULL
+    )
     AND NOT EXISTS (
       SELECT 1 FROM recruiter_suppressions suppression
       WHERE LOWER(COALESCE(suppression.email,''))=LOWER(${emailSql})
