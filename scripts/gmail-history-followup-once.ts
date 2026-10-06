@@ -3,6 +3,8 @@ import { GmailApiMailbox } from "../src/email/GmailApiMailbox";
 import { GmailOAuthClient } from "../src/email/GmailOAuthClient";
 import { loadResumeAttachment } from "../src/recruiters/RecruiterOutreachSendService";
 import { Database } from "../src/database/Database";
+import { RecruiterDiscoveryRepository } from "../src/recruiters/RecruiterDiscoveryRepository";
+import { RecruiterOutreachSendReconciliationService } from "../src/recruiters/RecruiterOutreachSendReconciliationService";
 
 interface GmailHeader { name?: string; value?: string; }
 interface GmailMessagePart { mimeType?: string; body?: { data?: string }; parts?: GmailMessagePart[]; }
@@ -60,6 +62,12 @@ async function main(): Promise<void> {
     const thread = await fetchThread(oauth, message.gmailThreadId);
     const threadMessages = thread.messages ?? [];
     if (threadMessages.some((item) => messageBody(item).includes(MARKER))) continue;
+    const recipient = message.recipientEmail.toLowerCase();
+    const hasRecipientReply = threadMessages.some((item) => {
+      if (fromIsUser(item, userEmail)) return false;
+      return header(item, "From").toLowerCase().includes(recipient);
+    });
+    if (hasRecipientReply) continue;
     const sorted = [...threadMessages].sort((a,b) => Number(a.internalDate ?? 0) - Number(b.internalDate ?? 0));
     const latest = sorted[sorted.length - 1];
     if (!latest || !fromIsUser(latest, userEmail)) continue;
@@ -81,6 +89,8 @@ async function main(): Promise<void> {
   const attachment = await loadResumeAttachment(process.env.CANDIDATE_RESUME_PATH, Number(process.env.RECRUITER_MAX_ATTACHMENT_BYTES ?? 10485760));
   if (!attachment) throw new Error("No resume PDF found. Put the latest resume in data/resumes or set CANDIDATE_RESUME_PATH.");
   const db = new Database(process.env.DATABASE_URL ?? "");
+  const reconciliation = new RecruiterOutreachSendReconciliationService(db, new RecruiterDiscoveryRepository(db), mailbox);
+  await reconciliation.runOnce();
   let sent = 0; let skipped = 0;
   try {
     for (const candidate of prepared) {
