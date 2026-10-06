@@ -72,7 +72,19 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
 
 function optional(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const value = env[name]?.trim();
-  return value || undefined;
+  if (!value) return undefined;
+  return stripMatchingOuterQuotes(value);
+}
+
+function stripMatchingOuterQuotes(value: string): string {
+  if (value.length >= 2) {
+    const first = value[0];
+    const last = value[value.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      return value.slice(1, -1).trim();
+    }
+  }
+  return value;
 }
 
 function csv(env: NodeJS.ProcessEnv, name: string): readonly string[] {
