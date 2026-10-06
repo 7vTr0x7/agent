@@ -46,8 +46,8 @@ export function buildContactPromotion(input: ContactPromotionInput): { companyNa
 
 function runScript(script:string):void { const result=spawnSync(process.execPath,["node_modules/tsx/dist/cli.mjs",script],{stdio:"inherit",env:process.env}); if(result.status!==0) throw new Error(`${script} failed with exit code ${result.status??"unknown"}.`); }
 
-const LINKEDIN_HIRING_POST = /https?:\/\/(?:www\.)?linkedin\.com\/(?:posts\/[^\\s<>"')&]+|feed\/update\/urn:li:activity:\\d+)/i;
-const LINKEDIN_HIRING_PATH = /^\/(?:posts\/[^\\s<>"')&]+|feed\/update\/urn:li:activity:\\d+)$/i;
+const LINKEDIN_HIRING_POST = /https?:\/\/(?:www\.)?linkedin\.com\/(?:posts\/[^\s<>"')&]+|feed\/update\/urn:li:activity:\d+)/i;
+const LINKEDIN_HIRING_PATH = /^\/(?:posts\/[^\s<>"')&]+|feed\/update\/urn:li:activity:\d+)$/i;
 const HIRING_EVIDENCE = /we['’]?\s+hiring|we\s+are\s+hiring|my\s+team\s+is\s+hiring|our\s+team\s+is\s+hiring|i['’]?\s+hiring|i\s+am\s+hiring|hiring\s+(?:for|:)|opening\s+(?:for|:)|job\s+opening|vacancy|urgent\s+opening|actively\s+hiring|position\s+available|join\s+(?:our|my)\s+team|send\s+(?:your|me\s+your)\s+(?:resume|cv)\s+to|share\s+(?:your|an\s+updated)\s+(?:resume|cv)\s+to|dm\s+(?:me|us)\s+(?:for|about|your)|referrals?\s+welcome/i;
 const TECH_ROLE = /(?:frontend|front-end|front\s+end|react(?:\.js)?|next(?:\.js)?|typescript|javascript|mern|full[ -]?stack|node(?:\.js)?|express(?:\.js)?|web\s+developer|software\s+(?:developer|engineer)|(?:software|frontend|full[ -]?stack|web)\s+engineer)/i;
 
