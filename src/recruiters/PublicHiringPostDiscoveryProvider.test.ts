@@ -582,7 +582,7 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     expect(result.candidates[0]).toMatchObject({
       contactType: "EMPLOYER",
       employer: "Example",
-      employerDomain: "example.com",
+      employerDomain: "examplecorp.test",
       email: "hiring@examplecorp.test"
     });
   });
