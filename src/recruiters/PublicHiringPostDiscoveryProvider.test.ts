@@ -548,6 +548,92 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     });
   });
 
+  it("accepts an explicit frontend role in a short hiring-result snippet and can recover the employer mailbox", async () => {
+    const postUrl = "https://examplecorp.test/careers/frontend-developer";
+    const searchPage = [
+      postUrl,
+      "We're hiring a Frontend Developer in Bengaluru.",
+      "React Developer",
+      "Posted 2d",
+      "Send your resume to hiring@examplecorp.test"
+    ].join("\n");
+    const postPage = [
+      "<title>Frontend Developer — Example</title>",
+      "We're hiring a Frontend Developer in Bengaluru.",
+      "Posted 2d",
+      "Send your resume to hiring@examplecorp.test"
+    ].join("\n");
+
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return new Response(url === postUrl ? postPage : searchPage, { status: 200, headers: { "content-type": "text/plain" } });
+    }) as typeof fetch;
+
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({
+      targetRoles: ["Frontend Developer"],
+      skills: ["React"],
+      maxQueries: 1
+    });
+
+    expect(result.metrics.hiringIntentPosts).toBeGreaterThan(0);
+    expect(result.metrics.relevantRolePosts).toBeGreaterThan(0);
+    expect(result.metrics.validatedContacts).toBe(1);
+    expect(result.candidates[0]).toMatchObject({
+      contactType: "EMPLOYER",
+      employer: "Example",
+      employerDomain: "examplecorp.test",
+      email: "hiring@examplecorp.test"
+    });
+  });
+
+  it("prioritizes the newest posts, then India geography, while retaining LinkedIn posts", async () => {
+    const todayIndia = "https://www.linkedin.com/posts/today-india_hiring-frontend-activity-9000000000000000001-test";
+    const threeDayIndia = "https://www.linkedin.com/posts/three-day-india_hiring-react-activity-9000000000000000002-test";
+    const threeDayRemote = "https://www.linkedin.com/posts/three-day-remote_hiring-react-activity-9000000000000000003-test";
+    const searchPage = [
+      todayIndia,
+      "1h ago",
+      "We're hiring a Frontend Developer in Bengaluru, India.",
+      "React TypeScript",
+      "Send your resume to careers@todayindia.example",
+      threeDayRemote,
+      "3d",
+      "We're hiring a Frontend Developer for a fully remote role.",
+      "React TypeScript",
+      "Send your resume to careers@remote.example",
+      threeDayIndia,
+      "3d",
+      "We're hiring a React Developer in Pune, India.",
+      "React TypeScript",
+      "Send your resume to careers@threeindia.example"
+    ].join("\n");
+    const pages: Record<string, string> = {
+      [todayIndia]: "<title>Frontend Developer — Today India</title> 1h ago We're hiring a Frontend Developer in Bengaluru, India. React TypeScript Send your resume to careers@todayindia.example",
+      [threeDayIndia]: "<title>React Developer — Three Day India</title> 3d We're hiring a React Developer in Pune, India. React TypeScript Send your resume to careers@threeindia.example",
+      [threeDayRemote]: "<title>Frontend Developer — Three Day Remote</title> 3d We're hiring a Frontend Developer for a fully remote role. React TypeScript Send your resume to careers@remote.example"
+    };
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return new Response(pages[url] ?? searchPage, { status: 200, headers: { "content-type": "text/plain" } });
+    }) as typeof fetch;
+
+    const provider = new PublicHiringPostDiscoveryProvider();
+    const result = await provider.discover({
+      targetRoles: ["Frontend Developer", "React Developer"],
+      skills: ["React", "TypeScript"],
+      preferredLocations: ["Bengaluru", "India", "Remote"],
+      maxQueries: 1
+    });
+
+    expect(result.candidates.length).toBeGreaterThanOrEqual(3);
+    expect(result.candidates.map(candidate => candidate.discoveryUrl).slice(0, 3)).toEqual([
+      todayIndia,
+      threeDayIndia,
+      threeDayRemote
+    ]);
+  });
+
   it("rotates the real public search query set across scheduled cycles", async () => {
     const firstCycle: string[] = [];
     const secondCycle: string[] = [];

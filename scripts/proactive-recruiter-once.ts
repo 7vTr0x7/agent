@@ -50,7 +50,7 @@ async function main(): Promise<void> {
       yearsExperience: profile.yearsExperience,
       location: profile.location,
       preferredLocations,
-      maxQueries: Number.parseInt(process.env.PUBLIC_HIRING_POST_MAX_QUERIES ?? "8", 10),
+      maxQueries: Number.parseInt(process.env.PUBLIC_HIRING_POST_MAX_QUERIES ?? "18", 10),
       queryOffset: Number.parseInt(process.env.PROACTIVE_RECRUITER_QUERY_OFFSET ?? "0", 10)
     });
 

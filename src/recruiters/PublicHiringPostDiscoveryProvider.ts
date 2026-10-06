@@ -105,10 +105,10 @@ function isTalentVendorPage(text: string): boolean {
 }
 
 
-const MAX_DESTINATION_URLS_PER_SEARCH = 8;
-const MAX_POST_EVIDENCE = 16;
+const MAX_DESTINATION_URLS_PER_SEARCH = 12;
+const MAX_POST_EVIDENCE = 32;
 const MAX_PROFILE_URLS_PER_SEARCH = 4;
-const PUBLIC_HIRING_RUNTIME_TIMEOUT_MS = 45_000;
+const PUBLIC_HIRING_RUNTIME_TIMEOUT_MS = 120_000;
 
 function clean(value: string): string {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/\s+/g, " ").trim();
@@ -233,9 +233,18 @@ export function substantiveRoleEvidence(text: string): { role?: string; score: n
   const typescript = /\btypescript\b/i.test(text);
   const api = /\b(?:rest\s*api|restful\s*api|graphql|api\s+integration)\b/i.test(text);
   const node = /\b(?:node(?:\.js)?|express(?:\.js)|nest(?:\.js)|fastify)\b/i.test(text);
+  // Search-result snippets often contain a perfectly explicit role title
+  // ("Frontend Developer", "React Engineer", etc.) plus hiring intent, but
+  // omit the longer skills section present on the destination page. Do not
+  // discard those real hiring signals merely because they have fewer than
+  // three frontend evidence terms. hasHiringIntent() has already established
+  // that the surrounding text is hiring-related.
+  const explicitFrontendRole = /\b(?:frontend|front-end|front\s+end)\s+(?:developer|engineer)\b/i.test(text);
+  const explicitReactRole = /\breact(?:\.js)?\s+(?:developer|engineer)\b/i.test(text);
+  const explicitNextRole = /\bnext\.?js\s+(?:developer|engineer)\b/i.test(text);
 
-  if (react && (web || frontendHits >= 4)) { terms.push("React", "Frontend"); }
-  if (next && react) terms.push("Next.js");
+  if (react && (web || frontendHits >= 4) || explicitFrontendRole || explicitReactRole) { terms.push("React", "Frontend"); }
+  if (next && react || explicitNextRole) terms.push("Next.js");
   if (typescript) terms.push("TypeScript");
   if (javascript) terms.push("JavaScript");
   if (node && (react || backendHits >= 2)) terms.push("Node.js");
@@ -244,8 +253,8 @@ export function substantiveRoleEvidence(text: string): { role?: string; score: n
   let role: string | undefined;
   let score = 0;
   if (react && node && (api || backendHits >= 2)) { role = "Full Stack Developer — React"; score = 82 + Math.min(13, frontendHits + backendHits); }
-  else if (react && (web || frontendHits >= 4)) { role = "Frontend Developer"; score = 82 + Math.min(13, frontendHits); }
-  else if (next && web && (javascript || typescript)) { role = "Next.js Developer"; score = 80 + Math.min(15, frontendHits); }
+  else if (explicitFrontendRole || explicitReactRole || (react && (web || frontendHits >= 4))) { role = explicitReactRole ? "React Developer" : "Frontend Developer"; score = 80 + Math.min(15, frontendHits + backendHits); }
+  else if (explicitNextRole || (next && web && (javascript || typescript))) { role = "Next.js Developer"; score = 80 + Math.min(15, frontendHits); }
   else if (web && javascript && frontendHits >= 4) { role = "Web Developer"; score = 78 + Math.min(17, frontendHits); }
   if (!role) return { score: 0, terms: [] };
   return { role, score: Math.min(100, score), terms: [...new Set(terms)] };
@@ -383,7 +392,7 @@ function extractPublicEvidenceUrls(text: string): string[] {
     .map(value => decodeSearchResultText(value).replace(/[),.;]+$/, ""))
     .map(value => canonicalUrl(value))
     .filter(value => isLegitimatePublicResultUrl(value, infrastructureHosts)))];
-  return urls;
+  return urls.sort((a, b) => linkedinPostPriority(a) - linkedinPostPriority(b));
 }
 function extractProfileUrlFromSearch(text: string, name: string): string | undefined { const urls = [...new Set((text.match(PROFILE_URL) ?? []).map(canonicalUrl))]; const tokens = name.toLowerCase().split(/\s+/).filter(Boolean); return urls.find(url => tokens.length >= 2 && tokens.every(token => url.toLowerCase().includes(token.replace(/[^a-z0-9-]/g, "")))); }
 function extractProfileUrls(text: string): string[] { return [...new Set((text.match(PROFILE_URL) ?? []).map(canonicalUrl))].filter(url => !/\/pub\/dir\//i.test(url)); }
@@ -433,19 +442,104 @@ function buildEvidence(text: string, postUrl: string): string {
   // article/resource page (for example, Google News returning SitePoint). Keep
   // only a small amount of pre-URL context so query boilerplate cannot become
   // the hiring evidence for an unrelated destination.
-  const evidenceWindow = decodedText.slice(Math.max(0, index - 450), Math.min(decodedText.length, index + Math.max(3200, matchedLength)));
+  // Scope evidence to this destination. Search pages commonly contain multiple posts;
+  // a fixed multi-kilobyte window can mix another post's timestamp or email into this one.
+  const afterTarget = decodedText.slice(index + matchedLength);
+  const nextPostMatch = afterTarget.match(/https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"')\]]+|feed\/update\/urn:li:activity:\d+)/i);
+  const nextPostOffset = nextPostMatch?.index;
+  const evidenceEnd = nextPostOffset === undefined
+    ? Math.min(decodedText.length, index + Math.max(4400, matchedLength))
+    : index + matchedLength + nextPostOffset;
+  const evidenceWindow = decodedText.slice(index, evidenceEnd);
   const sanitized = evidenceWindow.replace(/https?:\/\/[^\s<>"')\]]+/gi, (url: string) => isLegitimatePublicResultUrl(url, infrastructureHosts) ? url : "");
   return sanitized.replace(/\s+/g, " ").trim().slice(0, 4400);
 }
 function freshness(evidence: string): ProactiveRecruiterDiscoveryCandidate["evidenceFreshness"] { if (/\b(?:today|1d|2d|3d|4d|5d|6d|1w|2w|3w|4w|1mo|2mo|3mo|4mo)\b/i.test(evidence)) return "current"; if (/\b(?:5mo|6mo|7mo|8mo|9mo|10mo|11mo|12mo)\b/i.test(evidence)) return "recent"; const years = [...evidence.matchAll(/\b(20\d{2})\b/g)].map(match => Number(match[1])).filter(Number.isFinite); const currentYear = new Date().getFullYear(); if (years.some(year => year === currentYear)) return "current"; if (years.some(year => year === currentYear - 1)) return "recent"; if (years.some(year => year < currentYear - 1)) return "historical"; return "unknown"; }
+function postAgeDays(evidence: string, now = new Date()): number {
+  const normalized = evidence.replace(/\s+/g, " ").trim();
+  if (/\b(?:just now|today|today's)\b/i.test(normalized)) return 0;
+  const relativeMatches = [...normalized.matchAll(/\b(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|week|weeks|mo|month|months|y|year|years)\b(?:\s*ago)?/gi)];
+  if (relativeMatches.length) {
+    const ages = relativeMatches.map(match => {
+      const value = Number(match[1]);
+      const unit = match[2]!.toLowerCase();
+      if (unit === "m" || unit.startsWith("min")) return value / 1440;
+      if (unit === "h" || unit.startsWith("hr") || unit.startsWith("hour")) return value / 24;
+      if (unit.startsWith("d")) return value;
+      if (unit.startsWith("w")) return value * 7;
+      if (unit.startsWith("mo")) return value * 30;
+      return value * 365;
+    });
+    return Math.min(...ages);
+  }
+  const explicit = normalized.match(/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:,\s*|\s+)20\d{2}\b/i)
+    ?? normalized.match(/\b\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+20\d{2}\b/i);
+  if (explicit) {
+    const parsed = Date.parse(explicit[0]!);
+    if (Number.isFinite(parsed)) return Math.max(0, (now.getTime() - parsed) / 86400000);
+  }
+  const year = normalized.match(/\b(20\d{2})\b/);
+  if (year) return Math.max(0, (now.getTime() - new Date(Number(year[1]), 0, 1).getTime()) / 86400000);
+  return Number.POSITIVE_INFINITY;
+}
+function geographyPriority(evidence: string, preferredLocations: string[] = []): number {
+  const text = evidence.toLowerCase();
+  const india = /\b(?:india|bengaluru|bangalore|pune|hyderabad|chennai|mumbai|delhi|new delhi|gurugram|gurgaon|noida|kolkata|ahmedabad|indore|jaipur|coimbatore|navi mumbai|thane|kerala|maharashtra|karnataka|telangana|tamil nadu|uttar pradesh|haryana|west bengal|gujarat|rajasthan)\b/i.test(text);
+  if (india) return 0;
+  const remote = /\b(?:remote|work from home|wfh|fully remote|remote[- ]first|remote anywhere)\b/i.test(text);
+  if (remote) return 1;
+  const preferred = preferredLocations.some(location => location && text.includes(location.toLowerCase()));
+  if (preferred) return 0;
+  return 2;
+}
+function linkedinPostPriority(url: string): number { return /linkedin\.com\/posts\//i.test(url) || /linkedin\.com\/feed\/update\//i.test(url) ? 0 : 1; }
+function comparePostEvidence(a: {url:string;text:string;discoveryText:string;source:string}, b: {url:string;text:string;discoveryText:string;source:string}, preferredLocations: string[]): number {
+  const aAge = postAgeDays(a.text + " " + a.discoveryText);
+  const bAge = postAgeDays(b.text + " " + b.discoveryText);
+  if (aAge !== bAge) return aAge - bAge;
+  const geo = geographyPriority(a.text + " " + a.discoveryText, preferredLocations) - geographyPriority(b.text + " " + b.discoveryText, preferredLocations);
+  if (geo !== 0) return geo;
+  const li = linkedinPostPriority(a.url) - linkedinPostPriority(b.url);
+  if (li !== 0) return li;
+  return a.url.localeCompare(b.url);
+}
+
 function canonicalIdentityKey(name: string | undefined, employer: string, _evidenceKey: string, email?: string): string { if (email) return `email:${email.toLowerCase()}`; if (!name) return `employer:${employer.toLowerCase().replace(/[^a-z0-9]+/g,"").trim()}`; return `${name.toLowerCase().replace(/[^a-z0-9]+/g," ").trim()}|${employer.toLowerCase().replace(/[^a-z0-9]+/g," ").trim()}`; }
 
 export class PublicHiringPostDiscoveryProvider {
   async discover(input: PublicHiringPostDiscoveryInput): Promise<PublicHiringPostDiscoveryResult> {
     const runtimeSignal = input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(PUBLIC_HIRING_RUNTIME_TIMEOUT_MS)]) : AbortSignal.timeout(PUBLIC_HIRING_RUNTIME_TIMEOUT_MS);
-    const maxQueries = Math.max(1, Math.min(input.maxQueries ?? 8, 12));
-    const roleTerms = input.targetRoles.length ? input.targetRoles.slice(0, 8) : ["Frontend Engineer","Frontend Developer","React Developer"];
-    const queryPool = [...roleTerms.slice(0, 4).map(role => `"${role}" hiring React`), `"we're hiring" "frontend" React`, `"we are hiring" "frontend" React`, `"my team is hiring" frontend React`, `"send your resume" "frontend" React`, `"looking for" "React Developer" Bangalore`, `"Frontend Developer" "TypeScript" Bangalore`];
+    const maxQueries = Math.max(1, Math.min(input.maxQueries ?? 18, 24));
+    const roleTerms = input.targetRoles.length ? input.targetRoles.slice(0, 6) : ["Frontend Engineer","Frontend Developer","React Developer","Next.js Developer"];
+    const now = new Date();
+    const isoDay = (daysAgo: number) => new Date(now.getTime() - daysAgo * 86400000).toISOString().slice(0, 10);
+    const dateWindows = [
+      `after:${isoDay(1)}`,
+      `after:${isoDay(3)}`,
+      `after:${isoDay(7)}`,
+      `after:${isoDay(30)}`,
+      `after:${isoDay(90)}`,
+      `after:${isoDay(180)}`,
+      `after:${isoDay(365)}`
+    ];
+    const indiaLocations = ["India","Bengaluru","Bangalore","Pune","Hyderabad","Chennai","Mumbai","Delhi","Gurugram","Noida","Remote India"];
+    const linkedinQueries = dateWindows.flatMap(window =>
+      roleTerms.map(role => `site:linkedin.com/posts "${role}" ("we're hiring" OR "we are hiring" OR hiring) (${indiaLocations.join(" OR ")}) ${window}`)
+    );
+    const linkedinRemoteQueries = dateWindows.flatMap(window =>
+      roleTerms.slice(0, 4).map(role => `site:linkedin.com/posts "${role}" ("we're hiring" OR "we are hiring" OR hiring) ("Remote India" OR "remote") ${window}`)
+    );
+    const broadQueries = [
+      ...roleTerms.slice(0, 4).map(role => `"${role}" hiring React India`),
+      `"we're hiring" "frontend" React India`,
+      `"we are hiring" "frontend" React Bengaluru`,
+      `"my team is hiring" frontend React India`,
+      `"send your resume" "frontend" React India`,
+      `"looking for" "React Developer" Bangalore`,
+      `"Frontend Developer" "TypeScript" Pune`,
+      `"React Developer" "Next.js" Hyderabad`
+    ];
+    const queryPool = [...linkedinQueries, ...linkedinRemoteQueries, ...broadQueries];
     const normalizedOffset = Number.isInteger(input.queryOffset) && (input.queryOffset ?? 0) >= 0 ? Math.floor(input.queryOffset ?? 0) : 0;
     const queries = Array.from({ length: Math.min(maxQueries, queryPool.length) }, (_, index) => queryPool[(normalizedOffset + index) % queryPool.length]!);
     const profileQueryPool = ['site:linkedin.com/in "we\'re hiring" "frontend developer" Bangalore','site:linkedin.com/in "we are hiring" React Bangalore','site:linkedin.com/in "my team is hiring" React India','site:linkedin.com/in "share your resume" React Bengaluru'];
@@ -523,7 +617,8 @@ export class PublicHiringPostDiscoveryProvider {
       }
     }
     metrics.publicPostUrls = Math.max(metrics.publicPostUrls, postEvidence.size);
-    for (const post of postEvidence.values()) {
+    const orderedPostEvidence = [...postEvidence.values()].sort((a, b) => comparePostEvidence(a, b, input.preferredLocations ?? []));
+    for (const post of orderedPostEvidence) {
       if (runtimeSignal?.aborted) break;
       const identitySearchEvidence = `${post.text} ${post.discoveryText}`;
       let author = extractAuthor(identitySearchEvidence, post.url); let profileText = ""; let profileUrl = author.profileUrl;
@@ -557,6 +652,16 @@ export class PublicHiringPostDiscoveryProvider {
       const found = emails.find(email => { const domain = email.split("@")[1]?.toLowerCase(); const local = email.split("@")[0] ?? ""; return domain === candidate.employerDomain?.toLowerCase() && recruiterEmailLocalPartMatchesName(candidate.recruiterName, local); });
       if (found) { candidate.email = found; candidate.emailStatus = "UNVERIFIED"; metrics.publiclyDiscoveredEmails++; }
     }
-    return { candidates: [...candidates.values()], metrics };
+    const orderedCandidates = [...candidates.values()].sort((a, b) => {
+      const aEvidence = a.discoveryEvidence.join(" ");
+      const bEvidence = b.discoveryEvidence.join(" ");
+      const aAge = postAgeDays(aEvidence);
+      const bAge = postAgeDays(bEvidence);
+      if (aAge !== bAge) return aAge - bAge;
+      const geo = geographyPriority(aEvidence, input.preferredLocations ?? []) - geographyPriority(bEvidence, input.preferredLocations ?? []);
+      if (geo !== 0) return geo;
+      return linkedinPostPriority(a.discoveryUrl) - linkedinPostPriority(b.discoveryUrl);
+    });
+    return { candidates: orderedCandidates, metrics };
   }
 }
