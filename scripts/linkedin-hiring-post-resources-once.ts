@@ -2,7 +2,7 @@ import { Database } from "../src/database/Database";
 import { ConfiguredCandidateProfileResolver } from "../src/candidates/ConfiguredCandidateProfileResolver";
 import { sourceList } from "../src/recruiters/PublicSearchProviderRegistry";
 
-const POST_URL = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"')]+|feed\/update\/urn:li:activity:\d+)/gi;
+const POST_URL = /(?:https?:\/\/)?(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"')&]+|feed\/update\/urn:li:activity:\d+)/gi;
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const HIRING = /we['’]?re hiring|we are hiring|my team is hiring|our team is hiring|hiring\s*[:\-–—]|looking for|send (?:your|me your) (?:resume|cv)|share (?:your|an updated) (?:resume|cv)|dm (?:me|us)|apply (?:here|now)|referrals? welcome/i;
 const TECH = /react(?:\.js)?|next(?:\.js)?|typescript|javascript|mern|frontend|front-end|full[ -]?stack|developer|engineer/i;
@@ -22,7 +22,18 @@ function canonical(value: string): string {
   } catch { return value.replace(/\/+$/, ""); }
 }
 
-function extractPosts(text: string): string[] { return [...new Set((text.match(POST_URL) ?? []).map(canonical))]; }
+function extractPosts(text: string): string[] {
+  const normalized = text
+    .replace(/&amp;/gi, "&")
+    .replace(/\\u002F/gi, "/")
+    .replace(/\\\//g, "/")
+    .replace(/%3A/gi, ":")
+    .replace(/%2F/gi, "/");
+  return [...new Set((normalized.match(POST_URL) ?? []).map((value) => {
+    const candidate = /^https?:\/\//i.test(value) ? value : `https://www.linkedin.com/${value.replace(/^\/+/, "")}`;
+    return canonical(candidate);
+  }))];
+}
 
 function relevant(text: string, skills: string[]): boolean {
   const value = clean(text).toLowerCase();
@@ -52,7 +63,9 @@ async function fetchSearch(url: string, signal: AbortSignal, headers?: Record<st
   const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 8000); const abort = () => controller.abort(); signal.addEventListener("abort", abort, { once: true });
   try {
     const response = await fetch(url, { signal: controller.signal, headers: { accept: "text/plain,text/html,application/json,*/*;q=0.8", "user-agent": "job-agent-linkedin-public-hiring-resources/1.0", ...(headers ?? {}) } });
-    return response.ok ? await response.text() : null;
+    const body = await response.text();
+    if (response.ok) return body;
+    return /linkedin\.com\/(?:posts\/|feed\/update\/)/i.test(body) ? body : null;
   } catch { return null; }
   finally { clearTimeout(timer); signal.removeEventListener("abort", abort); }
 }
