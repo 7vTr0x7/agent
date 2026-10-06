@@ -6,9 +6,10 @@ POSTGRES="${JOB_AGENT_LOCAL_POSTGRES:-job-agent-local-postgres}"
 RECRUITER="${JOB_AGENT_LOCAL_RECRUITER:-job-agent-local-recruiter}"
 CONTACTS="${JOB_AGENT_LOCAL_CONTACTS:-job-agent-local-contacts}"
 CONTENT="${JOB_AGENT_LOCAL_CONTENT:-job-agent-local-content}"
+LINKEDIN="${JOB_AGENT_LOCAL_LINKEDIN:-job-agent-local-linkedin}"
 NETWORK="${JOB_AGENT_LOCAL_NETWORK:-job-agent-local}"
 
-for container in "$CONTENT" "$CONTACTS" "$RECRUITER" "$APP" "$POSTGRES"; do
+for container in "$LINKEDIN" "$CONTENT" "$CONTACTS" "$RECRUITER" "$APP" "$POSTGRES"; do
   if docker inspect "$container" >/dev/null 2>&1; then
     docker stop "$container" >/dev/null
   fi

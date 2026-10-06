@@ -46,11 +46,26 @@ export function buildContactPromotion(input: ContactPromotionInput): { companyNa
 
 function runScript(script:string):void { const result=spawnSync(process.execPath,["node_modules/tsx/dist/cli.mjs",script],{stdio:"inherit",env:process.env}); if(result.status!==0) throw new Error(`${script} failed with exit code ${result.status??"unknown"}.`); }
 
-const LINKEDIN_HIRING_POST = /https?:\/\/(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/|feed\/update\/urn:li:activity:)/i;
-const HIRING_EVIDENCE = /we['’]?re hiring|we are hiring|my team is hiring|our team is hiring|hiring\s*[:\-–—]|looking for|send (?:your|me your) (?:resume|cv)|share (?:your|an updated) (?:resume|cv)|dm (?:me|us)|apply (?:here|now)|referrals? welcome/i;
+const LINKEDIN_HIRING_POST = /https?:\/\/(?:www\.)?linkedin\.com\/(?:posts\/[^\s<>"')&]+|feed\/update\/urn:li:activity:\d+)/i;
+const LINKEDIN_HIRING_PATH = /^\/(?:posts\/[^\s<>"')&]+|feed\/update\/urn:li:activity:\d+)$/i;
+const HIRING_EVIDENCE = /we['’]?\s+hiring|we\s+are\s+hiring|my\s+team\s+is\s+hiring|our\s+team\s+is\s+hiring|i['’]?\s+hiring|i\s+am\s+hiring|hiring\s+(?:for|:)|opening\s+(?:for|:)|job\s+opening|vacancy|urgent\s+opening|actively\s+hiring|position\s+available|join\s+(?:our|my)\s+team|send\s+(?:your|me\s+your)\s+(?:resume|cv)\s+to|share\s+(?:your|an\s+updated)\s+(?:resume|cv)\s+to|dm\s+(?:me|us)\s+(?:for|about|your)|referrals?\s+welcome/i;
+const TECH_ROLE = /(?:frontend|front-end|front\s+end|react(?:\.js)?|next(?:\.js)?|typescript|javascript|mern|full[ -]?stack|node(?:\.js)?|express(?:\.js)?|web\s+developer|software\s+(?:developer|engineer)|(?:software|frontend|full[ -]?stack|web)\s+engineer)/i;
+
+function validLinkedInHiringEvidence(sourceUrl:string,evidenceContext:string):boolean {
+  try {
+    const url=new URL(sourceUrl);
+    return url.protocol === "https:" &&
+      url.hostname.toLowerCase() === "www.linkedin.com" &&
+      LINKEDIN_HIRING_PATH.test(url.pathname) &&
+      HIRING_EVIDENCE.test(evidenceContext) &&
+      TECH_ROLE.test(evidenceContext);
+  } catch {
+    return false;
+  }
+}
 
 function recruiterRelevance(sourceUrl:string,evidenceContext:string):"CURRENT"|"RECENT"|"UNKNOWN" {
-  return LINKEDIN_HIRING_POST.test(sourceUrl) && HIRING_EVIDENCE.test(evidenceContext) ? "RECENT" : "UNKNOWN";
+  return validLinkedInHiringEvidence(sourceUrl,evidenceContext) ? "RECENT" : "UNKNOWN";
 }
 
 async function main():Promise<void>{
@@ -78,6 +93,10 @@ async function main():Promise<void>{
     let inserted=0;let existing=0;let suppressed=0;let recruiterIdentityCreated=0;
     for(const row of result.rows){
       if(!isSafePublicEmail(row.email)){suppressed+=1;continue;}
+      if(row.source_type === "LINKEDIN_POST" && !validLinkedInHiringEvidence(row.source_url,row.evidence_context)){
+        suppressed+=1;
+        continue;
+      }
       let companyName:string;
       const companyMatch=row.evidence_context.match(/(?:^|\|\s*)Company:\s*([^|]+)/i);
       try{companyName=companyMatch?.[1]?.trim()||row.email.split("@")[1]?.split(".")[0]?.replace(/[-_]+/g," ")||new URL(row.source_url).hostname;}catch{companyName=companyMatch?.[1]?.trim()||row.email.split("@")[1]?.split(".")[0]?.replace(/[-_]+/g," ")||"";}
@@ -135,6 +154,24 @@ async function main():Promise<void>{
           [promotion.companyName,domain,contactId,Math.round(promotion.relevanceScore),promotion.validationStatus,promotion.validationStatus==="LIKELY"?"EXISTS":"UNKNOWN",recruiterEvidence,recruiterRelevanceStatus,identityKey]
         );
         recruiterIdentityCreated+=1;
+      }
+
+      const recruiterIdentity = await database.query<{id:string}>(
+        `SELECT id FROM recruiter_contacts WHERE contact_id=$1 OR identity_key=$2 LIMIT 1`,
+        [contactId,identityKey]
+      );
+      const recruiterContactId = recruiterIdentity.rows[0]?.id;
+      if(recruiterContactId){
+        await database.query(
+          `INSERT INTO recruiter_contact_sources
+             (recruiter_contact_id,provider,source_url,source_type,confidence,observed_at,created_at)
+           VALUES($1,'public-contact-resource',$2,'LINKEDIN_POST',$3,NOW(),NOW())
+           ON CONFLICT(recruiter_contact_id,provider,source_url) DO UPDATE SET
+             source_type=EXCLUDED.source_type,
+             confidence=GREATEST(COALESCE(recruiter_contact_sources.confidence,0),EXCLUDED.confidence),
+             observed_at=NOW()`,
+          [recruiterContactId,promotion.sourceUrl,Math.round(promotion.relevanceScore)]
+        );
       }
     }
     const contactCount=await database.query<{count:string}>(`SELECT COUNT(*)::text AS count FROM contacts WHERE suppressed=FALSE AND validation_status IN ('LIKELY','VERIFIED') AND relevance_score>=60 AND source_url IS NOT NULL AND provenance->>'publicEvidence'='true'`);
