@@ -101,6 +101,35 @@ describe("ProactiveRecruiterRepository hiring-post persistence", () => {
     expect(isEmployerEmailDomainConsistent("recruiter@othercorp.example", "acme.example")).toBe(false);
   });
 
+  it("filters ineligible contact-first rows before applying the candidate limit", async () => {
+    const database = {
+      query: jest.fn().mockResolvedValue({
+        rows: [
+          {
+            recruiterContactId: "contact-1",
+            companyName: "Acme",
+            companyDomain: "acme.example",
+            email: "recruiter@acme.example",
+            sourceUrl: "https://www.linkedin.com/posts/acme-hiring-123",
+            fullName: "Jane Doe"
+          }
+        ]
+      })
+    };
+    const repository = new ProactiveRecruiterRepository(database as never);
+
+    const result = await repository.listPublicContactFirstCandidates(10);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.email).toBe("recruiter@acme.example");
+    const sql = String(database.query.mock.calls[0]?.[0]);
+    expect(sql).toContain("email_status");
+    expect(sql).toContain("recruiter_suppressions");
+    expect(sql).toContain("company_domain");
+    expect(sql).toContain("png");
+    expect(sql).toContain("octopus technologies");
+  });
+
   it("rejects a search-engine result without genuine identity evidence", async () => {
     const database = { query: jest.fn() };
     const repository = new ProactiveRecruiterRepository(database as never);
