@@ -60,6 +60,7 @@ fi
 remove_container "$CONTENT"
 remove_container "$CONTACTS"
 remove_container "$RECRUITER"
+remove_container "$LINKEDIN"
 
 if ! docker inspect "$POSTGRES" >/dev/null 2>&1; then
   if ! docker volume inspect "$POSTGRES_VOLUME" >/dev/null 2>&1; then
