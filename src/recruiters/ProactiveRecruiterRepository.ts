@@ -77,11 +77,12 @@ export class ProactiveRecruiterRepository {
         rc.full_name AS "fullName"
       FROM recruiter_contacts rc
       JOIN contacts canonical_contact ON canonical_contact.id=rc.contact_id
-      WHERE COALESCE(rc.suppressed,FALSE)=FALSE
+      WHERE ${recruiterSimplePublicContactEligibilitySql("rc")}
         AND COALESCE(canonical_contact.suppressed,FALSE)=FALSE
-        AND canonical_contact.email IS NOT NULL
-        AND UPPER(COALESCE(rc.email_status,'')) IN ('UNVERIFIED','LIKELY','VERIFIED')
-      ORDER BY rc.last_seen_at DESC NULLS LAST, rc.updated_at DESC
+      ORDER BY
+        CASE UPPER(COALESCE(rc.relevance_status,'')) WHEN 'CURRENT' THEN 0 WHEN 'RECENT' THEN 1 WHEN 'UNKNOWN' THEN 2 ELSE 3 END,
+        rc.last_seen_at DESC NULLS LAST,
+        rc.updated_at DESC
       LIMIT $1`, [boundedLimit]);
     return result.rows;
   }
