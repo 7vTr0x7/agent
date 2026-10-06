@@ -17,28 +17,70 @@ function clean(value: string): string {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&#64;|&#x40;/gi, "@").replace(/&#46;|&#x2e;/gi, ".").replace(/\s+/g, " ").trim();
 }
 
+function decodeRepeated(value: string): string {
+  let current = value;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const decoded = decodeURIComponent(current);
+      if (decoded === current) break;
+      current = decoded;
+    } catch {
+      break;
+    }
+  }
+  return current;
+}
+
 function canonical(value: string): string | null {
   try {
-    const raw = (value.trim().split("](")[0] ?? "").split(")(")[0] ?? "";
-    const cleanedRaw = raw.replace(/[\\\]},.;)]+$/g, "");
-    const candidate = /^https?:\/\//i.test(cleanedRaw) ? cleanedRaw : "https://www.linkedin.com/" + cleanedRaw.replace(/^\/+/, "");
+    let raw = decodeRepeated((value.trim().split("](")[0] ?? "").split(")(")[0] ?? "")
+      .replace(/&amp;/gi, "&")
+      .replace(/[\\\]},.;)]+$/g, "");
+
+    // Search providers sometimes expose the same LinkedIn host twice
+    // (for example https://www.linkedin.com/www.linkedin.com/posts/...).
+    raw = raw.replace(
+      /^https?:\/\/(?:www\.)?linkedin\.com\/(?:www\.)?linkedin\.com\//i,
+      "https://www.linkedin.com/"
+    );
+
+    // Never persist a search-provider wrapper as though it were a LinkedIn post.
+    if (/^https?:\/\/(?:www\.)?(?:duckduckgo|bing|google|yahoo|qwant)\./i.test(raw)) {
+      return null;
+    }
+
+    const candidate = /^https?:\/\//i.test(raw) ? raw : "https://www.linkedin.com/" + raw.replace(/^\/+/, "");
     const url = new URL(candidate);
     if (!/^https?:$/.test(url.protocol) || !LINKEDIN_HOST.test(url.hostname) || !LINKEDIN_PATH.test(url.pathname)) return null;
     url.hash = "";
-    ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "trk", "trackingId", "refId", "lipi"].forEach((key) => url.searchParams.delete(key));
+    ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "trk", "trackingId", "refId", "lipi", "rut"].forEach((key) => url.searchParams.delete(key));
     url.hostname = "www.linkedin.com";
     return url.toString().replace(/\/$/, "");
   } catch { return null; }
 }
 
 function extractPosts(text: string): string[] {
-  const normalized = text
-    .replace(/&amp;/gi, "&")
-    .replace(/\\u002F/gi, "/")
-    .replace(/\\\//g, "/")
+  const decoded = decodeRepeated(
+    text
+      .replace(/&amp;/gi, "&")
+      .replace(/\\u002F/gi, "/")
+      .replace(/\\\//g, "/")
+  );
+
+  // Extract redirect targets such as DuckDuckGo's ?uddg=<encoded LinkedIn URL>
+  // before scanning the surrounding search-result HTML.
+  const redirectTargets = [...decoded.matchAll(/[?&](?:uddg|url|u)=([^&\s"<>]+)/gi)]
+    .map((match) => decodeRepeated(match[1] ?? ""))
+    .join("\n");
+
+  const normalized = [decoded, redirectTargets]
+    .join("\n")
     .replace(/%3A/gi, ":")
     .replace(/%2F/gi, "/");
-  return [...new Set((normalized.match(POST_URL) ?? []).map((value) => canonical(value)).filter((value): value is string => Boolean(value)))];
+
+  return [...new Set((normalized.match(POST_URL) ?? [])
+    .map((value) => canonical(value))
+    .filter((value): value is string => Boolean(value)))];
 }
 
 function relevant(text: string, skills: string[]): boolean {
