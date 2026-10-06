@@ -2,10 +2,13 @@ import { Database } from "../src/database/Database";
 import { ConfiguredCandidateProfileResolver } from "../src/candidates/ConfiguredCandidateProfileResolver";
 import { sourceList } from "../src/recruiters/PublicSearchProviderRegistry";
 
-const POST_URL = /(?:https?:\/\/)?(?:www\.|[a-z]{2}\.)?linkedin\.com\/(?:posts\/[^\s<>"')&]+|feed\/update\/urn:li:activity:\d+)/gi;
+const POST_URL = /(?:https?:\/\/)?(?:www\.)?linkedin\.com\/(?:posts\/[^\s<>"')&]+|feed\/update\/urn:li:activity:\d+)/gi;
+const LINKEDIN_HOST = /^(?:www\.)?linkedin\.com$/i;
+const LINKEDIN_PATH = /^\/(?:posts\/[^\s<>"')&]+|feed\/update\/urn:li:activity:\d+)$/i;
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const HIRING = /we['’]?re hiring|we are hiring|my team is hiring|our team is hiring|hiring\s*[:\-–—]|looking for|send (?:your|me your) (?:resume|cv)|share (?:your|an updated) (?:resume|cv)|dm (?:me|us)|apply (?:here|now)|referrals? welcome/i;
-const TECH = /react(?:\.js)?|next(?:\.js)?|typescript|javascript|mern|frontend|front-end|full[ -]?stack|developer|engineer/i;
+const STRONG_HIRING = /we['’]?\s+hiring|we\s+are\s+hiring|my\s+team\s+is\s+hiring|our\s+team\s+is\s+hiring|i['’]?\s+hiring|i\s+am\s+hiring|hiring\s+(?:for|:)|opening\s+(?:for|:)|job\s+opening|vacancy|urgent\s+opening|actively\s+hiring|position\s+available|join\s+(?:our|my)\s+team|send\s+(?:your|me\s+your)\s+(?:resume|cv)\s+to|share\s+(?:your|an\s+updated)\s+(?:resume|cv)\s+to|dm\s+(?:me|us)\s+(?:for|about|your)|referrals?\s+welcome/i;
+const TECH_ROLE = /(?:frontend|front-end|front\s+end|react(?:\.js)?|next(?:\.js)?|typescript|javascript|mern|full[ -]?stack|node(?:\.js)?|express(?:\.js)?|web\s+developer|software\s+(?:developer|engineer)|(?:software|frontend|full[ -]?stack|web)\s+engineer)/i;
+const TECH = /react(?:\.js)?|next(?:\.js)?|typescript|javascript|mern|frontend|front-end|full[ -]?stack|node(?:\.js)?|express(?:\.js)?|developer|engineer/i;
 const BLOCKED_LOCAL = /^(?:support|info|admin|press|media|legal|privacy|marketing|sales|hello|contact|help|feedback|abuse|postmaster|webmaster|noreply|no-reply|donotreply|automation|automated|bot|machine|system)$/i;
 const GENERIC_DOMAINS = new Set(["gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com", "proton.me", "protonmail.com"]);
 const NON_RECRUITING = /customer support|technical support|sales|billing|privacy|legal|security|press|media|partnerships?|helpdesk|procurement|accounting|finance|customer success|marketing/i;
@@ -14,12 +17,17 @@ function clean(value: string): string {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&#64;|&#x40;/gi, "@").replace(/&#46;|&#x2e;/gi, ".").replace(/\s+/g, " ").trim();
 }
 
-function canonical(value: string): string {
+function canonical(value: string): string | null {
   try {
-    const url = new URL(value); url.hash = "";
+    const raw = value.trim().replace(/[\\])},.;]+$/g, "");
+    const candidate = /^https?:\/\//i.test(raw) ? raw : "https://www.linkedin.com/" + raw.replace(/^\/+/, "");
+    const url = new URL(candidate);
+    if (!/^https?:$/.test(url.protocol) || !LINKEDIN_HOST.test(url.hostname) || !LINKEDIN_PATH.test(url.pathname)) return null;
+    url.hash = "";
     ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "trk", "trackingId", "refId", "lipi"].forEach((key) => url.searchParams.delete(key));
+    url.hostname = "www.linkedin.com";
     return url.toString().replace(/\/$/, "");
-  } catch { return value.replace(/\/+$/, ""); }
+  } catch { return null; }
 }
 
 function extractPosts(text: string): string[] {
@@ -29,10 +37,7 @@ function extractPosts(text: string): string[] {
     .replace(/\\\//g, "/")
     .replace(/%3A/gi, ":")
     .replace(/%2F/gi, "/");
-  return [...new Set((normalized.match(POST_URL) ?? []).map((value) => {
-    const candidate = /^https?:\/\//i.test(value) ? value : `https://www.linkedin.com/${value.replace(/^\/+/, "")}`;
-    return canonical(candidate);
-  }))];
+  return [...new Set((normalized.match(POST_URL) ?? []).map((value) => canonical(value)).filter((value): value is string => Boolean(value)))];
 }
 
 function relevant(text: string, skills: string[]): boolean {
@@ -40,6 +45,17 @@ function relevant(text: string, skills: string[]): boolean {
   if (!HIRING.test(value) || !TECH.test(value)) return false;
   const normalizedSkills = skills.map((skill) => skill.toLowerCase()).filter(Boolean);
   return !normalizedSkills.length || normalizedSkills.some((skill) => value.includes(skill));
+}
+
+function validPostTitle(text: string): string {
+  const value = clean(text)
+    .replace(/(?:\[[^\]]*\]\()?https?:\/\/[^\s)]+\)?/gi, " ")
+    .replace(/\b(?:duckduckgo|bing|google|yahoo|startpage|ecosia)\b.*$/i, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const match = value.match(/(?:we['’]?re hiring|we are hiring|my team is hiring|our team is hiring|hiring|opening|vacancy|position available)\s*[:\-–—]?\s*([^.!?]{3,180})/i);
+  const candidate = match?.[1]?.trim() || value.slice(0, 180);
+  return candidate.replace(/^[\s"'“”‘’:#-]+|[\s"'“”‘’]+$/g, "").slice(0, 300) || "LinkedIn technical hiring post";
 }
 
 function recruitingEmails(text: string): string[] {
@@ -115,9 +131,39 @@ async function main(): Promise<void> {
     `site:linkedin.com/posts "Frontend Engineer" Pune React`,
     `site:linkedin.com/posts "send your resume" React India`,
     `site:linkedin.com/posts "share your CV" React India`,
-  ])].slice(0, Math.max(1, Math.min(Number(process.env.LINKEDIN_HIRING_POST_RESOURCE_MAX_QUERIES ?? 12), 16)));
+    `site:linkedin.com/posts "hiring" "React" India`,
+    `site:linkedin.com/posts "hiring" "Next.js" India`,
+    `site:linkedin.com/posts "hiring" "Node.js" India`,
+    `site:linkedin.com/posts "hiring" "JavaScript" India`,
+    `site:linkedin.com/posts "hiring" "TypeScript" India`,
+    `site:linkedin.com/posts "hiring" "MERN" India`,
+    `site:linkedin.com/posts "opening" "React Developer" India`,
+    `site:linkedin.com/posts "opening" "Frontend Engineer" India`,
+    `site:linkedin.com/posts "urgent opening" React India`,
+    `site:linkedin.com/posts "actively hiring" React India`,
+    `site:linkedin.com/posts "join our team" React India`,
+    `site:linkedin.com/posts "send your resume to" React India`,
+    `site:linkedin.com/posts "DM me" "Frontend Developer" India`,
+    `site:linkedin.com/posts "we're hiring" "Frontend Engineer" India`,
+    `site:linkedin.com/posts "we are hiring" "React Developer" India`,
+    `site:linkedin.com/posts "my team is hiring" "Frontend" India`,
+    `site:linkedin.com/posts "full stack developer" hiring Bengaluru`,
+    `site:linkedin.com/posts "full stack developer" hiring Bangalore`,
+    `site:linkedin.com/posts "frontend developer" hiring Bengaluru`,
+    `site:linkedin.com/posts "frontend developer" hiring Bangalore`,
+    `site:linkedin.com/posts "React developer" hiring Pune`,
+    `site:linkedin.com/posts "Next.js developer" hiring Pune`,
+    `site:linkedin.com/posts "software engineer" hiring India React`,
+    `site:linkedin.com/posts "software developer" hiring India JavaScript`,
+    `site:linkedin.com/posts "Node.js developer" hiring India`,
+    `site:linkedin.com/posts "TypeScript developer" hiring India`,
+    `site:linkedin.com/posts "React engineer" hiring India`,
+    `site:linkedin.com/posts "frontend engineer" hiring India`,
+    `site:linkedin.com/posts "MERN developer" hiring India`,
+    `site:linkedin.com/posts "web developer" hiring India React`,
+  ])].slice(0, Math.max(1, Math.min(Number(process.env.LINKEDIN_HIRING_POST_RESOURCE_MAX_QUERIES ?? 48), 64)));
   const skills = [...profile.skills];
-  const signal = AbortSignal.timeout(Number(process.env.LINKEDIN_HIRING_POST_RESOURCE_TIMEOUT_MS ?? 90000));
+  const signal = AbortSignal.timeout(Number(process.env.LINKEDIN_HIRING_POST_RESOURCE_TIMEOUT_MS ?? 300000));
   const db = new Database(process.env.DATABASE_URL ?? "");
   const seen = new Set<string>();
   let discovered = 0; let relevantPosts = 0; let persisted = 0; let emailsExtracted = 0; let contactRowsPersisted = 0; let directLinkedInFetches = 0; let postFetchFailures = 0;
@@ -132,12 +178,12 @@ async function main(): Promise<void> {
           const fetched = await fetchLinkedInPost(postUrl, signal);
           if (fetched.direct) directLinkedInFetches++;
           if (!fetched.text) postFetchFailures++;
-          const content = clean(`${searchEvidence} ${fetched.text ?? ""}`);
+          const fetchedContent = clean(fetched.text ?? "");
+          const content = clean(fetchedContent + " " + searchEvidence);
           if (!relevant(content, skills)) continue;
           relevantPosts++;
           const emails = recruitingEmails(content); emailsExtracted += emails.length;
-          const match = content.match(/(?:hiring|we['’]?re hiring|we are hiring)\s*[:\-–—]?\s*([^.!?]{3,140})/i);
-          const title = match?.[1]?.trim().slice(0, 300) || "LinkedIn hiring post";
+          const title = validPostTitle(fetchedContent || searchEvidence);
           const resource = await db.query<{ id: string }>(
             `INSERT INTO public_contact_resources(source_url,source_type,title,discovered_at,status,records_seen,emails_extracted,emails_normalized,invalid_emails,duplicate_emails,qualified_contacts)
              VALUES($1,'LINKEDIN_POST',$2,NOW(),'DISCOVERED',1,$3,$3,0,0,$4)
