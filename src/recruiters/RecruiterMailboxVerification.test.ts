@@ -107,6 +107,20 @@ describe("RecruiterMailboxVerification", () => {
     })).toBe(false);
   });
 
+  it("rejects a non-generic email domain that contradicts a known company domain", () => {
+    const base = {
+      email: "recruiter@other-company.com",
+      companyDomain: "company.com",
+      verified: false,
+      mailboxEvidence: false,
+      emailStatus: "LIKELY",
+      verificationStatus: "unknown",
+      verificationEvidence: [],
+      suppressed: false
+    };
+    expect(isEligibleForRealRecruiterSend(base)).toBe(false);
+  });
+
   it("rejects malformed and unsupported email states", () => {
     expect(isEligibleForRealRecruiterSend({ email: "not-an-email", emailStatus: "UNVERIFIED", suppressed: false })).toBe(false);
     expect(isEligibleForRealRecruiterSend({ email: "recruiter@company.com", emailStatus: "INVALID", suppressed: false })).toBe(false);
