@@ -42,7 +42,7 @@ function extractPosts(text: string): string[] {
 
 function relevant(text: string, skills: string[]): boolean {
   const value = clean(text).toLowerCase();
-  if (!HIRING.test(value) || !TECH.test(value)) return false;
+  if (!STRONG_HIRING.test(value) || !TECH_ROLE.test(value) || !TECH.test(value)) return false;
   const normalizedSkills = skills.map((skill) => skill.toLowerCase()).filter(Boolean);
   return !normalizedSkills.length || normalizedSkills.some((skill) => value.includes(skill));
 }
