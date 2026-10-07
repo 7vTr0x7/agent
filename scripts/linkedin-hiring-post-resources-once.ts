@@ -240,10 +240,10 @@ async function main(): Promise<void> {
           const emails = recruitingEmails(content); emailsExtracted += emails.length;
           const title = validPostTitle(fetchedContent || searchEvidence);
           const resource = await db.query<{ id: string }>(
-            \`INSERT INTO public_contact_resources(source_url,source_type,title,discovered_at,posted_at,status,records_seen,emails_extracted,emails_normalized,invalid_emails,duplicate_emails,qualified_contacts)
+            `INSERT INTO public_contact_resources(source_url,source_type,title,discovered_at,posted_at,status,records_seen,emails_extracted,emails_normalized,invalid_emails,duplicate_emails,qualified_contacts)
              VALUES($1,'LINKEDIN_POST',$2,NOW(),$3,'DISCOVERED',1,$4,$4,0,0,$5)
              ON CONFLICT(source_url) DO UPDATE SET title=EXCLUDED.title, posted_at=COALESCE(EXCLUDED.posted_at, public_contact_resources.posted_at), records_seen=GREATEST(public_contact_resources.records_seen, EXCLUDED.records_seen), emails_extracted=GREATEST(public_contact_resources.emails_extracted, EXCLUDED.emails_extracted), emails_normalized=GREATEST(public_contact_resources.emails_normalized, EXCLUDED.emails_normalized), qualified_contacts=GREATEST(public_contact_resources.qualified_contacts, EXCLUDED.qualified_contacts)
-             RETURNING id\`,
+             RETURNING id`,
             [postUrl, title, postedAt?.toISOString() ?? null, emails.length, emails.length]
           );
           const resourceId = resource.rows[0]?.id;
