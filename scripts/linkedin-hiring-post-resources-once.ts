@@ -1,6 +1,7 @@
 import { Database } from "../src/database/Database";
 import { ConfiguredCandidateProfileResolver } from "../src/candidates/ConfiguredCandidateProfileResolver";
 import { sourceList } from "../src/recruiters/PublicSearchProviderRegistry";
+import { extractLinkedInPostPublishedAt, isWithinLinkedInRecentWindow, linkedinRecentPostCutoff } from "../src/recruiters/LinkedInPostDate";
 
 const POST_URL = /(?:https?:\/\/)?(?:www\.)?linkedin\.com\/(?:posts\/[^\s<>"')&]+|feed\/update\/urn:li:activity:\d+)/gi;
 const LINKEDIN_HOST = /^(?:www\.)?linkedin\.com$/i;
@@ -206,33 +207,44 @@ async function main(): Promise<void> {
     `site:linkedin.com/posts "web developer" hiring India React`,
   ])].slice(0, Math.max(1, Math.min(Number(process.env.LINKEDIN_HIRING_POST_RESOURCE_MAX_QUERIES ?? 48), 64)));
   const skills = [...profile.skills];
+  const cutoff = linkedinRecentPostCutoff(new Date());
+  const queriesWithRecency = queries.map((query) => `${query} after:${cutoff.toISOString().slice(0, 10)}`);
   const signal = AbortSignal.timeout(Number(process.env.LINKEDIN_HIRING_POST_RESOURCE_TIMEOUT_MS ?? 300000));
   const db = new Database(process.env.DATABASE_URL ?? "");
   const seen = new Set<string>();
   let discovered = 0; let relevantPosts = 0; let persisted = 0; let emailsExtracted = 0; let contactRowsPersisted = 0; let directLinkedInFetches = 0; let postFetchFailures = 0;
   try {
-    for (const query of queries) {
+    for (const query of queriesWithRecency) {
       if (signal.aborted) break;
       for (const page of await search(query, signal)) {
-        for (const postUrl of extractPosts(page)) {
+        const candidates = extractPosts(page)
+          .map((postUrl) => {
+            const searchEvidence = evidenceFor(page, postUrl);
+            return { postUrl, searchEvidence, postedAt: extractLinkedInPostPublishedAt(searchEvidence) };
+          })
+          .filter((candidate) => isWithinLinkedInRecentWindow(candidate.postedAt))
+          .sort((a, b) => (b.postedAt?.getTime() ?? 0) - (a.postedAt?.getTime() ?? 0));
+        for (const candidate of candidates) {
+          const { postUrl, searchEvidence } = candidate;
           if (seen.has(postUrl)) continue;
           seen.add(postUrl); discovered++;
-          const searchEvidence = evidenceFor(page, postUrl);
           const fetched = await fetchLinkedInPost(postUrl, signal);
           if (fetched.direct) directLinkedInFetches++;
           if (!fetched.text) postFetchFailures++;
           const fetchedContent = clean(fetched.text ?? "");
           const content = clean(fetchedContent + " " + searchEvidence);
+          const postedAt = extractLinkedInPostPublishedAt(fetched.text ?? "") ?? candidate.postedAt;
+          if (!isWithinLinkedInRecentWindow(postedAt)) continue;
           if (!relevant(content, skills)) continue;
           relevantPosts++;
           const emails = recruitingEmails(content); emailsExtracted += emails.length;
           const title = validPostTitle(fetchedContent || searchEvidence);
           const resource = await db.query<{ id: string }>(
-            `INSERT INTO public_contact_resources(source_url,source_type,title,discovered_at,status,records_seen,emails_extracted,emails_normalized,invalid_emails,duplicate_emails,qualified_contacts)
-             VALUES($1,'LINKEDIN_POST',$2,NOW(),'DISCOVERED',1,$3,$3,0,0,$4)
-             ON CONFLICT(source_url) DO UPDATE SET title=EXCLUDED.title, records_seen=GREATEST(public_contact_resources.records_seen, EXCLUDED.records_seen), emails_extracted=GREATEST(public_contact_resources.emails_extracted, EXCLUDED.emails_extracted), emails_normalized=GREATEST(public_contact_resources.emails_normalized, EXCLUDED.emails_normalized), qualified_contacts=GREATEST(public_contact_resources.qualified_contacts, EXCLUDED.qualified_contacts)
-             RETURNING id`,
-            [postUrl, title, emails.length, emails.length]
+            \`INSERT INTO public_contact_resources(source_url,source_type,title,discovered_at,posted_at,status,records_seen,emails_extracted,emails_normalized,invalid_emails,duplicate_emails,qualified_contacts)
+             VALUES($1,'LINKEDIN_POST',$2,NOW(),$3,'DISCOVERED',1,$4,$4,0,0,$5)
+             ON CONFLICT(source_url) DO UPDATE SET title=EXCLUDED.title, posted_at=COALESCE(EXCLUDED.posted_at, public_contact_resources.posted_at), records_seen=GREATEST(public_contact_resources.records_seen, EXCLUDED.records_seen), emails_extracted=GREATEST(public_contact_resources.emails_extracted, EXCLUDED.emails_extracted), emails_normalized=GREATEST(public_contact_resources.emails_normalized, EXCLUDED.emails_normalized), qualified_contacts=GREATEST(public_contact_resources.qualified_contacts, EXCLUDED.qualified_contacts)
+             RETURNING id\`,
+            [postUrl, title, postedAt?.toISOString() ?? null, emails.length, emails.length]
           );
           const resourceId = resource.rows[0]?.id;
           if (resourceId) {
@@ -253,7 +265,7 @@ async function main(): Promise<void> {
         }
       }
     }
-    console.log(JSON.stringify({ queries: queries.length, discovered, relevantPosts, persisted, emailsExtracted, contactRowsPersisted, sourceType: "LINKEDIN_POST", directLinkedInFetches, postFetchFailures }, null, 2));
+    console.log(JSON.stringify({ queries: queriesWithRecency.length, cutoff: cutoff.toISOString(), discovered, relevantPosts, persisted, emailsExtracted, contactRowsPersisted, sourceType: "LINKEDIN_POST", directLinkedInFetches, postFetchFailures }, null, 2));
   } finally { await db.close(); }
 }
 
