@@ -673,9 +673,16 @@ export class PublicHiringPostDiscoveryProvider {
     const orderedCandidates = [...candidates.values()].sort((a, b) => {
       const aPosted = a.postedAt ? Date.parse(a.postedAt) : NaN;
       const bPosted = b.postedAt ? Date.parse(b.postedAt) : NaN;
-      if (Number.isFinite(aPosted) && Number.isFinite(bPosted) && aPosted !== bPosted) return bPosted - aPosted;
-      if (Number.isFinite(aPosted)) return -1;
-      if (Number.isFinite(bPosted)) return 1;
+      const postedTieWindowMs = 60_000;
+      if (Number.isFinite(aPosted) && Number.isFinite(bPosted)) {
+        const postedDelta = bPosted - aPosted;
+        // Public search/index sources can expose the same LinkedIn post with
+        // slightly different timestamp precision. Treat timestamps within one
+        // minute as the same publication instant so geography can break ties;
+        // otherwise preserve strict newest-first ordering.
+        if (Math.abs(postedDelta) > postedTieWindowMs) return postedDelta;
+      } else if (Number.isFinite(aPosted)) return -1;
+      else if (Number.isFinite(bPosted)) return 1;
       const aEvidence = a.discoveryEvidence.join(" ");
       const bEvidence = b.discoveryEvidence.join(" ");
       const aAge = postAgeDays(aEvidence);
