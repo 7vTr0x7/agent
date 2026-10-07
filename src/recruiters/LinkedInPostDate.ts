@@ -11,6 +11,28 @@ function parseDate(value: string): Date | undefined {
   return Number.isFinite(parsed.getTime()) ? parsed : undefined;
 }
 
+const LINKEDIN_ACTIVITY_ID = /(?:activity-|urn:li:activity:)(\\d{15,25})/i;
+
+/**
+ * LinkedIn activity IDs embed the post creation timestamp in their high bits.
+ * Decoding the ID gives us an exact UTC publication instant even when search
+ * engines or the public LinkedIn page only expose a relative age such as 2d.
+ */
+export function extractLinkedInPostPublishedAtFromUrl(input: string): Date | undefined {
+  const match = input.match(LINKEDIN_ACTIVITY_ID);
+  if (!match?.[1]) return undefined;
+  try {
+    const activityId = BigInt(match[1]);
+    const epochMilliseconds = activityId >> 22n;
+    const milliseconds = Number(epochMilliseconds);
+    if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) return undefined;
+    const date = new Date(milliseconds);
+    return Number.isFinite(date.getTime()) ? date : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function fromEpoch(value: string, now: Date): Date | undefined {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return undefined;
@@ -41,6 +63,8 @@ function relativeDate(input: string, now: Date): Date | undefined {
 }
 
 export function extractLinkedInPostPublishedAt(input: string, now = new Date()): Date | undefined {
+  const urlDate = extractLinkedInPostPublishedAtFromUrl(input);
+  if (urlDate) return urlDate;
   const raw = input.slice(0, 200_000);
 
   const metaPatterns = [
