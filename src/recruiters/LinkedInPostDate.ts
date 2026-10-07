@@ -30,7 +30,14 @@ function relativeDate(input: string, now: Date): Date | undefined {
     /^d/.test(unit) ? amount * 86_400_000 :
     /^w/.test(unit) ? amount * 7 * 86_400_000 :
     amount * 30 * 86_400_000;
-  return new Date(now.getTime() - milliseconds);
+  const date = new Date(now.getTime() - milliseconds);
+  // Relative LinkedIn timestamps are only precise to the displayed unit.
+  // Normalize the lower-order fields so two posts both reported as "3d"
+  // compare equally and geography can break the tie deterministically.
+  if (/^min/.test(unit)) date.setSeconds(0, 0);
+  else if (/^h/.test(unit)) date.setMinutes(0, 0, 0);
+  else date.setHours(0, 0, 0, 0);
+  return date;
 }
 
 export function extractLinkedInPostPublishedAt(input: string, now = new Date()): Date | undefined {
