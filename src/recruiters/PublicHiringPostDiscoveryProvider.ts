@@ -2,6 +2,7 @@ import type { ProactiveRecruiterDiscoveryCandidate } from "./ProactiveRecruiterD
 import { sourceList } from "./PublicSearchProviderRegistry";
 import type { SourceId } from "./PublicSearchProviderRegistry";
 import { isPlausibleMailboxAddress } from "./RecruiterMailboxVerification";
+import { extractLinkedInPostPublishedAt, isWithinLinkedInRecentWindow, linkedinRecentPostCutoff } from "./LinkedInPostDate";
 
 export interface PublicHiringPostDiscoveryMetrics {
   queriesGenerated: number;
@@ -493,7 +494,13 @@ function geographyPriority(evidence: string, preferredLocations: string[] = []):
   return 2;
 }
 function linkedinPostPriority(url: string): number { return /linkedin\.com\/posts\//i.test(url) || /linkedin\.com\/feed\/update\//i.test(url) ? 0 : 1; }
-function comparePostEvidence(a: {url:string;text:string;discoveryText:string;source:string}, b: {url:string;text:string;discoveryText:string;source:string}, preferredLocations: string[]): number {
+function comparePostEvidence(a: {url:string;text:string;discoveryText:string;source:string;postedAt?:Date}, b: {url:string;text:string;discoveryText:string;source:string;postedAt?:Date}, preferredLocations: string[]): number {
+  if (a.postedAt && b.postedAt) {
+    const aPosted = a.postedAt.getTime();
+    const bPosted = b.postedAt.getTime();
+    if (aPosted !== bPosted) return bPosted - aPosted;
+  } else if (a.postedAt) return -1;
+  else if (b.postedAt) return 1;
   const aAge = postAgeDays(a.text + " " + a.discoveryText);
   const bAge = postAgeDays(b.text + " " + b.discoveryText);
   if (aAge !== bAge) return aAge - bAge;
@@ -513,14 +520,16 @@ export class PublicHiringPostDiscoveryProvider {
     const roleTerms = input.targetRoles.length ? input.targetRoles.slice(0, 6) : ["Frontend Engineer","Frontend Developer","React Developer","Next.js Developer"];
     const now = new Date();
     const isoDay = (daysAgo: number) => new Date(now.getTime() - daysAgo * 86400000).toISOString().slice(0, 10);
+    const cutoff = linkedinRecentPostCutoff(now);
     const dateWindows = [
       `after:${isoDay(1)}`,
       `after:${isoDay(3)}`,
       `after:${isoDay(7)}`,
+      `after:${isoDay(14)}`,
       `after:${isoDay(30)}`,
+      `after:${isoDay(60)}`,
       `after:${isoDay(90)}`,
-      `after:${isoDay(180)}`,
-      `after:${isoDay(365)}`
+      `after:${cutoff.toISOString().slice(0, 10)}`
     ];
     const indiaLocations = ["India","Bengaluru","Bangalore","Pune","Hyderabad","Chennai","Mumbai","Delhi","Gurugram","Noida","Remote India"];
     const linkedinQueries = dateWindows.flatMap(window =>
@@ -539,7 +548,7 @@ export class PublicHiringPostDiscoveryProvider {
       `"Frontend Developer" "TypeScript" Pune`,
       `"React Developer" "Next.js" Hyderabad`
     ];
-    const queryPool = [...linkedinQueries, ...linkedinRemoteQueries, ...broadQueries];
+    const queryPool = [...linkedinQueries, ...linkedinRemoteQueries, ...broadQueries.map((query) => `${query} after:${cutoff.toISOString().slice(0, 10)}`)];
     const normalizedOffset = Number.isInteger(input.queryOffset) && (input.queryOffset ?? 0) >= 0 ? Math.floor(input.queryOffset ?? 0) : 0;
     const queries = Array.from({ length: Math.min(maxQueries, queryPool.length) }, (_, index) => queryPool[(normalizedOffset + index) % queryPool.length]!);
     const profileQueryPool = ['site:linkedin.com/in "we\'re hiring" "frontend developer" Bangalore','site:linkedin.com/in "we are hiring" React Bangalore','site:linkedin.com/in "my team is hiring" React India','site:linkedin.com/in "share your resume" React Bengaluru'];
@@ -547,7 +556,7 @@ export class PublicHiringPostDiscoveryProvider {
     const metrics: PublicHiringPostDiscoveryMetrics = { queriesGenerated: queries.length + profileQueries.length, queriesExecuted: 0, sourcePagesFetched: 0, publicPostUrls: 0, configuredProviders: 0, eligibleProviders: 0, executedProviders: 0, skippedProviders: 0, providerFailures: 0, providerRateLimited: 0, providerBlocked: 0, providerTimeouts: 0, rawSearchResults: 0, normalizedResults: 0, deduplicatedResults: 0, hiringIntentPosts: 0, relevantRolePosts: 0, employersExtracted: 0, authorsExtracted: 0, validatedIdentities: 0, validatedContacts: 0, directEmails: 0, publiclyDiscoveredEmails: 0, rejectedPosts: 0, duplicatePosts: 0, sourceStats: {} };
     const candidates = new Map<string, ProactiveRecruiterDiscoveryCandidate>();
     const configuredProviderIds = new Set<string>();
-    const postEvidence = new Map<string, { url: string; text: string; discoveryText: string; source: string }>();
+    const postEvidence = new Map<string, { url: string; text: string; discoveryText: string; source: string; postedAt?: Date }>();
     for (const query of queries) {
       if (runtimeSignal?.aborted) break;
       metrics.queriesExecuted++;
@@ -559,12 +568,21 @@ export class PublicHiringPostDiscoveryProvider {
         metrics.rawSearchResults += (result.text.match(/https?:\/\/[^\s<>"'\\)\\]]+/gi) ?? []).length;
         const stat = metrics.sourceStats[result.source] ?? (metrics.sourceStats[result.source] = { attempted:0,succeeded:0,empty:0,errors:0,posts:0 }); stat.attempted++; stat.succeeded++;
         const urls = extractPublicEvidenceUrls(result.text).slice(0, MAX_DESTINATION_URLS_PER_SEARCH); metrics.normalizedResults += urls.length; stat.posts += urls.length;
-        for (const url of urls) {
+        const orderedUrls = urls
+          .map((url) => ({ url, discoveryEvidence: buildEvidence(result.text, url), postedAt: extractLinkedInPostPublishedAt(buildEvidence(result.text, url), now) }))
+          .filter((item) => !LINKEDIN_POST_URL.test(item.url) || isWithinLinkedInRecentWindow(item.postedAt, now))
+          .sort((a, b) => (b.postedAt?.getTime() ?? 0) - (a.postedAt?.getTime() ?? 0));
+        for (const item of orderedUrls) {
+          const { url, discoveryEvidence: initialDiscoveryEvidence } = item;
           if (postEvidence.has(url)) { metrics.duplicatePosts++; metrics.deduplicatedResults++; continue; }
           if (!isSafePublicDestinationUrl(url)) continue;
-          const discoveryEvidence = buildEvidence(result.text, url);
+          let discoveryEvidence = initialDiscoveryEvidence;
           const indexedPost = LINKEDIN_POST_URL.test(url) && hasHiringIntent(discoveryEvidence);
           const fetchedPostPage = await (input.fetchText ? input.fetchText(url, runtimeSignal) : fetchText(url, runtimeSignal, 6500));
+          const fetchedPostedAt = LINKEDIN_POST_URL.test(url) ? extractLinkedInPostPublishedAt(fetchedPostPage ?? "", now) : undefined;
+          const postedAt = fetchedPostedAt ?? item.postedAt;
+          if (LINKEDIN_POST_URL.test(url) && !isWithinLinkedInRecentWindow(postedAt, now)) continue;
+          if (LINKEDIN_POST_URL.test(url) && !postedAt) continue;
           const fetchedEvidence = fetchedPostPage ? clean(fetchedPostPage).slice(0, 12000) : "";
           const jobLikeDestination = /(?:\/(?:jobs?|careers?|vacanc(?:y|ies)|positions?|openings?|roles?|hiring)(?:\/|$))/i.test(new URL(url).pathname);
           const vendorPage = isTalentVendorPage(fetchedEvidence);
@@ -583,7 +601,7 @@ export class PublicHiringPostDiscoveryProvider {
           if (!extractedRole.role || extractedRole.score < 78 || !experienceCompatible(evidence, input.yearsExperience ?? 3)) { metrics.rejectedPosts++; continue; }
           metrics.relevantRolePosts++;
           if (process.env.PUBLIC_HIRING_POST_DIAGNOSTICS === "true" && postEvidence.size < 12) console.error(JSON.stringify({ event: "public-hiring-post-evidence", source: result.source, url, evidence: evidence.slice(0, 5000) }));
-          postEvidence.set(url, { url, text: evidence, discoveryText: discoveryEvidence, source: result.source });
+          postEvidence.set(url, { url, text: evidence, discoveryText: discoveryEvidence, source: result.source, ...(postedAt ? { postedAt } : {}) });
           if (postEvidence.size >= MAX_POST_EVIDENCE) break;
         }
       }
@@ -632,7 +650,7 @@ export class PublicHiringPostDiscoveryProvider {
         const employerContact = extractEmployer(post.text + " " + post.discoveryText, directEmail, profileText, post.url); const employerEmail = directEmail?.toLowerCase(); const extractedRole = extractRole(post.text); const contactFreshnessValue = freshness(post.text); const contactFreshness = contactFreshnessValue === "unknown" ? freshness(post.discoveryText) : contactFreshnessValue;
         if (employerContact.name && extractedRole.role && extractedRole.score >= 78 && contactFreshness !== "unknown") {
           metrics.employersExtracted++; metrics.validatedContacts++;
-          const candidate: ProactiveRecruiterDiscoveryCandidate = { contactType: "EMPLOYER", recruiterName: "Employer recruiting contact", recruiterRole: "Employer recruiting contact", employer: employerContact.name, ...(employerContact.domain ? { employerDomain: normalizeDomain(employerContact.domain) } : {}), targetRoles: extractedRole.terms, roleMatchScore: extractedRole.score, hiringEvidenceScore: 85, overallConfidence: Math.min(100, extractedRole.score + 15), discoverySource: "public-web", discoveryUrl: post.url, discoveryEvidence: [post.text.slice(0, 3500), post.discoveryText.slice(0, 1200)].filter(Boolean), evidenceType: "job_hiring_evidence", evidenceDate: new Date().toISOString(), evidenceFreshness: contactFreshness, ...(employerEmail && employerContact.domain && usableDirectEmail(employerEmail, employerContact.domain) && hasRecruitingEmailEvidence(post.text, employerEmail) ? { email: employerEmail } : {}), emailStatus: "UNVERIFIED" };
+          const candidate: ProactiveRecruiterDiscoveryCandidate = { ...(post.postedAt ? { postedAt: post.postedAt.toISOString() } : {}), contactType: "EMPLOYER", recruiterName: "Employer recruiting contact", recruiterRole: "Employer recruiting contact", employer: employerContact.name, ...(employerContact.domain ? { employerDomain: normalizeDomain(employerContact.domain) } : {}), targetRoles: extractedRole.terms, roleMatchScore: extractedRole.score, hiringEvidenceScore: 85, overallConfidence: Math.min(100, extractedRole.score + 15), discoverySource: "public-web", discoveryUrl: post.url, discoveryEvidence: [post.text.slice(0, 3500), post.discoveryText.slice(0, 1200)].filter(Boolean), evidenceType: "job_hiring_evidence", evidenceDate: new Date().toISOString(), evidenceFreshness: contactFreshness, ...(employerEmail && employerContact.domain && usableDirectEmail(employerEmail, employerContact.domain) && hasRecruitingEmailEvidence(post.text, employerEmail) ? { email: employerEmail } : {}), emailStatus: "UNVERIFIED" };
           const key = canonicalIdentityKey(undefined, employerContact.name, post.url, employerEmail); const existing = candidates.get(key); if (existing) candidates.set(key, { ...existing, discoveryEvidence: [...new Set([...existing.discoveryEvidence, ...candidate.discoveryEvidence])].slice(0, 5) }); else candidates.set(key, candidate); continue;
         }
         metrics.rejectedPosts++; continue;
@@ -643,7 +661,7 @@ export class PublicHiringPostDiscoveryProvider {
       const employer = extractEmployer(post.text + " " + post.discoveryText, directEmail, profileText); if (!employer.name) { metrics.rejectedPosts++; continue; } metrics.employersExtracted++;
       const identityEvidence = `${post.text} ${post.discoveryText} ${profileText}`; const explicitHiringContact = AUTHOR_ROLE.test(identityEvidence) || /(?:my team|our team|i['’]?m hiring|i am hiring|join (?:our|my) team|send (?:your|me your) resume|reach out to me|apply here|apply now)/i.test(post.text + " " + post.discoveryText); if (!explicitHiringContact) { metrics.rejectedPosts++; continue; }
       metrics.validatedIdentities++; const extractedRole = extractRole(post.text); const emailDomain = directEmail?.split("@")[1]?.toLowerCase(); const domain = employer.domain ?? emailDomain; const f = freshness(post.text); if (f === "unknown") { metrics.rejectedPosts++; continue; }
-      const candidate: ProactiveRecruiterDiscoveryCandidate = { recruiterName: validatedAuthorName, recruiterRole: identityEvidence.match(AUTHOR_ROLE)?.[0] ?? "Hiring Lead", employer: employer.name, ...(domain ? { employerDomain: normalizeDomain(domain) } : {}), targetRoles: extractedRole.terms, roleMatchScore: extractedRole.score, hiringEvidenceScore: 85, overallConfidence: Math.min(100, extractedRole.score + (domain ? 10 : 0) + 5), discoverySource: "public-web", discoveryUrl: post.url, discoveryEvidence: [post.text.slice(0, 3500), profileText.slice(0, 1800)].filter(Boolean), evidenceType: "job_hiring_evidence", evidenceDate: new Date().toISOString(), evidenceFreshness: f, ...(usableDirectEmail(directEmail, employer.domain) ? { email: directEmail } : {}), emailStatus: "UNVERIFIED" };
+      const candidate: ProactiveRecruiterDiscoveryCandidate = { ...(post.postedAt ? { postedAt: post.postedAt.toISOString() } : {}), recruiterName: validatedAuthorName, recruiterRole: identityEvidence.match(AUTHOR_ROLE)?.[0] ?? "Hiring Lead", employer: employer.name, ...(domain ? { employerDomain: normalizeDomain(domain) } : {}), targetRoles: extractedRole.terms, roleMatchScore: extractedRole.score, hiringEvidenceScore: 85, overallConfidence: Math.min(100, extractedRole.score + (domain ? 10 : 0) + 5), discoverySource: "public-web", discoveryUrl: post.url, discoveryEvidence: [post.text.slice(0, 3500), profileText.slice(0, 1800)].filter(Boolean), evidenceType: "job_hiring_evidence", evidenceDate: new Date().toISOString(), evidenceFreshness: f, ...(usableDirectEmail(directEmail, employer.domain) ? { email: directEmail } : {}), emailStatus: "UNVERIFIED" };
       const key = canonicalIdentityKey(author.name, employer.name, post.url); const existing = candidates.get(key); if (existing) candidates.set(key, { ...existing, discoveryEvidence: [...new Set([...existing.discoveryEvidence, ...candidate.discoveryEvidence])].slice(0,5) }); else candidates.set(key, candidate);
     }
     for (const candidate of candidates.values()) {
@@ -653,6 +671,18 @@ export class PublicHiringPostDiscoveryProvider {
       if (found) { candidate.email = found; candidate.emailStatus = "UNVERIFIED"; metrics.publiclyDiscoveredEmails++; }
     }
     const orderedCandidates = [...candidates.values()].sort((a, b) => {
+      const aPosted = a.postedAt ? Date.parse(a.postedAt) : NaN;
+      const bPosted = b.postedAt ? Date.parse(b.postedAt) : NaN;
+      const postedTieWindowMs = 60_000;
+      if (Number.isFinite(aPosted) && Number.isFinite(bPosted)) {
+        const postedDelta = bPosted - aPosted;
+        // Public search/index sources can expose the same LinkedIn post with
+        // slightly different timestamp precision. Treat timestamps within one
+        // minute as the same publication instant so geography can break ties;
+        // otherwise preserve strict newest-first ordering.
+        if (Math.abs(postedDelta) > postedTieWindowMs) return postedDelta;
+      } else if (Number.isFinite(aPosted)) return -1;
+      else if (Number.isFinite(bPosted)) return 1;
       const aEvidence = a.discoveryEvidence.join(" ");
       const bEvidence = b.discoveryEvidence.join(" ");
       const aAge = postAgeDays(aEvidence);
