@@ -11,12 +11,21 @@ function parseDate(value: string): Date | undefined {
   return Number.isFinite(parsed.getTime()) ? parsed : undefined;
 }
 
-function fromEpoch(value: string): Date | undefined {
+function fromEpoch(value: string, now: Date): Date | undefined {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return undefined;
+  const milliseconds = numeric < 100_000_000_000 ? numeric * 1000 : numeric;
+  const date = new Date(milliseconds);
+  return Number.isFinite(date.getTime()) ? date : undefined;
+}
+
+function relativeDate(input: string, now: Date): Date | undefined {
+  const match = input.match(/\b(\d+)\s*(min(?:ute)?s?|h(?:our)?s?|d(?:ay)?s?|w(?:eek)?s?|mo(?:nth)?s?)\s*(?:ago)?\b/i);
+  if (!match) return undefined;
+  const amount = Number(match[1]);
+  const unit = (match[2] ?? "").toLowerCase();
   const milliseconds =
-    /^(?:mo|mos|month|months)/.test(unit) ? amount * 30 * 86_400_000 :
-    /^m/.test(unit) ? amount * 60_000 :
+    /^min/.test(unit) ? amount * 60_000 :
     /^h/.test(unit) ? amount * 3_600_000 :
     /^d/.test(unit) ? amount * 86_400_000 :
     /^w/.test(unit) ? amount * 7 * 86_400_000 :
@@ -68,7 +77,7 @@ export function extractLinkedInPostPublishedAt(input: string, now = new Date()):
     /["'](?:createdAt|created_at)["']\s*[:=]\s*["']?(\d{10,13})["']?/i,
   ]) {
     const value = raw.match(pattern)?.[1];
-    const date = value?.match(/^\d{10,13}$/) ? fromEpoch(value) : value ? parseDate(value) : undefined;
+    const date = value?.match(/^\d{10,13}$/) ? fromEpoch(value, now) : value ? parseDate(value) : undefined;
     if (date) return date;
   }
 
