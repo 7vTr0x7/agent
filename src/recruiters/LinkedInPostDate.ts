@@ -14,21 +14,8 @@ function parseDate(value: string): Date | undefined {
 function fromEpoch(value: string): Date | undefined {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return undefined;
-  const milliseconds = numeric > 1_000_000_000_000 ? numeric : numeric * 1000;
-  const date = new Date(milliseconds);
-  return Number.isFinite(date.getTime()) ? date : undefined;
-}
-
-function relativeDate(value: string, now: Date): Date | undefined {
-  const match = value.match(/\b(\d+)\s*(minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|months?|mos?|mo)\s*(?:ago)?\b/i)
-    ?? value.match(/\b(just now|today|yesterday)\b/i);
-  if (!match) return undefined;
-  const token = (match[1] ?? match[0]).toLowerCase();
-  if (token === "just now" || token === "today") return new Date(now);
-  if (token === "yesterday") return new Date(now.getTime() - 86400000);
-  const amount = Number(match[1]);
-  const unit = (match[2] ?? "").toLowerCase();
   const milliseconds =
+    /^(?:mo|mos|month|months)/.test(unit) ? amount * 30 * 86_400_000 :
     /^m/.test(unit) ? amount * 60_000 :
     /^h/.test(unit) ? amount * 3_600_000 :
     /^d/.test(unit) ? amount * 86_400_000 :
