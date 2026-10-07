@@ -671,6 +671,11 @@ export class PublicHiringPostDiscoveryProvider {
       if (found) { candidate.email = found; candidate.emailStatus = "UNVERIFIED"; metrics.publiclyDiscoveredEmails++; }
     }
     const orderedCandidates = [...candidates.values()].sort((a, b) => {
+      const aPosted = a.postedAt ? Date.parse(a.postedAt) : NaN;
+      const bPosted = b.postedAt ? Date.parse(b.postedAt) : NaN;
+      if (Number.isFinite(aPosted) && Number.isFinite(bPosted) && aPosted !== bPosted) return bPosted - aPosted;
+      if (Number.isFinite(aPosted)) return -1;
+      if (Number.isFinite(bPosted)) return 1;
       const aEvidence = a.discoveryEvidence.join(" ");
       const bEvidence = b.discoveryEvidence.join(" ");
       const aAge = postAgeDays(aEvidence);
