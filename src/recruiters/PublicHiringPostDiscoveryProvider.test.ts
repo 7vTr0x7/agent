@@ -591,27 +591,30 @@ describe("PublicHiringPostDiscoveryProvider", () => {
     const todayIndia = "https://www.linkedin.com/posts/today-india_hiring-frontend-activity-9000000000000000001-test";
     const threeDayIndia = "https://www.linkedin.com/posts/three-day-india_hiring-react-activity-9000000000000000002-test";
     const threeDayRemote = "https://www.linkedin.com/posts/three-day-remote_hiring-react-activity-9000000000000000003-test";
+    const now = new Date();
+    const todayPostedAt = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+    const threeDayPostedAt = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString();
     const searchPage = [
       todayIndia,
-      "1h ago",
+      todayPostedAt,
       "We're hiring a Frontend Developer in Bengaluru, India.",
       "React TypeScript",
       "Send your resume to careers@todayindia.example",
       threeDayRemote,
-      "3d",
+      threeDayPostedAt,
       "We're hiring a Frontend Developer for a fully remote role.",
       "React TypeScript",
       "Send your resume to careers@remote.example",
       threeDayIndia,
-      "3d",
+      threeDayPostedAt,
       "We're hiring a React Developer in Pune, India.",
       "React TypeScript",
       "Send your resume to careers@threeindia.example"
     ].join("\n");
     const pages: Record<string, string> = {
-      [todayIndia]: "<title>Frontend Developer — Today India</title> 1h ago We're hiring a Frontend Developer in Bengaluru, India. React TypeScript Send your resume to careers@todayindia.example",
-      [threeDayIndia]: "<title>React Developer — Three Day India</title> 3d We're hiring a React Developer in Pune, India. React TypeScript Send your resume to careers@threeindia.example",
-      [threeDayRemote]: "<title>Frontend Developer — Three Day Remote</title> 3d We're hiring a Frontend Developer for a fully remote role. React TypeScript Send your resume to careers@remote.example"
+      [todayIndia]: `<title>Frontend Developer — Today India</title> ${todayPostedAt} We're hiring a Frontend Developer in Bengaluru, India. React TypeScript Send your resume to careers@todayindia.example`,
+      [threeDayIndia]: `<title>React Developer — Three Day India</title> ${threeDayPostedAt} We're hiring a React Developer in Pune, India. React TypeScript Send your resume to careers@threeindia.example`,
+      [threeDayRemote]: `<title>Frontend Developer — Three Day Remote</title> ${threeDayPostedAt} We're hiring a Frontend Developer for a fully remote role. React TypeScript Send your resume to careers@remote.example`
     };
     global.fetch = jest.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
