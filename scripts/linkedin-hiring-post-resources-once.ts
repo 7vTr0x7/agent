@@ -233,7 +233,7 @@ async function main(): Promise<void> {
           if (!fetched.text) postFetchFailures++;
           const fetchedContent = clean(fetched.text ?? "");
           const content = clean(fetchedContent + " " + searchEvidence);
-          const postedAt = extractLinkedInPostPublishedAt(fetched.text ?? "") ?? candidate.postedAt;
+          const postedAt = extractLinkedInPostPublishedAt(postUrl) ?? extractLinkedInPostPublishedAt(fetched.text ?? "") ?? candidate.postedAt;
           if (!isWithinLinkedInRecentWindow(postedAt)) continue;
           if (!relevant(content, skills)) continue;
           relevantPosts++;
