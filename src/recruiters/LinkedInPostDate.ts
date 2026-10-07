@@ -11,7 +11,7 @@ function parseDate(value: string): Date | undefined {
   return Number.isFinite(parsed.getTime()) ? parsed : undefined;
 }
 
-const LINKEDIN_ACTIVITY_ID = /(?:activity-|urn:li:activity:)(\\d{15,25})/i;
+const LINKEDIN_ACTIVITY_ID = /(?:activity-|urn:li:activity:)(\d{15,25})/i;
 
 /**
  * LinkedIn activity IDs embed the post creation timestamp in their high bits.
