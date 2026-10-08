@@ -11,6 +11,16 @@ describe("LinkedInPostDate", () => {
     expect(extractLinkedInPostPublishedAt(url)?.toISOString()).toBe("2026-08-21T06:22:52.531Z");
   });
 
+  it("decodes percent-encoded LinkedIn activity separators", () => {
+    const url = "https://www.linkedin.com/posts/innovative%2Dimpact%2Dconsultancy_hiring%2Dopentowork%2Daijobs%2Dactivity%2D7511435406014488576%2DYh9Q";
+    expect(extractLinkedInPostPublishedAtFromUrl(url)?.toISOString()).toBe("2026-10-06T20:58:55.141Z");
+  });
+
+  it("accepts share IDs in LinkedIn post URLs", () => {
+    const url = "https://www.linkedin.com/posts/harshal8411_nodejs-backend-developer-12-years-share-7508370223822012416-Q2DY";
+    expect(extractLinkedInPostPublishedAtFromUrl(url)?.toISOString()).toBe("2026-09-23T03:42:40.132Z");
+  });
+
   it("uses the URL timestamp before unreliable page-relative timestamps", () => {
     const url = "https://www.linkedin.com/posts/rishi-shrivastava-tech_hiring-sde1-frontend-activity-7495282431592296448-UuaU";
     const evidence = `${url} Rishi Shrivastava 3d`;
