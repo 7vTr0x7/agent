@@ -1,24 +1,25 @@
--- Backfill exact LinkedIn publication timestamps from activity IDs already stored in canonical URLs.
--- LinkedIn activity IDs encode the creation timestamp in their high bits.
-UPDATE public_contact_resources
-SET posted_at = to_timestamp(
-  (
+-- Backfill exact LinkedIn publication timestamps from activity/share IDs already stored in canonical URLs.
+-- Search providers sometimes percent-encode URL separators, so normalize %2D
+-- before extracting the identifier.
+WITH normalized AS (
+  SELECT
+    id,
+    regexp_replace(source_url, '%2D', '-', 'gi') AS url
+  FROM public_contact_resources
+  WHERE source_type = 'LINKEDIN_POST'
+    AND posted_at IS NULL
+),
+decoded AS (
+  SELECT
+    id,
     COALESCE(
-      substring(source_url from 'activity-([0-9]{15,25})'),
-      substring(source_url from 'urn:li:activity:([0-9]{15,25})')
-    )::numeric / 4194304.0
-  ) / 1000.0
+      substring(url from '(?:activity|share)-([0-9]{15,25})'),
+      substring(url from 'urn:li:(?:activity|share):([0-9]{15,25})')
+    ) AS activity_id
+  FROM normalized
 )
-WHERE source_type = 'LINKEDIN_POST'
-  AND (
-    source_url ~ 'activity-[0-9]{15,25}'
-    OR source_url ~ 'urn:li:activity:[0-9]{15,25}'
-  )
-  AND posted_at IS DISTINCT FROM to_timestamp(
-    (
-      COALESCE(
-        substring(source_url from 'activity-([0-9]{15,25})'),
-        substring(source_url from 'urn:li:activity:([0-9]{15,25})')
-      )::numeric / 4194304.0
-    ) / 1000.0
-  );
+UPDATE public_contact_resources p
+SET posted_at = to_timestamp((d.activity_id::numeric / 4194304.0) / 1000.0)
+FROM decoded d
+WHERE p.id = d.id
+  AND d.activity_id IS NOT NULL;
