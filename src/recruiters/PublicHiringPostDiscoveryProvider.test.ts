@@ -588,9 +588,9 @@ describe("PublicHiringPostDiscoveryProvider", () => {
   });
 
   it("prioritizes the newest posts, then India geography, while retaining LinkedIn posts", async () => {
-    const todayIndia = "https://www.linkedin.com/posts/today-india_hiring-frontend-activity-9000000000000000001-test";
-    const threeDayIndia = "https://www.linkedin.com/posts/three-day-india_hiring-react-activity-9000000000000000002-test";
-    const threeDayRemote = "https://www.linkedin.com/posts/three-day-remote_hiring-react-activity-9000000000000000003-test";
+    const todayIndia = "https://www.linkedin.com/posts/today-india_hiring-frontend-test";
+    const threeDayIndia = "https://www.linkedin.com/posts/three-day-india_hiring-react-test";
+    const threeDayRemote = "https://www.linkedin.com/posts/three-day-remote_hiring-react-test";
     const now = new Date();
     const todayPostedAt = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
     const threeDayPostedAt = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString();
