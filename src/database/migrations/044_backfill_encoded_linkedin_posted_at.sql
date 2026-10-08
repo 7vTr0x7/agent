@@ -1,6 +1,5 @@
--- Backfill exact LinkedIn publication timestamps from activity/share IDs already stored in canonical URLs.
--- Search providers sometimes percent-encode URL separators, so normalize %2D
--- before extracting the identifier.
+-- Backfill exact LinkedIn publication timestamps from activity/share IDs whose
+-- URL separators were percent-encoded by a search provider.
 WITH normalized AS (
   SELECT
     id,

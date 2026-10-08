@@ -11,15 +11,28 @@ function parseDate(value: string): Date | undefined {
   return Number.isFinite(parsed.getTime()) ? parsed : undefined;
 }
 
-const LINKEDIN_ACTIVITY_ID = /(?:activity-|urn:li:activity:)(\d{15,25})/i;
+const LINKEDIN_ACTIVITY_ID = /(?:activity-|share-|urn:li:(?:activity|share):)(\d{15,25})/i;
+
+function decodeUrlForActivityId(input: string): string {
+  try {
+    return decodeURIComponent(input);
+  } catch {
+    return input.replace(/%2D/gi, "-");
+  }
+}
 
 /**
- * LinkedIn activity IDs embed the post creation timestamp in their high bits.
+ * LinkedIn activity/share IDs embed the post creation timestamp in their high bits.
  * Decoding the ID gives us an exact UTC publication instant even when search
  * engines or the public LinkedIn page only expose a relative age such as 2d.
+ *
+ * Search results sometimes percent-encode URL separators (for example
+ * "activity%2D751...%2DAbCd") or contain a LinkedIn URL embedded in Markdown.
+ * Normalize those URLs before extracting the identifier.
  */
 export function extractLinkedInPostPublishedAtFromUrl(input: string): Date | undefined {
-  const match = input.match(LINKEDIN_ACTIVITY_ID);
+  const normalized = decodeUrlForActivityId(input);
+  const match = normalized.match(LINKEDIN_ACTIVITY_ID);
   if (!match?.[1]) return undefined;
   try {
     const activityId = BigInt(match[1]);
@@ -53,9 +66,6 @@ function relativeDate(input: string, now: Date): Date | undefined {
     /^w/.test(unit) ? amount * 7 * 86_400_000 :
     amount * 30 * 86_400_000;
   const date = new Date(now.getTime() - milliseconds);
-  // Relative LinkedIn timestamps are only precise to the displayed unit.
-  // Normalize the lower-order fields so two posts both reported as "3d"
-  // compare equally and geography can break the tie deterministically.
   if (/^min/.test(unit)) date.setSeconds(0, 0);
   else if (/^h/.test(unit)) date.setMinutes(0, 0, 0);
   else date.setHours(0, 0, 0, 0);
